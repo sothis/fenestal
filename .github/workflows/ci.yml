@@ -47,6 +47,11 @@ env:
         linux-libc-dev libvulkan-dev libegl-dev libgl-dev
         libwayland-dev libwayland-bin libxcb1-dev libfreetype-dev
         glslang-tools spirv-cross xkb-data
+    # The checkout is the runner's user's and the container runs as root, so
+    # git calls it dubious and answers nothing -- and build.sh, finding no
+    # checkout, skips the pack as silently as it would for a tarball. The
+    # checkout action trusts it for its own step alone.
+    TRUST: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
 jobs:
     linux:
@@ -75,14 +80,21 @@ jobs:
                   apt-get install -qy $PACKAGES $extra
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            # The zips are checked for by name: a pack build.sh skips is
+            # otherwise a green build that checked less.
             - name: Build
-              run: ./build.sh linux ${{ matrix.variant }}
+              run: |
+                  eval "$TRUST"
+                  ./build.sh linux ${{ matrix.variant }}
+                  test -s build/fenestal.zip
+                  test -s build/fenestal-commented.zip
             - name: Keep the source zips and the API reference
               if: matrix.variant == 'release'
               # v7.0.2
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
                   name: fenestal-${{ github.sha }}
+                  if-no-files-found: error
                   path: |
                       build/fenestal.zip
                       build/fenestal-commented.zip
@@ -122,7 +134,9 @@ jobs:
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
             - name: Build the Linux release tree, for its bake
-              run: ./build.sh linux release
+              run: |
+                  eval "$TRUST"
+                  ./build.sh linux release
             - name: Build
               run: |
                   for v in ${{ matrix.variants }}; do
