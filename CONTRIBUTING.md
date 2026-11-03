@@ -3,6 +3,8 @@
 Bug reports, questions, documentation fixes, portability patches, reports
 from platforms the project has not run on, and new demos are all welcome.
 
+Participants are expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ---
 
 ## Table of Contents
@@ -78,13 +80,16 @@ sanitizer, and a fault it finds is usually the report.
 
 Do not open a public issue for a memory-safety problem or a crash on input
 another program controls. Report it privately, through this repository's
-*Report a vulnerability* (GitHub's private vulnerability reporting), with the
-details and a reproducer, and allow time for a fix before disclosing.
+*Report a vulnerability* (GitHub's private vulnerability reporting) or by
+email to **fenestal@mail.de**, with the details and a reproducer, and allow
+time for a fix before disclosing.
 
 The library reads bytes it does not control: the keymap a compositor sends as
 text, the clipboard, X properties, xkeyboard-config's files on the console.
 Those parsers are fuzzed (`tools/fuzz/`), and a finding reachable from them is
-handled as a security report.
+handled as a security report. [`SECURITY.md`](SECURITY.md) has the full
+policy: what to include, which versions are supported, and what is in scope
+and what is a property of the design.
 
 ## Proposing a Change
 

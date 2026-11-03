@@ -1,5 +1,12 @@
 # Fenestal
 
+[![API version](https://img.shields.io/badge/API-0.9-blue)](include/fenestal/fenestal.h)
+[![License: MIT + third-party notices](https://img.shields.io/badge/license-MIT%20%2B%20notices-green)](LICENSE)
+[![C standard](https://img.shields.io/badge/C-C11-orange)](CMakeLists.txt)
+[![Repository](https://img.shields.io/badge/github-sothis%2Ffenestal-lightgrey)](https://github.com/sothis/fenestal)
+
+**Repository:** <https://github.com/sothis/fenestal>
+
 A portable C11 library: a window, a device, a swapchain, a render thread and a
 text overlay, wrapped around a scene that is the caller's. Its backends
 are Wayland, X11, Win32, Cocoa (macOS) and KMS -- a Linux console with no
@@ -33,7 +40,8 @@ against.
 `DESIGN.md` is the spec: how each part works, what was measured, and what was
 tried and left out. `CHANGELOG.md` is what each release changed, `TODO.md`
 what is still owed, and `CONTRIBUTING.md` how to report a bug or send a
-change.
+change; `SECURITY.md` is how to report a vulnerability, and
+`CODE_OF_CONDUCT.md` what is expected of participants.
 
 | In the tree | What it is |
 |---|---|

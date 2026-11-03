@@ -100,6 +100,31 @@ them into a binary.
 
 The other corpus files were written for the harnesses.
 
+## 1.5 The Contributor Covenant -- `CODE_OF_CONDUCT.md`
+
+| | |
+|---|---|
+| File | `CODE_OF_CONDUCT.md` |
+| Adapted from | Contributor Covenant, version 2.1, with this project's address for reports |
+| Source | <https://www.contributor-covenant.org/version/2/1/code_of_conduct.html> |
+
+> This Code of Conduct is adapted from the Contributor Covenant, version 2.1.
+> The Community Impact Guidelines in it were inspired by Mozilla's code of
+> conduct enforcement ladder.
+
+That attribution is the one the Covenant supplies with its text, and the file
+carries it in its own *Attribution* section. The text is not this project's,
+so `LICENSE` clause 2 does not extend to it.
+
+**The licence of the text is not clearly stated by its publisher.** The
+`EthicalSource/contributor_covenant` repository carries the Hippocratic
+License 3.0, which covers the website's source; the version 2.1 page states no
+licence for the code-of-conduct text itself, and neither does the text.
+Descriptions of it as CC BY 4.0 are widely repeated and could not be confirmed
+against anything the publisher says today, so this entry does not repeat
+them. What is certain is that the Covenant asks to be attributed when
+adapted, and it is. The question is recorded as open, not settled.
+
 ---
 
 # Part 2 -- Outside this repository
