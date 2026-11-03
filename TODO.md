@@ -186,10 +186,6 @@ files' `@autoreleasepool` returns).
     aspire's HD 530, and only aspire's GTX 960M needed `d3d12-composed`.
     Against DESIGN *Measured on Windows itself*: is that the windowed
     case it expects, or a window that should be on independent flip?
-- **CLAUDE.md's remote** (*Working agreement*) names the NAS's `origin`
-  as the one remote and rules out CI and pull requests. A GitHub
-  repository is being set up; how it sits beside the NAS, whether that
-  rule holds, and whether it is public are not yet decided.
 
 ## The dissolve, after its review
 

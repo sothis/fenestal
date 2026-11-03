@@ -42,9 +42,12 @@ and the questions left open for them. A question it lists is answered in
   includes `cmake --build`, `./build.sh`, launching the example, screenshots,
   and the sanitizer / `-fanalyzer` trees. Edit and reason; the user drives
   verification.
-- Commit directly to the checked-out branch when asked. The one remote is
-  `origin` (`CLAUDE.local.md` says where), pushed by hand; there is no CI
-  and no PR flow — do not propose one.
+- Commit directly to the checked-out branch when asked. Two remotes, both
+  pushed by hand and only when asked: `origin`, the NAS (`CLAUDE.local.md`
+  says where), first, then `github`, the public `sothis/fenestal`, with
+  `main` alone -- never `history`, `--all` or `--mirror`. There is no CI,
+  and this tree's own work takes no PR flow — do not propose one; pull
+  requests are how others send changes (`CONTRIBUTING.md`).
 
 ## Build
 
