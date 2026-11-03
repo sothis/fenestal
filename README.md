@@ -18,6 +18,12 @@ program opens chosen when it starts -- and every renderer its system has,
 chosen the same way: one build per operating system, as `libfenestal.a`
 and a shared object.
 
+![The testbed on X11, drawn with Vulkan](docs/testbed.png)
+
+*The testbed on X11, drawn with Vulkan. The titlebar is the library's;
+everything under it is the program's, its panels drawn through the
+library's overlay.*
+
 The library owns the frame -- pacing, late latching, resize, DPI changes,
 render scale, antialiasing, device-loss recovery -- and stops at one place:
 the `on_record` callback, where the caller records the scene. The overlay
