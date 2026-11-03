@@ -25,7 +25,7 @@
 
 #include <fenestal/fenestal.h>
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <stdbool.h>
 
@@ -42,13 +42,13 @@
 #define BTN_MARGIN    8
 #define TITLE_X      16
 
-static const FnlColor COL_BAR_ON   = DEMO_RGB(0.10f, 0.11f, 0.16f);
-static const FnlColor COL_BAR_OFF  = DEMO_RGB(0.08f, 0.08f, 0.10f);
-static const FnlColor COL_ACCENT   = DEMO_RGB(0.35f, 0.75f, 1.00f);
-static const FnlColor COL_TEXT_ON  = DEMO_RGB(0.92f, 0.94f, 1.00f);
-static const FnlColor COL_TEXT_OFF = DEMO_RGB(0.50f, 0.52f, 0.58f);
-static const FnlColor COL_HOVER    = DEMO_RGB(0.20f, 0.22f, 0.30f);
-static const FnlColor COL_CLOSE    = DEMO_RGB(0.80f, 0.25f, 0.25f);
+static const FnlColor COL_BAR_ON   = TESTBED_RGB(0.10f, 0.11f, 0.16f);
+static const FnlColor COL_BAR_OFF  = TESTBED_RGB(0.08f, 0.08f, 0.10f);
+static const FnlColor COL_ACCENT   = TESTBED_RGB(0.35f, 0.75f, 1.00f);
+static const FnlColor COL_TEXT_ON  = TESTBED_RGB(0.92f, 0.94f, 1.00f);
+static const FnlColor COL_TEXT_OFF = TESTBED_RGB(0.50f, 0.52f, 0.58f);
+static const FnlColor COL_HOVER    = TESTBED_RGB(0.20f, 0.22f, 0.30f);
+static const FnlColor COL_CLOSE    = TESTBED_RGB(0.80f, 0.25f, 0.25f);
 
 /* Which button, in the order they are laid out from the right. One enum, so
  * the draw and the hit test index the same list. */
@@ -57,10 +57,10 @@ enum { BTN_CLOSE, BTN_MAX, BTN_MIN, BTN_FULL, BTN_COUNT };
 static int   hovered = -1;    /* which button the pointer is over, or -1 */
 static bool  enabled = false; /* --custom-titlebar was passed */
 
-void demo_titlebar_custom_enable(void) { enabled = true; }
-bool demo_titlebar_custom_enabled(void) { return enabled; }
-int  demo_titlebar_custom_height(void) { return BAR_H; }
-int  demo_titlebar_custom_min_width(void) { return BAR_MIN_W; }
+void testbed_titlebar_custom_enable(void) { enabled = true; }
+bool testbed_titlebar_custom_enabled(void) { return enabled; }
+int  testbed_titlebar_custom_height(void) { return BAR_H; }
+int  testbed_titlebar_custom_min_width(void) { return BAR_MIN_W; }
 
 /* Where button `i` sits, in window points, right to left from the window's
  * right edge. A pure function of the window width, so the draw and the hit
@@ -116,7 +116,7 @@ static void draw_icon(FnlApp *app, int i, int bx, int by, FnlColor c)
 	}
 }
 
-void demo_titlebar_custom_draw(FnlApp *app, const FnlFrame *f)
+void testbed_titlebar_custom_draw(FnlApp *app, const FnlFrame *f)
 {
 	(void)f;
 	if (!enabled || fnl_is_fullscreen(app))
@@ -179,7 +179,7 @@ static int button_at(FnlApp *app, double px, double py)
 	return -1;
 }
 
-void demo_titlebar_custom_event(FnlApp *app, const FnlEvent *ev)
+void testbed_titlebar_custom_event(FnlApp *app, const FnlEvent *ev)
 {
 	if (!enabled)
 		return;

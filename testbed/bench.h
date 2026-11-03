@@ -36,8 +36,8 @@
  * on_overlay); `args` the `--bench*` arguments, in order. Returns the
  * process's exit status: 0 when every run was complete, 1 for a usage error
  * or a window that would not open, 2 when a run was invalid or aborted. */
-int demo_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
-					int argc, char **args);
+int testbed_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
+					   int argc, char **args);
 
 /* The clock every bench stamp is on: monotonic seconds. */
 double bench_now(void);
@@ -308,14 +308,14 @@ void bench_panel_overlay(void *ud, FnlApp *app, const FnlFrame *frame);
 /* ---- proc.c: this process and this machine, for the record --------------- */
 
 /* User and system CPU seconds; false where the system will not say. */
-bool   demo_proc_times(double *user_s, double *sys_s);
+bool   testbed_proc_times(double *user_s, double *sys_s);
 /* The most resident memory this process has had, in MiB; -1 unknown. */
-double demo_proc_peak_rss_mib(void);
+double testbed_proc_peak_rss_mib(void);
 /* Threads in this process; -1 unknown. */
-int    demo_proc_threads(void);
+int    testbed_proc_threads(void);
 /* The machine: host name, OS and its version, CPU model, logical CPUs,
  * memory in MiB; "" and -1 for what the system will not say. */
-void   demo_machine(char *host, size_t host_n, char *os, size_t os_n,
-					char *cpu, size_t cpu_n, int *cpus, double *mem_mib);
+void   testbed_machine(char *host, size_t host_n, char *os, size_t os_n,
+					   char *cpu, size_t cpu_n, int *cpus, double *mem_mib);
 
 #endif /* TESTBED_BENCH_H */

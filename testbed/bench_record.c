@@ -430,8 +430,8 @@ static void document(BenchJson *j, const BenchConfig *c,
 	char host[128], os[256], cpu[128];
 	int cpus;
 	double mem;
-	demo_machine(host, sizeof host, os, sizeof os, cpu, sizeof cpu, &cpus,
-				 &mem);
+	testbed_machine(host, sizeof host, os, sizeof os, cpu, sizeof cpu, &cpus,
+					&mem);
 	bench_json_obj(j, "machine");
 	bench_json_str(j, "host", host[0] ? host : NULL);
 	bench_json_str(j, "os", os[0] ? os : NULL);
@@ -639,8 +639,8 @@ bool bench_record_write(const BenchConfig *c, const BenchResult *r,
 	int cpus;
 	double mem;
 	utc_text(r->started_utc, stamp, sizeof stamp, true);
-	demo_machine(host, sizeof host, os, sizeof os, cpu, sizeof cpu, &cpus,
-				 &mem);
+	testbed_machine(host, sizeof host, os, sizeof os, cpu, sizeof cpu, &cpus,
+					&mem);
 	slug(host, host, sizeof host);
 	slug(r->gpu_short, gpu, sizeof gpu);
 	slug(bench_opt_text(c, OPT_LABEL), label, sizeof label);

@@ -24,7 +24,7 @@
 #  endif
 #endif
 
-#include "demo.h"
+#include "testbed.h"
 #include "bench.h"
 
 #include <stdio.h>
@@ -78,7 +78,7 @@ static bool times_now(double *cpu, double *wall)
 }
 
 /* The resident set, in MiB; -1 where the system will not say. */
-double demo_proc_rss_mib(void)
+double testbed_proc_rss_mib(void)
 {
 #if defined(_WIN32)
 	PROCESS_MEMORY_COUNTERS pmc;
@@ -110,7 +110,7 @@ double demo_proc_rss_mib(void)
  * noise, and the panel is redrawn far more often than that. */
 #define PROC_EVERY 0.5
 
-void demo_proc_sample(double *cpu_pct, double *rss)
+void testbed_proc_sample(double *cpu_pct, double *rss)
 {
 	static double last_cpu = -1.0, last_wall, pct = -1.0, mib = -1.0;
 	double cpu, wall;
@@ -121,12 +121,12 @@ void demo_proc_sample(double *cpu_pct, double *rss)
 	if (last_cpu < 0.0) {
 		last_cpu = cpu;
 		last_wall = wall;
-		mib = demo_proc_rss_mib();
+		mib = testbed_proc_rss_mib();
 	} else if (wall - last_wall >= PROC_EVERY) {
 		pct = 100.0 * (cpu - last_cpu) / (wall - last_wall);
 		last_cpu = cpu;
 		last_wall = wall;
-		mib = demo_proc_rss_mib();
+		mib = testbed_proc_rss_mib();
 	}
 	*cpu_pct = pct;
 	*rss = mib;
@@ -134,7 +134,7 @@ void demo_proc_sample(double *cpu_pct, double *rss)
 
 /* ---- for the benchmark's record ------------------------------------------ */
 
-bool demo_proc_times(double *user_s, double *sys_s)
+bool testbed_proc_times(double *user_s, double *sys_s)
 {
 #if defined(_WIN32)
 	FILETIME created, ended, kernel, user;
@@ -156,7 +156,7 @@ bool demo_proc_times(double *user_s, double *sys_s)
 #endif
 }
 
-double demo_proc_peak_rss_mib(void)
+double testbed_proc_peak_rss_mib(void)
 {
 #if defined(_WIN32)
 	PROCESS_MEMORY_COUNTERS pmc;
@@ -175,7 +175,7 @@ double demo_proc_peak_rss_mib(void)
 #endif
 }
 
-int demo_proc_threads(void)
+int testbed_proc_threads(void)
 {
 #if defined(_WIN32)
 	return -1;
@@ -235,8 +235,8 @@ static void file_field(const char *path, const char *key, char sep,
 }
 #endif
 
-void demo_machine(char *host, size_t host_n, char *os, size_t os_n,
-				  char *cpu, size_t cpu_n, int *cpus, double *mem_mib)
+void testbed_machine(char *host, size_t host_n, char *os, size_t os_n,
+					 char *cpu, size_t cpu_n, int *cpus, double *mem_mib)
 {
 	host[0] = os[0] = cpu[0] = '\0';
 	*cpus = -1;

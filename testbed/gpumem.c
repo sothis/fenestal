@@ -17,7 +17,7 @@
 #  define _POSIX_C_SOURCE 200809L
 #endif
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,7 +51,7 @@ typedef int (*nvml_procs_fn)(nvmlDevice_t, unsigned int *,
 							 nvmlProcessInfo_v2_t *);
 
 /* NVML while it is started: from the first figure asked of it to the
- * device's end (demo_gpu_mem_os_release()). Started, it holds NVIDIA's
+ * device's end (testbed_gpu_mem_os_release()). Started, it holds NVIDIA's
  * driver -- /dev/nvidiactl, nvidia0, nvidia-uvm -- and the library will
  * not move the GPU to nouveau (FNL_GPU_DRIVER) while anything does; shut
  * down it lets go of all of it (schenker, 580.196). Only the render
@@ -206,7 +206,7 @@ static bool fdinfo_mib(const char *driver, double *mib)
 }
 #endif
 
-void demo_gpu_mem_os_release(void)
+void testbed_gpu_mem_os_release(void)
 {
 #if defined(__linux__)
 	if (nvml_ready)
@@ -218,7 +218,7 @@ void demo_gpu_mem_os_release(void)
 #endif
 }
 
-bool demo_gpu_mem_os(const char *gpu, double *mib)
+bool testbed_gpu_mem_os(const char *gpu, double *mib)
 {
 #if defined(__linux__)
 	/* By the name the renderer gives the GPU: NVIDIA's own driver names it

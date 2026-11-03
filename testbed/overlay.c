@@ -19,18 +19,18 @@
 
 #include <fenestal/fenestal.h>
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <stdio.h>
 #include <string.h>
 
 /* The testbed's palette; the library ships none for a caller's own drawing. */
-static const FnlColor COL_PANEL  = DEMO_RGB(0.06f, 0.06f, 0.08f);
-static const FnlColor COL_TITLE  = DEMO_RGB(1.00f, 0.78f, 0.30f);
-static const FnlColor COL_KEY    = DEMO_RGB(0.80f, 0.85f, 0.95f);
-static const FnlColor COL_DESC   = DEMO_RGB(0.55f, 0.58f, 0.65f);
-static const FnlColor COL_DIM    = DEMO_RGB(0.45f, 0.48f, 0.55f);
-static const FnlColor COL_ACTIVE = DEMO_RGB(0.35f, 1.00f, 0.55f);
+static const FnlColor COL_PANEL  = TESTBED_RGB(0.06f, 0.06f, 0.08f);
+static const FnlColor COL_TITLE  = TESTBED_RGB(1.00f, 0.78f, 0.30f);
+static const FnlColor COL_KEY    = TESTBED_RGB(0.80f, 0.85f, 0.95f);
+static const FnlColor COL_DESC   = TESTBED_RGB(0.55f, 0.58f, 0.65f);
+static const FnlColor COL_DIM    = TESTBED_RGB(0.45f, 0.48f, 0.55f);
+static const FnlColor COL_ACTIVE = TESTBED_RGB(0.35f, 1.00f, 0.55f);
 
 /* Points from the window edge to the panels. */
 #define MARGIN 12
@@ -180,7 +180,7 @@ static bool help_panel_fits(FnlApp *app, bool status_shown)
  * for a harness that cannot read the panel. */
 static bool g_footprint_log;
 
-void demo_overlay_footprint_log(void)
+void testbed_overlay_footprint_log(void)
 {
 	g_footprint_log = true;
 }
@@ -188,7 +188,7 @@ void demo_overlay_footprint_log(void)
 /* The GPU memory this process holds on the GPU drawing: the scene's API's
  * figure (scene_<api>.c), or for OpenGL, which keeps none, the system's
  * (gpumem.c). */
-bool demo_vram_mib(FnlApp *app, double *mib)
+bool testbed_vram_mib(FnlApp *app, double *mib)
 {
 	switch (fnl_renderer(app)) {
 #ifdef SCENE_HAS_VULKAN
@@ -200,7 +200,7 @@ bool demo_vram_mib(FnlApp *app, double *mib)
 #ifdef SCENE_HAS_METAL
 	case FNL_RENDERER_METAL:  return scene_metal_vram(app, mib);
 #endif
-	case FNL_RENDERER_OPENGL: return demo_gpu_mem_os(fnl_gpu_name(app), mib);
+	case FNL_RENDERER_OPENGL: return testbed_gpu_mem_os(fnl_gpu_name(app), mib);
 	default:                  return false;
 	}
 }
@@ -259,7 +259,7 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 	 * desktop. */
 	const char *host = fnl_window_host(app);
 	char how[64];
-	demo_renderer_label(app, how, sizeof how);
+	testbed_renderer_label(app, how, sizeof how);
 	snprintf(plat, sizeof plat, "Platform  %s on %s%s%s%s", how,
 			 fnl_backend_name(app), host[0] ? " (" : "", host,
 			 host[0] ? ")" : "");
@@ -369,8 +369,8 @@ static void footprint_log(FnlApp *app, double now)
 		return;
 	at = now;
 	double cpu, ram, vram;
-	demo_proc_sample(&cpu, &ram);
-	if (!demo_vram_mib(app, &vram))
+	testbed_proc_sample(&cpu, &ram);
+	if (!testbed_vram_mib(app, &vram))
 		vram = -1.0;
 	const double ms = fnl_frame_gpu_ms(app);
 	const int fps = fnl_fps(app);
@@ -383,7 +383,7 @@ static void footprint_log(FnlApp *app, double now)
 /* From on_overlay, after the events. The overlay's ordering rule is this
  * file's to keep: every filled rectangle above is a background, drawn before
  * any stroke or text. */
-void demo_overlay_draw(FnlApp *app, const FnlFrame *f)
+void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 {
 	bool help = false, status = false;
 	if (g_ui.show_help) {
@@ -407,7 +407,7 @@ void demo_overlay_draw(FnlApp *app, const FnlFrame *f)
 
 /* From the event drain in main.c. The library has already acted on whatever
  * it binds; this adds the testbed's own. */
-void demo_overlay_event(FnlApp *app, const FnlEvent *ev)
+void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 {
 	switch (ev->type) {
 	case FNL_EVENT_KEY:
@@ -429,7 +429,7 @@ void demo_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * FNL_EVENT_CLIPBOARD. Both in answer to a key press, which is the
 		 * only time Wayland allows it. */
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F4)
-			fnl_clipboard_set(app, DEMO_CLIPBOARD_TEXT);
+			fnl_clipboard_set(app, TESTBED_CLIPBOARD_TEXT);
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F6)
 			fnl_clipboard_request(app);
 		/* The panel also lights a row while its key is held. The held set is

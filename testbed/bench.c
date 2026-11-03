@@ -24,7 +24,7 @@
 #endif
 
 #include "bench.h"
-#include "demo.h"
+#include "testbed.h"
 
 #include <limits.h>
 #include <math.h>
@@ -304,7 +304,7 @@ static void read_platform(FnlApp *app, const FnlFrame *f, bool driver)
 	r->fullscreen = fnl_is_fullscreen(app);
 	r->scene_motion = fnl_scene_motion(app);
 
-	DemoDriver d;
+	TestbedDriver d;
 	memset(&d, 0, sizeof d);
 	bool known = false;
 	switch (driver ? fnl_renderer(app) : FNL_RENDERER_DEFAULT) {
@@ -362,14 +362,14 @@ static void take_sample(FnlApp *app, double now)
 	const double input = inputs > 0 ? known(fnl_input_latency_ms(app))
 									: BENCH_NAN;
 	double user, sys, pct = BENCH_NAN;
-	if (demo_proc_times(&user, &sys)) {
+	if (testbed_proc_times(&user, &sys)) {
 		if (R.sample_cpu >= 0.0)
 			pct = 100.0 * (user + sys - R.sample_cpu) / dt;
 		R.sample_cpu = user + sys;
 	}
-	const double rss = known(demo_proc_rss_mib());
+	const double rss = known(testbed_proc_rss_mib());
 	double vram;
-	if (!demo_vram_mib(app, &vram))
+	if (!testbed_vram_mib(app, &vram))
 		vram = BENCH_NAN;
 
 	bench_series_add(&r->fps, lib_fps);
@@ -585,7 +585,7 @@ static void draw_hud(FnlApp *app, int ph)
 	fnl_overlay_rect(app, cx + 12, cy + 12, w, h,
 					 (FnlColor){ 0.06f, 0.06f, 0.08f, 0.85f });
 	fnl_overlay_text(app, cx + 12 + pad, cy + 12 + pad, FNL_TEXT_BODY,
-					 DEMO_RGB(0.80f, 0.85f, 0.95f), text);
+					 TESTBED_RGB(0.80f, 0.85f, 0.95f), text);
 }
 
 static void run_overlay(void *ud, FnlApp *app, const FnlFrame *f)
@@ -604,7 +604,7 @@ static void run_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 	 * 20 ms of one frame on NVIDIA, a 50 ms interval in the measure. */
 	if ((ph == PH_SETTLE || ph == PH_WARMUP) && !R.primed) {
 		double vram;
-		(void)demo_vram_mib(app, &vram);
+		(void)testbed_vram_mib(app, &vram);
 		R.primed = true;
 	}
 
@@ -622,7 +622,7 @@ static void run_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 			R.sample_frames = 0;
 			R.sample_inputs = 0;
 			double user, sys;
-			R.sample_cpu = demo_proc_times(&user, &sys) ? user + sys : -1.0;
+			R.sample_cpu = testbed_proc_times(&user, &sys) ? user + sys : -1.0;
 		} else {
 			bench_series_add(&r->interval_ms, (now - R.last_frame) * 1e3);
 			drain_frames(app);
@@ -705,7 +705,7 @@ static void drive(void)
 	if (ok) {
 		/* The process's CPU over the measure, from its two edges. */
 		double u0, s0, u1, s1;
-		const bool had = demo_proc_times(&u0, &s0);
+		const bool had = testbed_proc_times(&u0, &s0);
 		const double t0 = bench_now();
 		/* The two edges on stderr, for a harness whose hands work the
 		 * window while it measures (tools/drive/bench.py --hands), each
@@ -719,7 +719,7 @@ static void drive(void)
 		fflush(stderr);
 		const double dt = bench_now() - t0;
 		R.r->measure_s = dt;
-		if (had && demo_proc_times(&u1, &s1) && dt > 0.0) {
+		if (had && testbed_proc_times(&u1, &s1) && dt > 0.0) {
 			R.r->user_s = u1 - u0;
 			R.r->sys_s = s1 - s0;
 			R.r->cpu_pct_mean = 100.0 * (u1 - u0 + s1 - s0) / dt;
@@ -805,7 +805,7 @@ static void new_id(char out[17])
 static void name_bench_window(FnlApp *app, const char *what)
 {
 	char title[192], how[64];
-	demo_renderer_label(app, how, sizeof how);
+	testbed_renderer_label(app, how, sizeof how);
 	snprintf(title, sizeof title, "Fenestal testbed: %s (%s, %s, %s)", what,
 			 fnl_backend_name(app), how, fnl_gpu_short_name(app));
 	fnl_set_title(app, title);
@@ -924,8 +924,8 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 		 * device the loop's end has handed back. */
 		read_platform(app, &f, false);
 	}
-	r->peak_rss_mib = demo_proc_peak_rss_mib();
-	r->threads = demo_proc_threads();
+	r->peak_rss_mib = testbed_proc_peak_rss_mib();
+	r->threads = testbed_proc_threads();
 	fnl_shutdown(app);
 	log_lock();
 	R.logging = false;
@@ -1069,8 +1069,8 @@ static bool replay_member(void *ud, const char *key, const char *value)
 	return true;
 }
 
-int demo_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
-					int argc, char **args)
+int testbed_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
+					   int argc, char **args)
 {
 	static const char REPLAY[] = "--bench-replay=";
 	BenchConfig *c = malloc(sizeof *c);

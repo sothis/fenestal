@@ -20,7 +20,7 @@
  * which maps depth into GL's range itself.
  */
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <fenestal/fnl_gl.h>
 
@@ -246,7 +246,7 @@ int scene_gl_version(FnlApp *app)
 /* GL_VENDOR and GL_RENDERER as the driver's name, GL_VERSION as the API's
  * and its own: Mesa's is "4.6 (Core Profile) Mesa 26.2.5", NVIDIA's
  * "4.6.0 NVIDIA 580.95.05". GL names no PCI ids. */
-bool scene_gl_driver(FnlApp *app, DemoDriver *d)
+bool scene_gl_driver(FnlApp *app, TestbedDriver *d)
 {
 	(void)app;
 	Scene *s = &g_scene;

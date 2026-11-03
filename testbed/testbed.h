@@ -11,8 +11,8 @@
  * it is written entirely in one.
  */
 
-#ifndef TESTBED_DEMO_H
-#define TESTBED_DEMO_H
+#ifndef TESTBED_H
+#define TESTBED_H
 
 #include <fenestal/fenestal.h>
 
@@ -21,11 +21,11 @@
 /* Authored in sRGB, which is what FnlColor takes -- the numbers a colour
  * picker gives. The library converts to whatever space the surface blends
  * in. */
-#define DEMO_RGB(r, g, b) ((FnlColor){ (r), (g), (b), 1.0f })
+#define TESTBED_RGB(r, g, b) ((FnlColor){ (r), (g), (b), 1.0f })
 
 /* What F4 puts on the clipboard. One word, so that a harness reading it back
  * out of an echoed line can find where it ends. */
-#define DEMO_CLIPBOARD_TEXT "fenestal-testbed-copied-this"
+#define TESTBED_CLIPBOARD_TEXT "fenestal-testbed-copied-this"
 
 /* ---- scene_<api>.c: the test pattern, once per graphics API -------------
  *
@@ -65,9 +65,9 @@ typedef struct {
 	char     info[256];
 	char     api[160];
 	unsigned vendor_id, device_id;
-} DemoDriver;
-bool scene_vulkan_driver(FnlApp *app, DemoDriver *d);
-bool scene_gl_driver(FnlApp *app, DemoDriver *d);
+} TestbedDriver;
+bool scene_vulkan_driver(FnlApp *app, TestbedDriver *d);
+bool scene_gl_driver(FnlApp *app, TestbedDriver *d);
 /* fnl_gl_version() where OpenGL draws, 0 elsewhere: the one call into
  * fnl_gl.h the renderer-neutral files make, through scene_gl.c, which a
  * build without OpenGL does not have. */
@@ -77,11 +77,11 @@ int  scene_gl_version(FnlApp *app);
  * API it goes through where it presents through another ("Vulkan via
  * D3D11"), and OpenGL's version where OpenGL draws ("OpenGL 4.1"), which
  * is 4.1 on a device with no 4.5. main.c. */
-void demo_renderer_label(FnlApp *app, char *out, size_t size);
+void testbed_renderer_label(FnlApp *app, char *out, size_t size);
 bool scene_d3d12_vram(FnlApp *app, double *mib);
 bool scene_metal_vram(FnlApp *app, double *mib);
-bool scene_d3d12_driver(FnlApp *app, DemoDriver *d);
-bool scene_metal_driver(FnlApp *app, DemoDriver *d);
+bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d);
+bool scene_metal_driver(FnlApp *app, TestbedDriver *d);
 
 /* ---- gpumem.c: the GPU memory OpenGL cannot say ---------------------------
  *
@@ -89,43 +89,43 @@ bool scene_metal_driver(FnlApp *app, DemoDriver *d);
  * system: NVML for NVIDIA's own driver, the kernel's DRM fdinfo for Mesa's
  * where the driver keeps one (Intel, AMD). False where there is none --
  * nouveau's, and every system but Linux. */
-bool demo_gpu_mem_os(const char *gpu, double *mib);
+bool testbed_gpu_mem_os(const char *gpu, double *mib);
 /* What it opened to answer, let go of: from on_gpu_lost, since NVML holds
  * NVIDIA's driver while it runs and the GPU may be moving to another
  * kernel driver. The next figure asked for opens it again. */
-void demo_gpu_mem_os_release(void);
+void testbed_gpu_mem_os_release(void);
 
 /* ---- proc.c: this process's CPU and resident memory ------------------------
  *
  * The CPU as the share of one core used since the last sample, at most
  * twice a second, and the resident set in MiB; -1 for what the system
  * will not say, and the CPU's -1 at the first call. */
-void demo_proc_sample(double *cpu_pct, double *rss_mib);
+void testbed_proc_sample(double *cpu_pct, double *rss_mib);
 /* The resident set now, in MiB, unthrottled; -1 where it is not known. */
-double demo_proc_rss_mib(void);
+double testbed_proc_rss_mib(void);
 
 /* ---- overlay.c: the keybindings panel, the status readout, the crosshair --
  *
  * Both are called from on_overlay, events first. */
-void demo_overlay_event(FnlApp *app, const FnlEvent *ev);
-void demo_overlay_draw(FnlApp *app, const FnlFrame *frame);
+void testbed_overlay_event(FnlApp *app, const FnlEvent *ev);
+void testbed_overlay_draw(FnlApp *app, const FnlFrame *frame);
 /* --footprint-log: this process's CPU, RAM and VRAM said on stderr twice a
  * second, the figures the library's metrics panel shows. Before
  * fnl_init(). */
-void demo_overlay_footprint_log(void);
+void testbed_overlay_footprint_log(void);
 /* The GPU memory this process holds on the GPU drawing, in MiB: the
  * scene's API's figure, or the system's for OpenGL. From on_overlay. */
-bool demo_vram_mib(FnlApp *app, double *mib);
+bool testbed_vram_mib(FnlApp *app, double *mib);
 
 /* ---- titlebar_custom.c: the bar drawn with --custom-titlebar --------------
  *
  * Exclusive with the library's own: with this one on,
  * fnl_titlebar_reserve() refuses and the library's controls draw nothing. */
-void demo_titlebar_custom_enable(void);
-bool demo_titlebar_custom_enabled(void);
-int  demo_titlebar_custom_height(void);
-int  demo_titlebar_custom_min_width(void);
-void demo_titlebar_custom_event(FnlApp *app, const FnlEvent *ev);
-void demo_titlebar_custom_draw(FnlApp *app, const FnlFrame *frame);
+void testbed_titlebar_custom_enable(void);
+bool testbed_titlebar_custom_enabled(void);
+int  testbed_titlebar_custom_height(void);
+int  testbed_titlebar_custom_min_width(void);
+void testbed_titlebar_custom_event(FnlApp *app, const FnlEvent *ev);
+void testbed_titlebar_custom_draw(FnlApp *app, const FnlFrame *frame);
 
-#endif /* TESTBED_DEMO_H */
+#endif /* TESTBED_H */

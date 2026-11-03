@@ -21,7 +21,7 @@
  * and one called without being asked is a compile error, not a link. */
 #define VK_NO_PROTOTYPES
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <fenestal/fnl_vulkan.h>
 
@@ -410,7 +410,7 @@ bool scene_vulkan_vram(FnlApp *app, double *mib)
  * and the core properties' API version and PCI ids everywhere. Chained
  * only where the device lists the extension: a struct of one it does not
  * have is invalid in the chain. */
-bool scene_vulkan_driver(FnlApp *app, DemoDriver *d)
+bool scene_vulkan_driver(FnlApp *app, TestbedDriver *d)
 {
 	memset(d, 0, sizeof *d);
 	FnlVulkanGpu g;

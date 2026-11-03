@@ -1649,7 +1649,7 @@ src/renderer/metal/    Metal, in Objective-C: device.m (the device and the
 
 testbed/
   main.c         the program, as a client of the library
-  demo.h         what the testbed's files share; it names no graphics API
+  testbed.h      what the testbed's files share; it names no graphics API
   scene_<api>.*  the test pattern, as each renderer's client records it
   bench*.c       the benchmark mode (--bench, *Benchmarking*)
   overlay.c      the keybindings panel, the status lines and the crosshair

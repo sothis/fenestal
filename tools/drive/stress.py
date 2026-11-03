@@ -119,8 +119,8 @@ UNBOUND = os.environ.get("FNL_NO_INPUT_METHOD", "") not in ("", "0")
 # drag that carries it 180 by 119, the 160 by 120 it then grows by, and the
 # corner it is put in.
 ROOM = (300, 220)
-# What the testbed's F4 puts on the clipboard: DEMO_CLIPBOARD_TEXT in
-# testbed/demo.h.
+# What the testbed's F4 puts on the clipboard: TESTBED_CLIPBOARD_TEXT in
+# testbed/testbed.h.
 COPIED = "fenestal-testbed-copied-this"
 BAR_H = 34
 FLOOR_W = B.FLOOR_W

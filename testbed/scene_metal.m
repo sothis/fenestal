@@ -19,7 +19,7 @@
  * of the example that needs one.
  */
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <fenestal/fnl_metal.h>
 
@@ -195,7 +195,7 @@ bool scene_metal_vram(FnlApp *app, double *mib)
  * version of its own -- so the info is macOS's version and build. The API
  * is the newest GPU family the device says it is in. No PCI ids: Metal
  * gives none. */
-bool scene_metal_driver(FnlApp *app, DemoDriver *d)
+bool scene_metal_driver(FnlApp *app, TestbedDriver *d)
 {
 	memset(d, 0, sizeof *d);
 	FnlMetalGpu g;

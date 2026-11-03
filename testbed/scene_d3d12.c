@@ -19,7 +19,7 @@
 
 #define COBJMACROS
 
-#include "demo.h"
+#include "testbed.h"
 
 #include <fenestal/fnl_d3d12.h>
 
@@ -270,7 +270,7 @@ bool scene_d3d12_vram(FnlApp *app, double *mib)
  * CheckInterfaceSupport answers for IDXGIDevice alone (the one interface
  * it was defined for, Direct3D 10's); the API is the highest feature level
  * the device reaches. */
-bool scene_d3d12_driver(FnlApp *app, DemoDriver *d)
+bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d)
 {
 	memset(d, 0, sizeof *d);
 	FnlD3D12Gpu g;

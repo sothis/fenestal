@@ -35,12 +35,12 @@ that no longer holds says what does.
 - The testbed has no timing code; every figure is a getter: `fnl_fps()`
   (0.2 s window), `fnl_frame_gpu_ms()`/`fnl_frame_cpu_ms()` (EMAs 0.9/0.1,
   published each 0.2 s), `fnl_input_latency_ms()`; `fnl_set_cost_sampling()`
-  keeps them live at rest. Events are drained only in `demo_overlay`
+  keeps them live at rest. Events are drained only in `testbed_overlay`
   (testbed/main.c:606). `--no-vsync` sets `FNL_VSYNC=0` before
   `fnl_init` (main.c:360). Scene: two fixed draws, no load knob; motion is
   the library's F2 alone (`App::scene_motion`, src/core/app.c:2014).
   **Now:** the testbed has the benchmark mode (`testbed/bench*.c`); events
-  are drained at the top of `on_record` too (`demo_drain()`,
+  are drained at the top of `on_record` too (`testbed_drain()`,
   testbed/main.c:572, called at main.c:591); F2's flag is public as
   `fnl_set_scene_motion()` and `fnl_scene_motion()`.
 - The phase split exists only as `--frame-times` text every 0.5 s
@@ -196,7 +196,7 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
    Rule: unknown or not applicable is `null`, never 0.
 7. **The run.** Driver thread owns settle -> warmup -> measure -> cooldown
    -> done (atomics the callbacks read); `bench_on_record()` wraps the scene
-   (duration, `demo_scene_set_load`); `bench_on_overlay()` is the one drain,
+   (duration, `testbed_scene_set_load`); `bench_on_overlay()` is the one drain,
    stamps the interval, applies RUN options on its first call, samples VRAM
    (GL must be inside a callback, fnl_gl.h:22-24), `fnl_invalidate()` under
    `every-frame` (pace.c's `--draw`; DESIGN *At rest*: the window never
@@ -296,8 +296,8 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
     `bench_load.c`, `bench_proc_{linux,win32,macos}.c` (one per OS),
     `bench_gpu_{vulkan,gl,d3d12}.c` + `bench_gpu_metal.m` (under the
     `SCENE_HAS_` loop). Changes: main.c (`--bench*` ahead of the unknown
-    option, callbacks template built before init, `demo_bench_main()`),
-    demo.h (four prototypes + `demo_scene_set_load`), each `scene_*` draws
+    option, callbacks template built before init, `testbed_bench_main()`),
+    testbed.h (four prototypes + `testbed_scene_set_load`), each `scene_*` draws
     the star `load` times, CMakeLists.txt testbed block (per-OS and per-
     renderer source lists). **No new link entries**, with the exact calls:
     Linux libc/pthread; Windows kernel32 incl. `K32GetProcessMemoryInfo`

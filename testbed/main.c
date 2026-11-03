@@ -22,7 +22,7 @@
 /* The scenes' callbacks and the testbed's own drawing. The header names no
  * graphics API's types, so this file learns which renderer draws only from
  * fnl_renderer(), at run time. */
-#include "demo.h"
+#include "testbed.h"
 #include "bench.h"
 
 #include <errno.h>
@@ -120,7 +120,7 @@ static void scene_on_gpu_lost(void *ud, FnlApp *app)
 {
 	if (scene)
 		scene->on_gpu_lost(ud, app);
-	demo_gpu_mem_os_release();
+	testbed_gpu_mem_os_release();
 }
 
 static void scene_on_record(void *ud, FnlApp *app, const FnlFrame *f)
@@ -337,7 +337,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			continue;
 		}
 		if (!strcmp(arg, "--custom-titlebar")) {
-			demo_titlebar_custom_enable();
+			testbed_titlebar_custom_enable();
 			continue;
 		}
 		if (!strcmp(arg, "--echo-events")) {
@@ -345,7 +345,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			continue;
 		}
 		if (!strcmp(arg, "--footprint-log")) {
-			demo_overlay_footprint_log();
+			testbed_overlay_footprint_log();
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {
@@ -547,14 +547,14 @@ static void name_window(FnlApp *app)
 	/* The renderer and, where its frames go through another API's
 	 * swapchain, which: "Vulkan via D3D11"; OpenGL's version. */
 	char how[64];
-	demo_renderer_label(app, how, sizeof how);
+	testbed_renderer_label(app, how, sizeof how);
 	char title[192];
 	snprintf(title, sizeof title, "%s (%s, %s, %s)", TITLE, where, how,
 			 fnl_gpu_short_name(app));
 	fnl_set_title(app, title);
 }
 
-void demo_renderer_label(FnlApp *app, char *out, size_t size)
+void testbed_renderer_label(FnlApp *app, char *out, size_t size)
 {
 	const char *via = fnl_renderer_via(app);
 	int gl = 0;
@@ -569,14 +569,14 @@ void demo_renderer_label(FnlApp *app, char *out, size_t size)
 }
 
 /* Everything this program does with an event, whichever callback took it. */
-static void demo_drain(FnlApp *app)
+static void testbed_drain(FnlApp *app)
 {
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
 		if (ev.type == FNL_EVENT_GPU)
 			name_window(app);
-		demo_overlay_event(app, &ev);
-		demo_titlebar_custom_event(app, &ev);
+		testbed_overlay_event(app, &ev);
+		testbed_titlebar_custom_event(app, &ev);
 	}
 }
 
@@ -586,9 +586,9 @@ static void demo_drain(FnlApp *app)
  * callbacks, and a key lost between the two is a key the round misses. Not
  * in the benchmark mode's record, which counts its inputs from its own
  * drain. */
-static void demo_record(void *ud, FnlApp *app, const FnlFrame *f)
+static void testbed_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
-	demo_drain(app);
+	testbed_drain(app);
 	scene_on_record(ud, app, f);
 }
 
@@ -602,13 +602,13 @@ static void demo_record(void *ud, FnlApp *app, const FnlFrame *f)
  * the events change is what the lines below then draw, so a click is
  * answered by the same frame rather than the one after it. Input and drawing
  * are one turn on one thread, so the state they share needs no lock. */
-static void demo_overlay(void *ud, FnlApp *app, const FnlFrame *f)
+static void testbed_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	(void)ud;
-	demo_drain(app);
+	testbed_drain(app);
 
-	demo_overlay_draw(app, f);
-	demo_titlebar_custom_draw(app, f);
+	testbed_overlay_draw(app, f);
+	testbed_titlebar_custom_draw(app, f);
 }
 
 #ifdef _WIN32
@@ -690,7 +690,7 @@ int main(int argc, char **argv)
 			.on_gpu_lost    = scene_on_gpu_lost,
 			.on_record      = scene_on_record,
 		};
-		status = demo_bench_main(&desc, &scene_cb, bench_count, bench_args);
+		status = testbed_bench_main(&desc, &scene_cb, bench_count, bench_args);
 		free(bench_args);
 		return status;
 	}
@@ -717,9 +717,9 @@ int main(int argc, char **argv)
 	 * the window is never seen wearing the library's bar. It keeps the
 	 * presentable area asked for above: the library resizes the window by
 	 * the difference between the two bars. */
-	if (demo_titlebar_custom_enabled())
-		fnl_titlebar_custom(app, demo_titlebar_custom_height(),
-							demo_titlebar_custom_min_width());
+	if (testbed_titlebar_custom_enabled())
+		fnl_titlebar_custom(app, testbed_titlebar_custom_height(),
+							testbed_titlebar_custom_min_width());
 
 	if (text_input)
 		fnl_set_text_input(app, true);
@@ -731,8 +731,8 @@ int main(int argc, char **argv)
 		.size           = sizeof cb,
 		.on_gpu_created = scene_on_gpu_created,
 		.on_gpu_lost    = scene_on_gpu_lost,
-		.on_record      = demo_record,
-		.on_overlay     = demo_overlay,
+		.on_record      = testbed_record,
+		.on_overlay     = testbed_overlay,
 	};
 
 	rc = fnl_run(app, &cb);
