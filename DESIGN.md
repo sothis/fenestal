@@ -63,8 +63,8 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 | pthreads | the render thread |
 
 ```sh
-./build.sh                        # every tree -- eleven, and the ARM
-                                  # target's four where its cross
+./build.sh                        # every tree -- thirteen, and the ARM
+                                  # Linux target's four where its cross
                                   # compiler is
 ./build.sh linux                  # that target, release
 ./build.sh linux asan             # that target, that checker
@@ -78,8 +78,9 @@ Every tree lands under `build/<target>/<variant>`. Targets are `linux`,
 with Wayland, X11 and KMS and Vulkan and OpenGL in it, `win64`, with
 Direct3D 12 and Vulkan, and `macos`, with Metal, Vulkan on MoltenVK
 and OpenGL 4.1; variants are `release`, `clang`, `asan`, `tsan`, `analyzer` and
-`gc`. Eleven trees: six variants of the native target, three of the
-Windows one and two of the macOS one — mingw-w64 ships no sanitizer
+`gc`. Thirteen trees: six variants of the native target, three of the
+Windows one and two of each macOS one, `macos` and `macos-arm64` —
+mingw-w64 ships no sanitizer
 runtime, so `win64` refuses `asan` and `tsan` and takes the two
 link-time checkers, and it refuses `clang`, which against mingw-w64 would want
 a sysroot of its own. The `clang` tree is the release build compiled by
@@ -251,6 +252,7 @@ ordinary thing to want.
 ./build.sh linux                  # the host tree first, release first
 python3 tools/macos_sdk.py --fetch   # once: Apple's SDK, from a Mac
 ./build.sh macos                  # Cocoa drawn with Metal, Vulkan, GL
+./build.sh macos-arm64            # the same for Apple's own processors
 ```
 
 The macOS tree is built here, as the Windows one is, and the Mac only
@@ -269,7 +271,15 @@ reason.
 
 The target is macOS 13 on x86-64: the oldest Apple still ships an SDK that
 reaches, and the last whose own drivers drive schenker's HD 630, the one Mac
-GPU here. The two directories that speak to AppKit and Metal,
+GPU here. `macos-arm64` is the same tree for Apple's own processors
+(`cmake/macos-arm64.cmake`, which sets `FNL_MACOS_ARCH` and includes the
+x86-64 file): a Mac sold since 2020 has one, and runs an x86-64 program
+only through Rosetta 2, which Apple is retiring. It is built and never run
+here, with no such Mac at hand. One tree is one architecture, because the
+archive is made from one module of bitcode; CI joins the two with `lipo`
+into universal binaries, each program an app bundle that carries MoltenVK
+in its `Contents/Frameworks`, where the library also looks for it
+(`.github/stage.sh`). The two directories that speak to AppKit and Metal,
 `src/backend/cocoa/` and `src/renderer/metal/`, are **Objective-C** under ARC:
 neither has a C interface, and the alternative -- every call cast through
 `objc_msgSend` from C -- gives up the compiler's check on every one of them.

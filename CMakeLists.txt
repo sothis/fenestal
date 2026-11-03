@@ -385,7 +385,8 @@ elseif(CMAKE_CROSSCOMPILING)
         # Mach-O's names carry a leading underscore. MoltenVK is linked
         # directly, with no loader between (tools/moltenvk.py says why), and
         # found beside the program (@rpath, set to the program's own
-        # directory), where build.sh puts it.
+        # directory), where build.sh puts it, or in an app bundle's
+        # Frameworks, where an application's dylibs go.
         set(_syms "")
         foreach(_sym ${_vk_syms})
             if(_syms)
@@ -396,12 +397,12 @@ elseif(CMAKE_CROSSCOMPILING)
         set(_tbd ${CMAKE_CURRENT_BINARY_DIR}/libMoltenVK.tbd)
         file(WRITE ${_tbd}.in "--- !tapi-tbd
 tbd-version:     4
-targets:         [ x86_64-macos ]
+targets:         [ x86_64-macos, arm64-macos ]
 install-name:    '@rpath/libMoltenVK.dylib'
 current-version: 1
 compatibility-version: 1
 exports:
-  - targets:     [ x86_64-macos ]
+  - targets:     [ x86_64-macos, arm64-macos ]
     symbols:     [ ${_syms} ]
 ...
 ")
@@ -412,7 +413,8 @@ exports:
         set_target_properties(Vulkan::Vulkan PROPERTIES
             IMPORTED_LOCATION ${_tbd}
             INTERFACE_INCLUDE_DIRECTORIES ${_vkstage}
-            INTERFACE_LINK_OPTIONS "-Wl,-rpath,@executable_path")
+            INTERFACE_LINK_OPTIONS "-Wl,-rpath,@executable_path"
+                "-Wl,-rpath,@executable_path/../Frameworks")
     endif()
 else()
     fnl_find_global(Vulkan Vulkan::Vulkan)

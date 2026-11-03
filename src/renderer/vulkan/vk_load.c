@@ -10,8 +10,10 @@
  * else is asked of it, as the specification has an application do. That is
  * also what lets the Mac go without a loader: MoltenVK exports
  * vkGetInstanceProcAddr itself, and is found beside the program, where
- * build.sh puts it. A loader beside it comes first: a tree has none, and
- * one is put there for a checker round, to bring the validation layer
+ * build.sh puts it, or in the Frameworks folder of the app bundle the
+ * program is in, where a Mac application keeps its libraries. A loader
+ * beside it comes first in either place: a tree has none, and one is put
+ * there for a checker round, to bring the validation layer
  * (tools/vulkan_macos.py), MoltenVK then its driver by its manifest.
  *
  * The name with its soname's version first, as the runtime package
@@ -36,6 +38,8 @@ static const char *const LOADER_NAMES[] = {
 #elif defined(__APPLE__)
 	"@executable_path/libvulkan.1.dylib",
 	"@executable_path/libMoltenVK.dylib",
+	"@executable_path/../Frameworks/libvulkan.1.dylib",
+	"@executable_path/../Frameworks/libMoltenVK.dylib",
 	"libvulkan.1.dylib",
 	"libMoltenVK.dylib",
 #else

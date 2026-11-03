@@ -4,14 +4,17 @@
 #
 # The build, as one command.
 #
-#   ./build.sh                        every tree -- eleven, and the ARM
-#                                     target's four where its compiler is
+#   ./build.sh                        every tree -- thirteen, and the ARM
+#                                     Linux target's four where its
+#                                     compiler is
 #   ./build.sh linux                  that target, release: Wayland, X11
 #                                     and KMS, drawn with Vulkan and OpenGL
 #   ./build.sh win64                  that target, release: Win32 drawn
 #                                     with Direct3D 12 and Vulkan
 #   ./build.sh macos                  that target: Cocoa drawn with Metal,
 #                                     Vulkan on MoltenVK and OpenGL 4.1
+#   ./build.sh macos-arm64            the macos tree for Apple's own
+#                                     processors, cross-compiled
 #   ./build.sh linux-arm64            the linux tree for 64-bit ARM (the
 #                                     Raspberry Pi), cross-compiled
 #   ./build.sh linux asan             that target, that checker
@@ -75,8 +78,9 @@ SELF="$PWD/${0##*/}"
 refused() {
     case "$1:$2" in
         win64:asan|win64:tsan|win64:clang) return 0 ;;
-        macos:release|macos:gc) return 1 ;;
-        macos:*) return 0 ;;
+        macos:release|macos:gc|macos-arm64:release|macos-arm64:gc)
+            return 1 ;;
+        macos:*|macos-arm64:*) return 0 ;;
         linux-arm64:release|linux-arm64:asan|linux-arm64:tsan|\
         linux-arm64:gc) return 1 ;;
         linux-arm64:*) return 0 ;;
@@ -210,8 +214,8 @@ if [ "${1:-}" = dist ]; then
 fi
 
 # ---- no arguments: every tree ----------------------------------------------
-# Eleven: six variants of the native target, three of the Windows one and
-# two of the macOS one -- and the ARM Linux one's four, where have_arm64()
+# Thirteen: six variants of the native target, three of the Windows one and
+# two of each macOS one -- and the ARM Linux one's four, where have_arm64()
 # says its compiler is.
 #
 # The order is load-bearing. Release comes first within a target because the
@@ -225,7 +229,7 @@ fi
 # It stops at the first failure. Nearly all of the code is shared, so going
 # on would print the same error once for every tree after it.
 if [ $# -eq 0 ]; then
-    for target in linux linux-arm64 win64 macos; do
+    for target in linux linux-arm64 win64 macos macos-arm64; do
         if [ "$target" = linux-arm64 ] && ! have_arm64; then
             printf '\n==> linux-arm64 skipped: no aarch64-linux-gnu-gcc\n'
             continue
@@ -243,7 +247,7 @@ fi
 
 TARGET=$1; shift
 case $TARGET in
-    linux|win64|macos|linux-arm64) ;;
+    linux|win64|macos|macos-arm64|linux-arm64) ;;
     wayland-vulkan|wayland-gl|x11-vulkan|x11-gl|kms-vulkan|kms-gl|\
     linux-vulkan|linux-gl|win64-vulkan|win64-d3d12|\
     macos-metal|macos-vulkan)
@@ -262,7 +266,8 @@ case $TARGET in
         exit 1 ;;
     *)
         echo "build.sh: unknown target '$TARGET'" >&2
-        echo "          linux | win64 | macos | linux-arm64 | dist" >&2
+        echo "          linux | win64 | macos | macos-arm64 |" \
+             "linux-arm64 | dist" >&2
         exit 1 ;;
 esac
 
@@ -280,7 +285,7 @@ esac
 
 if refused "$TARGET" "$VARIANT"; then
     case $TARGET in
-    macos)
+    macos|macos-arm64)
         echo "build.sh: the macOS tree is built by clang, cross, and" >&2
         echo "          takes release and gc: no Darwin sanitizer" >&2
         echo "          runtime or analyser here." >&2
@@ -369,7 +374,7 @@ gc)
     # Mach-O keeps each function apart already; ld64 strips by -dead_strip.
     # The linker named again: these flags take the place of the toolchain
     # file's _INIT ones, which are what choose lld.
-    macos) GC_C=; GC_LINK="-fuse-ld=lld -Wl,-dead_strip" ;;
+    macos|macos-arm64) GC_C=; GC_LINK="-fuse-ld=lld -Wl,-dead_strip" ;;
     esac
     set -- -DCMAKE_BUILD_TYPE=Debug -DFNL_NATIVE_ARCH=OFF \
            "-DCMAKE_C_FLAGS=$GC_C" \
@@ -402,9 +407,10 @@ win64)
     set -- -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
            -DFNL_RENDERER=all "-DFNL_GENERATED_DIR=$HOST_GEN" "-DFNL_DXC=$DXC" \
            "$@" ;;
-macos)
+macos|macos-arm64)
     # The same borrowed bake as the Windows trees, for the same reason, and
-    # Apple's SDK, copied once from a Mac (tools/macos_sdk.py).
+    # Apple's SDK, copied once from a Mac (tools/macos_sdk.py). One toolchain
+    # file for each processor, the arm64 one the x86-64 one included.
     HOST_GEN="$PWD/build/linux/release/generated"
     if ! font_ready "$HOST_GEN"; then
         echo "build.sh: $TARGET needs the host build first, for a baked" >&2
@@ -414,7 +420,11 @@ macos)
         exit 1
     fi
     SDK=$(python3 tools/macos_sdk.py --path)
-    set -- -DCMAKE_TOOLCHAIN_FILE=cmake/macos-x86_64.cmake \
+    TOOLCHAIN=cmake/macos-x86_64.cmake
+    if [ "$TARGET" = macos-arm64 ]; then
+        TOOLCHAIN=cmake/macos-arm64.cmake
+    fi
+    set -- "-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" \
            "-DFNL_MACOS_SDK=$SDK" -DFNL_RENDERER=all \
            "-DFNL_GENERATED_DIR=$HOST_GEN" "$@" ;;
 linux-arm64)
@@ -450,7 +460,7 @@ esac
 # Empty in a cross tree, whose bake is FNL_GENERATED_DIR's: a remembered
 # FNL_FONT_DIR would take its place.
 case $TARGET:$VARIANT in
-win64:*|macos:*|linux-arm64:*|*:release|*:analyzer)
+win64:*|macos:*|macos-arm64:*|linux-arm64:*|*:release|*:analyzer)
     set -- -DFNL_FONT_DIR:PATH= "$@" ;;
 *)
     LENDER="$PWD/build/$TARGET/release/generated"
@@ -466,7 +476,7 @@ cmake --build "$DIR" -j
 # MoltenVK beside the macOS programs, which is what Vulkan is on a Mac
 # (tools/moltenvk.py). A fetch that fails fails the build, as a pack that
 # fails does.
-if [ "$TARGET" = macos ]; then
+if [ "$TARGET" = macos ] || [ "$TARGET" = macos-arm64 ]; then
     python3 tools/moltenvk.py --into "$DIR"
 fi
 layering

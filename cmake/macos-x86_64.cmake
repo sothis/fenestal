@@ -21,10 +21,18 @@
 # Apple's own toolchain is not used, and nothing here runs on the Mac: the
 # compiler is clang-21, the version the clang trees use, and the linker is
 # LLVM's Mach-O one. DESIGN *Cross-compiling for macOS*.
+#
+# cmake/macos-arm64.cmake is this file for Apple's own processors, setting
+# FNL_MACOS_ARCH before it includes it; nothing else differs. One tree is
+# one architecture, since the archive is made from one module of bitcode,
+# and CI joins the two trees' programs with lipo.
 
+if(NOT FNL_MACOS_ARCH)
+    set(FNL_MACOS_ARCH x86_64)
+endif()
 set(CMAKE_SYSTEM_NAME Darwin)
-set(CMAKE_SYSTEM_PROCESSOR x86_64)
-set(CMAKE_OSX_ARCHITECTURES x86_64)
+set(CMAKE_SYSTEM_PROCESSOR ${FNL_MACOS_ARCH})
+set(CMAKE_OSX_ARCHITECTURES ${FNL_MACOS_ARCH})
 # Ventura, the last macOS whose own drivers drive schenker's HD 630, and so
 # the oldest that has run here; newer than the API this tree calls needs
 # (CAMetalLayer and performWindowDragWithEvent: are 10.11 to 10.15), and
@@ -64,7 +72,7 @@ set(CMAKE_ASM_COMPILER  ${_fnl_clang})
 string(REGEX REPLACE "clang(-[0-9]+)?$" "clang++\\1" _fnl_clangxx
        "${_fnl_clang}")
 set(CMAKE_CXX_COMPILER ${_fnl_clangxx})
-set(_fnl_triple x86_64-apple-macos${CMAKE_OSX_DEPLOYMENT_TARGET})
+set(_fnl_triple ${FNL_MACOS_ARCH}-apple-macos${CMAKE_OSX_DEPLOYMENT_TARGET})
 set(CMAKE_C_COMPILER_TARGET    ${_fnl_triple})
 set(CMAKE_OBJC_COMPILER_TARGET ${_fnl_triple})
 set(CMAKE_ASM_COMPILER_TARGET  ${_fnl_triple})

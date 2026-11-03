@@ -84,6 +84,7 @@ CMake ≥ 3.18, a C11 compiler (gcc or clang; mingw-w64's gcc for Windows), and:
 ./build.sh linux asan             # one target under a checker
 ./build.sh win64                  # cross build; needs linux first
 ./build.sh macos                  # cross build for macOS; needs linux
+./build.sh macos-arm64            # the same for Apple's own processors
 ./build.sh linux-arm64            # cross build for ARM Linux; needs linux
 ./build.sh                        # every target and variant
 ./build.sh dist                   # the source zips alone, no build
@@ -102,11 +103,12 @@ Every tree lands under `build/<target>/<variant>`. The targets are one
 per operating system: `linux` (Wayland, X11 and KMS, drawn with Vulkan or
 OpenGL 4.5), `win64` (Win32 drawn with Direct3D 12 or Vulkan) and
 `macos` (Cocoa drawn with Metal, Vulkan on MoltenVK or OpenGL 4.1), with
-`linux-arm64` the `linux` tree cross-compiled for the Raspberry Pi 4;
+`linux-arm64` the `linux` tree cross-compiled for the Raspberry Pi 4 and
+`macos-arm64` the `macos` tree for Apple's own processors;
 variants are `release`, `clang`, `asan`, `tsan`, `analyzer` and `gc` (the
-Windows target takes `release`, `analyzer` and `gc`, the macOS one
-`release` and `gc`): eleven trees, and the ARM one's `release`, `asan`,
-`tsan` and `gc` where its cross compiler is. A Linux program opens the
+Windows target takes `release`, `analyzer` and `gc`, the macOS ones
+`release` and `gc`): thirteen trees, and the ARM Linux one's `release`,
+`asan`, `tsan` and `gc` where its cross compiler is. A Linux program opens the
 backend its session has -- Wayland, else X11, else, with neither, KMS on
 the console -- and says which in its log; `FNL_BACKEND=wayland`, `x11` or
 `kms` in its environment opens that one or fails. Every program draws
@@ -116,7 +118,8 @@ OpenGL on macOS -- and says which; `FNL_RENDERER=d3d12`, `vulkan`, `gl`
 or `metal` names one. Arguments after the target and variant go to the
 configure step. Clean is `rm -rf build`.
 
-The three cross targets -- `win64`, `macos` and `linux-arm64` -- borrow
+The four cross targets -- `win64`, `macos`, `macos-arm64` and
+`linux-arm64` -- borrow
 the `linux` release tree's baked font, since the font tool runs during the
 build and would otherwise be compiled for the target. The Windows tree
 produces `libfenestal.dll`, `libfenestal.a` and the `.exe` programs, the

@@ -548,6 +548,12 @@ promised: before 1.0, nothing between minor releases.
 - The macOS tree builds on a Mac as well as on Linux:
   `-DFNL_HOST_INCLUDE` names where a cross tree finds the Vulkan and GL
   headers, `/usr/include` by default, which a Mac does not have.
+- `./build.sh macos-arm64` builds the macOS tree for Apple's own
+  processors (`cmake/macos-arm64.cmake`); the x86-64 toolchain file takes
+  `FNL_MACOS_ARCH`.
+- macOS: Vulkan is also looked for in the Frameworks folder of the app
+  bundle a program is in, `@executable_path/../Frameworks`, after the
+  program's own folder.
 - The library's words are these: a *backend* is the window system it opens
   (Wayland, X11, Win32, Cocoa, KMS), a *renderer* the graphics API that
   draws (Vulkan, OpenGL, Direct3D 12, Metal), a *platform* one of each,

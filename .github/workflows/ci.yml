@@ -17,9 +17,9 @@
 # warnings are the ones a developer sees. The macOS tree is built on a Mac,
 # whose Xcode has Apple's SDK: the SDK is licensed to Apple's machines, so it
 # is never copied to Linux here, where a cache or an artifact would hand it
-# to anyone. It is still the cross build, clang-21 and ld64.lld for x86-64,
-# with what a Linux machine supplies to it -- the baked font and the Khronos
-# headers -- handed over from the Linux job.
+# to anyone. It is still the cross build, clang-21 and ld64.lld, once for
+# x86-64 and once for arm64, with what a Linux machine supplies to it -- the
+# baked font and the Khronos headers -- handed over from the Linux job.
 #
 # Actions are pinned by commit, the tag above each.
 
@@ -239,15 +239,22 @@ jobs:
                   touch $g/font_verified.stamp
                   mkdir -p stage
                   cp -R mac/common stage/common
-            - name: macos release
+            # Both processors' trees, joined into one archive of universal
+            # binaries and app bundles (.github/stage.sh).
+            - name: macos and macos-arm64 release
               id: macos
               run: |
                   inc="$PWD/mac/include"
-                  # Homebrew's opt has no version or prefix in its name,
-                  # which the toolchain file does not take on its own.
-                  ./build.sh macos release "-DFNL_HOST_INCLUDE=$inc" \
-                      "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
-                      "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
+                  for t in macos macos-arm64; do
+                      echo "::group::$t release"
+                      # Homebrew's opt has no version or prefix in its
+                      # name, which the toolchain file does not take on its
+                      # own.
+                      ./build.sh $t release "-DFNL_HOST_INCLUDE=$inc" \
+                          "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
+                          "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
+                      echo "::endgroup::"
+                  done
                   .github/stage.sh macos
             - name: Keep the macos archive
               # v7.0.2

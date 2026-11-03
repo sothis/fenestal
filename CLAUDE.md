@@ -56,8 +56,8 @@ and the questions left open for them. A question it lists is answered in
 ## Build
 
 ```sh
-./build.sh                        # every tree -- eleven, and the ARM
-                                  # target's four where its cross
+./build.sh                        # every tree -- thirteen, and the ARM
+                                  # Linux target's four where its cross
                                   # compiler is
 ./build.sh linux                  # that target, release: Wayland, X11 and
                                   # KMS, drawn with Vulkan and OpenGL
@@ -65,6 +65,9 @@ and the questions left open for them. A question it lists is answered in
                                   # Direct3D 12 and Vulkan
 ./build.sh macos                  # that target: Cocoa, drawn with Metal,
                                   # Vulkan on MoltenVK and OpenGL 4.1
+./build.sh macos-arm64            # the macos tree for Apple's own
+                                  # processors, cross-compiled; release
+                                  # and gc
 ./build.sh linux-arm64            # the linux tree for the Raspberry Pi 4,
                                   # cross-compiled; release, asan, tsan
                                   # and gc
@@ -118,7 +121,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   the *device*.
 - A bare `./build.sh` sweeps every valid target/variant pair: `linux`,
   then `linux-arm64` (where its compiler is), then `win64`, then `macos`,
-  and `release` first within each — the cross
+  then `macos-arm64`, and `release` first within each — the cross
   trees borrow `build/linux/release`'s baked atlases, by that name, so that
   order is what keeps the sweep self-sufficient. It stops at the first
   failure.
@@ -138,8 +141,8 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   compile- and link-time passes needing no runtime. Its `gc` tree also
   carries UBSan in trap mode, which needs none: the one runtime check
   `win32.c` runs under. It refuses `clang` too:
-  clang against mingw-w64 wants a sysroot of its own. Eleven trees: six
-  variants of the native target, three of the Windows one and two of the
+  clang against mingw-w64 wants a sysroot of its own. Thirteen trees: six
+  variants of the native target, three of the Windows one and two of each
   macOS one.
 - **The macOS tree is cross-compiled here**, by clang-21 and `ld64.lld`
   (`lld-21`) against Apple's SDK, which `tools/macos_sdk.py --fetch` copies once
@@ -153,7 +156,11 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   has no `-r`. MoltenVK
   goes beside the programs (`tools/moltenvk.py`), where the library opens it and
   hands it to the examples' Vulkan scenes. DESIGN *Cross-compiling for macOS*,
-  *macOS*.
+  *macOS*. **`macos-arm64` is the same tree for Apple's own processors**
+  (`cmake/macos-arm64.cmake`: the x86-64 file, included with
+  `FNL_MACOS_ARCH` set), built here and run nowhere here, since the one
+  Mac is an Intel one; CI joins the two trees into universal binaries and
+  app bundles (`.github/stage.sh`).
 - **`clang` is the release build compiled by clang** (`clang-21`, or
   `FNL_CLANG`), optimised, with `-Wthread-safety` and `-Werror`
   (`FNL_WERROR`). It is what makes warning-clean under clang a check.
