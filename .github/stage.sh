@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Janos Sonntag
 #
-# Packs a release tree into the archive CI uploads for its operating system
-# (.github/workflows/ci.yml), under stage/.
+# Packs what CI uploads (.github/workflows/ci.yml), under stage/: each
+# release tree as an archive for its operating system, and the source.
 #
-#   .github/stage.sh common      stage/common: what every archive holds --
-#                                the public headers, the API reference, the
-#                                commented source unpacked, and the licence
-#                                and notices the programs travel under
+#   .github/stage.sh source      stage/fenestal-source-<commit>.zip: the
+#                                build's commented source zip, renamed
+#   .github/stage.sh common      stage/common: what every target's archive
+#                                holds -- the public headers, the API
+#                                reference, and the licence and notices the
+#                                programs travel under; the source is an
+#                                archive of its own
 #   .github/stage.sh <target>    stage/fenestal-<target>-<commit>.tar.xz,
 #                                or .zip for win64: common, the library,
 #                                static and shared, in lib/, and the
@@ -28,17 +31,33 @@ cd "$(dirname "$0")/.."
 
 OUT=stage
 
-if [ "${1:-}" = common ]; then
+COMMIT=$(printf '%.12s' "${GITHUB_SHA:-$(git rev-parse HEAD)}")
+
+# The step's output, for the upload that follows it: a pattern would match
+# linux-arm64's archive as well as linux's.
+said() {
+    echo "stage.sh: $1"
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then
+        echo "archive=$1" >> "$GITHUB_OUTPUT"
+    fi
+}
+
+case ${1:-} in
+common)
     rm -rf "$OUT/common"
-    mkdir -p "$OUT/common/include" "$OUT/common/source"
+    mkdir -p "$OUT/common/include"
     cp -R include/fenestal "$OUT/common/include/"
     cp -R build/api "$OUT/common/api"
-    python3 -m zipfile -e build/fenestal-commented.zip "$OUT/common/source/"
     cp LICENSE THIRD_PARTY_NOTICES.md "$OUT/common/"
-    exit 0
-fi
+    exit 0 ;;
+source)
+    mkdir -p "$OUT"
+    cp build/fenestal-commented.zip "$OUT/fenestal-source-$COMMIT.zip"
+    said "$OUT/fenestal-source-$COMMIT.zip"
+    exit 0 ;;
+esac
 
-TARGET=${1:?usage: .github/stage.sh common | <target>}
+TARGET=${1:?usage: .github/stage.sh source | common | <target>}
 TREE=build/$TARGET/release
 NAME=fenestal-$TARGET
 DIR=$OUT/$NAME
@@ -80,7 +99,6 @@ if [ -e "$TREE/libMoltenVK.dylib" ]; then
     cp "$TREE/libMoltenVK.dylib" "$TREE/MoltenVK-LICENSE.txt" "$DIR/bin/"
 fi
 
-COMMIT=$(printf '%.12s' "${GITHUB_SHA:-$(git rev-parse HEAD)}")
 cd "$OUT"
 case $TARGET in
 win64)
@@ -89,10 +107,4 @@ win64)
 *)
     tar -cJf "$NAME-$COMMIT.tar.xz" "$NAME" ;;
 esac
-ARCHIVE=$OUT/$(ls "$NAME-$COMMIT".*)
-echo "stage.sh: $ARCHIVE"
-# The step's output, for the upload that follows it: a pattern would match
-# linux-arm64's archive as well as linux's.
-if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
-fi
+said "$OUT/$(ls "$NAME-$COMMIT".*)"
