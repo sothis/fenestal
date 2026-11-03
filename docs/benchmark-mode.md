@@ -334,7 +334,7 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
     zone-table row in *Replacing the titlebar*, the sentence in *Pointer
     capture*, a paragraph in *Where the time actually goes*, *macOS* on
     `acceptsFirstMouse`), the TODO.md entries (one per phase not yet done),
-    CHANGELOG lines, the testbed option rows in DESIGN *Running the example*
+    CHANGELOG lines, the testbed option rows in DESIGN *The testbed*
     and README, and the stale "once a second" to fix in passing.
 
 ## Verification (of the document itself)

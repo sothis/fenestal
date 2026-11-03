@@ -66,7 +66,7 @@ NEEDED = (
     'include/',              # the public headers
     'src/',                  # the library
     'examples/',             # the API reference's snippets, all built
-    'testbed/',              # the demo program the rounds drive
+    'testbed/',              # the development application the rounds drive
     'demos/',                # the programs to copy, each its own build
     'shaders/',              # glslangValidator inputs, library half
     'protocols/',            # wayland-scanner inputs

@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The demo's own overlay: a keybindings panel, a status readout and the
+ * The testbed's own overlay: a keybindings panel, a status readout and the
  * crosshair a captured pointer gets. F5's metrics panel is the library's
  * (fnl_set_metrics_panel()), shown from the start by main.c.
  *
@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The demo's palette; the library ships none for a caller's own drawing. */
+/* The testbed's palette; the library ships none for a caller's own drawing. */
 static const FnlColor COL_PANEL  = DEMO_RGB(0.06f, 0.06f, 0.08f);
 static const FnlColor COL_TITLE  = DEMO_RGB(1.00f, 0.78f, 0.30f);
 static const FnlColor COL_KEY    = DEMO_RGB(0.80f, 0.85f, 0.95f);
@@ -406,7 +406,7 @@ void demo_overlay_draw(FnlApp *app, const FnlFrame *f)
 }
 
 /* From the event drain in main.c. The library has already acted on whatever
- * it binds; this adds the demo's own. */
+ * it binds; this adds the testbed's own. */
 void demo_overlay_event(FnlApp *app, const FnlEvent *ev)
 {
 	switch (ev->type) {

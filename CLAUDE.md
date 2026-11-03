@@ -14,7 +14,8 @@ one a program opens chosen at `fnl_init()` or named by `FNL_BACKEND` in its
 environment -- and every renderer its system has, chosen the same way or named
 by `FNL_RENDERER` (DESIGN *One build per operating system*); every runtime that
 is not the system's is opened at run time, never linked. It makes
-`libfenestal.a` and a shared object, with `testbed/` as the demo program.
+`libfenestal.a` and a shared object, with `testbed/` as the application the
+library is developed with.
 
 The seam is the `on_record` callback; see `testbed/scene_vulkan.c`.
 
@@ -39,7 +40,7 @@ and the questions left open for them. A question it lists is answered in
 ## Working agreement
 
 - **Do not configure, build, run, or capture unless asked in that turn.** That
-  includes `cmake --build`, `./build.sh`, launching the example, screenshots,
+  includes `cmake --build`, `./build.sh`, launching a program, screenshots,
   and the sanitizer / `-fanalyzer` trees. Edit and reason; the user drives
   verification.
 - Commit directly to the checked-out branch when asked. Two remotes, both

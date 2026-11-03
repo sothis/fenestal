@@ -162,7 +162,7 @@ Registering no callbacks is the other half of what it is for. What
 `--frame-times` reports then is the library's own floor, with nothing of a
 caller's in it; the testbed is the other measurement and answers the other
 question. Both are worth having, because they separate a regression here from a
-regression in the example.
+regression in the testbed.
 
 The CPU figure is `utime + stime` out of `/proc`, which is why the runner is
 Linux's. For `win64-vulkan` the process is wine, so that column carries wine's

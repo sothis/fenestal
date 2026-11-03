@@ -6,8 +6,8 @@
  * A scene recorded by the caller, with the library choosing where it is
  * drawn: straight into the window, into a smaller image it scales up, or
  * multisampled. The scene here is one clear, so that the seam is all there
- * is to read; testbed/scene_vulkan.c is a real one, with
- * pipelines.
+ * is to read; demos/motion/scene_vulkan.c is a real one, with
+ * pipelines, in a program to copy.
  *
  * Shows: fnl_vulkan_gpu fnl_vulkan_scene_layout fnl_vulkan_scene_cmd
  *        fnl_vulkan_scene_rect fnl_set_antialias fnl_antialias fnl_max_samples

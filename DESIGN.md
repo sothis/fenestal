@@ -10,9 +10,10 @@ text overlay, wrapped around a scene that is the caller's. Its five
 backends are Wayland, X11, KMS, Win32 and Cocoa and its four renderers
 Vulkan, OpenGL, Direct3D 12 and Metal: one build per operating system,
 with every backend and renderer that system has, as `libfenestal.a` and a
-shared object (*One build per operating system*). `testbed/` is the demo
-program, and the programs under `demos/` are the ones to start a program of
-your own from.
+shared object (*One build per operating system*). `testbed/` is the
+application the library is developed with, the programs under `demos/` are
+the ones to start a program of your own from, and `examples/` holds the API
+reference's snippets.
 
 The library owns the frame — pacing, late latching, resize, DPI changes, render
 scale, antialiasing, device-loss recovery — and stops at one place: the
@@ -895,7 +896,7 @@ trees build warning-free, on Linux; mingw-w64's gcc for Windows. MSVC is not
 supported and no support is planned: the MSVC branches in `core/compiler.h`
 are written and have never been compiled.
 
-## Running the example
+## The testbed
 
 | Input | Action |
 |---|---|
@@ -919,7 +920,7 @@ while it stays open, dim where there is only one, and before it, where the
 window is wide enough, an output drop-down naming the monitor the window is
 on and moving it to another, dim where there is one monitor and on
 Wayland, whose clients place no window.
-Double-click to maximize, drag to move. The demo draws none of it; see
+Double-click to maximize, drag to move. The testbed draws none of it; see
 *The titlebar controls*.
 
 ### The metrics panel
@@ -1057,7 +1058,7 @@ and averages to `Get-Process`'s.
 | `--gpu-driver=<d>` | on KMS, offer a move of an NVIDIA GPU between nouveau and NVIDIA's driver with the window open, an entry in the GPU box for each renderer; `nouveau` or `nvidia` binds that one before the first frame, `switch` leaves it as it is; `FNL_GPU_DRIVER` in the environment is the same — see *Another kernel driver, with the window open* |
 | `--gpu-rank=<r>` | the GPU box ranked by each entry's measured frame rate, kept in the user's cache, best first, every start opened on the first, and measured for an entry and display not measured before; `calibrate` measures every entry on this display again, `keep` uses it and never measures, `order` orders the box by it and starts as without, `off` uses none; `FNL_GPU_RANK` in the environment is the same — see *Ranked by measured frame rate* |
 | `--transition=<ms>` | how long the first frames after a move to another GPU, renderer or kernel driver dissolve from the last frame before it; the library's own is 250, and 0 is a cut — see *The veil, and what the screen shows across a move* |
-| `--custom-titlebar` | draw the titlebar in the demo instead of the library — see *Replacing the titlebar* |
+| `--custom-titlebar` | draw the titlebar in the testbed instead of the library — see *Replacing the titlebar* |
 | `--frame-times` | where each frame's wall clock went, a line each half second on stderr |
 | `--no-vsync` | draw flat out, for measuring; `FNL_VSYNC=0` in the environment does the same for any program (*Vsync and present modes*) |
 | `--echo-events` | print every event the library delivers, for a test harness — the library's own echo, which `FNL_ECHO_EVENTS=1` switches on for any program built on it |
@@ -1648,13 +1649,13 @@ src/renderer/metal/    Metal, in Objective-C: device.m (the device and the
 
 testbed/
   main.c         the program, as a client of the library
-  demo.h         what the example's files share; it names no graphics API
+  demo.h         what the testbed's files share; it names no graphics API
   scene_<api>.*  the test pattern, as each renderer's client records it
   bench*.c       the benchmark mode (--bench, *Benchmarking*)
   overlay.c      the keybindings panel, the status lines and the crosshair
-  titlebar_custom.c    a whole replacement titlebar, drawn by the demo
+  titlebar_custom.c    a whole replacement titlebar, drawn by the testbed
                        (--custom-titlebar)
-  shaders/       GLSL the example owns: the test pattern and the star
+  shaders/       GLSL the testbed owns: the test pattern and the star
 
 examples/        the API reference's snippets, each a complete program
 demos/<name>/    a program to copy: main.c, a scene file per renderer, its
@@ -4546,7 +4547,7 @@ is three draws a frame rather than free.
 
 The library itself flushes once, at the end of `draw_overlay()`. A caller that
 needs its own layering inside that calls `fnl_overlay_flush()`, and a caller
-that needs a scissor — the example's crosshair is clipped to the presentable
+that needs a scissor — the testbed's crosshair is clipped to the presentable
 area — calls `fnl_overlay_clip()`. Either way a stream simply flushes twice, the
 second picking up where the first stopped via `firstInstance`; nothing is copied
 or rebound.
@@ -5820,7 +5821,7 @@ Calibrated again, three entries took 4 to 5 s and two took 3, on X11 and
 on Wayland: the hardware Vulkan entry in 1.0 to 1.1 s at 2855 to 3244 fps
 against the old 3061 and 3087, OpenGL in 1.7 to 2.0 s at 1847 to 2152
 against 2021 and 2152, llvmpipe in 1.4 to 2.4 s, and the same winner every
-time. On schenker's KMS (2026-11-01, the demo's `texture`,
+time. On schenker's KMS (2026-11-01, the `texture` demo,
 `FNL_GPU_DRIVER=switch`, both codes from NVIDIA's own driver) eight
 entries took 13 s where they took 32,
 ranked in the same order with figures within 1 to 4 %: the HD 630's Vulkan

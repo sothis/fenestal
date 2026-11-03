@@ -19,7 +19,7 @@
 
 #include <fenestal/fenestal.h>
 
-/* The scenes' callbacks and the demo's own drawing. The header names no
+/* The scenes' callbacks and the testbed's own drawing. The header names no
  * graphics API's types, so this file learns which renderer draws only from
  * fnl_renderer(), at run time. */
 #include "demo.h"
@@ -592,7 +592,7 @@ static void demo_record(void *ud, FnlApp *app, const FnlFrame *f)
 	scene_on_record(ud, app, f);
 }
 
-/* The demo's overlay, in the window pass the library hands it.
+/* The testbed's overlay, in the window pass the library hands it.
  *
  * Separate from on_record because the scene and the overlay are two different
  * render passes whenever a render scale is in force -- see the note on
