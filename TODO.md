@@ -573,6 +573,49 @@ and three `pace.py` columns). Owed, in this order:
   between sittings. Owed: whether a sitting drifts -- the same three on
   another day.
 
+## macOS on Apple's processors, and the app bundles
+
+Written 2026-11-04 and built, never run: `./build.sh macos-arm64`
+(`cmake/macos-arm64.cmake`, the x86-64 file included with
+`FNL_MACOS_ARCH`), and CI's macOS archive -- both trees joined by `lipo`,
+each program an ad-hoc signed app bundle with MoltenVK in its
+`Contents/Frameworks`, where `vk_load.c` now looks as well
+(`.github/stage.sh`). CI built it at `9925edf` and the zip was checked by
+listing: universal library and programs, the dylib's symlinks, a
+`_CodeSignature` in every bundle. Owed, in this order:
+
+1. **A bundle opened on schenker** (x86-64): `fenestal-testbed.app` from
+   the CI zip, quarantine removed, with `FNL_RENDERER=vulkan` -- that the
+   bundle starts, that MoltenVK is found in `Contents/Frameworks`, and
+   that Metal and GL draw from a bundle as from the tree.
+2. **The arm64 half run anywhere**: no Mac here has Apple's processor.
+3. **`./build.sh macos-arm64` here**: CI builds it with Homebrew's LLVM 21
+   on a Mac; this desktop's cross build of it has not run, and the next
+   bare `./build.sh` is the first.
+4. **MoltenVK only where a scene is Vulkan's**: each of the eight bundles
+   carries its 11 MB, most of the zip's 50 MB; a program with no Vulkan
+   scene needs none.
+
+## CI
+
+`.github/workflows/ci.yml`: each target's release tree on a push to `main`
+and on a pull request -- Linux, Windows and ARM Linux in an Ubuntu 26.04
+container, macOS x86-64 and arm64 on a `macos-26` runner -- and ruff. The
+run's artifacts are the commented source zip and one archive per target,
+uploaded as they are (`.tar.xz` for Linux, `.zip` for Windows and
+macOS); the Linux job hands the Mac its font and headers through the
+cache. Owed:
+
+- **Releases**: a tag that attaches the archives to a GitHub Release. A
+  run's artifacts expire and want a signed-in download, and `gh run
+  download` cannot unpack one that is not a zip (`gh api
+  .../artifacts/<id>/zip` fetches it as it is).
+- **The checker trees**: clang, asan, tsan, analyzer and gc left CI with
+  the move to release trees; a weekly or by-hand job would bring them
+  back without slowing a push.
+- **A push that started no run** (`1bd1c42`, the push said it failed and
+  had landed): started by hand then; not seen since.
+
 ## OpenGL on macOS
 
 Written and driven on schenker's macOS (DESIGN *OpenGL on macOS*,
