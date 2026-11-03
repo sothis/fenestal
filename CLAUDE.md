@@ -322,7 +322,8 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   `x11-vulkan-bare` is the `linux` binary, under `FNL_BACKEND=x11`,
   copied over ssh to another
   machine's Xorg, with no window manager or desktop there, which is where
-  `x11.c`'s UNVERIFIED unmanaged paths run (`tools/drive/bare_driver.py`).
+  `x11.c`'s unmanaged paths run, and no environment on this desktop
+  reaches them (`tools/drive/bare_driver.py`).
   Xorg is started there as root (`:9`, VT 7, unit `fenestal-xorg`) and left
   up; its socket is forwarded here, so `x11_driver.py` asks it questions
   and XTEST drives it. That is the one XTEST in the tree, and it is allowed

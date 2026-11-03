@@ -4,12 +4,17 @@ Everything under `tools/drive/` drives a real window on a real desktop: the
 round (`stress.py`), the pace instrument (`pace.py`), the benchmark
 (`bench.py`), the signal and selftest rounds, and the ways into a
 VirtualBox guest, a Windows laptop, a Mac and a Linux machine with no
-desktop. The library's own DESIGN is the spec;
-this is how the measurements in it are taken, and what the harness has had to
-learn about the desks it runs on. What the harness found about the *library*
-on Windows itself -- the size request's cost, the reaper, the monitors, the
-scales, suspend and resume, Intel's stall -- stays in DESIGN.md, under
-*Backend notes*, *Measured on Windows itself*.
+desktop. The library's own DESIGN is the spec; this is how the measurements
+in it are taken, and what the harness has had to learn about the desks it
+runs on. What the harness found about the *library* on Windows itself -- the
+size request's cost, the reaper, the monitors, the scales, suspend and
+resume, Intel's stall -- stays in DESIGN.md, under *Backend notes*,
+*Measured on Windows itself*.
+
+A figure here carries the date it was measured, and is the tree's as it was
+that day: counts of checks grow as checks are added, and a rate read before
+a change to the frame loop stays as it was read. `status.py` says what was
+last run where, and `docs/benchmarks.md` holds the latest full set.
 
 ## The round
 
@@ -431,23 +436,22 @@ after the delay and at the rate that user has set.
 One laptop has been put through it: Windows 11 build 26300, an Intel HD 630
 driving a 1920x1080 panel at 60 Hz with a GTX 1050 Ti beside it, the display
 at 125%. The round is 66 checks with `--capture` and 63 without, none failed,
-with the move between monitors skipped for want of a second. It was the
-first round anywhere at a scale other than 100%, and what it turned up was
-the harness's: the echo's `area` is pixels and the round
-had been aiming and comparing with it as points, which at 100% are the same
-number. `testbed.py` now carries both. It is also the first screen smaller than
-the round: the default window at 125% is 1600x943 of the panel's 1080 rows,
-so the resize drag first moves the window back towards the monitor's origin
-and is cut to the room that leaves (`room_to_grow()`), which changes nothing
-where there was room. With those changes in, and the agent both Windows
-machines run grown for the laptop, the other rounds are where they were:
-the two guests 69 with captures, X11 74, wine 65, wine on Wayland 41,
-Wayland 56, none failed. Wayland's picture of the bar
-straight after fullscreen was once of a window 1321 pixels wide where 1278
-was wanted — the compositor's animation, with four guest windows on the
-desk beside it — so that check now looks again before it fails. The hand
-check was put to a pointer moved on the laptop by something other than the
-agent, and the round was skipped five seconds later.
+with the move between monitors skipped for want of a second. It was the first
+round anywhere at a scale other than 100%, and what it turned up was the
+harness's: the echo's `area` is pixels and the round had been aiming and
+comparing with it as points, which at 100% are the same number. `testbed.py`
+now carries both. It is also the first screen smaller than the round: the
+default window at 125% is 1600x943 of the panel's 1080 rows, so the resize
+drag first moves the window back towards the monitor's origin and is cut to
+the room that leaves (`room_to_grow()`), which changes nothing where there was
+room. With those changes in, and the agent both Windows machines run grown for
+the laptop, the other rounds are where they were (2026-10-13): the two guests
+69 with captures, X11 74, wine 65, wine on Wayland 41, Wayland 56, none
+failed. Wayland's picture of the bar straight after fullscreen was once of a
+window 1321 pixels wide where 1278 was wanted — the compositor's animation,
+with four guest windows on the desk beside it — so that check now looks again
+before it fails. The hand check was put to a pointer moved on the laptop by
+something other than the agent, and the round was skipped five seconds later.
 
 The rest of what the other targets have, it has. `native_driver.py
 --status <name>` says how a machine is set up and `--setup <name>` does what
@@ -479,15 +483,25 @@ on the command line is an environment and as much of `@machine:device` as
 narrows it, for the guests' names as well. `FNL_GPU` in the environment is
 still one device for one run, whatever is written, and a round on a laptop
 says which device its program is on and stops if that is not the one
-named. Once for
-each of the two, on the build that has the name:
+named. Once for each of the two, on the build that has the name
+(2026-10-13):
 
 | | Intel HD 630 | NVIDIA GTX 1050 Ti |
 |---|---|---|
 | `stress.py --capture` | 66, none failed | 66, none failed |
 | validation, sync and best-practices | 63, none failed, log clean | 63, none failed, log clean |
 
-And `pace.py`, one sweep each, frames presented and CPU of one core:
+**A Windows machine's monitor is a variable of its own.**
+`FNL_DRIVE_WIN_OUTPUT=DISPLAY2` runs a round, a sweep or `pace.py` on that
+monitor of a guest or a laptop, by the name Windows gives it there, which the
+round's first lines print; unset, the window opens where Windows puts it, on
+the primary. `FNL_DRIVE_OUTPUT` names an output of this desktop and
+`FNL_DRIVE_BARE_OUTPUT` and `FNL_DRIVE_MAC_OUTPUT` one of those machines', so
+none of them is mistaken for another's. A name the machine has no monitor for
+skips the environment, with the names it has.
+
+And `pace.py`, one sweep each, frames presented and CPU of one core
+(2026-10-13, before a window at rest drew nothing):
 
 | sizes a second | Intel HD 630 | NVIDIA GTX 1050 Ti |
 |---|---|---|
@@ -508,8 +522,8 @@ the period estimate's, which waits on the fence for it, and DESIGN
 *Measured on Windows itself* has that and the sweep after it, with nothing
 past the panel. The same program at 250 on the Intel device ended on time
 when it was run again by itself. The bare round on the build with the
-name, captures on: Wayland 56, X11 74, wine 65, wine on Wayland 41, the
-two guests 69 each and the laptop 66, none failed.
+name, captures on (2026-10-13): Wayland 56, X11 74, wine 65, wine on
+Wayland 41, the two guests 69 each and the laptop 66, none failed.
 
 **A second laptop, and what it changed.** An Acer Aspire VN7-792G: the
 same Windows build, an HD 530 on a 1920x1080 panel at 60 Hz and 100%, a
@@ -539,7 +553,7 @@ harness were the first laptop's and not Windows':
   rounds, three ticks charged to a window whose log has no frame drawn
   in the time.
 
-| on the Aspire | Intel HD 530 | NVIDIA GTX 960M |
+| on the Aspire, 2026-10-13 | Intel HD 530 | NVIDIA GTX 960M |
 |---|---|---|
 | `stress.py --capture` | 66, none failed | 66, none failed |
 | validation, sync and best-practices | 63, none failed, log clean | 63, none failed, log clean |
@@ -639,7 +653,7 @@ were lost in fullscreen, where AppKit makes the window and not the view
 the first responder; press-and-hold held a key's first five repeats back;
 and a drag event ended the press the titlebar's move is handed, so the
 window never moved. One machine, the HD 630 under macOS 26.7.1, 1920x1080
-at 100%:
+at 100% (2026-10-22):
 
 | | `macos-metal-native` | `macos-vulkan-native` (MoltenVK) |
 |---|---|---|
@@ -895,24 +909,23 @@ guest — that took 371 s. What it has shown:
   environment with no server to ask is then asked the same.
 - **Wine's monitors are not to be taken at their word.** Asked with
   `tools/probe/wherewin.c` beside the window: under `winewayland.drv` the
-  virtual screen is 0,0 3840x2160 and both monitors are at 0,0 — 1920x1200
-  and 3840x2160 — while their *work* rectangles keep the desk's real
-  offsets, 0,960 and 1920,0, at the monitors' full sizes. `WM_GETMINMAXINFO`
-  is answered from the two: `ptMaxPosition` is work minus monitor, 1920
-  here, which put the maximized window at 1920,0 on a screen 3840 wide. The
-  pointer is held to that screen, so motion was reported up to x = 1919 of a
-  window 3773 wide and not past it, the maximize button of a maximized
-  window could not be reached, and the round stopped there. The same probe
-  under `winex11.drv` has the layout whole: a virtual screen of -1920,0
-  5760x2160 and the large monitor's work area, 67,26 3773x2134, inside it.
-  So a work area that does not lie inside its monitor is not believed
-  (`monitor_work()` in `win32.c`): the monitor stands in for it, and the
-  compositor's configure sets the size as it does for every maximize under
-  wine. With that the round goes on through the restore, the pointer's
-  capture, the keys and the typing to its end, and the other five rounds
-  are what they were — 47, 69 and 57 checks on Wayland, X11 and wine on
-  X11, and 66 in each guest, none failed. Whether a hand on a mouse is held
-  as the portal's pointer was has not been tried.
+  virtual screen is 0,0 3840x2160 and both monitors are at 0,0 — 1920x1200 and
+  3840x2160 — while their *work* rectangles keep the desk's real offsets, 0,960
+  and 1920,0, at the monitors' full sizes. `WM_GETMINMAXINFO` is answered from
+  the two: `ptMaxPosition` is work minus monitor, 1920 here, which put the
+  maximized window at 1920,0 on a screen 3840 wide. The pointer is held to that
+  screen, so motion was reported up to x = 1919 of a window 3773 wide and not
+  past it, the maximize button of a maximized window could not be reached, and
+  the round stopped there. The same probe under `winex11.drv` has the layout
+  whole: a virtual screen of -1920,0 5760x2160 and the large monitor's work
+  area, 67,26 3773x2134, inside it. So a work area that does not lie inside its
+  monitor is not believed (`monitor_work()` in `win32.c`): the monitor stands in
+  for it, and the compositor's configure sets the size as it does for every
+  maximize under wine. With that the round goes on through the restore, the
+  pointer's capture, the keys and the typing to its end, and the other five
+  rounds are what they were (2026-10-12) — 47, 69 and 57 checks on Wayland, X11
+  and wine on X11, and 66 in each guest, none failed. Whether a hand on a mouse
+  is held as the portal's pointer was has not been tried.
 - **This wine's Wayland driver has no clipboard.** A copy in the window did
   not reach `xclip`, which still held what the harness last put there, and a
   paste gave the window back its own 25 bytes and not the other program's
@@ -1022,7 +1035,7 @@ guest's, which is the one figure of the five that virtualisation costs.
 
 `pace.py`'s sweep put to the guest (`tools/probe/guest_pace.py`), for what a
 software device does with the instrument: an empty scene, 12 s a cell, the
-2394x1280 desktop, two sweeps.
+2394x1280 desktop, two sweeps (2026-10-12).
 
 | sizes/s | frames presented | a frame |
 |---|---|---|
@@ -1044,7 +1057,8 @@ read about half throughout: 57 fps idle, 113 at five, 32 at 250.
 `pace` opens at 1280x720 and asks for 900 to 1099 by 620, so the idle cell
 draws half as many pixels again as any other, and on a software device a
 pixel is CPU time. Idle *at the driven size* — one request and then nothing,
-`pace 0.1` — is the floor the rest wants reading against there:
+`pace 0.1` — is the floor the rest wants reading against there
+(2026-10-12):
 
 | | Windows 10 | Windows 11 |
 |---|---|---|
@@ -1058,8 +1072,8 @@ order within a column is the point. With a display to wait for the size of
 an empty window is not what a frame costs, which is why `pace.py`'s idle
 column shows none of this on the environments with a display.
 
-The Windows 11 guest, two sweeps, on one 2400x1280 monitor so that it can be
-set against the table above:
+The Windows 11 guest, two sweeps (2026-10-12), on one 2400x1280 monitor so
+that it can be set against the table above:
 
 | sizes/s | frames presented | a frame |
 |---|---|---|
@@ -1119,8 +1133,8 @@ its reason beside it — `PARK_BEAT`, `MAP_BEAT`, `SWEEP_BEAT`, `ROW_BEAT`,
 with nothing to wait on. `AIM_BEAT` is the one that looks replaceable and
 is not: polling for the first changed pointer reading from XWayland instead
 lost the window at a resize corner three rounds in ten. Waiting on evidence is
-also the faster harness: the three-environment `stress.py` round takes 143 s on
-this machine against 185 s on fixed sleeps.
+also the faster harness: the `stress.py` round of three environments it then
+was took 143 s on this machine against 185 s on fixed sleeps (2026-10-11).
 
 **Any program built on the library can be driven.** The echo is the
 library's (`src/core/echo.c`): it runs
