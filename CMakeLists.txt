@@ -410,11 +410,12 @@ exports:
                         ${_tbd}.in ${_tbd})
         message(STATUS "Synthesised libMoltenVK.tbd from ${_n} entry points")
         add_library(Vulkan::Vulkan UNKNOWN IMPORTED GLOBAL)
+        set(_rpaths "-Wl,-rpath,@executable_path"
+                    "-Wl,-rpath,@executable_path/../Frameworks")
         set_target_properties(Vulkan::Vulkan PROPERTIES
             IMPORTED_LOCATION ${_tbd}
             INTERFACE_INCLUDE_DIRECTORIES ${_vkstage}
-            INTERFACE_LINK_OPTIONS "-Wl,-rpath,@executable_path"
-                "-Wl,-rpath,@executable_path/../Frameworks")
+            INTERFACE_LINK_OPTIONS "${_rpaths}")
     endif()
 else()
     fnl_find_global(Vulkan Vulkan::Vulkan)
