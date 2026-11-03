@@ -1,5 +1,6 @@
 # Fenestal
 
+[![CI](https://github.com/sothis/fenestal/actions/workflows/ci.yml/badge.svg)](https://github.com/sothis/fenestal/actions/workflows/ci.yml)
 [![API version](https://img.shields.io/badge/API-0.9-blue)](include/fenestal/fenestal.h)
 [![License: MIT + third-party notices](https://img.shields.io/badge/license-MIT%20%2B%20notices-green)](LICENSE)
 [![C standard](https://img.shields.io/badge/C-C11-orange)](CMakeLists.txt)

@@ -1,0 +1,143 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# The checks CONTRIBUTING.md *Before You Open a Pull Request* lists, on every
+# push to main and every pull request: each tree build.sh makes on Linux, and
+# ruff over tools/. A build that succeeds has run verifyfont, verifykeymap,
+# the fuzz replay, the ABI comparison, the layering, the tables and the API
+# reference's caller check, so a green build is those as well.
+#
+# What it cannot run: a program. There is no display or GPU here, and the
+# harness (tools/drive/) drives desktops and machines of its own; a change in
+# how a window behaves is still checked by hand. Nor the macOS trees, which
+# build against Apple's SDK, copied from a Mac (tools/macos_sdk.py) and not
+# ours to put on a shared runner.
+#
+# Every job runs in Ubuntu 26.04, the release the tree is developed on, so
+# gcc's warnings and -fanalyzer's findings are the ones a developer sees and
+# clang is the clang-21 build.sh asks for by name. The sanitizer runtimes want
+# what Docker's default profile denies: LeakSanitizer stops the world with
+# ptrace, and ThreadSanitizer re-executes itself without ASLR where the
+# kernel's mmap randomisation is wider than its shadow layout allows.
+#
+# Actions are pinned by commit, the tag above each.
+
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    DEBIAN_FRONTEND: noninteractive
+    # What every Linux tree needs (README *Building*), and git, which
+    # mkdist.py reads the file list from: checked out without it, the tree
+    # is a tarball, and build.sh skips the pack silently.
+    PACKAGES: >-
+        git ca-certificates cmake make gcc g++ pkgconf python3
+        linux-libc-dev libvulkan-dev libegl-dev libgl-dev
+        libwayland-dev libwayland-bin libxcb1-dev libfreetype-dev
+        glslang-tools spirv-cross xkb-data
+
+jobs:
+    linux:
+        name: linux ${{ matrix.variant }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        container:
+            image: ubuntu:26.04
+            options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
+        strategy:
+            # Each variant finds what the others do not; one failing says
+            # nothing about the rest.
+            fail-fast: false
+            matrix:
+                variant: [release, clang, asan, tsan, analyzer, gc]
+        steps:
+            - name: Install packages
+              run: |
+                  extra=
+                  # libclang-rt for the fuzz harnesses' libFuzzer builds,
+                  # which the clang tree makes when it can link one.
+                  if [ "${{ matrix.variant }}" = clang ]; then
+                      extra="clang-21 libclang-rt-21-dev"
+                  fi
+                  apt-get update -q
+                  apt-get install -qy $PACKAGES $extra
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - name: Build
+              run: ./build.sh linux ${{ matrix.variant }}
+            - name: Keep the source zips and the API reference
+              if: matrix.variant == 'release'
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: fenestal-${{ github.sha }}
+                  path: |
+                      build/fenestal.zip
+                      build/fenestal-commented.zip
+                      build/api/
+
+    # The cross trees borrow the Linux release tree's baked font, which a
+    # cross build cannot make, so each job builds that tree first. Built
+    # here rather than handed over from the linux job: build.sh lends a bake
+    # only when its files are newer than their sources and its check newer
+    # than the bake, and an artifact's download gives every file one time.
+    cross:
+        name: ${{ matrix.target }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 90
+        container:
+            image: ubuntu:26.04
+            options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    # build.sh refuses the rest: no sanitizer runtimes in
+                    # mingw-w64, no ARM sysroot for clang.
+                    - target: win64
+                      variants: release analyzer gc
+                      packages: >-
+                          gcc-mingw-w64-x86-64-win32
+                          g++-mingw-w64-x86-64-win32
+                    - target: linux-arm64
+                      variants: release asan tsan gc
+                      packages: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        steps:
+            - name: Install packages
+              run: |
+                  apt-get update -q
+                  apt-get install -qy $PACKAGES ${{ matrix.packages }}
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - name: Build the Linux release tree, for its bake
+              run: ./build.sh linux release
+            - name: Build
+              run: |
+                  for v in ${{ matrix.variants }}; do
+                      echo "::group::${{ matrix.target }} $v"
+                      ./build.sh ${{ matrix.target }} "$v"
+                      echo "::endgroup::"
+                  done
+
+    ruff:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            # The version the tree is held clean against; a newer one's new
+            # rules are a change of their own.
+            - name: ruff check tools
+              run: pipx run --spec ruff==0.17.0 ruff check tools

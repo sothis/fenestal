@@ -46,9 +46,11 @@ and the questions left open for them. A question it lists is answered in
 - Commit directly to the checked-out branch when asked. Two remotes, both
   pushed by hand and only when asked: `origin`, the NAS (`CLAUDE.local.md`
   says where), first, then `github`, the public `sothis/fenestal`, with
-  `main` alone -- never `history`, `--all` or `--mirror`. There is no CI,
-  and this tree's own work takes no PR flow — do not propose one; pull
-  requests are how others send changes (`CONTRIBUTING.md`).
+  `main` alone -- never `history`, `--all` or `--mirror`. GitHub's CI
+  (`.github/workflows/ci.yml`) builds every tree but the macOS ones on a
+  push to `main` and on a pull request, and runs ruff; it opens no
+  window. This tree's own work takes no PR flow — do not propose one;
+  pull requests are how others send changes (`CONTRIBUTING.md`).
 
 ## Build
 
