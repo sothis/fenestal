@@ -43,7 +43,7 @@ whose binary is missing is skipped and said so; build it first:
 The CPU figure is utime+stime of the launched process over a fixed window,
 read out of /proc. For `win64-vulkan` that process is wine, so the figure
 carries wine's overhead too: comparable across *rates* on that target and
-only roughly with the other two.
+only roughly with the other columns.
 
 `win64-vulkan-native` is a column for each Windows laptop the harness knows
 and each GPU written down for it (native_driver.py): the same program

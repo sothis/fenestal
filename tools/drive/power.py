@@ -32,7 +32,7 @@ way out is a plain restart, which the firmware's order takes to the key:
 OpenCore routes macOS's boot variables into a space of its own
 (RequestBootVarRouting), so macOS cannot name the firmware's next boot,
 and Windows is reached through the key. The restart is `sudo -n
-shutdown -r now`, which wants a sudoers line for the account (`json
+shutdown -r now`, which wants a sudoers line for the account (`<user>
 ALL=(root) NOPASSWD: /sbin/shutdown`).
 
 `wake` sends a magic packet to each wired port `learn` found with

@@ -7,9 +7,9 @@ Every other X environment is a window on XWayland under mutter, so every
 question this library sends a window manager has had an answer. The X11
 backend has a path for the answer never coming -- _NET_SUPPORTING_WM_CHECK
 unset, and the titlebar's drag, the edges, fullscreen and maximize done by
-the library itself -- and those paths are marked UNVERIFIED in x11.c. This
-is where they run: a Linux machine with Xorg on its panel and no window
-manager, no desktop and no compositor beside it.
+the library itself -- and no environment on this desktop reaches those
+paths. This is where they run: a Linux machine with Xorg on its panel and no
+window manager, no desktop and no compositor beside it.
 
 The same machine serves two more rounds. weston, with no panel and no shell
 around it, is a compositor that advertises less than GNOME does, so the

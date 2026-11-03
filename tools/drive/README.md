@@ -3,7 +3,8 @@
 Everything under `tools/drive/` drives a real window on a real desktop: the
 round (`stress.py`), the pace instrument (`pace.py`), the benchmark
 (`bench.py`), the signal and selftest rounds, and the ways into a
-VirtualBox guest and a Windows laptop. The library's own DESIGN is the spec;
+VirtualBox guest, a Windows laptop, a Mac and a Linux machine with no
+desktop. The library's own DESIGN is the spec;
 this is how the measurements in it are taken, and what the harness has had to
 learn about the desks it runs on. What the harness found about the *library*
 on Windows itself -- the size request's cost, the reaper, the monitors, the
@@ -23,18 +24,24 @@ python3 tools/drive/stress.py --capture          # opt in to pictures
 `tsan` or `gc` puts `VK_LAYER_KHRONOS_validation` in front, with sync and
 best-practices validation, unless `--validation off` declines it; `on` asks
 for it at release too. The round then reads the program's own mappings, and
-its first check is that the layer is in it: a loader that cannot find a
-layer says nothing, and a round run without it would read as one run with
-it. Made unfindable (`VK_LAYER_PATH=/nonexistent`), that check fails and the
-round with it. What the layer says lands in the log, and `log is clean`
-fails on any `VUID` or error there.
+its next check after the backend's and the renderer's (below) is that the
+layer is in it: a loader that cannot find a layer says nothing, and a round
+run without it would read as one run with it. Made unfindable
+(`VK_LAYER_PATH=/nonexistent`), that check fails and the round with it.
+What the layer says lands in the log, and `log is clean` fails on any line
+there that no list expects, a `VUID` among them. The layer is Vulkan's: a
+round drawn with OpenGL has none to prove loaded, and GL's debug output,
+which a Debug tree logs, is what the log check reads instead.
 
 **A round holds the machine's own input.** For its length the keyboards,
 mice and touchpads of the machine it drives are held away from the desktop
 (`input_hold.py`): grabbed by root over ssh on this desk and the bare
-machines, and dropped by the agent's hooks on a Windows laptop and its
-event tap on the Mac, which let the harness's own input through. A hand
-there would otherwise land in the middle of a drag. Ctrl+Alt+Escape
+machines -- here as `root@localhost`, with the key `FNL_DRIVE_ROOT_KEY`
+names, or else the path in `~/.local/state/fenestal/root-key`, or else
+whatever ssh's own configuration gives (`root_key_args()` in
+`environment.py`) -- and dropped by the agent's hooks on a Windows laptop
+and its event tap on the Mac, which let the harness's own input through. A
+hand there would otherwise land in the middle of a drag. Ctrl+Alt+Escape
 (Control+Option+Escape on the Mac) gives it back, and the sweep stops after
 that round; a hold ends after 30 minutes regardless, and `FNL_DRIVE_HOLD=0`
 holds nothing.
@@ -57,6 +64,13 @@ check says what it *needs* — `server-rect`, `wm-props`, `grab-ring`,
 has, in its `CAN` set in `tools/drive/environment.py`, which is the whole list.
 Nothing in the round tests an environment by name.
 
+Those differences are facts about the window server rather than about this
+library. A Wayland client is never told where its window is, so the rectangle
+checks do not apply to it; it has a transparent grab ring and an X window does
+not; and it cannot ask to be unminimized, which is why the off-screen skip is
+checked where a window can be brought back. Each is reported as *not
+applicable* with the reason, not quietly omitted.
+
 **A Linux environment names its backend.** The Linux tree, `linux`, has
 Wayland, X11 and KMS, so an environment is a tree and a backend --
 `x11-vulkan` is `linux` told `FNL_BACKEND=x11`, `kms-gl-bare` is `linux`
@@ -75,8 +89,7 @@ renderer of its system in each program -- `win64` Direct3D 12 and Vulkan,
 `win64-vulkan` and `win64-d3d12` (and their `-wl`, `-vm`, `-native` and
 bare twins), `x11-vulkan` and `x11-gl`, and `macos-metal-native`,
 `macos-vulkan-native` and `macos-gl-native` are each one tree told
-`FNL_RENDERER=vulkan`, `gl`, `d3d12` or `metal`; the names are unchanged,
-since the ledger is keyed on them. Left to itself the
+`FNL_RENDERER=vulkan`, `gl`, `d3d12` or `metal`. Left to itself the
 library takes the first renderer of its system's order and steps down on
 a failure, so a round of one renderer under another's name would pass for
 it. Every environment is told its renderer (`RENDERER` in
@@ -102,21 +115,16 @@ laptop's GPUs are a block each, from when they are written down for it
 and not from when one is first run on. A skipped round is a line too, so a
 machine that was off is seen to have been asked.
 
-Those differences are facts about the window server rather than about this
-library. A Wayland client is never told where its window is, so the rectangle
-checks do not apply to it; it has a transparent grab ring and the other two do
-not; and it cannot ask to be unminimized, which is why the off-screen skip is
-checked on the other two. Each is reported as *not applicable* with the reason,
-not quietly omitted.
-
 ## Measuring the pace
 
-`tools/drive/pace.c` is the one harness that drives the *library* rather than
-the window server. It is a caller: it links the installed header, registers no
-callbacks at all, and asks for its own sizes at a fixed rate from a thread of
-its own through `fnl_request_size_pt()`, which is `[any]` on every backend
-precisely so a caller may. CMake builds it into every tree beside the
-testbed, so it exists for the checker variants and for the cross target as well.
+`fenestal-dev pace` (`tools/drive/pace.c`) is the harness that drives the
+*library* rather than the window server. It is a caller: it includes the public
+header and no other of the library's, registers no callbacks but the empty one
+`--draw --no-vsync` asks with, and asks for its own sizes at a fixed rate from
+a thread of its own through `fnl_request_size_pt()`, which is `[any]` on every
+backend precisely so a caller may. CMake builds `fenestal-dev` into every tree
+beside the testbed, so it exists for the checker variants and for the cross
+targets as well.
 
 ```sh
 ./build.sh
@@ -150,13 +158,13 @@ python3 tools/bench/report.py --html > report.html
 
 Why a program of its own: the rounds are clicks and keys, timed by what the
 harness waits for — and a figure taken that way measures the harness. This one
-puts the same stream of sizes through all three platforms and prints the answers
+puts the same stream of sizes through every environment and prints the answers
 side by side.
 
 Why side by side: a pacing rule that is wrong on two platforms of three — the
 rebuild anchor in DESIGN *Frame pacing* is one — does not show in either's own
 column. Reading down one says nothing: 90 fps looks like a client that is
-simply fast. Reading across a row against Wayland's flat 60 says it at once.
+simply fast. Reading across a row, against its neighbours, says it at once.
 
 Registering no callbacks is the other half of what it is for. What
 `--frame-times` reports then is the library's own floor, with nothing of a
@@ -167,7 +175,7 @@ regression in the testbed.
 The CPU figure is `utime + stime` out of `/proc`, which is why the runner is
 Linux's. For `win64-vulkan` the process is wine, so that column carries wine's
 overhead too — comparable across rates on that target, and only roughly
-comparable with the other two. A single sweep is an indication; DESIGN.md's
+comparable with the other columns. A single sweep is an indication; DESIGN.md's
 tables are two sweeps agreeing.
 `docs/benchmarks.md` keeps the latest full set, every platform side by side.
 
@@ -265,8 +273,8 @@ turn, as `win64-vulkan-vm@win10` and `win64-vulkan-vm@win11`, and one name
 there is one machine. The password file is shared, and a machine with a
 password of its own keeps it in `vbox-guest-<vm>` beside it. Without any of
 them the environment is skipped with the reason, a machine at a time. A round
-asks the machine for a 1920x1200 screen if it has less — the drags need the
-room — and leaves it so.
+asks the machine for a 1600x1000 screen (`SCREEN`) if it has less — the
+drags need the room — and leaves it so.
 
 Two machines have been put through it, Windows 10 and Windows 11. Both have
 two monitors, which is what the move between outputs needs: the list of them
@@ -303,20 +311,23 @@ screen on, "2 monitor(s) at logon" and no window, about one start in ten.
 Nothing from outside brings it back: not the layout sent again, not the
 screen turned off and on, not the visibility key set while it runs, and a
 window mapped from here is held minimised by mutter in a frame it never
-fills. Saving the machine's state and restoring it does, in some 40 s and
-with no boot or logon -- VirtualBox's window is started afresh -- and
-`vbox_up.py` checks every screen's window for being mapped and drawn and
-does that for one that is not. It also holds the windows in place while a
-guest boots: Windows turns its second screen off and on then, VirtualBox
-hides that window, moves it 37 to 150 px up while hidden and shows it
-there, and `vbox_up.py` moves it back within a fifth of a second. A window
-not yet shown is left alone; moved while VirtualBox is setting it up, it
-opened 3000 px off. The place it holds them to is the tiler's own key,
+fills. A reboot does -- `vbox_down.py`'s shutdown and a start, whose new
+window process opens a window for every screen -- and `vbox_up.py` checks
+every screen's window for being mapped and drawn and reboots a machine with
+one that is not. Saving the state and restoring it opens the windows as
+well, with no boot, and is not used: a win11 restored that way refused the
+foreground to every program started on it afterwards, each round stopping
+at its first focus check, until it was rebooted. It also holds the windows
+in place while a guest boots: Windows turns its second screen off and on then,
+VirtualBox hides that window, moves it 37 to 150 px up while hidden and shows
+it there, and `vbox_up.py` moves it back within a fifth of a second. A window
+not yet shown is left alone; moved while VirtualBox is setting it up, it opened
+3000 px off. The place it holds them to is the tiler's own key,
 `fenestal/WindowPosition<n>`, copied into VirtualBox's before every start:
-VirtualBox rewrites its key on each close with wherever the window was, and
-a window left out of place one round was held there the next. The logon
-property is cleared before a start too, since one left from the last
-session reads as a logon at once.
+VirtualBox rewrites its key on each close with wherever the window was, and a
+window left out of place one round was held there the next. The logon property
+is cleared before a start too, since one left from the last session reads as a
+logon at once.
 
 **Stopping them: `vbox_down.py`.** `shutdown.exe /s /t 0` by guest control
 as the guest's user, waited on so that a refusal is an exit code -- no
@@ -420,9 +431,9 @@ after the delay and at the rate that user has set.
 One laptop has been put through it: Windows 11 build 26300, an Intel HD 630
 driving a 1920x1080 panel at 60 Hz with a GTX 1050 Ti beside it, the display
 at 125%. The round is 66 checks with `--capture` and 63 without, none failed,
-with the move between monitors skipped for want of a second; `minimal.py`
-is 20. It was the first round anywhere at a scale other than 100%, and what
-it turned up was the harness's: the echo's `area` is pixels and the round
+with the move between monitors skipped for want of a second. It was the
+first round anywhere at a scale other than 100%, and what it turned up was
+the harness's: the echo's `area` is pixels and the round
 had been aiming and comparing with it as points, which at 100% are the same
 number. `testbed.py` now carries both. It is also the first screen smaller than
 the round: the default window at 125% is 1600x943 of the panel's 1080 rows,
@@ -430,8 +441,8 @@ so the resize drag first moves the window back towards the monitor's origin
 and is cut to the room that leaves (`room_to_grow()`), which changes nothing
 where there was room. With those changes in, and the agent both Windows
 machines run grown for the laptop, the other rounds are where they were:
-the two guests 69 with captures and 20 for `minimal.py`, X11 74, wine 65,
-wine on Wayland 41, Wayland 56, none failed. Wayland's picture of the bar
+the two guests 69 with captures, X11 74, wine 65, wine on Wayland 41,
+Wayland 56, none failed. Wayland's picture of the bar
 straight after fullscreen was once of a window 1321 pixels wide where 1278
 was wanted — the compositor's animation, with four guest windows on the
 desk beside it — so that check now looks again before it fails. The hand
@@ -475,7 +486,6 @@ each of the two, on the build that has the name:
 |---|---|---|
 | `stress.py --capture` | 66, none failed | 66, none failed |
 | validation, sync and best-practices | 63, none failed, log clean | 63, none failed, log clean |
-| `minimal.py` | 19, none failed | 19, none failed |
 
 And `pace.py`, one sweep each, frames presented and CPU of one core:
 
@@ -493,8 +503,10 @@ Idle is the panel's rate on both. Under size requests neither is: every
 other environment holds 59 or 60 down that column, and here the rate falls
 with the request rate on the device that owns the panel and first *rises*
 past the panel's on the one that does not, which a FIFO swapchain should
-not allow. One sweep each, so an indication, and what is behind it is
-`TODO.md`'s; the same program at 250 on the Intel device ended on time
+not allow. One sweep each, so an indication; the run past the panel was
+the period estimate's, which waits on the fence for it, and DESIGN
+*Measured on Windows itself* has that and the sweep after it, with nothing
+past the panel. The same program at 250 on the Intel device ended on time
 when it was run again by itself. The bare round on the build with the
 name, captures on: Wayland 56, X11 74, wine 65, wine on Wayland 41, the
 two guests 69 each and the laptop 66, none failed.
@@ -531,7 +543,6 @@ harness were the first laptop's and not Windows':
 |---|---|---|
 | `stress.py --capture` | 66, none failed | 66, none failed |
 | validation, sync and best-practices | 63, none failed, log clean | 63, none failed, log clean |
-| `minimal.py` | 19, none failed | 19, none failed |
 
 | sizes a second | Intel HD 530 | NVIDIA GTX 960M |
 |---|---|---|
@@ -567,7 +578,7 @@ The native Wayland window has no cell: its edges are the grab ring, which the
 harness has no way to aim at. The window is left alone for three seconds before
 the press (`BORDER_REST`), so that the row is a settled window's, with its
 late-latch hold learnt. A border taken in a window's first second is what the
-borrowed period is for (DESIGN, *The period is measured*), and with it reads as
+borrowed period is for (DESIGN *The period is measured*), and with it reads as
 the row does on the NVIDIA devices, 50 and 57.
 
 On the Intel devices a hand is fifteen to twenty sizes a second, with more
@@ -601,6 +612,11 @@ privacy database: Accessibility, without which a posted event is dropped
 without a word, and Screen Recording, without which a window's title is
 withheld and a picture is the wallpaper. The agent asks for both before a
 round and the round is skipped, saying which, when either is missing.
+`mac_driver.py --status <name>` says which are there, and `--setup <name>`
+raises Accessibility's dialog on the Mac and writes the machine down; the
+machines are `FNL_DRIVE_MAC`'s or the lines of
+`~/.local/state/fenestal/mac-hosts`, and `power.py boot schenker macos`
+takes schenker there.
 
 Input is posted `CGEvent`s at the HID tap, which macOS delivers as a
 hand's; modifiers go as flag changes with the side's device bit, and a held
@@ -625,7 +641,7 @@ and a drag event ended the press the titlebar's move is handed, so the
 window never moved. One machine, the HD 630 under macOS 26.7.1, 1920x1080
 at 100%:
 
-| | `macos-metal` | `macos-vulkan` (MoltenVK) |
+| | `macos-metal-native` | `macos-vulkan-native` (MoltenVK) |
 |---|---|---|
 | `stress.py --capture` | 64, none failed | 64, none failed |
 
@@ -655,8 +671,8 @@ the window.
 under mutter, so every question the library puts to a window manager has
 been answered, and the paths behind `_NET_SUPPORTING_WM_CHECK` being unset
 -- the drag, the edges, fullscreen and maximize done by the library, the
-server's focus with nobody to give it -- are marked UNVERIFIED in `x11.c`
-and had never run. `x11-vulkan-bare` runs them: the `linux` tree's
+server's focus with nobody to give it -- are reached by no environment on
+this desktop. `x11-vulkan-bare` runs them: the `linux` tree's
 binary, told to open X11, on another Linux machine's Xorg, with no window
 manager, desktop or compositor there (`bare_driver.py`). Xorg is started as
 root on `:9`, on VT 7, as the transient unit `fenestal-xorg`, and left up
@@ -674,14 +690,20 @@ that machine's: every program a round, `pace.py`, `bench.py` or
 `bare_run.py` starts there is given it unless this desk's environment
 names the variable too (`thinkpad user@thinkpad LP_NUM_THREADS=2`, the
 setting that keeps that machine from resetting).
-`bare_driver.py --setup <name> <user@address>` installs what a minimal Debian
-with `xorg` lacks -- the Vulkan loader and Mesa's drivers, `vulkan-tools`, the
-validation layers, `xclip` -- and writes the name down; `--status`, `--up` and
-`--down` are the rest. It declares no `unminimize` (iconifying is a request to a
-manager) and no `desk-layout` (GNOME's layout is not that server's). It speaks
-for the X server's behaviour and not for frame rates: the first machine is a
-ThinkPad Edge with an i3 M370, whose Ironlake graphics no Vulkan driver covers,
-so lavapipe draws. `pace.py` has a column for it all the same, `bare@thinkpad`,
+`bare_driver.py --setup <name> [user@address]` installs what a minimal
+Debian or Arch with Xorg lacks -- the Vulkan loader and Mesa's drivers,
+`vulkan-tools`, the validation layers, `xclip` -- and writes the name down;
+`--status`, `--up` and `--down` are the rest. The two distributions are told
+apart by `/etc/os-release`, and `DISTROS` holds all that differs between
+them; a machine booted from its stick is Arch. The tree a machine is sent
+is its `uname -m`'s (`TREES`): `linux-arm64` on the Raspberry Pi 4 (`pi4`),
+where the Windows environments, with no wine to run under, are skipped
+with the reason. `x11-vulkan-bare` declares no `unminimize` (iconifying is
+a request to a manager) and no `desk-layout` (GNOME's layout is not that
+server's). It speaks for the X server's behaviour and not for frame rates:
+the first machine is a ThinkPad Edge with an i3 M370, whose Ironlake
+graphics no Vulkan driver covers, so lavapipe draws. `pace.py` has a column
+for it all the same, `bare@thinkpad`,
 since what it measures there is the pacing and the CPU, and a lavapipe machine
 is where a loop nothing throttles shows: the column is what found the spacing
 short of a refresh (DESIGN *Frame pacing*). Run it with
@@ -691,11 +713,13 @@ machine's X server taking any more (DESIGN *X11*).
 
 The checker rounds run there too, with this desktop's sanitizer runtimes
 shipped beside the binary: the instrumentation is gcc 15's, Debian's runtime
-gcc 14's. Under ASan the driver is preloaded, since an unloaded lavapipe
-leaves its globals' allocations reported as leaks from an unknown module;
-under TSan `tsan-lavapipe.supp` goes with `tsan.supp`, for two races inside
-lavapipe's device thread. asan, tsan and gc are 62 checks each, none failed,
-under the validation layer.
+gcc 14's. The ARM tree's are the Pi's own, since the runtimes beside
+Ubuntu's cross compiler are another gcc's (`_runtimes()` says why). Under
+ASan the driver is preloaded, since an unloaded lavapipe leaves its globals'
+allocations reported as leaks from an unknown module; under TSan
+`tsan-lavapipe.supp` goes with `tsan.supp`, for two races inside lavapipe's
+device thread. asan, tsan and gc are 62 checks each, none failed, under the
+validation layer.
 
 A bare round drives the machine as it drives the guests and the laptops, and
 asks first as a laptop is asked: a console login there with a key pressed in
@@ -711,7 +735,7 @@ NVIDIA GPU moved to that kernel driver first.
 **A second monitor there is arranged, not left to Xorg.** With no desktop,
 nobody decides where a monitor goes: Xorg lights what is connected when it
 starts and leaves one plugged in later dark. So each time a round asks for
-the server, `bare_driver.arrange()` sets the layout in one `xrandr`: the
+the server, `Bare.arrange()` sets the layout in one `xrandr`: the
 primary (the panel) at the origin, every other connected output right of
 the one before, every disconnected output off. The environment declares
 `multi-output` -- with one output the section skips itself -- and
@@ -731,15 +755,16 @@ runs the same `linux` binary on weston there, told to open Wayland,
 and `kms-vulkan-bare` runs it told to open KMS, with neither server up, so
 that it opens the DRM node first and has the panel. A tree's programs go
 to a directory of their own there, `fenestal-drive/<tree>-<variant>`, which
-the three rounds of one tree share; a Windows program's to one for each
+every round of one tree shares; a Windows program's to one for each
 renderer it is told, `win64-<renderer>-<variant>`, since a Direct3D 12
 round's has DXVK's DXGI beside it. weston is started by root
 as a login session of the account's (`PAMName=login`, VT 7, unit
 `fenestal-weston`, socket `wayland-fenestal`), which is what has logind
 hand it the seat; its `weston.ini`, written into `fenestal-drive` each
 time, has no panel, no lock, no animation and an unaccelerated pointer,
-and the console's layout. Only one of Xorg and weston runs at a time:
-asking for either stops the other, and a KMS round stops both.
+the console's layout, and a repaint window of 10 ms, since at weston's 7
+the thinkpad's Ironlake misses every vblank. Only one of Xorg and weston
+runs at a time: asking for either stops the other, and a KMS round stops both.
 `bare_driver.py --weston <name>` starts weston by hand.
 
 Both are driven by uinput: `uinput_hands.py`, copied there and run by
@@ -753,12 +778,17 @@ window is: nothing there says where they are.
 The weston round declares `grab-ring` and `composited`
 (`weston-screenshooter`, which weston allows under `--debug`), and the
 library's line at open says which optional globals weston left unbound.
-The KMS round declares nothing beyond what every environment is asked: its
-window is the output, so it lacks `resizable` and the round's size
-sections are skipped there, and nothing composites it, so no picture.
+The KMS round declares what a window that is the output has -- its picture
+(`composited`, below), a pointer only the library draws (`drawn-pointer`),
+the output's modes in the titlebar (`display-modes`) -- and not
+`resizable`, so the round's size sections are skipped there.
 `--setup` also installs weston and xkeyboard-config's files (`xkb-data`;
 the KMS backend reads its layout from them, with no tool), puts the
-account in group `input`, and loads `uinput` now and at every boot.
+account in group `input`, loads `uinput` now and at every boot, sends the
+kernel's messages to VT 12, installs `tools/gpu-driver.sh` for the
+library's own move between kernel drivers, and fetches the debug info of
+the installed Vulkan drivers and layers and of Mesa's OpenGL, so that a
+checker names their frames.
 
 **This desktop is a bare machine too, booted into its console.** The GRUB
 entry `fenestal-console` (`grub-reboot fenestal-console`, then
@@ -819,6 +849,18 @@ there (`kms_grab.py`): the screen itself, so the round declares
 `composited`. 39 checks with `--capture`, none failed. The harness reports
 a program gone before its window as a skipped environment, with its last line
 as the reason.
+
+Kernel drivers written after a machine's address in `bare-hosts`
+(`schenker user@schenker nouveau nvidia`), or named by
+`FNL_DRIVE_BARE_DRIVER`, are a KMS round each,
+`kms-vulkan-bare@schenker:nouveau`: the servers stopped, the NVIDIA GPU
+moved to that driver with no reboot by `tools/gpu-driver.sh` as root
+(`bare_driver.py --driver <name> <driver>` by hand), and the program told
+`FNL_GPU_DRIVER=switch`, so that the round's hands move it to the other
+driver and back from the titlebar's GPU box. KMS's alone: under Xorg,
+weston or cage the GPU may be the server's, and those rounds run on the
+driver the machine booted (DESIGN *Another kernel driver, with the window
+open*).
 
 **And a third time, under wine on the compositor itself.** `win64-vulkan-wl`
 is the same binary again with wine drawing through `winewayland.drv` and not
@@ -993,7 +1035,7 @@ software device does with the instrument: an empty scene, 12 s a cell, the
 | 250 | 77, 76 | 13.2 |
 
 None of it is a pacing figure. lavapipe's present waits for no display and the
-hold and the spacing are off on a software device (see *Late latching*), so
+hold and the spacing are off on a software device (DESIGN *Late latching*), so
 the loop runs flat out and the column falls as the rebuilds rise, each one CPU
 work. On the 3773x2013 desktop, and under the `kvm` provider, the same sweep
 read about half throughout: 57 fps idle, 113 at five, 32 at 250.
@@ -1014,7 +1056,7 @@ Two runs a cell and one at five, on the guests' two-monitor desktops
 (3520x1440 and 3200x1200), so the figures are not the tables' and only the
 order within a column is the point. With a display to wait for the size of
 an empty window is not what a frame costs, which is why `pace.py`'s idle
-column shows none of this on the other three.
+column shows none of this on the environments with a display.
 
 The Windows 11 guest, two sweeps, on one 2400x1280 monitor so that it can be
 set against the table above:
@@ -1073,12 +1115,12 @@ predicate, `quiet()` for the echo to have said nothing more, `press()` and
 `let_go()` for a key's edges, `rect_still()` for the server to stop moving a
 rectangle. What is left on a clock is a handful of named constants, each with
 its reason beside it — `PARK_BEAT`, `MAP_BEAT`, `SWEEP_BEAT`, `ROW_BEAT`,
-`PAUSE`, `SELECTION_BRIDGE` and `AIM_BEAT` — for the places with nothing to
-wait on. `AIM_BEAT` is the one that looks replaceable and is not: polling for
-the first changed pointer reading from XWayland instead lost the window at a
-resize corner three rounds in ten. Waiting on evidence is also the faster
-harness: the three-environment `stress.py` round takes 143 s on this machine
-against 185 s on fixed sleeps, and `minimal.py` 30 s against 47.
+`CORNER_BEAT`, `PAUSE`, `SELECTION_BRIDGE` and `AIM_BEAT` — for the places
+with nothing to wait on. `AIM_BEAT` is the one that looks replaceable and
+is not: polling for the first changed pointer reading from XWayland instead
+lost the window at a resize corner three rounds in ten. Waiting on evidence is
+also the faster harness: the three-environment `stress.py` round takes 143 s on
+this machine against 185 s on fixed sleeps.
 
 **Any program built on the library can be driven.** The echo is the
 library's (`src/core/echo.c`): it runs
@@ -1162,7 +1204,8 @@ tidiness.
 The dialog is modal and takes the keyboard, so a round that meets one has
 already lost the focus checks it is about to make — whether or not somebody
 eventually clicks Allow. So the round asks with `prompt=False`: with
-no grant it prints how to get one and exits **77**, which automake and meson
+no grant each of this desktop's environments is skipped, saying how to get
+one, and a round in which nothing ran exits **77**, which automake and meson
 both read as *skipped*, and which is neither the 0 of a round that passed nor
 the 1 of a round that found something. A round that could not run has not found
 a bug, and reporting it as one is how a suite stops being read.

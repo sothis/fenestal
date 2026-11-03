@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * fenestal-dev pace -- one instrument, three backends: what the frame loop
+ * fenestal-dev pace -- one instrument, every backend: what the frame loop
  * does to a window that is being resized, measured the same way on every
  * one of them.
  *
@@ -51,7 +51,7 @@
  * --frame-times then reports is the library's own floor -- the pacing, the
  * device waits, the titlebar's recording and the submit. The testbed answers
  * the other question, what a frame costs with an application in it, and having
- * both separates a regression in the library from one in the example.
+ * both separates a regression in the library from one in the testbed.
  *
  * It includes the installed header and no other of the library's, so
  * building it is the same proof testbed carries about the link line, from a

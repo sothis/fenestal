@@ -6,6 +6,11 @@ and the `CMakeLists.txt` that builds them. The library is the only thing
 the demos share, and each takes it as a consumer does, by
 `add_subdirectory` and `fenestal::static` (or `fenestal::fenestal`).
 
+They are dedicated to the public domain (CC0 1.0, `LICENSE` clause 3), so a
+program of your own may start from one and keep no notice. They are not the
+testbed: `fenestal-testbed` is the application the library is developed
+with, and `examples/` holds the API reference's snippets.
+
 | Demo | Renderers | What it shows |
 |---|---|---|
 | [`hello`](hello/) | any the build has | The smallest Fenestal program: a window, the library's titlebar and a black scene, with no callbacks at all. |
@@ -20,11 +25,11 @@ and `<name>-dyn` against the shared one, which it loads from its own folder.
 
 Keys, all of them the library's own:
 
-| Key | Action |
+| Input | Action |
 |---|---|
 | `F5` | show or hide the metrics panel: frame rate, frame cost, input latency, and the process's CPU, RAM, VRAM and GPU share |
 | `F11` | fullscreen |
-| `F9` | release a captured pointer |
+| Left click in the scene | capture the pointer; `F9` releases it |
 | `Esc` | quit |
 
 ## Building
@@ -64,19 +69,20 @@ beside the programs as it does (`tools/moltenvk.py --into`).
 FNL_BACKEND=x11 ./build/linux/release/motion2-dyn
 ```
 
-A Linux program opens Wayland, then X11, then KMS on a bare console,
-whichever the session has; `FNL_BACKEND=wayland`, `x11` or `kms` picks one.
-Where a demo has more than one renderer, or the machine more than one GPU
-(a software rasteriser counts), Fenestal chooses which draws. The first run
-of each program measures every GPU with every renderer the demo has, a
-second or more each, while the window shows a calibration panel and takes
-no input; that run and every later one draw on the fastest, kept in
-`~/.cache/fenestal/`. So `texture` may draw with OpenGL on a machine where
-OpenGL measured faster than Vulkan. `FNL_RENDERER=vulkan`, `d3d12`, `gl` or
-`metal` names a renderer among those the demo has, `FNL_GPU` a GPU, and
-`FNL_GPU_RANK=off` skips the measuring. Each program logs the backend,
-renderer and GPU it chose. OpenGL wants a GPU with OpenGL 4.1 core, which a
-Raspberry Pi 4's has not: `texture` draws with Vulkan there.
+A Linux program opens Wayland, then X11, then KMS on a bare console, whichever
+the session has; `FNL_BACKEND=wayland`, `x11` or `kms` picks one. Where a demo
+has more than one renderer, or the machine more than one GPU (a software
+rasteriser counts), Fenestal chooses which draws. The first run of each
+program measures every GPU with every renderer the demo has, a second or more
+each, while the window shows a calibration panel and takes no input; that run
+and every later one draw on the fastest, kept in the user's cache
+(`~/.cache/fenestal/` on Linux, `~/Library/Caches/fenestal/` on macOS,
+`%LOCALAPPDATA%\fenestal` on Windows). So `texture` may draw with OpenGL on a
+machine where OpenGL measured faster than Vulkan. `FNL_RENDERER=vulkan`,
+`d3d12`, `gl` or `metal` names a renderer among those the demo has, `FNL_GPU`
+a GPU, and `FNL_GPU_RANK=off` skips the measuring. Each program logs the
+backend, renderer and GPU it chose. OpenGL wants a GPU with OpenGL 4.1 core,
+which a Raspberry Pi 4's has not: `texture` draws with Vulkan there.
 
 Keep a tree's files together when copying it elsewhere: the `-dyn`
 programs load the shared library from their own folder, and on a Mac the
@@ -95,4 +101,5 @@ python3 tools/vkd3d_proton.py --run build/win64/release/motion2.exe
 
 Copy a demo folder here and rename it and the names in its
 `CMakeLists.txt`: the project, the targets and the programs. The top-level
-build finds every folder here with a `CMakeLists.txt`.
+build finds every folder here with a `CMakeLists.txt`. A demo added to this
+tree keeps the CC0 header its files start with.

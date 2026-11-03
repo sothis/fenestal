@@ -3346,8 +3346,8 @@ class X11Bare(_OnBare, X11):
     Not another build: the tree is the desktop's, and what differs is that
     nothing answers _NET_SUPPORTING_WM_CHECK. So the library moves and sizes
     its own window, does its own fullscreen and maximize arithmetic, and is
-    focused by the X server alone -- the paths x11.c marks UNVERIFIED, which no
-    environment on this desktop reaches. See bare_driver.py for the machine.
+    focused by the X server alone -- the paths no environment on this
+    desktop reaches. See bare_driver.py for the machine.
 
     The questions are X11's, put to that server through a forwarded
     socket, and so are the aiming and the spare key's remap. The input is
