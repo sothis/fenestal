@@ -29,6 +29,14 @@ not known. The testbed now opens on OpenGL on this desktop for that reason.
 
 ## What each renderer times today
 
+As read at commit 74ff79e (2026-10-27), before this plan was carried out;
+the citations name the same code in the tree as it stands (2026-11-03).
+**Now:** Vulkan's end stamp (vulkan/frame.c:452) comes after the copy
+path's readback (:450) and before a snapshot's (:456); D3D12's
+(d3d12/frame.c:958) comes before the snapshot's copy (:963) and the present
+barrier; and D3D12's `record` (:974) ends before `submit()` (:979), as every
+renderer's does (DESIGN *What a frame costs, compared*).
+
 The CPU half is `late_cost`, the running mean the late-latch cap already
 kept, from `t_rec` (past every device and display wait) to `t_present`
 (just before the present call). The GPU half is a timestamp pair.

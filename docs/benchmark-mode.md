@@ -27,6 +27,11 @@ Decisions the user made this session (AskUserQuestion):
 
 ## Verified facts the document rests on
 
+Verified against commit 8835063 (2026-10-25), before the benchmark mode was
+built; DESIGN *Benchmarking* is what was built. The citations name the same
+code in the tree as it stands (2026-11-03), and a **Now:** line under a fact
+that no longer holds says what does.
+
 - The testbed has no timing code; every figure is a getter: `fnl_fps()`
   (0.2 s window), `fnl_frame_gpu_ms()`/`fnl_frame_cpu_ms()` (EMAs 0.9/0.1,
   published each 0.2 s), `fnl_input_latency_ms()`; `fnl_set_cost_sampling()`
@@ -34,22 +39,36 @@ Decisions the user made this session (AskUserQuestion):
   (testbed/main.c:606). `--no-vsync` sets `FNL_VSYNC=0` before
   `fnl_init` (main.c:360). Scene: two fixed draws, no load knob; motion is
   the library's F2 alone (`App::scene_motion`, src/core/app.c:2014).
+  **Now:** the testbed has the benchmark mode (`testbed/bench*.c`); events
+  are drained at the top of `on_record` too (`demo_drain()`,
+  testbed/main.c:572, called at main.c:591); F2's flag is public as
+  `fnl_set_scene_motion()` and `fnl_scene_motion()`.
 - The phase split exists only as `--frame-times` text every 0.5 s
   (`FRAME_TIMES_WINDOW`, src/core/frame.c:112; header, usage and DESIGN say
   "once a second": stale), declared unstable (fenestal.h:48). The `fc_*`
   sums are **windowed and gated** on `a->frame_times` (frame.c:1527, 1923,
   1956, 2028, 2055, 2078, 2151, 2168, 2221; reset at 1513-1517 and
   1725-1729), so a cumulative stats API needs fields and a gate of its own.
+  **Now:** that API is `fnl_set_frame_stats()` and `fnl_frame_stats()`, and
+  the sums are gated on `a->timing`, `frame_times` or the caller's counting
+  (frame.c:1838); the usage text says half a second.
 - `App::out_refresh_mhz` (app.h:1971) is already published by X11 (RandR,
   src/backend/x11/x11_ext.c:832), Cocoa (cocoa.m:371) and KMS, read by the
   pacer (frame.c:1043); Wayland discards `r` in `output_mode`
   (wayland.c:300-303), Win32 never publishes. A public getter is cheap.
+  **Now:** Wayland publishes it (wayland.c:97) and so does Win32
+  (win32.c:405), and the getter is `fnl_output_refresh_mhz()`.
 - GPU timestamps are durations only (`app_gpu_time(a, seconds)`,
   app.c:2341; readers vulkan/frame.c:616, gl:452, d3d12:326, metal.m:354).
   No present-to-display stamp anywhere: KMS reads only `drm_event.type`
   (kms.c:1707), D3D12 calls `GetFrameStatistics` for `PresentCount` alone
   (d3d12/frame.c:420), present_wait gives "shown" not "when", no
   wp_presentation protocol, no CAMetalDisplayLink.
+  **Now:** `app_gpu_time()` takes the frame's index too, and a frame's
+  shown stamp comes from Wayland's `wp_presentation` (wayland.c:1503),
+  X11's Present completions (x11_ext.c:339), KMS's vblank event
+  (kms.c:1716), D3D12's `SyncQPCTime` (d3d12/frame.c:655) and Metal's
+  `presentedTime` (metal/frame.m:311), handed out by `fnl_frame_shown()`.
 - Capture-on-click: `app_pointer_button()` queues `FNL_EVENT_BUTTON` first,
   then `deco_press()` (app.c:1736-1761); `deco_press()` ZONE_CONTENT ->
   `capture_pointer` (decor.c:346-349). Claims (`fnl_titlebar_claim`,
@@ -60,6 +79,9 @@ Decisions the user made this session (AskUserQuestion):
   caller's cursor (`deco_cursor_is_callers`, app.h:2201) and HTCLIENT on
   Win32 (win32.c:998); Cocoa's `acceptsFirstMouse` is `!= ZONE_CONTENT`
   (cocoa.m:625-629). Controls (src/core/controls.c) are internal.
+  **Now:** the swap runs every frame, whoever owns the bar (draw.c:485-489),
+  and `claim_at()` (decor.c:140) is asked in the content too: `deco_hit()`
+  ends `return claim_at(a, x, y) ? ZONE_CLIENT_ITEM : ZONE_CONTENT`.
 - Lifetimes repeat in one process (tools/drive/lifecycle.c `one_lifetime`,
   20 of them); every env read is inside `fnl_init()` (app.c:810, 928, 2612,
   2690), so a `setenv` between lifetimes is honoured.

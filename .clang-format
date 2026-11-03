@@ -7,11 +7,13 @@
 # comments and the compact `case X: case Y: return Z;` tables. Treat it as a
 # reference and a check on new code, not as something to run over the tree.
 #
-# Run once, check-only, with clang-format 21.1.8: the file parses, and it
-# would change some 3,900 lines in 62 of the 64 C sources and headers --
-# the aligned prototypes and declarations, the padded `case X:  return Y;`
-# tables, the indented `#  define` and the one-line unions. So the churn is
-# as predicted and the tree stays as it is.
+# Run check-only with clang-format 21.1.8 (2026-11-03, after the tree took
+# tabs): the file parses, and it would change some 9,900 lines in all 99 C
+# sources and headers of src/ and include/ -- the aligned prototypes and
+# declarations, the padded `case X:  return Y;` tables, the indented
+# `#  define` and the one-line unions; 3,650 of them beyond whitespace. The
+# tabs add 15 lines to that: the same run before them, with `UseTab: Never`,
+# found 9,911. So the churn is as predicted and the tree stays as it is.
 
 Language: Cpp
 Standard: c++11          # closest clang-format has; the tree is C11
