@@ -76,10 +76,16 @@ set(CMAKE_CXX_COMPILER_TARGET  ${_fnl_triple})
 # are compiled to the one object. LLVM's names only, never a bare one: a
 # missing llvm-link would otherwise be coreutils' link, and ar, ranlib and nm
 # binutils', none of which reads Mach-O or bitcode. opt is the one LLVM tool
-# packaged without the prefix. -DFNL_LLVM_<TOOL>=<path> names one by hand.
+# packaged without the prefix. -DFNL_LLVM_<TOOL>=<path> names one by hand,
+# as Homebrew's bare opt must be named; it reaches CMake's probe projects,
+# which read this file again with none of the cache, through the
+# environment, as the SDK does.
 foreach(_t ar ranlib install-name-tool link opt nm)
     string(TOUPPER ${_t} _v)
     string(REPLACE "-" "_" _v ${_v})
+    if(NOT FNL_LLVM_${_v} AND DEFINED ENV{FNL_LLVM_${_v}})
+        set(FNL_LLVM_${_v} $ENV{FNL_LLVM_${_v}} CACHE FILEPATH "")
+    endif()
     set(_names llvm-${_t}-21 llvm-${_t})
     if(_t STREQUAL "opt")
         list(APPEND _names opt-21)
@@ -91,6 +97,7 @@ foreach(_t ar ranlib install-name-tool link opt nm)
                             "and none is on PATH: install LLVM 21's tools, "
                             "or name one with -DFNL_LLVM_${_v}=<path>")
     endif()
+    set(ENV{FNL_LLVM_${_v}} ${FNL_LLVM_${_v}})
 endforeach()
 set(CMAKE_AR                ${FNL_LLVM_AR})
 set(CMAKE_RANLIB            ${FNL_LLVM_RANLIB})
