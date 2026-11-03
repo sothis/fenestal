@@ -47,8 +47,9 @@ and the questions left open for them. A question it lists is answered in
   pushed by hand and only when asked: `origin`, the NAS (`CLAUDE.local.md`
   says where), first, then `github`, the public `sothis/fenestal`, with
   `main` alone -- never `history`, `--all` or `--mirror`. GitHub's CI
-  (`.github/workflows/ci.yml`) builds every tree but the macOS ones on a
-  push to `main` and on a pull request, and runs ruff; it opens no
+  (`.github/workflows/ci.yml`) builds each target's release tree on a
+  push to `main` and on a pull request -- macOS on a Mac runner, against
+  its Xcode's SDK -- and runs ruff; it builds no checker tree and opens no
   window. This tree's own work takes no PR flow — do not propose one;
   pull requests are how others send changes (`CONTRIBUTING.md`).
 

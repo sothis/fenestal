@@ -545,6 +545,9 @@ promised: before 1.0, nothing between minor releases.
   (the Raspberry Pi 4) with `aarch64-linux-gnu-gcc`; consumers configure
   it with `-DCMAKE_TOOLCHAIN_FILE=cmake/linux-aarch64.cmake` and
   `-DFNL_GENERATED_DIR` naming a host tree's `generated/`.
+- The macOS tree builds on a Mac as well as on Linux:
+  `-DFNL_HOST_INCLUDE` names where a cross tree finds the Vulkan and GL
+  headers, `/usr/include` by default, which a Mac does not have.
 - The library's words are these: a *backend* is the window system it opens
   (Wayland, X11, Win32, Cocoa, KMS), a *renderer* the graphics API that
   draws (Vulkan, OpenGL, Direct3D 12, Metal), a *platform* one of each,

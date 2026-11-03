@@ -7,8 +7,8 @@ request: an API change and an implementation change go separately. -->
 
 ## Checks run
 
-CI builds these on the pull request; running them first saves a round trip
-(CONTRIBUTING.md *Before You Open a Pull Request*). Tick what you ran.
+CI builds each target's release tree on the pull request, and no checker
+tree (CONTRIBUTING.md *Before You Open a Pull Request*). Tick what you ran.
 
 - [ ] `./build.sh linux` -- warnings, ABI, tables, layering, fuzz replay
 - [ ] `./build.sh linux clang` -- `-Werror` and `-Wthread-safety`

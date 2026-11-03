@@ -1,24 +1,24 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Janos Sonntag
 #
-# The checks CONTRIBUTING.md *Before You Open a Pull Request* lists, on every
-# push to main and every pull request: each tree build.sh makes on Linux, and
-# ruff over tools/. A build that succeeds has run verifyfont, verifykeymap,
-# the fuzz replay, the ABI comparison, the layering, the tables and the API
-# reference's caller check, so a green build is those as well.
+# The release tree of every target, on every push to main and every pull
+# request, and ruff over tools/. A build that succeeds has run verifyfont,
+# verifykeymap, the fuzz replay, the ABI comparison, the layering, the
+# tables and the API reference's caller check, so a green Linux build is
+# those as well. The checker trees -- clang, asan, tsan, analyzer, gc --
+# are left to CONTRIBUTING.md's list.
 #
 # What it cannot run: a program. There is no display or GPU here, and the
 # harness (tools/drive/) drives desktops and machines of its own; a change in
-# how a window behaves is still checked by hand. Nor the macOS trees, which
-# build against Apple's SDK, copied from a Mac (tools/macos_sdk.py) and not
-# ours to put on a shared runner.
+# how a window behaves is still checked by hand.
 #
-# Every job runs in Ubuntu 26.04, the release the tree is developed on, so
-# gcc's warnings and -fanalyzer's findings are the ones a developer sees and
-# clang is the clang-21 build.sh asks for by name. The sanitizer runtimes want
-# what Docker's default profile denies: LeakSanitizer stops the world with
-# ptrace, and ThreadSanitizer re-executes itself without ASLR where the
-# kernel's mmap randomisation is wider than its shadow layout allows.
+# Linux runs in Ubuntu 26.04, the release the tree is developed on, so gcc's
+# warnings are the ones a developer sees. The macOS tree is built on a Mac,
+# whose Xcode has Apple's SDK: the SDK is licensed to Apple's machines, so it
+# is never copied to Linux here, where a cache or an artifact would hand it
+# to anyone. It is still the cross build, clang-21 and ld64.lld for x86-64,
+# with what a Linux machine supplies to it -- the baked font and the Khronos
+# headers -- handed over from the Linux job.
 #
 # Actions are pinned by commit, the tag above each.
 
@@ -37,59 +37,52 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-    DEBIAN_FRONTEND: noninteractive
-    # What every Linux tree needs (README *Building*), and git, which
-    # mkdist.py reads the file list from: checked out without it, the tree
-    # is a tarball, and build.sh skips the pack silently.
-    PACKAGES: >-
-        git ca-certificates cmake make gcc g++ pkgconf python3
-        linux-libc-dev libvulkan-dev libegl-dev libgl-dev
-        libwayland-dev libwayland-bin libxcb1-dev libfreetype-dev
-        glslang-tools spirv-cross xkb-data
-    # The checkout is the runner's user's and the container runs as root, so
-    # git calls it dubious and answers nothing -- and build.sh, finding no
-    # checkout, skips the pack as silently as it would for a tarball. The
-    # checkout action trusts it for its own step alone.
-    TRUST: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
 jobs:
+    # One job for the three trees a Linux machine builds: the cross trees
+    # borrow the Linux tree's baked font, which build.sh lends only when its
+    # files are newer than their sources and its check newer than the bake.
     linux:
-        name: linux ${{ matrix.variant }}
+        name: linux, win64, linux-arm64
         runs-on: ubuntu-latest
         timeout-minutes: 60
         container:
             image: ubuntu:26.04
-            options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
-        strategy:
-            # Each variant finds what the others do not; one failing says
-            # nothing about the rest.
-            fail-fast: false
-            matrix:
-                variant: [release, clang, asan, tsan, analyzer, gc]
+        env:
+            DEBIAN_FRONTEND: noninteractive
+        # The macOS job wants the bake, and not the cross trees' passing.
+        outputs:
+            bake: ${{ steps.linux.outcome }}
         steps:
+            # What every Linux tree needs (README *Building*), the two cross
+            # compilers, and git, which mkdist.py reads the file list from:
+            # checked out without it, the tree is a tarball, and build.sh
+            # skips the pack silently.
             - name: Install packages
               run: |
-                  extra=
-                  # libclang-rt for the fuzz harnesses' libFuzzer builds,
-                  # which the clang tree makes when it can link one.
-                  if [ "${{ matrix.variant }}" = clang ]; then
-                      extra="clang-21 libclang-rt-21-dev"
-                  fi
                   apt-get update -q
-                  apt-get install -qy $PACKAGES $extra
+                  apt-get install -qy \
+                      git ca-certificates cmake make gcc g++ pkgconf \
+                      python3 linux-libc-dev libvulkan-dev libegl-dev \
+                      libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
+                      libfreetype-dev glslang-tools spirv-cross xkb-data \
+                      gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 \
+                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-            # The zips are checked for by name: a pack build.sh skips is
-            # otherwise a green build that checked less.
-            - name: Build
+            # The checkout is the runner's user's and the container runs as
+            # root, so git calls it dubious and answers nothing -- and
+            # build.sh, finding no checkout, skips the pack as silently as
+            # for a tarball. The checkout action trusts it for its own step
+            # alone. The zips are then checked for by name: a pack skipped
+            # is otherwise a green build that checked less.
+            - name: linux release
+              id: linux
               run: |
-                  eval "$TRUST"
-                  ./build.sh linux ${{ matrix.variant }}
+                  git config --global --add safe.directory "$GITHUB_WORKSPACE"
+                  ./build.sh linux release
                   test -s build/fenestal.zip
                   test -s build/fenestal-commented.zip
             - name: Keep the source zips and the API reference
-              if: matrix.variant == 'release'
               # v7.0.2
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
@@ -99,51 +92,111 @@ jobs:
                       build/fenestal.zip
                       build/fenestal-commented.zip
                       build/api/
-
-    # The cross trees borrow the Linux release tree's baked font, which a
-    # cross build cannot make, so each job builds that tree first. Built
-    # here rather than handed over from the linux job: build.sh lends a bake
-    # only when its files are newer than their sources and its check newer
-    # than the bake, and an artifact's download gives every file one time.
-    cross:
-        name: ${{ matrix.target }}
-        runs-on: ubuntu-latest
-        timeout-minutes: 90
-        container:
-            image: ubuntu:26.04
-            options: --cap-add SYS_PTRACE --security-opt seccomp=unconfined
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    # build.sh refuses the rest: no sanitizer runtimes in
-                    # mingw-w64, no ARM sysroot for clang.
-                    - target: win64
-                      variants: release analyzer gc
-                      packages: >-
-                          gcc-mingw-w64-x86-64-win32
-                          g++-mingw-w64-x86-64-win32
-                    - target: linux-arm64
-                      variants: release asan tsan gc
-                      packages: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-        steps:
-            - name: Install packages
+            # The four files a cross tree takes from the bake, and the stamp
+            # build.sh reads as verifyfont's pass; the Khronos headers the
+            # macOS tree finds in /usr/include on Linux, which a Mac has
+            # none of (FNL_HOST_INCLUDE).
+            - name: Gather the macOS tree's inputs
               run: |
-                  apt-get update -q
-                  apt-get install -qy $PACKAGES ${{ matrix.packages }}
+                  g=build/linux/release/generated
+                  mkdir -p mac/font mac/include/GL mac/include/KHR
+                  cp $g/font_data.h $g/font_metrics.h $g/font_atlas.bin \
+                     $g/font_cells.bin $g/font_verified.stamp mac/font/
+                  cp -R /usr/include/vulkan /usr/include/vk_video \
+                     mac/include/
+                  cp /usr/include/GL/glcorearb.h mac/include/GL/
+                  cp /usr/include/KHR/khrplatform.h mac/include/KHR/
+            - name: Hand them to the macOS job
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: macos-inputs
+                  path: mac/
+                  if-no-files-found: error
+                  retention-days: 1
+            # Each cross tree after the Linux one, and the second whether or
+            # not the first passed: they find different things.
+            - name: win64 release
+              if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+              run: ./build.sh win64 release
+            - name: linux-arm64 release
+              if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+              run: ./build.sh linux-arm64 release
+
+    macos:
+        name: macos
+        needs: linux
+        if: ${{ !cancelled() && needs.linux.outputs.bake == 'success' }}
+        runs-on: macos-26
+        timeout-minutes: 30
+        env:
+            # The source checks and the zips are the checkout's, and the
+            # Linux job has run them.
+            FNL_NO_DIST: 1
+        steps:
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-            - name: Build the Linux release tree, for its bake
+            # clang-21, as on Linux, by FNL_CLANG; LLVM's tools and lld on
+            # PATH, where the toolchain file looks for them by name.
+            - name: Install LLVM 21 and the shader tools
               run: |
-                  eval "$TRUST"
-                  ./build.sh linux release
-            - name: Build
+                  brew install llvm@21 lld@21 glslang spirv-cross
+                  echo "$(brew --prefix llvm@21)/bin" >> "$GITHUB_PATH"
+                  echo "$(brew --prefix lld@21)/bin" >> "$GITHUB_PATH"
+                  echo "FNL_CLANG=$(brew --prefix llvm@21)/bin/clang" \
+                      >> "$GITHUB_ENV"
+            # The SDK the tree pins (tools/macos_sdk.py), from whichever
+            # Xcode has it, linked where macos_sdk.py --path looks; none
+            # with that version is a failure that lists what there is.
+            - name: Find the pinned macOS SDK
               run: |
-                  for v in ${{ matrix.variants }}; do
-                      echo "::group::${{ matrix.target }} $v"
-                      ./build.sh ${{ matrix.target }} "$v"
-                      echo "::endgroup::"
-                  done
+                  echo "XDG_STATE_HOME=$RUNNER_TEMP/state" >> "$GITHUB_ENV"
+                  XDG_STATE_HOME=$RUNNER_TEMP/state python3 - <<'EOF'
+                  import glob, os, sys
+                  sys.path.insert(0, "tools")
+                  import macos_sdk
+                  found = {}
+                  for sdk in sorted(glob.glob(
+                          "/Applications/Xcode*.app/Contents/Developer/"
+                          "Platforms/MacOSX.platform/Developer/SDKs/"
+                          "MacOSX*.sdk")
+                          + glob.glob("/Library/Developer/CommandLineTools/"
+                                      "SDKs/MacOSX*.sdk")):
+                      found.setdefault(macos_sdk.version(sdk), sdk)
+                  if macos_sdk.VERSION not in found:
+                      sys.exit("no macOS SDK %s here; there are %s"
+                               % (macos_sdk.VERSION,
+                                  ", ".join(sorted(map(str, found)))))
+                  os.makedirs(macos_sdk.HOME, exist_ok=True)
+                  os.symlink(os.path.realpath(found[macos_sdk.VERSION]),
+                             macos_sdk.SDK)
+                  print("macOS SDK %s: %s" % (macos_sdk.VERSION,
+                                              found[macos_sdk.VERSION]))
+                  EOF
+            - name: Take the Linux job's font and headers
+              # v8.0.2
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+              with:
+                  name: macos-inputs
+                  path: ${{ runner.temp }}/mac
+            # Where build.sh looks for the bake. A download gives every file
+            # one time, and build.sh lends a bake only when verifyfont's
+            # stamp is newer than the atlas, so the two are dated again in
+            # that order; the Linux job's build passed verifyfont, or it
+            # would have uploaded nothing.
+            - name: Place the font
+              run: |
+                  g=build/linux/release/generated
+                  mkdir -p $g
+                  cp "$RUNNER_TEMP"/mac/font/* $g/
+                  touch $g/font_atlas.bin
+                  sleep 1
+                  touch $g/font_verified.stamp
+            - name: macos release
+              run: |
+                  inc="$RUNNER_TEMP/mac/include"
+                  ./build.sh macos release "-DFNL_HOST_INCLUDE=$inc" \
+                      "-DFNL_VULKAN_INCLUDE_DIR=$inc"
 
     ruff:
         runs-on: ubuntu-latest

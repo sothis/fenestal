@@ -274,6 +274,13 @@ endmacro()
 #                links the SDK's own, and on Linux a shared object of empty
 #                functions named libvulkan.so.1. A name the loader does not
 #                export costs nothing unless referenced.
+#
+# FNL_HOST_INCLUDE is where the host's headers are looked for, these and the
+# GL ones the macOS tree copies below: /usr/include on a Linux build machine.
+# A Mac has none there, so a Mac building the macOS tree names a copy of a
+# Linux machine's (.github/workflows/ci.yml does).
+set(FNL_HOST_INCLUDE /usr/include CACHE PATH
+    "The build machine's headers, for a cross tree's Vulkan and GL ones")
 if(NOT vulkan IN_LIST FNL_RENDERERS)
     # Neither the loader nor its headers: the OpenGL renderer opens EGL at run
     # time and calls GL through what EGL hands out; Direct3D 12's runtime
@@ -281,7 +288,7 @@ if(NOT vulkan IN_LIST FNL_RENDERERS)
     # framework.
 elseif(CMAKE_CROSSCOMPILING)
     find_path(FNL_VULKAN_INCLUDE_DIR vulkan/vulkan.h
-              PATHS /usr/include NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+              PATHS ${FNL_HOST_INCLUDE} NO_CMAKE_FIND_ROOT_PATH REQUIRED)
     set(_vkstage ${CMAKE_CURRENT_BINARY_DIR}/vulkan-include)
     file(MAKE_DIRECTORY ${_vkstage})
     foreach(_d vulkan vk_video)
@@ -422,8 +429,8 @@ if(gl IN_LIST FNL_RENDERERS AND FNL_BACKEND STREQUAL cocoa)
     # looks in Apple's SDK, which has none, and the host's /usr/include
     # must not reach a Darwin build whole.
     foreach(_h GL/glcorearb.h KHR/khrplatform.h)
-        find_file(_fnl_host_${_h} ${_h} PATHS /usr/include NO_DEFAULT_PATH
-                  NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+        find_file(_fnl_host_${_h} ${_h} PATHS ${FNL_HOST_INCLUDE}
+                  NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
         configure_file(${_fnl_host_${_h}}
                        ${CMAKE_CURRENT_BINARY_DIR}/generated/glhdr/${_h}
                        COPYONLY)

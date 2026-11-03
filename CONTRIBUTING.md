@@ -150,9 +150,9 @@ and one-time consents, and is not needed to contribute: the checks below are.
 
 ## Before You Open a Pull Request
 
-CI (`.github/workflows/ci.yml`) builds every tree below, and the ARM
-Linux one, on each pull request, and runs ruff; running them first saves
-a round trip:
+CI (`.github/workflows/ci.yml`) builds each target's release tree on
+every pull request -- Linux, Windows, ARM Linux and macOS -- and runs
+ruff; the checker trees are yours to run:
 
 ```sh
 ./build.sh linux                  # warnings, ABI, tables, layering, fuzz replay
