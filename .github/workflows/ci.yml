@@ -223,8 +223,11 @@ jobs:
               id: macos
               run: |
                   inc="$RUNNER_TEMP/mac/include"
+                  # Homebrew's opt has no version or prefix in its name,
+                  # which the toolchain file does not take on its own.
                   ./build.sh macos release "-DFNL_HOST_INCLUDE=$inc" \
-                      "-DFNL_VULKAN_INCLUDE_DIR=$inc"
+                      "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
+                      "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                   .github/stage.sh macos
             - name: Keep the macos archive
               # v7.0.2
