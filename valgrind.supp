@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# Memcheck suppressions for a run on lavapipe, the only Vulkan driver that
+# valgrind can follow (DESIGN *Checking it*). Each entry is anchored on a top
+# frame inside the driver, so nothing that starts in this library is hidden.
+#
+# lavapipe's rasteriser threads branch on stack values its JIT-compiled
+# shaders wrote, which memcheck cannot see written: 33 reports in 7 contexts
+# on X11, none on Wayland, every frame of each stack inside the driver.
+{
+   lavapipe-jit-stack
+   Memcheck:Cond
+   obj:*/libvulkan_lvp.so
+}
+{
+   lavapipe-jit-stack-value
+   Memcheck:Value8
+   obj:*/libvulkan_lvp.so
+}

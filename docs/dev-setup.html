@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fenestal Development Setup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of engineering sheets; each sheet is a figure
+   with its caption, followed by the table that backs it. Hue means "where
+   the program runs", and nothing else is coloured. */
+:root {
+  --bg: #f1f4f6;
+  --panel: #fbfcfd;
+  --ink: #15202b;
+  --muted: #566575;
+  --line: #c3cdd7;
+  --host: #0c6a88;    /* runs natively on this desktop */
+  --wine: #7347a0;    /* the Windows binary under wine */
+  --remote: #a85a0a;  /* a real Windows: guest or laptop */
+  --flag: #b3261e;    /* something the cross-check found */
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151b; --panel: #161f28; --ink: #e3e9ef; --muted: #93a2b2;
+    --line: #33414f; --host: #55b9d8; --wine: #bb9be3; --remote: #e5a455;
+    --flag: #f2877f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151b; --panel: #161f28; --ink: #e3e9ef; --muted: #93a2b2;
+  --line: #33414f; --host: #55b9d8; --wine: #bb9be3; --remote: #e5a455;
+  --flag: #f2877f; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+.page { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px;
+  display: flex; flex-direction: column; gap: 44px; }
+header h1 { font: 600 34px/1.1 var(--display); margin: 0 0 10px; text-wrap: balance; }
+header p { max-width: 68ch; margin: 0; color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 16px;
+  font: 12.5px var(--mono); color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 500; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
+h3 { font: 600 13px var(--body); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); margin: 8px 0 0; }
+p { margin: 0; max-width: 72ch; }
+code, .m { font-family: var(--mono); font-size: .9em; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); }
+.scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { border-top: 1px solid var(--line); padding: 10px 14px; color: var(--muted);
+  font-size: 13.5px; max-width: none; }
+/* SVG vocabulary */
+.bx { fill: var(--bg); stroke: var(--line); stroke-width: 1; }
+.grp { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 3; }
+.ar { stroke: currentColor; stroke-width: 1.2; fill: none; }
+.dash { stroke-dasharray: 4 3; }
+.t { fill: currentColor; font: 500 12.5px var(--mono); }
+.s { fill: var(--muted); font: 11.5px var(--body); }
+.l { fill: var(--muted); font: 11px var(--mono); }
+.h-host { fill: var(--host); } .h-wine { fill: var(--wine); } .h-remote { fill: var(--remote); }
+.b-host { stroke: var(--host); } .b-wine { stroke: var(--wine); } .b-remote { stroke: var(--remote); }
+.h-flag { fill: var(--flag); }
+/* tables */
+.tw { overflow-x: auto; border: 1px solid var(--line); background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 11.5px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+td.m, th.m { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+td.c, th.c { text-align: center; }
+.no { color: var(--muted); }
+.k-host { color: var(--host); } .k-wine { color: var(--wine); } .k-remote { color: var(--remote); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 13px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px;
+  border: 2px solid currentColor; vertical-align: -1px; }
+.findings { margin: 0; padding: 0; list-style: none; display: grid; gap: 0;
+  border: 1px solid var(--line); background: var(--panel); }
+.findings li { padding: 11px 14px; border-bottom: 1px solid var(--line); display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr); gap: 4px 16px; }
+.findings li:last-child { border-bottom: 0; }
+.findings .w { font: 500 12.5px var(--mono); color: var(--flag); }
+.findings.done .w { color: var(--muted); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.two > div { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 560px) { .findings li { grid-template-columns: 1fr; } header h1 { font-size: 28px; } }
+</style>
+</head>
+<body style="margin:0">
+
+<div class="page">
+
+<header>
+  <h1>Fenestal development setup</h1>
+  <p>How a change gets from the source tree to a verdict: one build script, thirteen trees, six ways to run the result, and a ledger that says what was run where. Drawn from the files in the working tree on 13 October 2026, not from the documentation. The last section lists where the two disagreed, and what has been put right since.</p>
+  <div class="facts">
+    <span><b>fenestal 0.5.0</b> · C11</span>
+    <span>drawn at <b>7d07780</b>, every environment last driven on the change committed as <b>c0150b6</b></span>
+    <span><b>225</b> commits since 4 Aug 2026</span>
+    <span>working tree clean</span>
+    <span>no remote · no CI · no test target</span>
+  </div>
+</header>
+
+<section>
+  <h2>The whole loop</h2>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 150" role="img" aria-label="Sources are built by build.sh into thirteen trees, whose binaries are driven by the harness in tools/drive, which appends one line per round to a ledger.">
+      <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor"/></marker></defs>
+      <g>
+        <rect class="bx" x="1" y="24" width="150" height="102"/>
+        <text class="t" x="13" y="48">sources</text>
+        <text class="s" x="13" y="70">src/ · 24,009 lines</text>
+        <text class="s" x="13" y="88">shaders/ protocols/ fonts/</text>
+        <text class="s" x="13" y="106">examples/ tools/</text>
+
+        <rect class="bx" x="223" y="24" width="150" height="102"/>
+        <text class="t" x="235" y="48">build.sh → CMake</text>
+        <text class="s" x="235" y="70">3 targets × 5 variants</text>
+        <text class="s" x="235" y="88">gcc, and mingw-w64 to cross</text>
+        <text class="s" x="235" y="106">generates, then verifies</text>
+
+        <rect class="bx" x="445" y="24" width="150" height="102"/>
+        <text class="t" x="457" y="48">build/&lt;t&gt;/&lt;v&gt;</text>
+        <text class="s" x="457" y="70">13 trees</text>
+        <text class="s" x="457" y="88">libfenestal .a and shared</text>
+        <text class="s" x="457" y="106">testbed · dev · demos</text>
+
+        <rect class="bx" x="667" y="24" width="150" height="102"/>
+        <text class="t" x="679" y="48">tools/drive</text>
+        <text class="s" x="679" y="70">6 environments</text>
+        <text class="s" x="679" y="88">desktop, wine, guests, laptops</text>
+        <text class="s" x="679" y="106">stress · pace · bench</text>
+
+        <rect class="bx" x="889" y="24" width="150" height="102"/>
+        <text class="t" x="901" y="48">ledger.jsonl</text>
+        <text class="s" x="901" y="70">one line per round</text>
+        <text class="s" x="901" y="88">read back by status.py</text>
+        <text class="s" x="901" y="106">nothing owed, nothing failing</text>
+      </g>
+      <g>
+        <line class="ar" x1="153" y1="75" x2="221" y2="75" marker-end="url(#a1)"/>
+        <text class="l" x="187" y="67" text-anchor="middle">reads</text>
+        <line class="ar" x1="375" y1="75" x2="443" y2="75" marker-end="url(#a1)"/>
+        <text class="l" x="409" y="67" text-anchor="middle">builds</text>
+        <line class="ar" x1="597" y1="75" x2="665" y2="75" marker-end="url(#a1)"/>
+        <text class="l" x="631" y="67" text-anchor="middle">binaries</text>
+        <line class="ar" x1="819" y1="75" x2="887" y2="75" marker-end="url(#a1)"/>
+        <text class="l" x="853" y="67" text-anchor="middle">appends</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>Nothing in this loop is automatic. <code>build.sh</code> never starts the program under test, the harness never builds one, and the working agreement is that Claude does neither unless asked in that turn. After every successful build the same script runs the layering check and packs <code>build/fenestal.zip</code> through <code>tools/mkdist.py</code>.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>What is being built</h2>
+  <p>The library is layered so that the core names no window server and no graphics API. Everything crossing that line goes through one of two dispatch tables.</p>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 425" role="img" aria-label="Three caller programs sit on the public header; src/core reaches three backends through FnlBackendVtbl and the Vulkan renderer through FnlRendererVtbl; three surface bridge files are the only ones that see both sides.">
+      <defs><marker id="a2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor"/></marker></defs>
+      <rect class="bx" x="20" y="10" width="300" height="50"/>
+      <text class="t" x="34" y="32">testbed</text><text class="s" x="34" y="49">fenestal-testbed, the demo the rounds drive</text>
+      <rect class="bx" x="350" y="10" width="300" height="50"/>
+      <text class="t" x="364" y="32">demos/</text><text class="s" x="364" y="49">the programs to copy, each its own build</text>
+      <rect class="bx" x="680" y="10" width="300" height="50"/>
+      <text class="t" x="694" y="32">tools/drive/dev.c</text><text class="s" x="694" y="49">fenestal-dev: pace and lifecycle</text>
+
+      <line class="ar" x1="170" y1="60" x2="170" y2="84" marker-end="url(#a2)"/>
+      <line class="ar" x1="500" y1="60" x2="500" y2="84" marker-end="url(#a2)"/>
+      <line class="ar" x1="830" y1="60" x2="830" y2="84" marker-end="url(#a2)"/>
+
+      <rect class="bx" x="20" y="86" width="960" height="40"/>
+      <text class="t" x="34" y="111">include/fenestal/fenestal.h</text>
+      <text class="s" x="270" y="111">fnl_* only · callbacks on_gpu_created, on_gpu_lost, on_record, on_overlay · input through fnl_poll_event()</text>
+
+      <rect class="bx" x="20" y="150" width="960" height="70"/>
+      <text class="t" x="34" y="176">src/core</text><text class="l" x="110" y="176">7,897 lines</text>
+      <text class="s" x="34" y="197">lifetime, two error tiers, frame policy, titlebar and its controls, event queue, overlay, text measure, event echo</text>
+      <line class="ar" x1="500" y1="126" x2="500" y2="149" marker-end="url(#a2)"/>
+
+      <line class="ar" x1="320" y1="220" x2="320" y2="288" marker-end="url(#a2)"/>
+      <text class="l" x="330" y="250">FnlBackendVtbl</text><text class="l" x="330" y="265">core/backend.h</text>
+      <line class="ar" x1="830" y1="220" x2="830" y2="288" marker-end="url(#a2)"/>
+      <text class="l" x="840" y="250">FnlRendererVtbl</text><text class="l" x="840" y="265">core/renderer.h</text>
+
+      <rect class="bx" x="20" y="290" width="190" height="56"/>
+      <text class="t" x="34" y="313">backend/wayland</text><text class="l" x="34" y="332">2,413 lines</text>
+      <rect class="bx" x="225" y="290" width="190" height="56"/>
+      <text class="t" x="239" y="313">backend/x11</text><text class="l" x="239" y="332">3,152 lines · core xcb only</text>
+      <rect class="bx" x="430" y="290" width="190" height="56"/>
+      <text class="t" x="444" y="313">backend/win32</text><text class="l" x="444" y="332">1,786 lines</text>
+      <rect class="bx" x="680" y="290" width="300" height="56"/>
+      <text class="t" x="694" y="313">renderer/vulkan</text><text class="l" x="694" y="332">3,866 lines</text>
+
+      <rect class="bx" x="20" y="368" width="395" height="46"/>
+      <text class="t" x="34" y="388">src/backend</text>
+      <text class="s" x="34" y="405">keymap.c, loop_linux.h shared with X11; keymap_xkb.c Wayland only</text>
+      <line class="ar" x1="115" y1="346" x2="115" y2="368"/><line class="ar" x1="320" y1="346" x2="320" y2="368"/>
+
+      <rect class="grp" x="430" y="368" width="550" height="46"/>
+      <text class="t" x="444" y="388">surface_wayland.c · surface_x11.c · surface_win32.c</text>
+      <text class="s" x="444" y="405">in renderer/vulkan; the one place that includes both halves, taking handles from the backend's state</text>
+      <line class="ar dash" x1="525" y1="346" x2="525" y2="368"/><line class="ar dash" x1="830" y1="346" x2="830" y2="368"/>
+    </svg>
+    </div>
+    <figcaption>Two threads share the core: the main thread pumps the window server and input, the render thread owns everything Vulkan (<code>app.c:2892</code>). A third, the reaper, destroys a retired swapchain where the driver is slow at it (<code>swapchain.c:725</code>). <code>tools/check-layering.py</code> counts forbidden references per directory and excuses only <code>src/core/app.h</code>; <code>build.sh</code> runs it after every build that succeeds.</figcaption>
+  </figure>
+  <p>A consumer links <code>fenestal</code> plus the runtime of the platform it chose: Vulkan, <code>m</code>, threads and <code>wayland-client</code> or core <code>xcb</code> on Linux; Vulkan, <code>user32</code> and <code>gdi32</code> on Windows. FreeType, glslangValidator and wayland-scanner are run during the build and never linked.</p>
+</section>
+
+<section>
+  <h2>Thirteen trees</h2>
+  <p>Every tree is <code>build/&lt;target&gt;/&lt;variant&gt;</code>. A bare <code>./build.sh</code> sweeps them in the order of this table, row by row, and stops at the first failure. That order matters because later trees borrow generated files from earlier ones.</p>
+  <div class="tw">
+  <table>
+    <tr><th>target</th><th>release</th><th>asan</th><th>tsan</th><th>analyzer</th><th>gc</th></tr>
+    <tr><td class="m k-host">wayland-vulkan</td><td>bakes font</td><td>borrows font</td><td>borrows font</td><td>bakes font</td><td>borrows font</td></tr>
+    <tr><td class="m k-host">x11-vulkan</td><td>bakes font</td><td>borrows font</td><td>borrows font</td><td>bakes font</td><td>borrows font</td></tr>
+    <tr><td class="m k-wine">win64-vulkan</td><td>borrows font from wayland-vulkan/release</td><td class="no">refused</td><td class="no">refused</td><td>same loan</td><td>same loan</td></tr>
+  </table>
+  </div>
+  <div class="two">
+    <div>
+      <h3>What a variant adds</h3>
+      <div class="tw"><table>
+        <tr><td class="m">release</td><td>nothing; Release, LTO, <code>-march=native</code></td></tr>
+        <tr><td class="m">asan</td><td>Debug, <code>-fsanitize=address,undefined</code></td></tr>
+        <tr><td class="m">tsan</td><td>Debug, <code>-fsanitize=thread</code></td></tr>
+        <tr><td class="m">analyzer</td><td><code>-fanalyzer</code>, with no build type set, so it is an optimised tree</td></tr>
+        <tr><td class="m">gc</td><td>Debug, section-per-function and <code>--gc-sections</code></td></tr>
+      </table></div>
+      <p>Checker trees turn <code>-march=native</code> off. mingw-w64 ships no sanitizer runtimes, which is why the cross target refuses two variants.</p>
+    </div>
+    <div>
+      <h3>What a tree holds</h3>
+      <div class="tw"><table>
+        <tr><td>Native</td><td class="m" style="white-space:normal">libfenestal.a, libfenestal.so.0.9.0, fenestal-testbed, fenestal-dev, verifykeymap; mkfont and verifyfont where the font is baked</td></tr>
+        <tr><td>Cross</td><td class="m" style="white-space:normal">libfenestal.a, libfenestal.dll, the three .exe, and a libvulkan-1.a synthesised from the Vulkan calls the sources make</td></tr>
+      </table></div>
+      <p>CMake targets: <code>fenestal::static</code>, and <code>fenestal::fenestal</code> for the shared object, whose exports are whitelisted to <code>fnl_*</code> by <code>fenestal.map</code>. There is no <code>install()</code>.</p>
+    </div>
+  </div>
+
+  <h3>Generated during the build</h3>
+  <div class="tw">
+  <table>
+    <tr><th>tool</th><th>reads</th><th>writes</th><th>where</th></tr>
+    <tr><td class="m">wayland-scanner</td><td>8 XML files in <code>protocols/</code></td><td>a client header and a <code>.c</code> each</td><td>Wayland trees</td></tr>
+    <tr><td class="m">glslangValidator</td><td>9 sources in <code>shaders/</code>, plus each example's own</td><td>SPIR-V as C arrays; <code>text.frag</code> twice, once for subpixel</td><td>every tree</td></tr>
+    <tr><td class="m">tools/mkfont</td><td>two Ubuntu Sans faces in <code>fonts/ubuntu/</code></td><td>atlas and cell blobs, <code>font_data.h</code>, <code>font_metrics.h</code></td><td>release and analyzer of a native target; a checker tree too when it has no fresh bake to borrow</td></tr>
+    <tr><td class="m">tools/verifyfont</td><td>the bake</td><td>rasterises again, compares texel by texel</td><td>wherever mkfont ran</td></tr>
+    <tr><td class="m">tools/verifykeymap</td><td><code>keymap.c</code>, <code>keymap_xkb.c</code></td><td>pins the layout rules; the one tool built with the tree's sanitizer</td><td>every native tree</td></tr>
+    <tr><td class="m">CMake itself</td><td><code>FNL_API</code> prototypes; <code>vk*</code> calls in the sources</td><td><code>fenestal.def</code>; <code>vulkan-1.def</code> and its import library</td><td>cross tree, at configure</td></tr>
+    <tr><td class="m">tools/mkkeysyms.py</td><td>X11's <code>keysymdef.h</code></td><td><code>src/backend/keysym_table.h</code>, tracked</td><td>by hand</td></tr>
+  </table>
+  </div>
+  <p>The build tools link FreeType and run during the build, so a cross build cannot bake a font: it would compile <code>mkfont</code> for Windows and then fail to run it. The loan is <code>FNL_GENERATED_DIR</code> for the cross tree and <code>FNL_FONT_DIR</code> between trees of one native target, the second taken only when the lender's atlas is newer than everything it is made from. The cross loan is held to the same test, and since the cross tree cannot bake its own, <code>build.sh</code> refuses a stale one and names the command that makes a fresh one.</p>
+</section>
+
+<section>
+  <h2>Where a round runs</h2>
+  <p>Three builds, six environments. An environment is a way of running a binary and watching it, and four of the six run the same Windows executable.</p>
+  <div class="legend"><span class="k-host">native build on this desktop</span><span class="k-wine">Windows build under wine</span><span class="k-remote">Windows build on Windows</span></div>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1040 560" role="img" aria-label="The harness reaches four programs on this desktop through the RemoteDesktop portal, two VirtualBox guests through emulated devices, and two laptops through ssh and an agent; every program reports back through the event echo.">
+      <defs><marker id="a3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor"/></marker></defs>
+
+      <text class="l" x="20" y="24">HARNESS</text><text class="l" x="290" y="24">HOW INPUT GETS IN</text><text class="l" x="540" y="24">WHERE THE PROGRAM RUNS, AND HOW IT IS SEEN</text>
+
+      <rect class="bx" x="20" y="40" width="200" height="500"/>
+      <text class="t" x="34" y="66">tools/drive</text>
+      <text class="t" x="34" y="104">stress.py</text><text class="s" x="34" y="120">the round, drives fenestal-testbed</text>
+      <text class="t" x="34" y="152">selftest.py</text><text class="s" x="34" y="168">each checker sees its bug</text>
+      <text class="t" x="34" y="200">pace.py</text><text class="s" x="34" y="216">rate sweep, fenestal-dev pace</text>
+      <text class="t" x="34" y="264">environment.py</text><text class="s" x="34" y="280">the six environments and</text><text class="s" x="34" y="295">what each one can show</text>
+      <text class="t" x="34" y="343">before every key</text><text class="s" x="34" y="359">keyboard_is_ours(), or</text><text class="s" x="34" y="374">InputRefused and no key</text>
+      <text class="t" x="34" y="422">ledger.py</text><text class="s" x="34" y="438">one JSON line per environment,</text><text class="s" x="34" y="453">run or skipped</text>
+      <text class="t" x="34" y="501">status.py</text><text class="s" x="34" y="517">latest of each, and how stale</text>
+
+      <!-- transports -->
+      <rect class="bx" x="290" y="60" width="190" height="262"/>
+      <text class="t" x="304" y="170">RemoteDesktop portal</text>
+      <text class="s" x="304" y="189">saved token, never a dialog</text>
+      <text class="s" x="304" y="207">goes to whatever is focused,</text>
+      <text class="s" x="304" y="222">hence the check on the left</text>
+      <rect class="bx" x="290" y="348" width="190" height="80"/>
+      <text class="t" x="304" y="376">VirtualBox API</text>
+      <text class="s" x="304" y="395">emulated keyboard and mouse</text>
+      <text class="s" x="304" y="411">program: guestcontrol run</text>
+      <rect class="bx" x="290" y="454" width="190" height="80"/>
+      <text class="t" x="304" y="482">ssh, one connection</text>
+      <text class="s" x="304" y="501">agent on the desktop there</text>
+      <text class="s" x="304" y="517">sends the input and starts it</text>
+
+      <line class="ar" x1="220" y1="191" x2="288" y2="191" marker-end="url(#a3)"/>
+      <line class="ar" x1="220" y1="388" x2="288" y2="388" marker-end="url(#a3)"/>
+      <line class="ar" x1="220" y1="494" x2="288" y2="494" marker-end="url(#a3)"/>
+
+      <!-- desktop -->
+      <rect class="grp" x="540" y="40" width="480" height="290"/>
+      <text class="l" x="554" y="58">this desktop · GNOME on Wayland</text>
+
+      <rect class="bx b-host" x="554" y="68" width="452" height="48"/>
+      <text class="t h-host" x="566" y="88">wayland-vulkan</text>
+      <text class="s" x="566" y="105">seen through: echo only; pictures by Screenshot portal with --capture</text>
+
+      <rect class="grp" x="554" y="126" width="452" height="130"/>
+      <text class="l" x="566" y="142">XWayland</text>
+      <rect class="bx b-host" x="566" y="150" width="428" height="46"/>
+      <text class="t h-host" x="578" y="169">x11-vulkan</text>
+      <text class="s" x="578" y="186">seen through: echo, Xlib queries, window pixels</text>
+      <rect class="bx b-wine" x="566" y="202" width="428" height="46"/>
+      <text class="t h-wine" x="578" y="221">win64-vulkan</text>
+      <text class="s" x="578" y="238">wine, X11 driver, winevulkan · seen as x11-vulkan is</text>
+
+      <rect class="bx b-wine" x="554" y="268" width="452" height="48"/>
+      <text class="t h-wine" x="566" y="288">win64-vulkan-wl</text>
+      <text class="s" x="566" y="305">same .exe, DISPLAY unset, so winewayland.drv · seen as wayland-vulkan is</text>
+
+      <line class="ar" x1="480" y1="92" x2="552" y2="92" marker-end="url(#a3)"/>
+      <line class="ar" x1="480" y1="173" x2="564" y2="173" marker-end="url(#a3)"/>
+      <line class="ar" x1="480" y1="225" x2="564" y2="225" marker-end="url(#a3)"/>
+      <line class="ar" x1="480" y1="292" x2="552" y2="292" marker-end="url(#a3)"/>
+
+      <!-- guests -->
+      <rect class="grp" x="540" y="348" width="480" height="80"/>
+      <text class="l" x="554" y="366">VirtualBox guests on this desktop, each in two windows · no GPU, lavapipe draws</text>
+      <rect class="bx b-remote" x="554" y="376" width="220" height="42"/>
+      <text class="t h-remote" x="566" y="402">win64-vulkan-vm@win10</text>
+      <rect class="bx b-remote" x="786" y="376" width="220" height="42"/>
+      <text class="t h-remote" x="798" y="402">win64-vulkan-vm@win11</text>
+      <line class="ar" x1="480" y1="397" x2="552" y2="397" marker-end="url(#a3)"/>
+
+      <!-- laptops -->
+      <rect class="grp" x="540" y="454" width="480" height="80"/>
+      <text class="l" x="554" y="472">Windows laptops with GPUs of their own</text>
+      <rect class="bx b-remote" x="554" y="482" width="220" height="42"/>
+      <text class="t h-remote" x="566" y="508">…-native@schenker</text>
+      <rect class="bx b-remote" x="786" y="482" width="220" height="42"/>
+      <text class="t h-remote" x="798" y="508">…-native@aspire</text>
+      <line class="ar" x1="480" y1="503" x2="552" y2="503" marker-end="url(#a3)"/>
+    </svg>
+    </div>
+    <figcaption>What comes back is the same on every row: the library's event echo (<code>FNL_ECHO_EVENTS=1</code>, lines beginning <code>EV</code> on stderr), which the harness believes over any capture. On the two Windows rows <code>windows_agent.ps1</code> also connects back to the harness and answers what only that desktop knows; both drivers ask it through one class, <code>windows_driver.Desk</code>. XTEST is never used: here it raises a consent dialog and stalls pointer input for every X client.</figcaption>
+  </figure>
+
+  <h3>When an environment is skipped rather than failed</h3>
+  <div class="tw">
+  <table>
+    <tr><th>environment</th><th>runs</th><th>skipped when</th></tr>
+    <tr><td class="m k-host">wayland-vulkan<br>x11-vulkan</td><td>its own tree's binary</td><td>the binary is missing, or no portal token is saved (<code>wayland_driver.py --consent</code>, once)</td></tr>
+    <tr><td class="m k-wine">win64-vulkan<br>win64-vulkan-wl</td><td><code>build/win64-vulkan/…/*.exe</code> under wine</td><td>as above, or any wineserver of this user is still up after 20 s: the two wine environments share one and cannot overlap</td></tr>
+    <tr><td class="m k-remote">win64-vulkan-vm</td><td>the same .exe, copied into each machine in <code>FNL_DRIVE_VM</code> (default <code>win10,win11</code>)</td><td>the machine is off, nobody is logged in, no password file, the agent does not call back in 30 s, or its monitor is under 1600x1000 and will not be made larger</td></tr>
+    <tr><td class="m k-remote">win64-vulkan-native</td><td>the same .exe, copied by scp to each host in <code>native-hosts</code></td><td>ssh fails, the desktop is locked, the scheduled task <code>fenestal-agent</code> is missing, or a hand was on the laptop in the last 120 s</td></tr>
+  </table>
+  </div>
+  <p>On a laptop the round also stops if the validation layer was asked for and is not loaded in the program, or if <code>FNL_GPU</code> named a device and the program is on another.</p>
+</section>
+
+<section>
+  <h2>What each environment can show</h2>
+  <p>A check in <code>stress.py</code> declares what it needs and never tests an environment by name. An environment that lacks the capability reports the check as not applicable.</p>
+  <div class="tw">
+  <table id="caps">
+    <tr><th>needs</th><th class="c k-host">wayland</th><th class="c k-host">x11</th><th class="c k-wine">win64</th><th class="c k-wine">win64-wl</th><th class="c k-remote">vm</th><th class="c k-remote">native</th></tr>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Instruments and what they leave behind</h2>
+  <div class="tw">
+  <table>
+    <tr><th>instrument</th><th>answers</th><th>records</th></tr>
+    <tr><td class="m">stress.py</td><td>Does the window behave? One round per environment, machine and GPU; exit 0, 1, or 77 when nothing ran</td><td>checks, failed, n/a and failing names; logs and pictures in <code>build/drive/</code></td></tr>
+    <tr><td class="m">pace.py</td><td>Frames presented and CPU at 0, 5, 15, 30, 45, 60 and 250 resizes a second, on the four local environments and each laptop; guests left out. A last row, <code>border</code>, is the harness holding a corner of the testbed's window and carrying it in and out</td><td><code>cells</code>: rate → [fps, cpu], and <code>border</code></td></tr>
+    <tr><td class="m">status.py</td><td>What was last run where, and how many commits ago; <code>never</code> where a round is owed</td><td>nothing; it reads</td></tr>
+    <tr><td class="m">tools/probe/</td><td>One-off questions on Windows: wait lateness, clock cost, thread stacks, a sampling profiler, a desktop's displays and refresh rates, a display's scale (and setting it), and a timed sleep</td><td>nothing; they print</td></tr>
+    <tr><td class="m">/checkers, /capture, /shader-sync</td><td>Claude skills: the checker builds against their known baselines, a frame read correctly, struct-against-shader agreement</td><td>nothing</td></tr>
+  </table>
+  </div>
+  <h3>The last rounds, as the ledger has them</h3>
+  <div class="tw">
+  <table>
+    <tr><th>environment</th><th class="c">stress checks</th><th class="c">n/a</th><th class="c">minimal checks</th><th class="c">failed</th><th>the program said it was on</th></tr>
+    <tr><td class="m k-host">wayland-vulkan</td><td class="c">53</td><td class="c">5</td><td class="c">19</td><td class="c">0</td><td>AMD Radeon RX 590 (RADV)</td></tr>
+    <tr><td class="m k-host">x11-vulkan</td><td class="c">74</td><td class="c">0</td><td class="c">19</td><td class="c">0</td><td>same</td></tr>
+    <tr><td class="m k-wine">win64-vulkan</td><td class="c">65</td><td class="c">0</td><td class="c">19</td><td class="c">0</td><td>same</td></tr>
+    <tr><td class="m k-wine">win64-vulkan-wl</td><td class="c">38</td><td class="c">7</td><td class="c">19</td><td class="c">0</td><td>same</td></tr>
+    <tr><td class="m k-remote">win64-vulkan-vm@win10</td><td class="c">66</td><td class="c">3</td><td class="c">19</td><td class="c">0</td><td>llvmpipe (lavapipe's device)</td></tr>
+    <tr><td class="m k-remote">win64-vulkan-vm@win11</td><td class="c">66</td><td class="c">3</td><td class="c">19</td><td class="c">0</td><td>llvmpipe</td></tr>
+    <tr><td class="m k-remote">win64-vulkan-native@schenker</td><td class="c">66</td><td class="c">3</td><td class="c">19</td><td class="c">0</td><td>NVIDIA GeForce GTX 1050 Ti</td></tr>
+    <tr><td class="m k-remote">win64-vulkan-native@aspire</td><td class="c">63</td><td class="c">4</td><td class="c">19</td><td class="c">0</td><td>NVIDIA GeForce GTX 960M</td></tr>
+  </table>
+  </div>
+  <p>All at the <code>release</code> variant, without the validation layer and without captures, at commit <code>342c231</code> with a clean tree, so no line is marked dirty and <code>status.py</code> shows nothing owed, failed or behind. The ledger also keeps the day's earlier lines: the first rounds on a dirty tree, <code>win10</code> skipped while it was off, and the guests' failures while their screens followed their windows.</p>
+  <h3>The last pacing sweep: frames a second, and CPU</h3>
+  <div class="tw">
+  <table>
+    <tr><th>resizes a second</th><th class="k-host">wayland</th><th class="k-host">x11</th><th class="k-wine">win64</th><th class="k-wine">win64-wl</th><th class="k-remote">schenker</th><th class="k-remote">aspire</th></tr>
+    <tr><td class="m">idle</td><td class="m">60 · 2.0%</td><td class="m">59 · 2.0%</td><td class="m">60 · 2.7%</td><td class="m">60 · 2.3%</td><td class="m">60 · 8.1%</td><td class="m">60 · 5.7%</td></tr>
+    <tr><td class="m">5</td><td class="m">60 · 2.7%</td><td class="m">61 · 4.2%</td><td class="m">60 · 5.7%</td><td class="m">60 · 3.7%</td><td class="m">59 · 11.2%</td><td class="m">60 · 8.8%</td></tr>
+    <tr><td class="m">15</td><td class="m">59 · 3.7%</td><td class="m">60 · 6.0%</td><td class="m">60 · 8.7%</td><td class="m">60 · 6.8%</td><td class="m">57 · 19.8%</td><td class="m">58 · 20.6%</td></tr>
+    <tr><td class="m">30</td><td class="m">60 · 6.3%</td><td class="m">59 · 9.5%</td><td class="m">60 · 13.0%</td><td class="m">60 · 11.2%</td><td class="m">55 · 36.7%</td><td class="m">54 · 29.1%</td></tr>
+    <tr><td class="m">45</td><td class="m">60 · 8.0%</td><td class="m">60 · 11.7%</td><td class="m">60 · 17.2%</td><td class="m">60 · 14.5%</td><td class="m">48 · 49.5%</td><td class="m">57 · 44.2%</td></tr>
+    <tr><td class="m">60</td><td class="m">60 · 8.0%</td><td class="m">61 · 13.8%</td><td class="m">59 · 19.3%</td><td class="m">60 · 17.3%</td><td class="m">53 · 54.1%</td><td class="m">60 · 58.8%</td></tr>
+    <tr><td class="m">250</td><td class="m">60 · 8.8%</td><td class="m">60 · 14.3%</td><td class="m">62 · 20.5%</td><td class="m">60 · 19.5%</td><td class="m">50 · 51.5%</td><td class="m">60 · 60.6%</td></tr>
+  </table>
+  </div>
+  <p>Twelve seconds a cell, CPU over six of them. The four desktop environments hold the display's 60, give or take two, at every rate. <code>schenker</code> falls to 48 to 53 from 45 resizes a second upward, and <code>aspire</code> dips to 54 at 30. Set against the README's latest laptop sweep (the table after the reaper went in), every cell is within seven frames a second, and the afternoon's sweep of the same day was within four: 46 to 50 there for <code>schenker</code> from 45 upward, and 53 for <code>aspire</code> at 30. The README puts what is left under 60 down to the driver's swapchain create, one a frame, and most of the gap between the two machines to <code>schenker</code>'s panel at 125%.</p>
+  <h3>A hand on the border</h3>
+  <div class="tw">
+  <table>
+    <tr><th>&nbsp;</th><th class="k-host">x11</th><th class="k-wine">win64</th><th class="k-wine">win64-wl</th><th class="k-remote">schenker Intel</th><th class="k-remote">schenker NVIDIA</th><th class="k-remote">aspire Intel</th><th class="k-remote">aspire NVIDIA</th></tr>
+    <tr><td class="m">border</td><td class="m">61 · 11.7%</td><td class="m">59 · 16.8%</td><td class="m">60 · 18.3%</td><td class="m">16 · 118.9%</td><td class="m">48 · 37.2%</td><td class="m">20 · 118.7%</td><td class="m">59 · 32.8%</td></tr>
+  </table>
+  </div>
+  <p>Every row of a sweep is the caller asking for sizes; this one is the window server's own resize, which on Win32 is the manager's loop from the press to the release. The window rests three seconds before the press. Pressed in its first second, the same window on <code>schenker</code>'s NVIDIA device used to run at 93 fps on a 60 Hz panel for the whole drag: the loop had no display period until its sixtieth present and never learnt one under a run of rebuilds. It now borrows one from four early samples that agree (<code>ba0e261</code>), and the same drag is 50 fps. On the Intel devices a hand is about fifteen sizes a second, with the swapchain create at 43 to 47 ms and more than a core busy. Native Wayland has no cell: the harness cannot aim at its edges.</p>
+  <h3>A second monitor at another rate</h3>
+  <p><code>schenker</code>'s external monitor was put at 50 Hz beside the panel's 60, and at 30 for two cells. The round held on both devices, started on the panel and moved across and started on the monitor: 66 four times. The two devices are held to different clocks. NVIDIA's present waits for the monitor the window is on, 50 fps and then 30. Intel's waits for the panel whichever monitor that is, 60 fps on the monitor at 50 Hz and again at 30, so a window there draws frames the monitor has no refresh for. Both outputs are the Intel device's, so the hybrid copy to an NVIDIA output could not be tried.</p>
+  <div class="two">
+    <div>
+      <h3>State outside the tree</h3>
+      <p>Under <code>~/.local/state/fenestal/</code>, so that <code>rm -rf build</code>, the only clean there is, does not lose it:</p>
+      <div class="tw"><table>
+        <tr><td class="m">portal-token.json</td><td>the saved portal consent</td></tr>
+        <tr><td class="m">vbox-guest</td><td>the guests' password</td></tr>
+        <tr><td class="m">native-hosts</td><td>schenker, aspire; no GPUs listed after either</td></tr>
+        <tr><td class="m">ledger.jsonl</td><td>163 lines, from 13 and 14 Oct 2026</td></tr>
+      </table></div>
+    </div>
+    <div>
+      <h3>On this desktop</h3>
+      <div class="tw"><table>
+        <tr><td>System</td><td class="m" style="white-space:normal">Ubuntu 26.04.1, GNOME on Wayland · AMD Radeon RX 590 on RADV</td></tr>
+        <tr><td>Compilers</td><td class="m" style="white-space:normal">gcc 15.2.0 · mingw-w64 gcc 13-win32</td></tr>
+        <tr><td>Build</td><td class="m" style="white-space:normal">CMake 4.2.3 · glslang 16.2.0 · wayland-scanner 1.24.0</td></tr>
+        <tr><td>Style</td><td class="m" style="white-space:normal">clang-format and clang-tidy 21.1.8, each run once, check-only</td></tr>
+        <tr><td>Guests</td><td>both run in their own windows, two screens each, at a fixed size the window cannot change: win10 1920x1440 and 1600x1200, win11 1600x1200 twice</td></tr>
+        <tr><td>Run</td><td class="m" style="white-space:normal">wine 10.0 · VirtualBox 7.2.20 · Python 3.14.4</td></tr>
+        <tr><td>Editing</td><td>a hook checks tabs, trailing space and 80 columns on changed lines after an edit: C, shader and CMake sources, the scripts under <code>tools/</code>, <code>build.sh</code> and <code>run_all.sh</code>. It advises and never blocks</td></tr>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What the cross-check found</h2>
+  <p>Two other models read the build side and the harness side independently, from the files alone, and their reports were compared with a third reading; a further model then checked this page against the files and its eight corrections are applied. Nothing in the documentation was flatly wrong. It had drifted in places, and a few safeguards are thinner than they sound.</p>
+   <h3>Still open</h3>
+  <p>Nothing about the setup. What is open is technical, and <code>TODO.md</code> has it:</p>
+  <ul class="findings">
+    <li><span class="w">sleep, battery, lid</span><span>A timed sleep was tried from here on <code>schenker</code> and the laptop did not wake by itself, neither by the timer nor by wake-on-LAN, so what a window does across a suspend is still unknown. Wake timers were left allowed on mains there and want putting back. Running on battery, energy saver and the lid are untried.</span></li>
+    <li><span class="w">Intel's extra frames</span><span>What becomes of the frames the Intel device presents faster than a slower monitor refreshes: dropped, or shown late. Not looked at.</span></li>
+    <li><span class="w">Intel's driver stall</span><span>Prevented and not explained. It was caught again with the workaround taken out, on the HD 530: none of eighty starts whose first resize came a third of a second after the window opened, and the thirty-fifth of those whose first came after four seconds. Its stacks are kept in <code>docs/intel-swapchain-stall-stacks.txt</code>: the window's thread, inside the driver's hook, and one of the driver's own wait on the same lock, while the frame's thread waits in <code>vkCreateSwapchainKHR</code>. <code>docs/intel-swapchain-stall.md</code> is the draft report, still owed a second capture, a release build of Windows, a small reproduction and a newer driver tried.</span></li>
+    <li><span class="w">hybrid copy</span><span>Untested until an external output belongs to an NVIDIA device.</span></li>
+  </ul>
+  <p>Known and left as it is: the skip for a guest whose screen is too small has been written and not seen. The last full round, <code>stress.py</code>, <code>minimal.py</code>, the two sanitizers on the native targets and a sweep, ran on the frame-loop change just before it was committed, so the ledger has those lines as dirty.</p>
+  <h3>Settled: fixed in commit 7217546, or answered by a run</h3>
+  <ul class="findings done">
+    <li><span class="w">ledger never written</span><span>No <code>ledger.jsonl</code> existed. <code>stress.py</code>, <code>minimal.py</code> and <code>pace.py</code> have each been run over everything they cover, none failing, and <code>status.py</code> says <code>never</code> nowhere. The <code>win10</code> guest was off for the first pass and was started for the rest.</span></li>
+    <li><span class="w">layering unchecked</span><span>Nothing ran <code>tools/check-layering.py</code>. <code>build.sh</code> now runs it after every build that succeeds, once for a sweep. The sweep of all thirteen trees ended with it, and the layering holds.</span></li>
+    <li><span class="w">stale font, cross</span><span>The cross tree took the Wayland release bake if the directory existed. It is now held to the freshness test a native checker tree's lender passes. The sweep passed that test; the refusal itself has not been seen, since the bake was fresh.</span></li>
+    <li><span class="w">laptop pacing</span><span>Both laptops present fewer than 60 frames at some resize rates. That is how the README last measured them, to within seven frames in every cell over two sweeps, so it is not a change.</span></li>
+    <li><span class="w">in flight</span><span>The nine uncommitted files, a GPU as a dimension of a laptop round, were driven by every round above and then committed as <code>68717c8</code>.</span></li>
+    <li><span class="w">style tools unrun</span><span>Neither clang tool was installed. Both are now, at 21.1.8, and each has had its first run, recorded in its own config file and in <code>CLAUDE.md</code> (<code>78af854</code>).</span></li>
+    <li><span class="w">tidy findings unread</span><span><code>clang-tidy</code> has now run over all three trees, the Win32 one included: 66 findings past Annex K's check, every one read at its site and none a defect. They are listed by kind in <code>.clang-tidy</code>, so a finding not there is new (<code>d794b5c</code>).</span></li>
+    <li><span class="w">guest screen check</span><span>The harness asked a guest for a large enough screen but measured the whole desktop, so two monitors of 1280x960 passed it and the round then failed two size checks. It measures the monitor the round opens on now, and a machine that will not change its mode is skipped with the reason. The README says what a windowed guest needs: auto-resize off, and its display set in the guest (<code>a19f997</code>). Both guests pass on it; the skip itself has not been seen.</span></li>
+    <li><span class="w">no style baseline</span><span><code>clang-format</code> parses its file and would change some 3,900 lines in 62 of 64 sources, all of it deliberate alignment, as the file's header predicted. Settled by decision: it is a reference for new code and not a check that can pass.</span></li>
+    <li><span class="w">a period sooner</span><span>The frame loop had no display period before its sixtieth present, so a border taken in a window's first second was unspaced for the whole drag where the driver blocks nowhere. The spacing now borrows the mean of four early samples that agree, and the settled window's first sample replaces it. Every environment passed on it, with the sanitizers on the two native targets.</span></li>
+    <li><span class="w">display scale</span><span>At 150% the default window opened larger than a 1080p panel, its corner off the screen. On Win32 the library now fits an opening window to its monitor's work area, and a round that finds no room takes the window in by its border first. The scale is set from here by <code>tools/probe/scale.c</code>, and the round passed at 100, 125, 150 and 175% on each device of both laptops; neither panel is offered 200%.</span></li>
+    <li><span class="w">input method</span><span><code>FNL_NO_INPUT_METHOD=1</code> leaves Wayland's input method unbound, so a round can type through the library's own composer in a window: 50 checks, none failed. Nothing is done about the output wine on Wayland never updates, and the README says why.</span></li>
+    <li><span class="w">hook scope</span><span>The edit hook covered C, shader and CMake sources only. It now covers the scripts under <code>tools/</code>, <code>build.sh</code> and <code>run_all.sh</code> as well.</span></li>
+  </ul>
+  <h3>Put right in CLAUDE.md, commit 59775bf</h3>
+  <ul class="findings done">
+    <li><span class="w">cross loan is fixed</span><span><code>build.sh</code> lends the cross tree <code>build/wayland-vulkan/release/generated</code> by name, so an X11-only build does not satisfy it. The docs said "the host build"; they now name the tree and the sweep's order.</span></li>
+    <li><span class="w">three, or six</span><span>The docs spoke of "all three environments". <code>environment.ALL</code> has six, the portal and its token belong to the four on this desktop, and <code>pace.py</code> sweeps those four and the laptops.</span></li>
+    <li><span class="w">analyzer is -O3</span><span>The <code>analyzer</code> variant sets no build type and inherits Release, where "the checker trees' Debug still wins" read as if it were Debug.</span></li>
+    <li><span class="w">wine clipboard</span><span>The skip was tied to wine 10.0. The code decides at run time, by looking for <code>wl_data_device</code> in the loaded <code>winewayland.so</code>, so a later wine turns the section on by itself.</span></li>
+    <li><span class="w">undocumented</span><span>What a tree holds beyond <code>fenestal-testbed</code>, <code>build/fenestal.zip</code> and <code>tools/mkdist.py</code>, <code>run_all.sh</code>, <code>tsan.supp</code>, <code>options_wayland.sh</code>, <code>FNL_DRIVE_LEDGER</code>, the other directories under <code>build/</code> and where the examples' shader headers land each have a line now. <code>native_relay.py</code> still has none.</span></li>
+  </ul>
+  <p style="color:var(--muted)">What was run for this page: <code>./build.sh</code>, all thirteen trees with no warning, the three instruments above at the release variant, the stress round under AddressSanitizer and ThreadSanitizer on the two native targets, and each clang tool once. Not run: a round with captures, and anything under the validation layer.</p>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var rows = [
+    ["server-rect",  "011011"], ["edge-resize",  "011111"], ["unminimize",   "011011"],
+    ["read-pixels",  "011011"], ["multi-output", "111011"], ["composited",   "100111"],
+    ["desk-layout",  "111000"], ["dead-layout",  "000011"], ["wm-props",     "010000"],
+    ["remap-key",    "010000"], ["grab-ring",    "100000"], ["input-method", "100000"]
+  ];
+  var t = document.getElementById("caps");
+  rows.forEach(function (r) {
+    var tr = document.createElement("tr");
+    var td = document.createElement("td"); td.className = "m"; td.textContent = r[0]; tr.appendChild(td);
+    r[1].split("").forEach(function (c) {
+      var d = document.createElement("td"); d.className = "c" + (c === "1" ? "" : " no");
+      d.textContent = c === "1" ? "●" : "·"; tr.appendChild(d);
+    });
+    t.appendChild(tr);
+  });
+})();
+</script>
+</body>
+</html>

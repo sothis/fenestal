@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# A conservative check set: things that are defects, not things that are
+# opinions. The tree is already warning-clean under the shared GCC set in
+# CMakeLists.txt and clean under -fanalyzer and all three sanitizers, so this
+# is a second opinion rather than the primary net.
+#
+# Run it against the compile database (needs CMAKE_EXPORT_COMPILE_COMMANDS):
+#
+#   cmake -S . -B build/tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+#         -DFNL_HARDEN=OFF
+#   cmake --build build/tidy -j
+#   clang-tidy -p build/tidy $(git ls-files 'src/*.c' 'examples/*.c' \
+#              'testbed/*.c')
+#
+# Built and not only configured: the sources include headers the build
+# generates, and without them every file stops at its first #include.
+#
+# Under build/ so the one gitignore entry covers it, and by git's list because
+# the sources are three directories deep. One tree is one operating system:
+# a Linux tree's database names Wayland's, X11's and KMS's files, and
+# another system's -- Win32's, Cocoa's, Direct3D 12's, Metal's -- report "no
+# compile command" until a tree of that system, a cross tree as below, is
+# given its turn.
+#
+# build/tidy is configured with gcc, so clang-tidy sees gcc's flags; 21.1.8
+# takes them on the native trees but `-fhardened`, which it reports as an
+# error on every file -- hence FNL_HARDEN=OFF above. The cross tree wants
+# -DCMAKE_BUILD_TYPE=Debug beside its toolchain file and FNL_GENERATED_DIR:
+# clang refuses -ffat-lto-objects for a mingw target, and Debug is the tree
+# that does not ask for it.
+#
+# RUN ONCE OVER ALL THREE TREES, AND READ. clang-tidy 21.1.8: no errors, and
+# 66 findings past the one check that run added to the list below, which
+# was 268 more. Every one was read at its site and none is a defect:
+#
+#   clang-analyzer-security.ArrayBound   Vulkan's two-call enumerate, which
+#                                never raises the count it was handed.
+#   bugprone-not-null-terminated-result  a prefix that vsnprintf terminates.
+#   multi-level-implicit-pointer-conversion  arrays of handles through
+#                                memcpy, memset, free and xmalloc.
+#   implicit-widening-of-multiplication-result  products of small ints.
+#   clang-analyzer-unix.Malloc, .Stream  mkfont's and verifyfont's failure
+#                                exits, which return from main.
+#   optin.core.EnumCastOutOfRange        EDGE_COUNT, one past the enum on
+#                                purpose.
+#   performance-no-int-to-ptr            an LPARAM that Windows documents
+#                                as a pointer.
+#   the singles                  the padding of two structs laid out to be
+#                                read, const on a handle typedef, `64l`,
+#                                rewind, and names.
+#
+# Read since, on the two native trees, and none a defect either:
+#
+#   integer-division             `h / 2` in pixel geometry, whole on purpose.
+#   inc-dec-in-conditions        the late-latch cooldown's one decrement a
+#                                frame, which the site says it is.
+#   cert-int09-c                 the X11 cursor enum, whose values past the
+#                                count are deliberate.
+#   branch-clone                 a snippet's two `break`s, one commented.
+#
+# So this is the list a run prints today, and a finding not on it is new.
+# The exclusions above that run's were reasoned about, not observed.
+
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  readability-misleading-indentation,
+
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-switch-missing-default-case,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err33-c,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '(src|tools)/.*\.h$'
+FormatStyle: file
+
+# Why each of the above is off:
+#
+#   easily-swappable-parameters  fires on every (x, y) and (w, h) pair, which
+#                                is most of a geometry-heavy codebase.
+#   narrowing-conversions        the shared GCC set already carries
+#                                -Wdouble-promotion and -Wsign-compare, which
+#                                cover the cases that matter here without the
+#                                noise on deliberate int/float geometry maths.
+#   assignment-in-if-condition   `if ((r = f()) != VK_SUCCESS)` is the idiom.
+#   switch-missing-default-case  several switches are exhaustive over an enum
+#                                on purpose, so that adding a value is a
+#                                -Wswitch warning rather than a silent default.
+#   cert-dcl37-c / dcl51-cpp     fire on the reserved-identifier guards
+#                                (_POSIX_C_SOURCE, APP_H) that have to look
+#                                exactly as they do.
+#   cert-err33-c                 the two-tier error policy in app.h is explicit
+#                                about which returns are checked and which are
+#                                deliberately not (stderr writes on a path that
+#                                is already failing).
+#   DeprecatedOrUnsafeBuffer-    wants fprintf_s, memcpy_s and the rest of
+#   Handling                     Annex K, which glibc does not have: 268 of
+#                                the first run's 323 findings.
+#   include-cleaner              app.h is the single shared header by design;
+#                                this check wants every TU to include the world
+#                                directly, which breaks the _POSIX_C_SOURCE
+#                                ordering rule.
+#   no-recursion                 fine here, and used deliberately.
+#
+# readability-non-const-parameter is deliberately left out of the enabled set
+# for the same reason: it fires on Wayland listener callbacks, whose signatures
+# are fixed by the generated protocol headers and cannot be changed.

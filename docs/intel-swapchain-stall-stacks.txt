@@ -1,0 +1,155 @@
+Every thread of a fenestal-pace.exe that did not come back from
+vkCreateSwapchainKHR, as tools/probe/stacks.c printed them: module and
+offset, innermost first.
+
+Acer Aspire VN7-792G, Intel HD Graphics 530, driver 31.0.101.2111,
+Windows 11 build 26300.9550, 13 October 2026. The program was on the Intel
+device (FNL_GPU=intel), started as `fenestal-pace 30 2 --settle 4` from a
+build of the tree with the rest before a rebuild taken out
+(SWAP_REST_AFTER, src/renderer/vulkan/swapchain.c). The thirty-fifth start of
+that kind; eighty with `--settle 0.3` before it all ended.
+
+The program's own frames, by the nearest symbol of that build:
+
+  thread 7824, the window's
+    fenestal-pace +6b8f    win32_request_size   (in SetWindowPos)
+    fenestal-pace +2252    app_drain_requests
+    fenestal-pace +b860    wnd_proc
+    fenestal-pace +700a    win32_pump
+    fenestal-pace +8d69    fnl_run
+    fenestal-pace +23056   main
+  thread 6352, the frame's
+    fenestal-pace +da83    create_swapchain     (in vkCreateSwapchainKHR)
+    fenestal-pace +e139    recreate_swapchain
+    fenestal-pace +40ce    render_loop
+    fenestal-pace +1bf7    fnl_thread_trampoline
+
+----
+thread 7824
+    ntdll                        +165834
+    ntdll                        +1a61d
+    ntdll                        +1bd1f
+    ntdll                        +1cf92
+    ig9icd64                     +1a173
+    ig9icd64                     +5bc25d
+    USER32                       +1abb0
+    USER32                       +1aade
+    USER32                       +48767
+    ntdll                        +165c04
+    win32u                       +1704
+    fenestal-pace                +6b8f
+    fenestal-pace                +2252
+    fenestal-pace                +b860
+    USER32                       +152e6
+    USER32                       +14dac
+    OpenGL32                     +be23
+    USER32                       +152e6
+    USER32                       +15dbd
+    fenestal-pace                +700a
+    fenestal-pace                +8d69
+    fenestal-pace                +23056
+    fenestal-pace                +10d6
+    fenestal-pace                +143a
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 1644
+    ntdll                        +165894
+    ntdll                        +24d0e
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 2792
+    ntdll                        +165894
+    ntdll                        +24d0e
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 10428
+    ntdll                        +165894
+    ntdll                        +24d0e
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 2288
+    ntdll                        +162714
+    KERNELBASE                   +22773
+    CRYPT32                      +9b357
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 10504
+    ntdll                        +162714
+    KERNELBASE                   +22773
+    KERNELBASE                   +22641
+    nvoglv64                     +a3e0b7
+    nvoglv64                     +a3d668
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 6436
+    ntdll                        +162714
+    KERNELBASE                   +22773
+    KERNELBASE                   +22641
+    igvk64                       +686862
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 9392
+    ntdll                        +165834
+    ntdll                        +1a61d
+    ntdll                        +1bd1f
+    ntdll                        +1cf92
+    ig9icd64                     +5dd245
+    ig9icd64                     +1adff
+    ig9icd64                     +6b4c69
+    ig9icd64                     +763d6
+    ig9icd64                     +3ae0a
+    ig9icd64                     +636549
+    ig9icd64                     +6a9359
+    ig9icd64                     +6a4420
+    ig9icd64                     +60873b
+    ig9icd64                     +5b2a4b
+    ig9icd64                     +5b28f3
+    igvk64                       +5de30e
+    igvk64                       +5d7941
+    igvk64                       +5c990c
+    igvk64                       +5c793d
+    igvk64                       +624c1a
+    igvk64                       +623db8
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 6020
+    ntdll                        +162d74
+    dwmapi                       +161dd
+    dwmapi                       +15ddf
+    dwmapi                       +44b4
+    dwmapi                       +43b7
+    ig9icd64                     +5bb49a
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 8728
+    ntdll                        +162714
+    KERNELBASE                   +22773
+    KERNELBASE                   +22641
+    ig9icd64                     +5d7070
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 6352
+    ntdll                        +165834
+    ntdll                        +597be
+    KERNELBASE                   +22a58
+    igvk64                       +e089a9
+    igvk64                       +e08ba2
+    igvk64                       +61b224
+    igvk64                       +5f613d
+    igvk64                       +54a140
+    vulkan-1                     +7ceac
+    vulkan-1                     +7e9a5
+    fenestal-pace                +da83
+    fenestal-pace                +e139
+    fenestal-pace                +40ce
+    fenestal-pace                +1bf7
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c
+thread 10520
+    win32u                       +60a4
+    ig9icd64                     +5d1ac3
+    ig9icd64                     +5bc7c1
+    igvk64                       +624a6c
+    igvk64                       +623db8
+    KERNEL32                     +2cdf7
+    ntdll                        +7ee4c

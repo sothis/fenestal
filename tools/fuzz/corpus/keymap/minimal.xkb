@@ -1,0 +1,4 @@
+xkb_keymap {
+xkb_keycodes { <AC01> = 38; };
+xkb_symbols { key <AC01> { [ a, A ] }; };
+};

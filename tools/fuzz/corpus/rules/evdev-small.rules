@@ -1,0 +1,32 @@
+// rules/evdev, cut to one row of each shape it has
+! $qwertz = al ch cz de hr hu ro si sk
+! $sun = sun_type6_jp sun_type6_usb \
+         sun_type7_usb
+! model		=	keycodes
+  *		=	evdev
+! layout[1]	=	keycodes
+  $qwertz       =       +aliases(qwertz)
+  *             =       +aliases(qwerty)
+! layout	=	keycodes
+  $qwertz       =       +aliases(qwertz)
+  *             =       +aliases(qwerty)
+! model		=	geometry
+ $sun		=	sun(%m)
+  *		=       pc(pc104)
+! model		layout		variant	=	symbols
+  *		ben		basic	=	pc+in(ben)
+  $sun	$sun_custom		*	=	pc+%l%(v)
+! model		layout			=	symbols
+  *		$nonlatin		=	pc+us+%l%(v):2
+  *		*			=	pc+%l%(v)
+! model		layout[1]			=	symbols
+  *		*			=	pc+%l[1]%(v[1])
+! model		layout[2]			=	symbols
+  *		*		=	+%l[2]%(v[2]):2
+! model		=	symbols
+  *             =   +inet(evdev)
+! layout	option					= symbols
+  *		grp:toggle				= +group(toggle)
+! option                         = symbols
+  caps:none                      = +capslock(none)
+  ctrl:swapcaps_and_switch_layout = +ctrl(swapcaps)+group(lctrl_toggle)

@@ -1,0 +1,93 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# LeakSanitizer suppressions, for the asan trees.
+#
+#   ./build.sh linux asan
+#   FNL_BACKEND=x11 LSAN_OPTIONS=suppressions=$PWD/lsan.supp \
+#       ./build/linux/asan/fenestal-testbed
+#
+# stress.py sets the variable for an asan round, and bare_driver.py ships the
+# file with the program. An entry matches a leak if any frame of its
+# allocation's stack is in the named module, so an entry is only as good as
+# the stack: malloc's fast unwinder stops at the first library built without
+# frame pointers, which for a leak inside libxcb is libxcb itself. A driver
+# that leaks through such a library is therefore suppressed only where the
+# round also asks for the slow unwinder (fast_unwind_on_malloc=0), and
+# bare_driver.py does exactly where it pins that driver. Never key an entry
+# on libxcb, libX11 or libwayland-client: the backends allocate through
+# them, and an entry there hides a reply this project forgot to free.
+#
+# Each entry says what report it was checked against, and why the stack it
+# keys on cannot be one of this project's.
+
+# ---- NVIDIA's own driver ---------------------------------------------------
+# Checked against the x11-vulkan-bare asan round on schenker's GTX 1050 Ti
+# (580.178.04, Xorg, no manager), full stacks: 746 to 790 bytes in five or
+# six blocks at exit, and nothing else.
+#   - vkCreateInstance -> libGLX_nvidia -> libnvidia-glcore ->
+#     dbus_bus_register: the driver's D-Bus connection, kept by the driver
+#     and never closed; three blocks, one direct.
+#   - vkQueuePresentKHR -> libGLX_nvidia -> xcb_poll_for_special_event and
+#     xcb_wait_for_special_event: Present's special events, read by the
+#     driver's WSI and not freed; 44 bytes each.
+# The ICD is closed, so no frame inside it is named, and the module is the
+# narrowest key there is. This project gives the driver no allocation
+# callbacks, so nothing of ours is allocated under one of its frames.
+leak:libGLX_nvidia.so
+leak:libnvidia-glcore.so
+#
+# And the same D-Bus connection made through NVIDIA's EGL. Checked against
+# the kms-gl-bare asan round on schenker's GTX 1050 Ti (580.178.04, no
+# window server): eglCreateContext -> libEGL_nvidia -> (the ICD's own
+# frames, unnamed) -> dbus_bus_register, 184 bytes direct and 374
+# indirect at exit, and nothing else. aspire's 960M on the same driver did
+# not report it in its round, which says when, not whether. The module is
+# the narrowest key for the reason above, and EGL is given no allocator of
+# ours either.
+leak:libEGL_nvidia.so
+#
+# And the same D-Bus connection where NVIDIA's Vulkan driver is not kept
+# loaded: a round that moves the GPU between kernel drivers, which unloads
+# it (bare_driver.py's LAVAPIPE_WHY). Its frames are then an unknown
+# module's and neither entry above can match, so the key is libdbus, which
+# bare_driver.py keeps loaded there for it. Checked against the
+# kms-vulkan-bare asan round on schenker's GTX 1050 Ti that starts on
+# nouveau (580.196.07, Arch's libdbus 1.16.2 named by its debuginfod):
+# vkEnumerateInstanceExtensionProperties -> (the driver, unnamed) ->
+# internal_bus_get, one connection each time the GPU moved to NVIDIA's
+# driver -- three, 2314 bytes in nine blocks, three direct -- and nothing
+# else, twice. aspire's 960M again reported none. Nothing of this project
+# calls libdbus, and no backend links it, so no allocation of ours is made
+# under one of its frames.
+leak:libdbus-1.so
+
+# ---- Mesa's display WSI ---------------------------------------------------
+# wsi_display_swapchain_destroy() sets the connector's crtc_id to 0 as the
+# display's last swapchain goes, and the next surface query's
+# wsi_display_setup_crtc() then assigns connector->formats afresh without
+# freeing the list it had: the primary plane's formats, 4 bytes each. On
+# the KMS display path that is every mode change -- the surface is made
+# again for the new mode -- so one list a change, the last freed with the
+# instance. tools/probe/wsidisplay.c shows it with nothing of fenestal in
+# it: three rounds, three lists, 156 bytes each on the Pi's vc4 (39
+# formats) and 60 on aspire's HD 530 (15; Mesa 26.2.5 both). The laptops'
+# rounds never meet it -- their panels offer one mode, and lavapipe takes
+# the copy path -- and this desktop's console does: RADV on the RX 580,
+# 72 bytes (18 formats) at each mode row. The validation layer saw no
+# object of ours left alive, and no driver is given an allocator of ours.
+#
+# By the function where the driver has debug info -- Arch's, from its
+# debuginfod, as aspire's anv named it: vk_zalloc in wsi_display_setup_crtc
+# (wsi_common_display.c:2470) under wsi_display_surface_get_formats. Checked
+# against the kms-vulkan-bare asan round on this desktop's console (Mesa
+# 26.0.8, Ubuntu's RADV with its debug info installed, the driver kept
+# loaded by bare_driver.py): this key, 2 leaks, 144 bytes, and nothing else.
+leak:wsi_display_setup_crtc
+#
+# And by the module on the Pi, whose V3DV has none: Arch Linux ARM serves no
+# debug info, so its frames are offsets into libvulkan_broadcom.so (kept
+# loaded by bare_driver.py) and the module is the narrowest key. Checked
+# against the kms-vulkan-bare asan round there: 156 bytes at each of the
+# two mode rows, and nothing else.
+leak:libvulkan_broadcom.so

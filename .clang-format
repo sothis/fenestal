@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# Encodes the house style described in CLAUDE.md. The tree predates this file
+# and was not formatted with it, so `clang-format -i` over an untouched file
+# will still produce churn -- especially around the hand-aligned trailing
+# comments and the compact `case X: case Y: return Z;` tables. Treat it as a
+# reference and a check on new code, not as something to run over the tree.
+#
+# Run once, check-only, with clang-format 21.1.8: the file parses, and it
+# would change some 3,900 lines in 62 of the 64 C sources and headers --
+# the aligned prototypes and declarations, the padded `case X:  return Y;`
+# tables, the indented `#  define` and the one-line unions. So the churn is
+# as predicted and the tree stays as it is.
+
+Language: Cpp
+Standard: c++11          # closest clang-format has; the tree is C11
+
+ColumnLimit: 80
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForContinuationAndIndentation
+ContinuationIndentWidth: 4
+MaxEmptyLinesToKeep: 1
+
+# Allman for function definitions, K&R for everything inside them.
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterStruct: false
+  AfterUnion: false
+  AfterEnum: false
+  AfterExternBlock: false
+  BeforeElse: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+
+# Single-statement bodies routinely go unbraced, and stay on their own line.
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortCaseLabelsOnASingleLine: true   # the `case X: return Y;` tables
+IndentCaseLabels: false
+
+# `App *a`, not `App* a`.
+PointerAlignment: Right
+DerivePointerAlignment: false
+SpaceAfterCStyleCast: false
+
+# Both are used deliberately in the tree -- aligned assignment blocks and
+# right-aligned trailing comments.
+AlignConsecutiveAssignments: Consecutive
+AlignTrailingComments: true
+AlignEscapedNewlines: Right
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+Cpp11BracedListStyle: false
+SpaceBeforeParens: ControlStatements
+
+# app.h must come first in every .c and must not be sorted into a block with
+# the libc headers -- it pins _POSIX_C_SOURCE before any of them are read.
+SortIncludes: false
+IncludeBlocks: Preserve
+
+ReflowComments: false     # the /* */ prose blocks are hand-wrapped

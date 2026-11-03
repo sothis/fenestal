@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fenestal-bench/1",
+  "title": "fenestal-bench/1: one run of fenestal-testbed's benchmark mode",
+  "description": "Normative: tools/bench/check.py enforces it. Additive: a renamed key is a new key, a reader ignores keys it does not know, so additionalProperties is never false, and a key added after the first records (conditions, library_frames, shown_frames, platform.driver, platform.scene_motion, platform.refresh_hz, run.commit, run.dirty) is never required. Unknown or not applicable is null, never 0. DESIGN *Benchmarking*.",
+  "type": "object",
+  "required": ["schema", "run", "machine", "platform", "options",
+               "metrics", "series", "frames", "library_log"],
+  "properties": {
+    "schema": {"const": "fenestal-bench/1"},
+    "run": {
+      "type": "object",
+      "required": ["id", "series", "repeat", "repeats_n", "started_utc",
+                   "finished_utc", "label", "program", "library_version",
+                   "status", "invalid_reasons", "notes"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "series": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "repeat": {"type": "integer", "minimum": 0},
+        "repeats_n": {"type": "integer", "minimum": 1},
+        "started_utc": {"type": "string"},
+        "finished_utc": {"type": "string"},
+        "label": {"type": "string"},
+        "program": {"type": "string"},
+        "library_version": {"type": "string",
+                            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "status": {"enum": ["complete", "invalid", "aborted"]},
+        "invalid_reasons": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{4,40}$"},
+        "dirty": {"type": ["boolean", "null"]}
+      }
+    },
+    "machine": {
+      "type": "object",
+      "required": ["host", "os", "cpu", "cpus_n", "memory_mib"],
+      "properties": {
+        "host": {"type": ["string", "null"]},
+        "os": {"type": ["string", "null"]},
+        "cpu": {"type": ["string", "null"]},
+        "cpus_n": {"type": ["integer", "null"]},
+        "memory_mib": {"type": ["number", "null"]}
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": ["backend", "renderer", "gpu", "present_mode",
+                   "area_w_px", "area_h_px", "scale_120", "fullscreen",
+                   "env"],
+      "properties": {
+        "backend": {"type": "string"},
+        "renderer": {"type": "string"},
+        "gpu": {"type": "string"},
+        "gpu_short": {"type": "string"},
+        "window_host": {"type": ["string", "null"]},
+        "present_mode": {"type": "string"},
+        "output": {"type": ["string", "null"]},
+        "refresh_hz": {"type": ["number", "null"]},
+        "area_w_px": {"type": "integer"},
+        "area_h_px": {"type": "integer"},
+        "scale_120": {"type": "integer"},
+        "fullscreen": {"type": "boolean"},
+        "scene_motion": {"type": "boolean"},
+        "driver": {"type": "object"},
+        "env": {"type": "object",
+                "additionalProperties": {"type": ["string", "null"]}}
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": {"type": ["string", "number", "boolean"]}
+    },
+    "conditions": {"type": "object"},
+    "metrics": {
+      "type": "object",
+      "required": ["frame", "input", "process", "gpu", "library"],
+      "additionalProperties": {
+        "anyOf": [{"type": "null"}, {"$ref": "#/$defs/group"}]
+      }
+    },
+    "series": {
+      "type": "object",
+      "required": ["columns", "rows"],
+      "properties": {
+        "columns": {"type": "array", "items": {"$ref": "#/$defs/unit_key"}},
+        "rows": {"type": "array",
+                 "items": {"type": "array",
+                           "items": {"type": ["number", "null"]}}}
+      }
+    },
+    "frames": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "object", "required": ["columns", "rows"],
+         "properties": {
+           "columns": {"type": "array",
+                       "items": {"$ref": "#/$defs/unit_key"}},
+           "rows": {"type": "array",
+                    "items": {"type": "array",
+                              "items": {"type": ["number", "null"]}}}}}
+      ]
+    },
+    "library_frames": {"$ref": "#/properties/frames"},
+    "shown_frames": {"$ref": "#/properties/frames"},
+    "library_log": {
+      "anyOf": [{"type": "null"},
+                {"type": "array", "items": {"type": "string"}}]
+    }
+  },
+  "$defs": {
+    "unit_key": {
+      "type": "string",
+      "pattern": "_(ms|us|s|fps|pct|mib|kib|hz|n)$"
+    },
+    "value": {
+      "type": "object",
+      "required": ["value"],
+      "properties": {"value": {"type": "number"}}
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["n", "mean", "min", "p50", "p95", "p99", "max"],
+      "properties": {
+        "n": {"type": "integer", "minimum": 1},
+        "mean": {"type": "number"},
+        "min": {"type": "number"},
+        "p50": {"type": "number"},
+        "p95": {"type": "number"},
+        "p99": {"type": "number"},
+        "max": {"type": "number"}
+      }
+    },
+    "group": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/unit_key"},
+      "additionalProperties": {
+        "anyOf": [{"type": "null"}, {"$ref": "#/$defs/value"},
+                  {"$ref": "#/$defs/distribution"}]
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+Copyright 2011, 2022, 2023 Canonical Ltd.
+
+This Font Software is licensed under the Ubuntu Font Licence, Version
+1.0.  https://launchpad.net/ubuntu-font-licence
+
+The years above are the ones the faces here carry in their own `name`
+table copyright field:
+
+  Ubuntu Sans      1.006   Copyright 2011, 2022, 2023 Canonical Ltd.
+  Ubuntu Sans Mono 1.100   Copyright 2011, 2022, 2023 Canonical Ltd.
+
+An earlier copy of this file read "2010,2011", which is the notice from
+the classic 2010 Ubuntu font package rather than from either face here,
+and understated them by two revisions.
+
+Fenestal's glyph atlas is a Modified Version of both faces, Substantially
+Changed: a subset of their glyphs rasterised at fixed sizes, one atlas per
+surface scale, into subpixel coverage, with no outlines left. As condition 2(b) of the licence asks, it is renamed
+and does not go by either face's name:
+
+  Fenestal Glyphs Sans   derived from Ubuntu Sans 1.006
+  Fenestal Glyphs Mono   derived from Ubuntu Sans Mono 1.100
+
+It is distributed under the Ubuntu Font Licence 1.0 alone, as condition 4
+asks, and the rest of a program that carries it is not covered by that
+licence.

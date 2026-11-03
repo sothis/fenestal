@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# ruff over tools/ (`ruff check tools`), check-only and clean: a finding is a
+# new one. pycodestyle, pyflakes and bugbear, at the tree's 80 columns.
+#
+# Left out, each for a reason that is the tree's:
+#   B904  `raise SystemExit(...)` inside an except is how a tool here stops
+#         with one line; the chain the rule wants is a traceback nobody reads.
+#   B023  the closures it names are called inside the iteration that made
+#         them (b.until(lambda: ...)), so the late binding cannot bite.
+#   B007  a loop that counts attempts, its variable unread on purpose.
+#   E731  a named lambda handed to a helper reads as the action it is.
+#   E741  `l` as a line in a short comprehension.
+line-length = 80
+
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = ["B904", "B023", "B007", "E731", "E741"]

@@ -1,0 +1,82 @@
+MIT License
+
+Copyright (c) 2026 Janos Sonntag
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+NOTE: the grant above is not the whole of this file, and this distribution is
+not MIT-only. It contains third-party material that is licensed to you by its
+own authors and not by the copyright holder named above -- see clause 4
+below, and THIRD_PARTY_NOTICES.md, which must accompany any redistribution.
+
+==============================================================================
+
+This project contains multiple components that are distributed under separate
+licences. Unless otherwise specified in a file's header, the following rules
+apply. Clauses 1 to 3 are subject to clause 4, which governs material this
+project did not author and cannot license.
+
+1. Source Code
+   All source code files (including but not limited to C, Objective-C, GLSL,
+   Python, shell, PowerShell, CMake and other build-system files) are
+   licensed under the MIT License shown above. That is everything under
+   include/, src/, shaders/, testbed/, tools/ and cmake/, and the build files
+   at the top of the tree. The API reference generated from the public
+   headers is the headers' own text, and is under this clause with them.
+
+2. Documentation
+   All files inside the docs/ directory and any other Markdown files that
+   serve as documentation -- README.md, DESIGN.md, CHANGELOG.md, TODO.md and
+   the notes beside the tools -- are licensed under the Creative Commons
+   Attribution 4.0 International License (CC BY 4.0).
+   To view a copy of this license, visit:
+   https://creativecommons.org/licenses/by/4.0/
+
+3. Example Files
+   All files inside the demos/ and examples/ directories are dedicated to the
+   public domain via the Creative Commons CC0 1.0 Universal (CC0) license.
+   They are written to be copied into programs of your own, and no notice
+   need go with them when they are.
+   To view a copy of this dedication, visit:
+   https://creativecommons.org/publicdomain/zero/1.0/
+
+4. Third-Party Material
+   This project ships material it did not author: the Ubuntu Sans and Ubuntu
+   Sans Mono fonts under fonts/ubuntu/, and the glyph atlas the build bakes
+   from them into the library, renamed Fenestal Glyphs Sans and Mono (Ubuntu
+   Font Licence 1.0, whose text and notice are beside the fonts and are built
+   into every binary, because that licence requires them to travel with
+   every copy); the Wayland protocol
+   definitions under protocols/, and the code generated from them; the keysym
+   table in src/backend/keysym_table.h, derived from X.Org's keysymdef.h;
+   and everything else Part 1 of THIRD_PARTY_NOTICES.md lists.
+
+   PART 1 OF THIRD_PARTY_NOTICES.md IS THE AUTHORITATIVE LIST, not the
+   sentence above, which is a summary. Clauses 1 to 3 do not extend to any
+   material recorded there, whether or not this clause names it. Part 2 of
+   that file records what a build brings in from outside this repository --
+   code compiled in from the build machine, and libraries placed beside the
+   programs -- under its authors' licences likewise.
+
+   The grants in clauses 1 to 3 extend to this project's own contribution:
+   the code, the shaders, the generators, the harness and the prose around
+   them. They do not extend to the third-party material, and nothing here
+   grants a right in it that this project does not hold. Anyone
+   redistributing this software, in source or binary form, must carry
+   THIRD_PARTY_NOTICES.md with it.

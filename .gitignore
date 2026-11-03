@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# Every build tree, of every target and every checker variant, lands under
+# build/<target>/<variant> -- see build.sh. One entry, and `rm -rf build` is
+# the only thing that means clean.
+build/
+
+# Python bytecode from the drivers in tools/drive. They are scripts that
+# import each other, so running one leaves this behind.
+__pycache__/
+
+# A machine's own particulars for Claude Code -- its remote, accounts and
+# paths -- beside the project's CLAUDE.md and never published with it.
+CLAUDE.local.md

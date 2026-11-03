@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# The house style's whitespace (CLAUDE.md, CONTRIBUTING.md): C, Objective-C,
+# GLSL and the linker script indent with tabs, four columns wide, which is the
+# width the 80-column wrap is counted at; the rest indents with four spaces.
+# GitHub's viewer and most editors read this file.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{c,h,m,vert,frag,map}]
+indent_style = tab
+tab_width = 4
+indent_size = tab
+max_line_length = 80
+
+[*.md]
+trim_trailing_whitespace = false
+
+[protocols/*.xml]
+indent_style = tab
+tab_width = 8
+
+[tools/fuzz/corpus/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_style = unset

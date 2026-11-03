@@ -1,0 +1,53 @@
+xkb_keymap {
+xkb_keycodes "(unnamed)" {
+    minimum = 8;
+    maximum = 255;
+    <ESC>  = 9;
+    <AE01> = 10;
+    <AE02> = 11;
+    <BKSP> = 22;
+    <AD01> = 24;
+    <AD03> = 26;
+    <AD08> = 31;
+    <AD11> = 34;
+    <AC01> = 38;
+    <AC02> = 39;
+    <LFSH> = 50;
+    <AB02> = 53;
+    <SPCE> = 65;
+    <KP7>  = 79;
+    <I372> = 372;
+    alias <LatQ> = <AD01>;
+};
+xkb_types "(unnamed)" { type "ONE_LEVEL" { map[None] = 1; }; };
+xkb_compatibility "(unnamed)" {
+    interpret Shift_L { action = SetMods(modifiers=Shift); };
+};
+xkb_symbols "(unnamed)" {
+    name[Group1]="German";
+    key <ESC>  { [ Escape ] };
+    key <AE01> { [ 1, exclam, onesuperior, exclamdown ] };
+    key <AE02> {
+        type= "FOUR_LEVEL",
+        symbols[Group1]= [ 2, quotedbl, twosuperior ],
+        symbols[Group2]= [ 2, at ]
+    };
+    key <BKSP> { [ BackSpace, BackSpace ] };
+    key <LatQ> { [ q, Q, at, Greek_OMEGA ] };
+    key <AD03> { [ e, E, EuroSign ], [ Cyrillic_u, Cyrillic_U ] };
+    key <AD08> { [ i, Iabovedot ] };
+    key <AD11> { [ dead_acute, dead_grave, dead_diaeresis ] };
+    key <AC01> { [ a ] };
+    key <AC02> {
+        repeat= No,
+        symbols[Group1]= [ idotless, I ],
+        actions[Group1]= [ NoAction(), SetMods(modifiers=Shift) ]
+    };
+    key <LFSH> { [ Shift_L ] };
+    key <AB02> { [ x, X, { a, b }, U20AC ] };
+    key <SPCE> { [ space ] };
+    key <KP7>  { type= "KEYPAD", [ KP_Home, KP_7 ] };
+    key <I372> { [ XF86Favorites ] };
+    modifier_map Shift { <LFSH> };
+};
+};

@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# ThreadSanitizer suppressions for a machine that draws with lavapipe, added
+# to tsan.supp's own: tools/drive/bare_driver.py sends the machine both, as
+# one file, and stress.py hands this desk's rounds both the same way, now
+# that a move to another renderer tears a lavapipe device down with its
+# instance here too (seen on Ubuntu's Mesa 26.0.8: the same two races, in
+# lp_fence_destroy() by the debug info, which GCC's symbolizer does not
+# read from Ubuntu's .dwz-split package, so the frames stay unnamed).
+#
+# ---- lavapipe's device thread ----------------------------------------------
+# Checked against the x11-vulkan-bare round on Debian 13's Mesa 25.0.7: two
+# races, pthread_mutex_destroy against pthread_mutex_lock and
+# pthread_cond_destroy against pthread_cond_broadcast, on one heap block that
+# a thread vkCreateDevice spawns allocated. Every frame is in
+# libvulkan_lvp.so; ours appear only as the callers of vkCreateInstance and
+# vkCreateDevice.
+#
+# Keyed on the destroys, for tsan.supp's reason: the innermost frame is
+# TSan's interceptor, and Debian's lavapipe has no symbols to key on below
+# it. `race:libvulkan_lvp.so` is not the narrower form -- it matches any
+# stack through the driver, which is where a race on a mapped buffer of ours
+# would be. These do also cover src/core/thread.h's own destroys, wherever
+# lavapipe is installed: the cost of keying on TSan's interceptor.
+#
+# And on the Raspberry Pi 4 they cover two of V3DV's (Mesa 26.2.5, Arch
+# Linux ARM), checked against a KMS run there with no suppressions: the
+# same pair, pthread_mutex_destroy and pthread_cond_destroy at
+# vkDestroySwapchainKHR against pthread_mutex_lock on a thread the driver
+# started from vkQueuePresentKHR, on the swapchain's own block, every
+# frame in libvulkan_broadcom.so -- Mesa's display WSI, whose thread waits
+# on the DRM descriptor, and whatever orders it against the destroy is out
+# of TSan's sight. The Pi gets them as a lavapipe machine; one with V3DV
+# and no lavapipe would want them of its own.
+race_top:pthread_mutex_destroy
+race_top:pthread_cond_destroy

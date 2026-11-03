@@ -1,0 +1,24 @@
+/*
+ * SPDX-License-Identifier: MIT
+ *
+ * Copyright (c) 2026 Janos Sonntag
+ *
+ * The shared object's exported surface, as a whitelist: `local: *` hides
+ * whatever is not matched above it.
+ *
+ * Wanted beside C_VISIBILITY_PRESET because that is a C compiler flag and
+ * does not reach the .S stubs, whose four symbols -- the font blobs and the
+ * licence texts -- would otherwise be exported with no header and no prefix.
+ *
+ * One node before 1.0: a minor release may break the one before it, and the
+ * soname (libfenestal.so.0.9) is what tells them apart. From 1.0 there is a
+ * node per minor release that adds to the API, each inheriting the one
+ * before, so that a program built against 1.1 is refused by a 1.0 loader
+ * rather than failing at its first call.
+ */
+FENESTAL_0 {
+	global:
+		fnl_*;
+	local:
+		*;
+};

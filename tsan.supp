@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# ThreadSanitizer suppressions.
+#
+#   ./build.sh linux tsan
+#   FNL_BACKEND=wayland TSAN_OPTIONS=suppressions=$PWD/tsan.supp \
+#       ./build/linux/tsan/fenestal-testbed
+#
+# The same file serves the same tree on X11. There the render thread and the
+# event pump hold the *same* connection and libxcb takes its own locks, so a
+# report naming libxcb is something to read, not something to add an entry for.
+#
+# TSAN_OPTIONS is one variable: anything else wanted in it is appended to the
+# line above, or the suppressions are dropped and the RADV report comes back.
+#
+# With this file the program runs clean -- no races, no lock-order warnings,
+# exit status 0. An entry added here says what report it was checked against
+# and why it cannot cover this project's own code.
+
+# ---- RADV's disk-cache thread pool -----------------------------------------
+# The driver races itself: pthread_barrier_destroy on one of the threads
+# vkCreateDevice spawns, against pthread_barrier_wait on another. Both frames
+# are inside libvulkan_radeon.so; nothing of ours is on either stack.
+#
+# Keyed on the barrier calls and not on the library. The innermost frame is
+# TSan's own interceptor, so `race_top:libvulkan_radeon.so` never matches, and
+# a plain `race:libvulkan_radeon.so` would match every Vulkan call this program
+# makes. This project uses no pthread barrier of its own -- `grep -r
+# pthread_barrier src/` -- so these cannot hide anything of ours. radeonsi
+# runs the same pool under OpenGL: 13 matches in a wayland-gl testbed's
+# few seconds.
+race_top:pthread_barrier_destroy
+race_top:pthread_barrier_wait
+
+# ---- a trap worth naming ---------------------------------------------------
+# Do NOT add `called_from_lib:libvulkan_radeon.so` as a tidier form of the
+# above. It makes TSan ignore accesses made *from* that library, and RADV's
+# Wayland WSI calls into libwayland to commit each present -- so the
+# happens-before that libwayland's display mutex establishes is thrown away,
+# and libwayland-client is then reported racing with itself, both accesses
+# holding the same mutex.
+
+# ---- NVK's GPU address heap ------------------------------------------------
+# Checked against the x11-vulkan-bare round on schenker's GTX 1050 Ti (NVK,
+# Mesa 26.2.4, Arch): a free in util_vma_heap_free() on the render thread,
+# retiring a swapchain's images, against the calloc of the same block in
+# util_vma_heap_free() on the reaper's vkDestroySwapchainKHR. Both are the
+# driver returning GPU virtual addresses to its heap, under the device's own
+# lock -- a simple_mtx, a bare futex TSan does not see.
+#
+# Keyed on that function, which is Mesa's (src/util/vma.c) and not ours, and
+# manages the driver's own list of free ranges: no memory of this project is
+# read or written inside it. It matches only where the driver's debug info is
+# installed -- the distributions strip the function's name, and without it
+# the frame is <null> and the report fails the round as before.
+# tools/drive/bare_driver.py --setup fetches it (DEBUGINFO_WHY).
+race:util_vma_heap_free
+
+# ---- radeonsi under OpenGL: two of the driver's own hand-offs -------------
+# Checked against the wayland-gl tsan round on this desk's RX 590 (radeonsi,
+# Mesa 26.0.8-1ubuntu0.3), the driver's frames named from Ubuntu's
+# mesa-libgallium-dbgsym. Neither stack has a frame of this project's own
+# above the GL entry point it called, and neither block is ours.
+#
+# A shader binary read from the driver's disk cache by read_chunk()
+# (radeonsi/si_state_shaders.cpp) on its compiler thread, `<program>:sh0`,
+# and copied into GPU memory by si_shader_binary_upload_at() on whichever
+# thread links the program -- here the main thread, in gl_create_overlay()
+# -- under the shader's own mutex. The compiler thread hands the shader over
+# through a util_queue fence, a bare futex TSan does not see.
+race:si_shader_binary_upload_at
+#
+# One of Mesa's hash tables, made with the context and cleared by
+# _mesa_hash_table_clear() both on the driver's own thread,
+# `<program>:gdrv0`, and on the thread that destroys the context: two
+# writes, ordered by the threaded context's batch fences, the same futex.
+#
+# It covers more than that report, and that is why it is safe: the name
+# matches anywhere on either stack, on every platform, and with it whatever
+# the clear's delete callback does. Every table it clears is Mesa's and
+# every callback it runs is Mesa's -- this project hands Mesa neither, and
+# reaches the function only through a GL or Vulkan entry point -- so what
+# it hides is the driver's own state, never this project's. Keyed on the
+# function and not on race_top, which names TSan's memset interceptor.
+race:_mesa_hash_table_clear
+#
+# Both match only where the driver's debug info is installed, as the NVK
+# entry above does: without it the frames are <null> and the report fails
+# the round as before.
+
+# ---- Zink and lavapipe on schenker: the drivers' own hand-overs ----------
+# Checked against the two KMS tsan rounds on schenker's GTX 1050 Ti on
+# nouveau (Mesa 26.2.5, LLVM 23.1.3, Arch, 2026-10-26), the frames named
+# from the debug info by build id: OpenGL drawn by Zink over NVK, by iris
+# and by llvmpipe, and Vulkan by lavapipe. On every stack below, each
+# frame between TSan's and the GL or Vulkan entry point of ours is Mesa's
+# or LLVM's, and every block is the driver's own.
+#
+# Zink's shader cache. Its cache thread, `<program>:zcfq0`, serialises a
+# program's NIR into a blob (grow_to_fit(), blob_write_bytes()), and the
+# render thread reads it back inside the frame's readback, read_window()
+# (blob_read_string(), read_variable() in nir_serialize.c) -- and,
+# rebuilding at a move, destroys the program (deinit_program()) while
+# cache_put_job() reads its state. The thread hands both over through a
+# util_queue fence, a bare futex TSan does not see, as radeonsi's
+# compiler thread does above.
+race:grow_to_fit
+race:blob_write_bytes
+race:blob_read_string
+race:read_variable
+race:cache_put_job
+#
+# The GLSL type cache: a record type's name written by linear_strdup() on
+# one of Zink's threads and compared by record_key_compare() and
+# glsl_record_compare() on another, both under the cache's simple_mtx.
+race:record_key_compare
+race:glsl_record_compare
+#
+# lavapipe's shader compiles, on two of the threads its vkCreateDevice
+# starts, inside LLVM's uniquing tables (FunctionType::get(),
+# StringMapImpl::LookupBucketFor(), IEEEFloat::bitwiseIsEqual()). Both
+# stacks are the driver's threads alone, with no frame of ours. Keyed on
+# LLVM's library: nothing of this project calls LLVM, so a stack through
+# it is a compile of Mesa's and never a race on memory of ours.
+race:libLLVM.so
+#
+# lavapipe's _mesa_hash_table_copy() between two of its rasteriser
+# threads, `llvmpipe-3` and `-4`, a read against a write of the same
+# ralloc block one of them made: both stacks are lavapipe's alone, the
+# threads made with the device and nothing of ours above the copy
+# (kms-vulkan-bare@schenker:nouveau under tsan, Mesa 26.2.6, 2026-10-31).
+# Its memcpy is inlined into the function, which the symbolizer named in
+# one run of two with Mesa 26.2.6's debug info installed and left <null>
+# in the other, the same boot and files: named where lavapipe was loaded
+# before TSan's first frame was, which the preload below now makes so
+# every time (bare_driver's TSAN_PRELOADED). Keyed on the function, as
+# _mesa_hash_table_clear above is and for its reason: every table it
+# copies is Mesa's, reached only through a Vulkan or GL entry point.
+race:_mesa_hash_table_copy
+#
+# What Zink over NVK meets once NVK's frames are named (the bare
+# machines' rounds preload the drivers under TSan, bare_driver's
+# TSAN_PRELOADED: GCC's symbolizer names no library loaded after its first
+# frame). Checked against kms-gl-bare@schenker:nouveau under tsan, the GTX
+# 1050 Ti on nouveau, Mesa 26.2.6 with its debug info, 2026-10-31; every
+# frame between TSan's and the GL entry point of ours (glBlitFramebuffer in
+# gl_bridge_scan_show(), eglDestroyContext in destroy_device_objects()) is
+# Zink's, NVK's or Mesa's runtime's, and none of these names is ours
+# (`grep -rn` over src/ and examples/).
+#
+# Zink compiling a pipeline on the render thread, inside the GL call,
+# against its own compile thread `<program>:zcfq*` building the same
+# program's library (zink_create_pipeline_lib(), create_program()): Zink's
+# state, handed over through a util_queue fence. Seen once in two rounds.
+race:zink_create_gfx_pipeline_combined
+# NVK's pipeline cache: an entry made by vk_raw_data_cache_object_create()
+# on Zink's cache thread, against the cache destroyed with the context. A
+# VkPipelineCache is internally synchronized, by the specification, so a
+# race inside one is the driver's whatever the caller does. Five matches
+# in a kms-vulkan round (print_suppressions=1).
+race:vk_raw_data_cache_object_create
+#
+# With the drivers preloaded the keys above it match too: in that round
+# blob_write_bytes 270 times, blob_read_string 114, libLLVM.so 88,
+# read_variable 24, cache_put_job 6, _mesa_hash_table_copy 4. Four rounds
+# then passed clean, kms-vulkan-bare and kms-gl-bare twice each, 71 checks.
+#
+# Not keyed: the gallium threaded context's driver thread, `<program>:gdrv0`,
+# against the render thread on one of NVK's command buffers
+# (nvk_BeginCommandBuffer(), vk_dynamic_graphics_state_clear(), the push
+# buffer's map; and Zink's rendering info and the blitter's saved states,
+# both sides on it). The threaded context hands a batch over through a futex
+# TSan does not see; but a key on NVK's command-buffer functions would also
+# hide a command buffer of our own Vulkan renderer's recorded on two
+# threads. A tsan round runs Mesa's OpenGL with GALLIUM_THREAD=0 instead
+# (bare_driver), which makes no such thread: the GL calls run on the thread
+# that made them, ours.
+
+# ---- NVIDIA's EGL against its own Wayland platform library -----------------
+# A lock-order inversion between two of NVIDIA's libraries, and between two
+# moments that never overlap. Every EGL call on a Wayland display takes
+# libnvidia-egl-wayland's static lock and then one of libEGL_nvidia's -- the
+# GPU lister's eglInitialize in list_devices() (src/renderer/gl/egl.c) is the
+# first to. At process exit, libEGL_nvidia's own teardown takes its lock and
+# then calls into libnvidia-egl-wayland, which takes the static one: the
+# cycle closes there, with no frame of ours on the main thread's stack --
+# main() has returned. The lister is joined in render_thread_stop(), so
+# nothing of ours is inside EGL by then. Checked against the testbed on
+# weston with NVIDIA's 580.196.07 (FNL_GPU=intel, the lister listing the
+# 1050 Ti's OpenGL): the report closes 0.35 s after SIGTERM, ten seconds
+# after the listing. Keyed on the Wayland library, which is in both of the
+# static lock's stacks and in nothing this project's locks are taken from.
+deadlock:libnvidia-egl-wayland.so
