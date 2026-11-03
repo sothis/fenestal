@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# A run on a platform the project has not run on, which TODO.md lists as owed:
+# what worked is as much the report as what did not.
+
+name: Platform report
+description: How Fenestal ran on a platform it has not been tested on
+labels: [platform]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `TODO.md` lists the platforms not yet tested and the questions left
+        open for them. A report that answers one, working or not, is welcome.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`fnl_version()`, or the commit you built from."
+    validations:
+      required: true
+
+  - type: textarea
+    id: platform
+    attributes:
+      label: The platform
+      description: >
+        Operating system and version, window server or compositor and its
+        version, the GPU and driver, and the backend and renderer the program
+        logged.
+    validations:
+      required: true
+
+  - type: textarea
+    id: ran
+    attributes:
+      label: What you ran
+      description: >
+        `fenestal-testbed`, a demo, or a program of your own, and with which
+        options or environment variables.
+    validations:
+      required: true
+
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked, and what did not
+      description: >
+        Resize, scale, fullscreen, moving between monitors, input, text
+        entry, the clipboard, a move to another GPU -- whatever you tried.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The program's log
+      render: text

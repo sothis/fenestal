@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# CONTRIBUTING.md *Proposing a Change*: an API change is discussed before code
+# is written, and this asks what that discussion needs.
+
+name: API proposal
+description: A new function, field, event or enum value, or a changed meaning
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The API is 0.9 and not yet stable, but enum values are appended and
+        descriptors grow only at their end already. A pull request for an API
+        change touches the header, a caller in a program the build makes, the
+        ABI baseline in `tools/abi/`, `CHANGELOG.md` and `DESIGN.md`; see
+        CONTRIBUTING.md *Proposing a Change*.
+
+  - type: textarea
+    id: need
+    attributes:
+      label: What a caller cannot do today
+      description: The program, and what it needs from the library.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposed API
+      description: >
+        The declarations, the thread each may be called from (`[main]`,
+        `[any]`, `[overlay]`), and what is reported as an event.
+      render: c
+    validations:
+      required: true
+
+  - type: textarea
+    id: platforms
+    attributes:
+      label: Backends and renderers
+      description: >
+        How it would behave on each of Wayland, X11, KMS, Win32 and Cocoa, and
+        on each renderer, including where it cannot be done.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What else would serve, and why this is better.

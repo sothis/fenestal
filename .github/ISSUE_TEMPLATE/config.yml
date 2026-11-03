@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# Blank issues stay open for questions, which CONTRIBUTING.md asks for as
+# issues; a vulnerability goes to private reporting instead.
+
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/sothis/fenestal/security/advisories/new
+    about: >
+      Report it privately (or to fenestal@mail.de), never as a public issue;
+      SECURITY.md has the policy.
+  - name: Documentation
+    url: https://github.com/sothis/fenestal#readme
+    about: >
+      README.md, DESIGN.md and the API reference answer most usage questions;
+      one they should have answered is a documentation bug.

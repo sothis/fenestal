@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
+# CONTRIBUTING.md *Reporting a Bug*, as a form: the fields are what that
+# section asks for, in its order.
+
+name: Bug report
+description: Something the library, the testbed or a demo does wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A memory fault, crash or hang on input another program controls is a
+        security report: see
+        [SECURITY.md](https://github.com/sothis/fenestal/blob/main/SECURITY.md)
+        and do not file it here.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`fnl_version()`, or the commit you built from."
+      placeholder: 0.9.0, or 4e20842
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      description: What the program logged as `backend:`.
+      options:
+        - Wayland
+        - X11
+        - KMS (the console)
+        - Win32
+        - Cocoa (macOS)
+        - Not known
+    validations:
+      required: true
+
+  - type: dropdown
+    id: renderer
+    attributes:
+      label: Renderer
+      description: What the program logged as `renderer:`.
+      options:
+        - Vulkan
+        - OpenGL
+        - Direct3D 12
+        - Metal
+        - Not known
+    validations:
+      required: true
+
+  - type: textarea
+    id: platform
+    attributes:
+      label: Platform
+      description: >
+        The operating system, the window server or compositor and its version
+        (GNOME, KDE, weston, Xorg with or without a window manager, the
+        console), the compiler, and whether you named a backend, renderer or
+        GPU (`FNL_BACKEND`, `FNL_RENDERER`, `FNL_GPU`).
+    validations:
+      required: true
+
+  - type: textarea
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: >
+        `vulkaninfo --summary` or `glxinfo -B` on Linux, the driver version
+        on Windows.
+      render: text
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The program's log
+      description: >
+        At least the block it prints at start: the backend, the renderer and
+        one line per GPU.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: >
+        Against `fenestal-testbed` or a demo where you can. For an input
+        problem, run with `FNL_ECHO_EVENTS=1` and include what it echoes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: Expected and actual behaviour
+      description: For a drawing problem, a screenshot.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched the open issues and `TODO.md` for this.
+          required: true
+        - label: >
+            I tried a checker tree (`./build.sh linux asan`, say), and its
+            report is above.
