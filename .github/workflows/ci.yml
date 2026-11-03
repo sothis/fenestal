@@ -2,7 +2,8 @@
 # Copyright (c) 2026 Janos Sonntag
 #
 # The release tree of every target, on every push to main and every pull
-# request, and ruff over tools/; the run's artifact is what they made. A
+# request, and ruff over tools/; each operating system's archive of what
+# it made is one of the run's artifacts (.github/stage.sh). A
 # build that succeeds has run verifyfont, verifykeymap, the fuzz replay,
 # the ABI comparison, the layering, the tables and the API reference's
 # caller check, so a green Linux build is those as well. The checker trees
@@ -65,6 +66,7 @@ jobs:
                       python3 linux-libc-dev libvulkan-dev libegl-dev \
                       libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
+                      xz-utils \
                       gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 \
                       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             # v7.0.1
@@ -84,10 +86,18 @@ jobs:
                   test -s build/fenestal-commented.zip
                   .github/stage.sh common
                   .github/stage.sh linux
+            - name: Keep the linux archive
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  path: ${{ steps.linux.outputs.archive }}
+                  archive: false
+                  if-no-files-found: error
             # The four files a cross tree takes from the bake, and the stamp
             # build.sh reads as verifyfont's pass; the Khronos headers the
             # macOS tree finds in /usr/include on Linux, which a Mac has
-            # none of (FNL_HOST_INCLUDE).
+            # none of (FNL_HOST_INCLUDE); and what every archive holds,
+            # whose source zip and API reference the Mac does not make.
             - name: Gather the macOS tree's inputs
               run: |
                   g=build/linux/release/generated
@@ -98,6 +108,7 @@ jobs:
                      mac/include/
                   cp /usr/include/GL/glcorearb.h mac/include/GL/
                   cp /usr/include/KHR/khrplatform.h mac/include/KHR/
+                  cp -R stage/common mac/common
             - name: Hand them to the macOS job
               # v7.0.2
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -109,26 +120,33 @@ jobs:
             # Each cross tree after the Linux one, and the second whether or
             # not the first passed: they find different things.
             - name: win64 release
+              id: win64
               if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
               run: |
                   ./build.sh win64 release
                   .github/stage.sh win64
+            - name: Keep the win64 archive
+              if: ${{ !cancelled() && steps.win64.outcome == 'success' }}
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  path: ${{ steps.win64.outputs.archive }}
+                  archive: false
+                  if-no-files-found: error
             - name: linux-arm64 release
+              id: arm64
               if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
               run: |
                   ./build.sh linux-arm64 release
                   .github/stage.sh linux-arm64
-            # The trees that built, as one part of the run's artifact; the
-            # package job joins it to the macOS job's.
-            - name: Keep this job's part
-              if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+            - name: Keep the linux-arm64 archive
+              if: ${{ !cancelled() && steps.arm64.outcome == 'success' }}
               # v7.0.2
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
-                  name: fenestal-part-linux
-                  path: stage/
+                  path: ${{ steps.arm64.outputs.archive }}
+                  archive: false
                   if-no-files-found: error
-                  retention-days: 1
 
     macos:
         name: macos
@@ -180,7 +198,7 @@ jobs:
                   print("macOS SDK %s: %s" % (macos_sdk.VERSION,
                                               found[macos_sdk.VERSION]))
                   EOF
-            - name: Take the Linux job's font and headers
+            - name: Take the Linux job's font, headers and common files
               # v8.0.2
               uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
               with:
@@ -191,7 +209,7 @@ jobs:
             # stamp is newer than the atlas, so the two are dated again in
             # that order; the Linux job's build passed verifyfont, or it
             # would have uploaded nothing.
-            - name: Place the font
+            - name: Place the font and the common files
               run: |
                   g=build/linux/release/generated
                   mkdir -p $g
@@ -199,38 +217,22 @@ jobs:
                   touch $g/font_atlas.bin
                   sleep 1
                   touch $g/font_verified.stamp
+                  mkdir -p stage
+                  cp -R "$RUNNER_TEMP"/mac/common stage/common
             - name: macos release
+              id: macos
               run: |
                   inc="$RUNNER_TEMP/mac/include"
                   ./build.sh macos release "-DFNL_HOST_INCLUDE=$inc" \
                       "-DFNL_VULKAN_INCLUDE_DIR=$inc"
                   .github/stage.sh macos
-            - name: Keep this job's part
+            - name: Keep the macos archive
               # v7.0.2
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
-                  name: fenestal-part-macos
-                  path: stage/
+                  path: ${{ steps.macos.outputs.archive }}
+                  archive: false
                   if-no-files-found: error
-                  retention-days: 1
-
-    # One artifact for the run, fenestal-<commit>: the source, commented,
-    # the public headers and the API reference, and each target's library
-    # and programs (.github/stage.sh). Made of the parts that exist, so a
-    # failed macOS build still leaves the rest to download.
-    package:
-        needs: [linux, macos]
-        if: ${{ !cancelled() && needs.linux.outputs.bake == 'success' }}
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        steps:
-            - name: Join the parts
-              # v7.0.2
-              uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-              with:
-                  name: fenestal-${{ github.sha }}
-                  pattern: fenestal-part-*
-                  delete-merged: true
 
     ruff:
         runs-on: ubuntu-latest
