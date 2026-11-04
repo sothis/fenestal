@@ -355,10 +355,12 @@ static bool timing_start(App *a, VkSwapchainKHR sc, char *why, size_t n)
 }
 
 /* The swapchain itself, on the surface: everything create_swapchain()
- * decided handed in. */
+ * decided handed in. `scale` chains one-to-one presentation from the
+ * image's top-left, so an image larger than the window stays valid. */
 static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 								VkExtent2D e, VkPresentModeKHR mode,
-								uint32_t want, VkSwapchainKHR old_swapchain)
+								uint32_t want, VkSwapchainKHR old_swapchain,
+								bool scale)
 {
 	/* Copied from: for the copy path's readback of every frame, and for
 	 * the snapshot a move takes of one (App::snap_owed) wherever the
@@ -385,6 +387,15 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 		.clipped = VK_TRUE,
 		.oldSwapchain = old_swapchain,
 	};
+	/* Nothing else sets pNext. The struct lives until the create returns. */
+	const VkSwapchainPresentScalingCreateInfoKHR scaling = {
+		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_SCALING_CREATE_INFO_KHR,
+		.scalingBehavior = VK_PRESENT_SCALING_ONE_TO_ONE_BIT_KHR,
+		.presentGravityX = VK_PRESENT_GRAVITY_MIN_BIT_KHR,
+		.presentGravityY = VK_PRESENT_GRAVITY_MIN_BIT_KHR,
+	};
+	if (scale)
+		ci.pNext = &scaling;
 	const bool timed = timing_surface(a);
 #ifdef VK_EXT_present_timing
 	if (timed)
@@ -432,8 +443,16 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 	}
 	VK(a)->swap_spent  = false;
 	VK(a)->swap_fresh  = true;
+	/* A deliberately larger image is not the surface's extent, so a run
+	 * of those being out of date does not ask for the nudge: that nudge
+	 * is for a swapchain made at the window's own size. */
 	VK(a)->swap_agreed = e.width == caps->currentExtent.width &&
 						 e.height == caps->currentExtent.height;
+	if (scale && !VK(a)->scale_said) {
+		fnl_log(FNL_LOG_INFO, "Vulkan: the swapchain presents one to one "
+				"from its corner, so a resize keeps it");
+		VK(a)->scale_said = true;
+	}
 	return FNL_OK;
 }
 
@@ -549,8 +568,10 @@ static FnlResult depth_ensure(App *a, VkExtent2D e,
 }
 
 /* A swapchain's images where the window can show part of them
- * (App::buffer_crops): app_buffer_room()'s, so the sizes of a drag fit
- * inside (resize_in_place()); elsewhere the window's size. */
+ * (App::buffer_crops, or DXGI): app_buffer_room()'s, so the sizes of a
+ * drag fit inside (resize_in_place()); elsewhere the window's size.
+ * X11's present scaling is scale_extent()'s, not this: it needs the
+ * present mode's gravity, which a size alone does not say. */
 static VkExtent2D buffer_extent(App *a, VkExtent2D e,
 								const VkSurfaceCapabilitiesKHR *caps)
 {
@@ -565,6 +586,94 @@ static VkExtent2D buffer_extent(App *a, VkExtent2D e,
 	const Extent r = app_buffer_room(a, (Extent){ (int)e.width,
 												  (int)e.height }, max);
 	return (VkExtent2D){ (uint32_t)r.w, (uint32_t)r.h };
+}
+
+/* Inside the range a scaled image must lie in. A max of zero is no range:
+ * chaining the scaling struct outside it makes the create fail. */
+static bool extent_scaled(VkExtent2D e,
+						  const VkSurfacePresentScalingCapabilitiesKHR *sc)
+{
+	return sc->maxScaledImageExtent.width > 0 &&
+		   sc->maxScaledImageExtent.height > 0 &&
+		   e.width >= sc->minScaledImageExtent.width &&
+		   e.height >= sc->minScaledImageExtent.height &&
+		   e.width <= sc->maxScaledImageExtent.width &&
+		   e.height <= sc->maxScaledImageExtent.height;
+}
+
+/* One to one from the top-left, for this present mode. False where the
+ * query fails or a bit is missing; present_scale stays, because another
+ * mode may have them. */
+static bool scale_caps(App *a, VkPresentModeKHR mode,
+					   VkSurfacePresentScalingCapabilitiesKHR *out)
+{
+	VkSurfacePresentModeKHR pm = {
+		.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR,
+		.presentMode = mode,
+	};
+	const VkPhysicalDeviceSurfaceInfo2KHR si = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
+		.pNext = &pm,
+		.surface = VK(a)->vk_surface,
+	};
+	VkSurfacePresentScalingCapabilitiesKHR sc = {
+		.sType =
+			VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_KHR,
+	};
+	VkSurfaceCapabilities2KHR c2 = {
+		.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR,
+		.pNext = &sc,
+	};
+	if (!VK(a)->surface_caps2 ||
+		VK(a)->surface_caps2(VK(a)->phys, &si, &c2) != VK_SUCCESS)
+		return false;
+	*out = sc;
+	return (sc.supportedPresentScaling &
+			VK_PRESENT_SCALING_ONE_TO_ONE_BIT_KHR) != 0 &&
+		   (sc.supportedPresentGravityX &
+			VK_PRESENT_GRAVITY_MIN_BIT_KHR) != 0 &&
+		   (sc.supportedPresentGravityY &
+			VK_PRESENT_GRAVITY_MIN_BIT_KHR) != 0;
+}
+
+/* `b` is what buffer_extent() chose. Where this mode can present one to
+ * one from the corner, the image is app_buffer_room()'s when that fits
+ * the scaled range, and otherwise the window's when the window itself
+ * fits -- chained either way, so a size that changes under an in-flight
+ * present is not by itself out of date. A room the range cannot hold is
+ * not chained: room_side() returns the window when the scaled max is
+ * smaller than it, and that window may lie outside the range. */
+static VkExtent2D scale_extent(App *a, VkExtent2D e, VkExtent2D b,
+							   const VkSurfaceCapabilitiesKHR *caps,
+							   VkPresentModeKHR mode, bool *scale)
+{
+	*scale = false;
+	if (!VK(a)->present_scale || !VK(a)->surface_caps2 || VK(a)->dxgi ||
+		a->buffer_crops || VK(a)->surfaceless || VK(a)->present_copy)
+		return b;
+	VkSurfacePresentScalingCapabilitiesKHR sc;
+	if (!scale_caps(a, mode, &sc))
+		return b;
+	uint32_t mx = caps->maxImageExtent.width;
+	uint32_t my = caps->maxImageExtent.height;
+	if (sc.maxScaledImageExtent.width < mx)
+		mx = sc.maxScaledImageExtent.width;
+	if (sc.maxScaledImageExtent.height < my)
+		my = sc.maxScaledImageExtent.height;
+	const Extent lim = {
+		mx > (uint32_t)INT_MAX ? INT_MAX : (int)mx,
+		my > (uint32_t)INT_MAX ? INT_MAX : (int)my,
+	};
+	const Extent room = app_buffer_room(a, (Extent){ (int)e.width,
+													 (int)e.height }, lim);
+	const VkExtent2D rb = { (uint32_t)room.w, (uint32_t)room.h };
+	if (extent_scaled(rb, &sc)) {
+		*scale = true;
+		return rb;
+	}
+	if (extent_scaled(e, &sc))
+		*scale = true;
+	return b;
 }
 
 FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
@@ -596,18 +705,20 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 
 	const VkExtent2D e = choose_extent(a, &caps);
 	a->extent = (Extent){ (int)e.width, (int)e.height };
-	const VkExtent2D b = buffer_extent(a, e, &caps);
-	VK(a)->sc_extent = b;
-	a->buffer = b.width != e.width || b.height != e.height
-		? (Extent){ (int)b.width, (int)b.height } : (Extent){ 0, 0 };
-
 	/* The one place the present mode changes, because this is where a
 	 * swapchain is made with it; the loop only asks whether it matches (see
 	 * vk_present_mode_matches). Read into a local once: a field another thread
-	 * observes is not a scratch variable. */
+	 * observes is not a scratch variable. The scaling query is per mode, so
+	 * the image size is decided after it. */
 	const VkPresentModeKHR mode =
 		vk_wanted_present_mode(a, fnl_atomic_load_bool(&a->vsync));
 	vk_set_present_mode(a, mode);
+	bool scale = false;
+	const VkExtent2D b = scale_extent(a, e, buffer_extent(a, e, &caps),
+									  &caps, mode, &scale);
+	VK(a)->sc_extent = b;
+	a->buffer = b.width != e.width || b.height != e.height
+		? (Extent){ (int)b.width, (int)b.height } : (Extent){ 0, 0 };
 
 	uint32_t want = caps.minImageCount;
 	if (mode == VK_PRESENT_MODE_MAILBOX_KHR && want < 3)
@@ -619,7 +730,8 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	if (VK(a)->surfaceless)
 		FNL_TRY(own_images_make(a, b, want));
 	else
-		FNL_TRY(swapchain_make(a, &caps, b, mode, want, old_swapchain));
+		FNL_TRY(swapchain_make(a, &caps, b, mode, want, old_swapchain,
+							   scale));
 
 	FNL_TRY(create_image_objects(a));
 	FNL_TRY(ensure_readback(a));

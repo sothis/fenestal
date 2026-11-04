@@ -182,6 +182,8 @@ static void forget_objects(App *a)
 	g->bridge_surface = keep.bridge_surface;
 	g->bridge_context = keep.bridge_context;
 	g->bridge_native  = keep.bridge_native;
+	g->native_w       = keep.native_w;
+	g->native_h       = keep.native_h;
 	g->bridge_window  = keep.bridge_window;
 	g->display_gone   = keep.display_gone;
 	g->devs           = keep.devs;

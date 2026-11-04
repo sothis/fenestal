@@ -192,6 +192,20 @@ struct RendererState {
 	 * new one answers: no size is then drawn into it in place
 	 * (resize_in_place()). */
 	bool                  swap_spent;
+	/* The device can present a swapchain one to one from its corner, so
+	 * an image larger than the window stays valid (swapchain.c). Cleared
+	 * for this renderer's life when such a swapchain comes back out of
+	 * date or suboptimal (`scale_refused`): the next one is the window's
+	 * size, and a device made again does not turn it back on. `scale_said`
+	 * is the one line that the capability was taken. */
+	bool                  present_scale;
+	bool                  scale_refused;
+	bool                  scale_said;
+	/* The instance enabled get_surface_capabilities2 and a surface
+	 * maintenance extension, which is what the device half above needs.
+	 * Set from the names that were enabled, so this file's device code
+	 * does not learn which window server it presents to. */
+	bool                  surface_maint;
 	/* The window's images are shared with Direct3D 11 and presented
 	 * through a DXGI swapchain (present_dxgi.c), whose state is
 	 * `dxgi_state`; `surfaceless` is set with it. `dxgi_exts` is every
@@ -357,13 +371,16 @@ struct RendererState {
 	PFN_vkSetSwapchainPresentTimingQueueSizeEXT timing_queue_size;
 	PFN_vkGetSwapchainTimeDomainPropertiesEXT   timing_domains;
 	PFN_vkGetPastPresentationTimingEXT          timing_past;
-	PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
 	PFN_vkGetCalibratedTimestampsKHR            calibrated;
 #endif
 	/* VK_KHR_get_physical_device_properties2's feature query, where the
 	 * instance has the extension; how present wait is asked for on a 1.0
 	 * instance. */
 	PFN_vkGetPhysicalDeviceFeatures2KHR get_features2;
+	/* VK_KHR_get_surface_capabilities2, where the instance enabled it:
+	 * present scaling's query, and present timing's. Fetched by name,
+	 * as every optional instance entry is. */
+	PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
 	/* The same extension's memory query, and whether the device has
 	 * VK_EXT_memory_budget for it to read: the metrics panel's GPU memory
 	 * (vk_gpu_memory()). A physical device's query, so the extension is

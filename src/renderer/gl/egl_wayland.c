@@ -8,9 +8,12 @@
  *
  * The native window is a wl_egl_window, libwayland-egl's, which is the
  * runtime of this target as libwayland-client is of every Wayland one. It
- * has a size of its own, unlike an X11 window's, so every rebuild hands it
- * the new extent (native_window_resize()); Mesa takes it up at the next
- * buffer it draws into, which is the blit at the end of that frame.
+ * has a size of its own, unlike an X11 window's. While the window's size
+ * is changing that size is app_buffer_room()'s, and at rest the window's
+ * (gl_window_image()); an unchanged size is not handed to
+ * wl_egl_window_resize() again, because Mesa allocates the next buffer
+ * for a size it is given. A new size is taken up at the next buffer drawn
+ * into, which is the blit at the end of that frame.
  *
  * libwayland-egl is opened at run time, as libwayland-client is
  * (backend/wayland/wl_dyn.h), and by the same shape: the prototypes
@@ -119,8 +122,9 @@ static const char *native_pacer(const App *a)
 			   ? "frame callback (vsync)" : NULL;
 }
 
-/* At the extent of the last build, or 1x1 before the first: the size is
- * replaced at every rebuild, and wl_egl_window_create refuses zero. */
+/* At the extent of the last build, or 1x1 before the first:
+ * wl_egl_window_create refuses zero. The rebuild may then hand a larger
+ * size (native_window_resize()). */
 static void *native_window(App *a)
 {
 	/* The renderer cannot draw on this backend without it; the backend
@@ -144,13 +148,23 @@ static void *native_window(App *a)
 		return NULL;
 	}
 	GLS(a)->bridge_native = win;
+	GLS(a)->native_w = w;
+	GLS(a)->native_h = h;
 	return win;
 }
 
 static void native_window_resize(App *a, int w, int h)
 {
-	if (GLS(a)->bridge_native)
-		wl_egl_window_resize(GLS(a)->bridge_native, w, h, 0, 0);
+	if (!GLS(a)->bridge_native)
+		return;
+	/* The same size still marks Mesa's drawable dirty, and the next
+	 * buffer is allocated again -- the cost the room exists to skip.
+	 * The origin stays put: the viewport source is the top-left. */
+	if (w == GLS(a)->native_w && h == GLS(a)->native_h)
+		return;
+	wl_egl_window_resize(GLS(a)->bridge_native, w, h, 0, 0);
+	GLS(a)->native_w = w;
+	GLS(a)->native_h = h;
 }
 
 static void native_window_close(App *a)
@@ -159,6 +173,7 @@ static void native_window_close(App *a)
 		return;
 	wl_egl_window_destroy(GLS(a)->bridge_native);
 	GLS(a)->bridge_native = NULL;
+	GLS(a)->native_w = GLS(a)->native_h = 0;
 }
 
 const EglBridge egl_bridge_wayland = {

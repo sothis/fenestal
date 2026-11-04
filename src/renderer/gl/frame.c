@@ -537,16 +537,19 @@ bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 								  a->extent.h))
 			(void)pack_start(a);
 	} else {
-		/* At the extent, which is the back buffer's height: Wayland's
-		 * wl_egl_window is sized by the rebuild before the frame. On X11
-		 * the server sizes the window and Mesa takes the new size at the
-		 * next draw, so a frame in flight when a resize lands could blit
-		 * into a taller buffer; the mid-drag probe found none in 36
-		 * captures. */
+		/* The native window may be taller than the extent (App::buffer):
+		 * the blit lands in its top, which the viewport source shows.
+		 * The window framebuffer's origin is the bottom, so that top is
+		 * y = bh; equal heights are the same corners as a buffer the
+		 * window's size. On X11 the server sizes the window and Mesa
+		 * takes the new size at the next draw, so a frame in flight when
+		 * a resize lands could blit into a taller buffer; the mid-drag
+		 * probe found none in 36 captures. */
+		const int bh = a->buffer.h > 0 ? a->buffer.h : a->extent.h;
 		gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		gl.BlitNamedFramebuffer(GLS(a)->window.fbo, 0,
 								0, 0, a->extent.w, a->extent.h,
-								0, a->extent.h, a->extent.w, 0,
+								0, bh, a->extent.w, bh - a->extent.h,
 								GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	}
 	if (GLS(a)->ts_query[slot][1]) {

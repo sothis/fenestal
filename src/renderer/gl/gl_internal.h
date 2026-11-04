@@ -258,8 +258,9 @@ void gl_bridge_scan_forget(App *a);
  * enough that a drag's steps, which arrive a frame or a few apart, are one
  * stretch. */
 #define GL_RESIZE_HOLD 0.25
-/* The window's surface at the rebuild's extent, and opaque or not as the
- * grab ring asks: `opaque` is a surface made again where it differs and the
+/* The window's surface at `w` by `h` -- the window's extent, or on Wayland
+ * the room a drag keeps (App::buffer) -- and opaque or not as the grab
+ * ring asks: `opaque` is a surface made again where it differs and the
  * window server can be told, with the context current on it once more.
  * Render thread, or the main thread before it exists, with the context
  * current. */

@@ -204,6 +204,14 @@ static bool instance_has(const InstanceExts *e, const char *name)
 	return false;
 }
 
+static bool exts_have(const char *const *exts, uint32_t n, const char *name)
+{
+	for (uint32_t i = 0; i < n; i++)
+		if (strcmp(exts[i], name) == 0)
+			return true;
+	return false;
+}
+
 /* One per backend this build has; see VkBridge. */
 #define BRIDGE_ENTRY(key) &vk_bridge_##key,
 static const VkBridge *const BRIDGES[] = { FNL_BACKENDS(BRIDGE_ENTRY) };
@@ -278,15 +286,33 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	if (n_backend > VK_BACKEND_EXTENSIONS_MAX)
 		n_backend = VK_BACKEND_EXTENSIONS_MAX;
 	/* A required one is asked for whether or not the loader lists it, so
-	 * that its absence is the instance's refusal and says which. */
+	 * that its absence is the instance's refusal and says which.
+	 * surface_maintenance1 without get_surface_capabilities2 makes
+	 * vkCreateInstance fail and drops this renderer, so a maintenance
+	 * name is left out unless the loader offers the dependency. The
+	 * names are the bridge's; which window server that is stays its
+	 * business. */
 	g->backend_ext_on = 0;
-	for (uint32_t i = 0; i < n_backend; i++)
+	const bool caps2_offered = instance_has(
+		&offered, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+	for (uint32_t i = 0; i < n_backend; i++) {
+		if ((strcmp(backend[i],
+					VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME) == 0 ||
+			 strcmp(backend[i],
+					VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME) == 0) &&
+			!caps2_offered)
+			continue;
 		if (i < required || instance_has(&offered, backend[i])) {
 			exts[n++] = backend[i];
 			if (i >= required)
 				g->backend_ext_on |= 1u << (i - required);
 		}
+	}
 	free(offered.props);
+	g->surface_maint = exts_have(
+			exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
+		(exts_have(exts, n, VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME) ||
+		 exts_have(exts, n, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME));
 	VkInstanceCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pNext = cross ? &direct_list : NULL,
@@ -354,6 +380,13 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	g->get_memory2 = props2
 		? (PFN_vkGetPhysicalDeviceMemoryProperties2KHR)vkGetInstanceProcAddr(
 			  g->instance, "vkGetPhysicalDeviceMemoryProperties2KHR")
+		: NULL;
+	/* By name: an optional instance entry is not a row of vk_fns.h, and a
+	 * call the sources name is a stub the cross link would have to satisfy. */
+	g->surface_caps2 = exts_have(
+			exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)
+		? (PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR)vkGetInstanceProcAddr(
+			  g->instance, "vkGetPhysicalDeviceSurfaceCapabilities2KHR")
 		: NULL;
 	return FNL_OK;
 }
@@ -709,6 +742,24 @@ static int vk_list_gpus(App *a, GpuEntry *out, int max)
 	return n;
 }
 
+/* The swapchainMaintenance1 feature, asked before the extension is
+ * enabled. False where the device does not report it: enabling the
+ * extension without the feature is not a swapchain that scales. */
+static bool swapchain_maintenance(VkPhysicalDevice phys,
+								  PFN_vkGetPhysicalDeviceFeatures2KHR get)
+{
+	VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR have = {
+		.sType =
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
+	};
+	VkPhysicalDeviceFeatures2 q = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = &have,
+	};
+	get(phys, &q);
+	return have.swapchainMaintenance1 == VK_TRUE;
+}
+
 /* Whether the device offers an extension, asked of the driver: a device
  * extension the device lacks fails vkCreateDevice outright. */
 static bool device_has_extension(VkPhysicalDevice phys, const char *name)
@@ -890,11 +941,43 @@ static FnlResult create_device(App *a)
 	static const char PORTABILITY_SUBSET[] = "VK_KHR_portability_subset";
 	if (device_has_extension(VK(a)->phys, PORTABILITY_SUBSET))
 		exts[n_exts++] = PORTABILITY_SUBSET;
+	/* A swapchain larger than the window, presented one to one from its
+	 * corner (swapchain.c). One device extension: the KHR where the
+	 * device lists it, else the EXT. Not again after a scaled swapchain
+	 * was refused (`scale_refused`), and not without the feature, which
+	 * is what makes the create-info legal. */
+	VK(a)->present_scale = false;
+	VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR scale_want = {
+		.sType =
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
+		.swapchainMaintenance1 = VK_TRUE,
+	};
+	if (!VK(a)->scale_refused && VK(a)->surface_maint &&
+		VK(a)->get_features2 && n_exts < 16) {
+		const char *scale_name = NULL;
+		if (device_has_extension(
+				VK(a)->phys,
+				VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
+			scale_name = VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
+		else if (device_has_extension(
+					 VK(a)->phys,
+					 VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
+			scale_name = VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
+		if (scale_name &&
+			swapchain_maintenance(VK(a)->phys, VK(a)->get_features2)) {
+			exts[n_exts++] = scale_name;
+			VK(a)->present_scale = true;
+		}
+	}
 	const void *features_next = VK(a)->present_wait ? &id_want : NULL;
 #ifdef VK_EXT_present_timing
 	if (VK(a)->present_timing)
 		features_next = &id2_want;
 #endif
+	if (VK(a)->present_scale) {
+		scale_want.pNext = (void *)features_next;
+		features_next = &scale_want;
+	}
 	VkDeviceCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		.pNext = features_next,

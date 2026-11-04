@@ -59,6 +59,7 @@ static const char *const SITES[] = {
 	"kms-swapchain-refused", /* create_swapchain: a display mode's refused */
 	"atlas-out-of-vram",    /* build_atlas: the atlas in system memory */
 	"stale-swapchain",      /* swap_stale_note: the window's size nudged */
+	"swapchain-scale-refused", /* a larger swapchain the driver refused */
 	"gl-opaque-refused",    /* gl_bridge_resize: no opaque EGL surface */
 	"gl-41",                /* gl_load: a 4.5 context drawn as 4.1 */
 	"d3d12-no-scaling-none", /* d3d_bridge_swapchain: stretch instead */

@@ -74,6 +74,10 @@ struct RendererState {
 	 * (Wayland's wl_egl_window); NULL where the window server's own window
 	 * is handed over as it is. */
 	void    *bridge_native;
+	/* The wl_egl_window's size, where the bridge makes one. A resize to
+	 * the same size is not handed over (egl_wayland.c): Mesa marks the
+	 * drawable dirty and allocates again. Zero where there is none. */
+	int      native_w, native_h;
 	/* What eglCreatePlatformWindowSurface was handed, kept for a surface
 	 * made again over the same native window (gl_bridge_resize()). */
 	void    *bridge_window;

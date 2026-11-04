@@ -23,8 +23,19 @@
 static const char *const *instance_extensions(uint32_t *count,
 											  uint32_t *required)
 {
-	static const char *const EXTS[] = { VK_KHR_XCB_SURFACE_EXTENSION_NAME };
-	*count = *required = 1;
+	/* So a swapchain can be larger than the window and present one to
+	 * one from its corner (DESIGN *A swapchain larger than the window*).
+	 * Maintenance without get_surface_capabilities2 is not a valid
+	 * instance: make_instance() drops those two unless the loader
+	 * offers the dependency. The XCB surface stays required. */
+	static const char *const EXTS[] = {
+		VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+		VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
+		VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
+	};
+	*count    = 4;
+	*required = 1;
 	return EXTS;
 }
 

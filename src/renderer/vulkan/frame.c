@@ -843,6 +843,36 @@ void shown_stop(App *a)
 	VK(a)->shown_started = false;
 }
 
+/* A swapchain made larger than the window, or chained so it may become
+ * so, that the driver still calls out of date or suboptimal. Left on,
+ * the next create would make another large one, the driver would refuse
+ * it again, and a drag would rebuild every frame -- worse than one
+ * recreate a size. Given up for this renderer's life, and said once.
+ * The fault counts only on a fresh swapchain, including one whose
+ * acquire succeeded: a later frame would advance a %N, and the present
+ * below runs after the acquire has cleared swap_fresh. Under NDEBUG
+ * FNL_FAULT is the constant false. */
+static void scale_check(App *a, VkResult r)
+{
+	if (!VK(a)->present_scale || VK(a)->swap_agreed)
+		return;
+	const bool fault = VK(a)->swap_fresh &&
+					   FNL_FAULT("swapchain-scale-refused");
+	if (!fault && r != VK_ERROR_OUT_OF_DATE_KHR && r != VK_SUBOPTIMAL_KHR)
+		return;
+	VK(a)->present_scale = false;
+	VK(a)->scale_refused = true;
+	a->resized = true;
+	VK(a)->swap_spent = true;
+	const char *why = "out of date";
+	if (fault)
+		why = "refused (FNL_FAULT)";
+	else if (r == VK_SUBOPTIMAL_KHR)
+		why = "suboptimal";
+	fnl_log(FNL_LOG_WARN, "a swapchain larger than the window was %s; "
+			"sizes recreate it", why);
+}
+
 /* Present a submitted image, with the window-server calls that ride on the
  * present. Nothing here can unsubmit the frame, so nothing is returned. */
 static void frame_present(App *a, uint32_t frame, uint32_t img,
@@ -995,6 +1025,9 @@ static void frame_present(App *a, uint32_t frame, uint32_t img,
 	 * is one the resize path would wait out in full. */
 	BACKEND(a)->flush(a);
 
+	/* The acquire has already cleared swap_fresh, so this is the
+	 * driver's answer and not a second count of the fault. */
+	scale_check(a, pr);
 	if (pr == VK_ERROR_OUT_OF_DATE_KHR) {
 		a->resized = VK(a)->swap_spent = true;
 		app_frame_take_back(a);  /* refused, or shown regardless */
@@ -1119,6 +1152,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * re-check quit. */
 	if (r == VK_TIMEOUT || r == VK_NOT_READY)
 		return false;
+	/* Before swap_stale_note(), which clears swap_fresh. */
+	scale_check(a, r);
 	if (r == VK_ERROR_OUT_OF_DATE_KHR) {
 		swap_stale_note(a, true);
 		a->resized = VK(a)->swap_spent = true;

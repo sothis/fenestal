@@ -80,7 +80,10 @@ static bool make_target(GlTarget *t, int w, int h, int samples,
  * scene drawn straight into it may use; and the swap interval vsync asks
  * for, taken here because this is the rebuild the loop asks for when it
  * changes, as Vulkan's swapchain is. The frame gives the surface its
- * interval (gl_choose_interval()). */
+ * interval (gl_choose_interval()). Where the backend crops, the native
+ * window may be larger than that image while the size is changing
+ * (App::buffer): the viewport shows the image's top-left, and the image
+ * itself stays at the extent. */
 FnlResult gl_window_image(App *a)
 {
 	/* The ceiling the scale is resolved against, published every build, as
@@ -95,13 +98,26 @@ FnlResult gl_window_image(App *a)
 
 	const Extent e = app_buffer_extent(a, (Extent){ 1, 1 },
 									   (Extent){ maxw, maxh });
+	/* Before extent is overwritten: the room while one is kept, else the
+	 * window the native window was last sized to. */
+	const Extent cur = a->buffer.w > 0 ? a->buffer : a->extent;
+	Extent image = e;
+	if (a->buffer_crops && !gl_bridge_surfaceless(a)) {
+		if (cur.w > 0 && cur.h > 0 && app_buffer_room_fits(a, e, cur))
+			image = cur;
+		else
+			image = app_buffer_room(a, e, (Extent){ maxw, maxh });
+	}
 	if (e.w != a->extent.w || e.h != a->extent.h)
 		GLS(a)->resized_at = now_seconds();
 	a->extent = e;
+	a->buffer = image.w != e.w || image.h != e.h
+		? image : (Extent){ 0, 0 };
 	/* Before the interval, which a surface made again has lost: opaque with
 	 * no grab ring, as Vulkan's composite alpha is (DESIGN *Composite
-	 * alpha*). */
-	FNL_TRY(gl_bridge_resize(a, e.w, e.h, a->draw_margin == 0));
+	 * alpha*). `image` is the native window: the room while a drag keeps
+	 * one, and the window otherwise. The image below is the window. */
+	FNL_TRY(gl_bridge_resize(a, image.w, image.h, a->draw_margin == 0));
 
 	destroy_target(&GLS(a)->window);
 	if (!make_target(&GLS(a)->window, e.w, e.h, 1, false, true)) {

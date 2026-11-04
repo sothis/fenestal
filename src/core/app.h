@@ -1700,14 +1700,16 @@ struct FnlApp {
 	Extent                extent;
 	Extent                scene_extent;
 	/* Where the window shows the top-left `extent` of a larger image, the
-	 * image's size, and zero where the image is `extent`: a swapchain kept
-	 * across the sizes of a drag, made again only when the window outgrows
-	 * it (DESIGN *A swapchain larger than the window*). Written by the
-	 * renderer, read by the backend's apply_scale; both render thread. A
-	 * renderer makes one only where `buffer_crops`, which the backend sets
-	 * at open and does not change: its window can show part of a buffer
-	 * (Wayland, through the viewport's source rectangle), and on Win32,
-	 * where DXGI shows a buffer from its corner. */
+	 * image's size, and zero where the image is `extent`: kept across the
+	 * sizes of a drag and made again when the window outgrows it (DESIGN
+	 * *A swapchain larger than the window*). Written by the renderer.
+	 * The backend reads it where it crops, and the frame loop's settle
+	 * reads it either way; both on the render thread. `buffer_crops`,
+	 * set by the backend at open and not changed, is Wayland's viewport.
+	 * A renderer also writes `buffer` where Win32's DXGI shows a buffer
+	 * from its corner, where an X11 Vulkan swapchain presents one to one
+	 * from its corner, and where Wayland OpenGL keeps a larger native
+	 * window. */
 	Extent                buffer;
 	bool                  buffer_crops;
 	/* When the size, scale or margin last changed (swapchain_adopt()), and

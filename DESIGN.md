@@ -4738,9 +4738,7 @@ it is the CPU that goes: 27.0% of a core from 30 sizes a second and
 44.9% from 250 the commit before, 5.6 and 8.3% with it (`pace.py`,
 2026-10-31, the two built side by side and run on one boot). It is what
 the benchmarks' weston columns fell by between their sets, the Intel,
-NVIDIA and NVK GPUs alike, and this desktop's GNOME under Vulkan less;
-OpenGL on Wayland and every X11 window are not changed by it, nor
-moved.
+NVIDIA and NVK GPUs alike, and this desktop's GNOME under Vulkan less.
 
 **Direct3D 12's buffers are made larger the same way**
 (`d3d_window_images()`). `ResizeBuffers` is 18 ms a size on Intel's
@@ -4774,11 +4772,34 @@ images (none zero copy, 34.7 ms both ways) and scans out a fullscreen one,
 which has the output's size anyway (710 of 720, 7.9 ms). It is kept there
 for a compositor that does what Windows does, at a swapchain a drag.
 
-Vulkan on X11 and on Win32 cannot do either: their surfaces name an
-extent, the window's, and a swapchain of another is out of date. Win32's
-answer is *Vulkan through DXGI* (below). OpenGL on Wayland resizes the
-EGL window, whose buffers EGL makes again itself, and is not changed
-(TODO).
+**OpenGL on Wayland keeps the same room.** The `wl_egl_window` is
+`app_buffer_room()`'s size while the size is changing and the window's
+own at rest, and an unchanged size is not handed to
+`wl_egl_window_resize()` again: Mesa allocates the next buffer for a
+size it is given. The viewport's source is the top-left extent, which
+is the part Vulkan's images already show, and the blit lands in the top
+of the window framebuffer because that framebuffer's origin is the
+bottom. What that saves, where OpenGL draws faster than it reallocates,
+is unmeasured. On the Pi the `wayland-gl` window under weston draws on
+llvmpipe, and the rasteriser is the ceiling (TODO).
+
+**Where an X11 device can present one to one, Vulkan keeps its
+swapchain too.** The surface names the window's extent, so an image of
+another size is out of date unless the present mode offers
+`VK_KHR_swapchain_maintenance1` (or the EXT name) with one-to-one
+scaling and minimum gravity on both axes, and the image lies inside
+that mode's scaled extent. The create chains
+`VkSwapchainPresentScalingCreateInfoKHR`, and `resize_in_place()` is
+the one Wayland uses: `app_buffer_room()` while the size changes, the
+window's own size at rest. Queried for the mode about to be used; a
+mode without the bits leaves the capability for one that has them. A
+device or a surface without them -- Intel's, in *Measured on Windows
+itself* -- recreates the swapchain at each size. Win32 is not this
+path: its answer is *Vulkan through DXGI* (below). A swapchain made so
+that comes back out of date or suboptimal is the driver's refusal,
+said once, and sizes recreate it from then on
+(`FNL_FAULT=swapchain-scale-refused`). What a drag then costs is
+unmeasured.
 
 ### Device and surface loss
 
@@ -7929,9 +7950,11 @@ ways, each seen working on this desk (radeonsi, Mesa 26.0.8, GNOME):
   clock running, the window went on committing until the off-screen skip
   stopped it, and a `SIGTERM` six seconds later exited cleanly in 0.02 s:
   nothing waited in the swap.
-* **The native window has a size of its own**, which every rebuild hands it
-  (`wl_egl_window_resize()`); Mesa takes it up at the next buffer it draws
-  into, the blit at the end of that frame.
+* **The native window has a size of its own.** While the size is changing
+  it is `app_buffer_room()`'s, and at rest the window's; an unchanged size
+  is not handed to `wl_egl_window_resize()` again, because Mesa allocates
+  the next buffer for a size it is handed. The viewport's source shows the
+  top-left extent. What the room saves is unmeasured.
 * **The configuration has alpha**, for the transparent grab ring, which is
   Wayland's pre-multiplied ARGB as Vulkan's composite alpha is; with no ring
   (fullscreen) the EGL surface is made again with `EGL_PRESENT_OPAQUE_EXT`
@@ -10075,8 +10098,11 @@ window of another size, one to one at a gravity, and skip the create
 through a drag; `vulkaninfo` on schenker has NVIDIA's driver offering
 both (one-to-one, every gravity) and Intel's, 101.2145, offering the
 surface half with no scaling at all (`supportedPresentScaling` none) and
-not the swapchain half. So on Intel the create is the floor, and on
-NVIDIA only the GTX 1050 Ti, whose create is 17 ms, would gain -- the
+not the swapchain half. X11 has no DXGI, so there the same extension is
+used where the device offers one to one and minimum gravity on both
+axes (*A swapchain larger than the window*). Win32 does not take it.
+So on Intel the create is the floor, and on NVIDIA only the GTX 1050
+Ti, whose create is 17 ms, would gain -- the
 960M's is 1.5. Skipping sizes during a drag instead would bring back the
 frames drawn at the wrong size that *One size at a time* removed.
 
@@ -11185,6 +11211,7 @@ time, so the sixth reaches the scaled MLAA image.
 | no refresh rate known on X11 | `FNL_FAULT=x11-refresh`, a Debug tree, `FNL_BACKEND=x11` | every monitor's rate 0, read as unknown: the frames paced by the measured period alone |
 | no `FNL_STAMP` to take the clipboard's server time from (X11) | `FNL_FAULT=x11-clip-unstamped`, a Debug tree, `FNL_BACKEND=x11`, a copy and a paste | `the clipboard has no server time to stamp with; copy and paste at CurrentTime`, once; the selection taken and asked for at once, and every paste answered as before, none left to the deadline. Run 2026-11-03: `x11-vulkan`, `gc`, the line once and the round's clipboard checks and 107 others clean |
 | a swapchain stuck out of date | `FNL_FAULT=stale-swapchain%300` | `every swapchain at the window's own size is out of date at once (0 in a row); the window's size is nudged` each time; on X11 the window a pixel wider and back, ending at its own size, frames continuing; elsewhere nothing more |
+| a swapchain larger than the window refused (X11, Vulkan) | `FNL_FAULT=swapchain-scale-refused`, a Debug tree, `FNL_BACKEND=x11`, the border dragged | `a swapchain larger than the window was refused (FNL_FAULT); sizes recreate it`, once; sizes recreate the swapchain from then on |
 | text past the baked ladder | `--scale=3` | glyphs the size the layout wants, resampled and soft |
 | device-loss recovery | `FNL_FAULT=device-lost%300` | `device lost -- rebuilding`, then `rebuilt on …`, frames resume |
 | surface-loss recovery | `FNL_FAULT=surface-lost%300` | as above, and the `VkSurfaceKHR` is replaced |

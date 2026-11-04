@@ -6,6 +6,12 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- X11 with Vulkan, where the device can present one to one from its
+  corner (`VK_KHR_swapchain_maintenance1`, or the EXT name), a resize
+  keeps the swapchain and at rest the images are the window's size
+  again.
+- Wayland with OpenGL: the EGL window is kept larger through a resize,
+  as Vulkan's images are, and the viewport shows its top-left.
 - Licensed: the code under MIT, the documentation under CC BY 4.0, and
   `demos/` and `examples/` under CC0, each source file tagged with its
   `SPDX-License-Identifier` (`LICENSE`); the material Fenestal carries and

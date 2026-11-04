@@ -207,19 +207,19 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
 
 ## Linux
 
-- **OpenGL's resize on Wayland**: Vulkan keeps its swapchain through a
-  drag behind the viewport's source rectangle, and OpenGL still resizes
-  the EGL window, whose buffers EGL makes again at every size (DESIGN *A
-  swapchain larger than the window*). The Pi's `wayland-gl` under weston
-  (2026-10-31, `pace.py wayland-gl-bare@pi4`, OpenGL's bare columns now
-  asked for by name) draws on llvmpipe, since V3D 4.2 has GL 3.1: 19, 29
-  and 30 fps at 5, 15 and 30 sizes a second, and 30 from there to 250, at
-  175 to 179% of a core -- its draw row, no sizes at all, 30 fps at 209%.
-  So the ceiling is the rasteriser's, and the EGL window's remaking costs
-  nothing to be seen beside it; Vulkan on the V3D, same sweep, 56 to 58
-  fps from 30 sizes a second. Owed: a device where GL draws faster than
-  the remaking, if one turns up with GL 4.1 and a Wayland compositor, to
-  say whether an EGL window kept larger is worth having.
+- **OpenGL's resize on Wayland**: the `wl_egl_window` is
+  `app_buffer_room()`'s while the size is changing and the window's at
+  rest, and the viewport shows the top-left extent (DESIGN *A swapchain
+  larger than the window*). What that saves is unmeasured. The Pi's
+  `wayland-gl` under weston (2026-10-31, `pace.py wayland-gl-bare@pi4`,
+  OpenGL's bare columns now asked for by name) draws on llvmpipe, since
+  V3D 4.2 has GL 3.1: 19, 29 and 30 fps at 5, 15 and 30 sizes a second,
+  and 30 from there to 250, at 175 to 179% of a core -- its draw row, no
+  sizes at all, 30 fps at 209%. So the ceiling is the rasteriser's, and
+  beside it the EGL window's remaking costs nothing to be seen; Vulkan
+  on the V3D, same sweep, 56 to 58 fps from 30 sizes a second. Owed: a
+  pace row on a GL 4.5 Wayland device, where the draw is faster than the
+  remaking.
 - **A dip every 21 s on this desktop's console at 4K**: 44 to 48 frames
   a second for about 3.5 s, then 60 again, the RX 590 on DP-1 at
   3840x2160. Not the library's: `vkcube --wsi display`, with none of it,
