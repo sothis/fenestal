@@ -412,6 +412,61 @@ such records into a frame's fixed cost and its cost a megapixel.
 | jsons-MBP, Vulkan on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 17.06 | 58 | 1.47 | 1.60 | 0.41 | 0.44 | 18 | 48.3 | 53.9 |
 | jsons-MBP, OpenGL on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.68 | 17.10 | 58 | - | - | 0.96 | 1.04 | 22 | - | - |
 
+## Benchmark mode at two sizes, 2026-11-04 at `5f7df40`
+
+The same benchmark run once at 800x600 and once at 1920x1080 points, on
+the bare machines and on both laptops' Windows on each GPU and each
+renderer -- on KMS a display mode, its window being the output, so the
+Pi's KMS took both (its HDMI modes) and the laptops' and thinkpad's
+KMS, whose panels list one mode each, stayed at it and are named below
+as one size. The records were made on the tree before it was committed,
+the same code. The fit is `cost = fixed + slope x area` over the areas
+the runs recorded (`report.py --fit`): the milliseconds a frame costs
+at no pixels and the milliseconds a megapixel adds. Two points fit a
+line exactly and each is one run, so the intercepts carry the noise --
+a negative CPU slope is noise, not a saving -- and a third size or
+repeats would settle them. The two sizes read as 0.48 and 2.01 MP on
+the bare screens, 0.48 and 1.92 on aspire's Windows (100%), and 0.75
+and 1.88 on schenker's (125%).
+
+| where | run under | sizes MP | GPU fixed ms | GPU ms/MP | CPU fixed ms | CPU ms/MP |
+|---|---|---|---|---|---|---|
+| SCHENKER, Vulkan on Win32, Intel(R) HD Graphics 630 | defaults | 0.75, 1.88 | 0.04 | 0.77 | 0.40 | 0.01 |
+| SCHENKER, Vulkan on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 0.75, 1.88 | -0.01 | 0.33 | 0.66 | 0.01 |
+| ASPIRE, Vulkan on Win32, Intel(R) HD Graphics 530 | defaults | 0.48, 1.92 | 0.09 | 1.57 | 0.50 | 0.00 |
+| ASPIRE, Vulkan on Win32, NVIDIA GeForce GTX 960M | defaults | 0.48, 1.92 | -0.13 | 1.70 | 0.97 | -0.12 |
+| SCHENKER, Direct3D 12 on Win32, Intel(R) HD Graphics 630 | defaults | 0.75, 1.88 | 0.07 | 0.70 | 0.34 | -0.00 |
+| SCHENKER, Direct3D 12 on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 0.75, 1.88 | 0.41 | 0.27 | 0.82 | 0.01 |
+| ASPIRE, Direct3D 12 on Win32, Intel(R) HD Graphics 530 | defaults | 0.48, 1.92 | 0.16 | 0.92 | 0.46 | 0.02 |
+| ASPIRE, Direct3D 12 on Win32, NVIDIA GeForce GTX 960M | defaults | 0.48, 1.92 | 0.11 | 1.13 | 1.20 | -0.04 |
+| aspire, Vulkan on X11, NVIDIA GeForce GTX 960M | defaults | 0.48, 2.01 | 0.11 | 1.83 | 0.84 | 0.01 |
+| schenker, Vulkan on X11, NVIDIA GeForce GTX 1050 Ti | defaults | 0.48, 2.01 | 0.25 | 0.39 | 0.57 | -0.01 |
+| thinkpad, Vulkan on X11, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 1.00 | 1.86 | 19.52 | 0.19 | -0.05 |
+| pi4, Vulkan on X11, V3D 4.2.14.0 | defaults | 0.48, 0.75 | 3.67 | 4.08 | 2.62 | -2.02 |
+| aspire, Vulkan on Wayland, NVIDIA GeForce GTX 960M | defaults | 0.48, 2.07 | 0.32 | 1.75 | 0.58 | 0.00 |
+| schenker, Vulkan on Wayland, NVIDIA GeForce GTX 1050 Ti | defaults | 0.48, 2.07 | 0.13 | 0.95 | 0.58 | 0.01 |
+| thinkpad, Vulkan on Wayland, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 2.07 | 3.67 | 16.88 | 0.21 | 0.01 |
+| pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 0.48, 2.07 | 3.59 | 7.26 | 3.03 | -0.57 |
+| pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 0.45, 2.01 | 0.27 | 8.61 | 1.16 | 0.10 |
+
+one size, not fitted: aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M, aspire,
+Vulkan on KMS, NVIDIA GeForce GTX 960M (NVK GM107), schenker, Vulkan on KMS,
+NVIDIA GeForce GTX 1050 Ti, schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050
+Ti (NVK GP107), thinkpad, Vulkan on KMS, llvmpipe (LLVM 23.1.4, 128 bits)
+
+The split is what one size could not show. On the Pi the window
+servers carry a per-frame GPU floor that KMS does not: 3.67 ms on X11
+and 3.59 on weston against KMS's 0.27, whose cost is then all per
+pixel, 8.61 ms/MP -- the copy path's readback. The laptops' servers
+cost a fraction of a millisecond a frame, where the display path is
+not the bottleneck. CPU is a per-frame cost everywhere: every CPU
+slope is about zero and the intercept 0.2 to 1.2 ms, so the image's
+size is the GPU's. On Windows the fixed parts are a few tenths at
+most, and Direct3D 12 is the cheaper per pixel of the two renderers on
+both GPUs of both laptops -- aspire's HD 530 0.92 against Vulkan's
+1.57 ms/MP, its 960M 1.13 against 1.70 -- where schenker's 1050 Ti is
+the cheapest of all at 0.27 to 0.33.
+
 ## From latch to screen, 2026-10-31
 
 The testbed's bench (`tools/drive/bench.py`, `--bench-measure-s=8`, vsync

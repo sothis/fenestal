@@ -55,6 +55,7 @@ import json
 import math
 import os
 import sys
+import textwrap
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check  # noqa: E402
@@ -163,7 +164,9 @@ def fits_markdown(docs):
                    % (where, under, ", ".join("%.2f" % a for a in areas),
                       cell(g, 0), cell(g, 1), cell(c, 0), cell(c, 1)))
     if single:
-        out += ["", "one size, not fitted: " + ", ".join(single)]
+        out.append("")
+        out += textwrap.wrap("one size, not fitted: " + ", ".join(single),
+                             width=78)
     return "\n".join(out)
 
 
