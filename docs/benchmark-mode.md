@@ -149,8 +149,10 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
    self-check. The full table (pages Run / Window / Device / Load / Record):
    `label`, `settle-s` (4), `warmup-s` (2), `measure-s` (20), `cooldown-s`,
    `repeats`, `interval-ms` (1000), `frames` (keep per-frame rows), `out`,
-   `emit`, `quit`; `size` enum + `width-pt`/`height-pt` (INIT; KMS shows
-   `mode` from `fnl_mode_get()` instead), `fullscreen`, `scale` (INIT
+   `emit`, `quit`; `size` enum + `width-pt`/`height-pt` (INIT), `mode`
+   (INIT, WxH[@Hz]: KMS's window is its output, so a run takes its size
+   there this way, where the panel shows the output's modes from
+   `fnl_mode_get()` instead), `fullscreen`, `scale` (INIT
    `scale_override120`), `vsync` (INIT `FNL_VSYNC`), `late-latch` auto/off/
    fixed + `late-latch-ms`, `antialias` (dim where `!fnl_offscreen_supported`),
    `scene-scale`; `backend`/`renderer`/`gpu` (INIT; `auto` leaves the

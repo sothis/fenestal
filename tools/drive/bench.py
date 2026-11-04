@@ -6,6 +6,7 @@ keep what it records.
     python3 tools/drive/bench.py kms-vulkan-bare@schenker
     python3 tools/drive/bench.py x11-vulkan-bare wayland-vulkan-bare \\
         -- --bench-measure-s=10 --bench-repeats=3 --bench-vsync=off
+    python3 tools/drive/bench.py --sizes 640x360,1280x720 x11-vulkan-bare
 
 Each environment's program is started as a round starts it -- its backend
 and renderer named, staged or copied to the machine, the server it needs
@@ -16,7 +17,14 @@ checked (tools/bench/check.py), written to the state directory's `bench/`
 (or --out) and a line goes to the ledger, so status.py shows the latest.
 tools/bench/report.py makes the tables.
 
-The program's log is build/drive/bench-<environment>-<variant>.log.
+With --sizes each environment runs once per area, a record each: the
+window is asked for it in points and, on KMS, whose window is its output,
+as a display mode (--bench-mode), so a size the output has no mode of
+leaves the area unchanged and the run says so. The records are what the
+report's --fit reads into a frame's fixed cost and its cost a megapixel.
+
+The program's log is build/drive/bench-<environment>-<variant>.log, with
+the area after it when --sizes names more than one.
 
 Here are this desk's environments, the bare machines', and the Windows
 guests', laptops' and Mac's, whose agents relay the program's stderr home
@@ -389,6 +397,20 @@ def summary(doc):
                "-" if low is None else "%.0f" % low))
 
 
+def areas(text):
+    """The areas --sizes names, in the order given, as (w, h) points."""
+    out = []
+    for word in text.replace(",", " ").split():
+        try:
+            w, h = (int(v) for v in word.lower().split("x"))
+        except ValueError:
+            raise SystemExit("--sizes takes WxH[,WxH...], not %r" % word)
+        if w <= 0 or h <= 0:
+            raise SystemExit("--sizes: %r is not a size" % word)
+        out.append((w, h))
+    return out
+
+
 def main():
     argv = sys.argv[1:]
     passed = []
@@ -411,7 +433,13 @@ def main():
                          "but this desk)")
     ap.add_argument("--out", default=report.state_dir(),
                     help="where the records go (default %(default)s)")
+    ap.add_argument("--sizes", default="",
+                    help="WxH[,WxH...] areas to run each environment at, a "
+                         "run and a record a size: the report's --fit reads "
+                         "them into a frame's fixed cost and its cost a "
+                         "megapixel (on KMS the area is a display mode)")
     args = ap.parse_args(argv)
+    sizes = areas(args.sizes)
 
     places = [(c.NAME, c, run_local) for c in B.ALL if c.LOCAL]
     for cls in (B.X11Bare, B.WaylandBare, B.KmsBare):
@@ -436,51 +464,77 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     bad = 0
     for name, what, run in wanted:
-        log_path = os.path.join(OUT, "bench-%s-%s.log"
-                                % (name.replace(":", "-"), args.variant))
-        print("%s:" % name, flush=True)
-        began = time.time()
-        why = run(what, args.variant, passed, log_path, args.hands)
-        if why:
-            print("  skipped -- %s" % why)
-            ledger.record("bench", ledger.place(name), args.variant,
-                          skipped=why, **ledger.bound(what),
-                          **ledger.wine(what))
-            continue
-        docs = records(log_path)
-        if not docs:
-            print("  no record; see %s" % os.path.relpath(log_path, ROOT))
-            bad += 1
-            ledger.record("bench", ledger.place(name), args.variant,
-                          skipped="no record came back",
-                          **ledger.bound(what),
-                          **ledger.wine(what))
-            continue
-        for doc in docs:
-            # The program cannot know the commit it was built from; the
-            # harness says the tree's, as the ledger's line does.
-            doc["run"]["commit"] = head or None
-            doc["run"]["dirty"] = dirty if head else None
-            found = check.problems(doc, schema)
-            if found:
-                print("  a record that fails its check: %s" % found[0])
-                bad += 1
+        last = None
+        for size in sizes or [None]:
+            suffix = "" if size is None else "-%dx%d" % size
+            log_path = os.path.join(OUT, "bench-%s-%s%s.log"
+                                    % (name.replace(":", "-"), args.variant,
+                                       suffix))
+            print("%s%s:" % (name, "" if size is None else " %dx%d" % size),
+                  flush=True)
+            began = time.time()
+            # The size goes last, so that it is the one the program takes
+            # over one of its own passed after `--`. KMS's window is its
+            # output, so the size is asked for there as a display mode;
+            # on a window server the mode request does nothing.
+            extra = passed
+            if size is not None:
+                extra = passed + ["--bench-width-pt=%d" % size[0],
+                                  "--bench-height-pt=%d" % size[1],
+                                  "--bench-mode=%dx%d" % size]
+            why = run(what, args.variant, extra, log_path, args.hands)
+            if why:
+                print("  skipped -- %s" % why)
+                ledger.record("bench", ledger.place(name), args.variant,
+                              skipped=why, **ledger.bound(what),
+                              **ledger.wine(what))
                 continue
-            path = keep(doc, name, args.out)
-            print("  %s -> %s" % (summary(doc), path))
-            fr = doc["metrics"]["frame"]
-            ledger.record(
-                "bench", ledger.place(name), args.variant,
-                asked=getattr(what, "gpu", "") or "",
-                device=doc["platform"]["gpu"], file=path,
-                status=doc["run"]["status"],
-                series=doc["run"]["series"],
-                rate_fps=(fr.get("rate_fps") or {}).get("value"),
-                p99_ms=(fr.get("interval_ms") or {}).get("p99"),
-                vsync=doc["options"].get("vsync", True),
-                **ledger.bound(what), **ledger.wine(what))
-            bad += doc["run"]["status"] != "complete"
-        print("  %.0f s" % (time.time() - began))
+            docs = records(log_path)
+            if not docs:
+                print("  no record; see %s"
+                      % os.path.relpath(log_path, ROOT))
+                bad += 1
+                ledger.record("bench", ledger.place(name), args.variant,
+                              skipped="no record came back",
+                              **ledger.bound(what),
+                              **ledger.wine(what))
+                continue
+            if size is not None:
+                p = docs[0]["platform"]
+                area = (p.get("area_w_px"), p.get("area_h_px"))
+                if area == last:
+                    print("  the same area as the last size: the window "
+                          "kept %dx%d there (on KMS the area is the "
+                          "output's, the mode's or another)" % (size[0],
+                                                                 size[1]))
+                last = area
+            for doc in docs:
+                # The program cannot know the commit it was built from; the
+                # harness says the tree's, as the ledger's line does.
+                doc["run"]["commit"] = head or None
+                doc["run"]["dirty"] = dirty if head else None
+                found = check.problems(doc, schema)
+                if found:
+                    print("  a record that fails its check: %s" % found[0])
+                    bad += 1
+                    continue
+                path = keep(doc, name, args.out)
+                print("  %s -> %s" % (summary(doc), path))
+                fr = doc["metrics"]["frame"]
+                ledger.record(
+                    "bench", ledger.place(name), args.variant,
+                    asked=getattr(what, "gpu", "") or "",
+                    device=doc["platform"]["gpu"], file=path,
+                    status=doc["run"]["status"],
+                    series=doc["run"]["series"],
+                    size="%dx%d" % (doc["platform"]["area_w_px"],
+                                    doc["platform"]["area_h_px"]),
+                    rate_fps=(fr.get("rate_fps") or {}).get("value"),
+                    p99_ms=(fr.get("interval_ms") or {}).get("p99"),
+                    vsync=doc["options"].get("vsync", True),
+                    **ledger.bound(what), **ledger.wine(what))
+                bad += doc["run"]["status"] != "complete"
+            print("  %.0f s" % (time.time() - began))
     return 1 if bad else 0
 
 

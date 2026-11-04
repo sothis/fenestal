@@ -6,6 +6,7 @@
     python3 tools/bench/report.py [<record or directory>...]
     python3 tools/bench/report.py --csv [...]
     python3 tools/bench/report.py --compare <a> <b>
+    python3 tools/bench/report.py --fit [...]
     python3 tools/bench/report.py --html [--compare <a> <b>] [...] > out.html
 
 With no path, the records in the state directory the testbed writes them
@@ -29,6 +30,13 @@ normalising, and on KMS the shortest in the set (DESIGN *Benchmarking*).
 --compare takes two records, or two series by id, and sets each metric of
 the second against the first, with the change in per cent; as Markdown or
 --html, never --csv.
+
+--fit reads the records of each place at more than one presented size --
+what bench.py --sizes makes, a run a size -- and fits a frame's cost
+against the area: the milliseconds it costs at no pixels and the
+milliseconds a megapixel adds, GPU and CPU each. That is the figure one
+size cannot give: a compositor's per-frame cost is the intercept and a
+copy path's readback the slope.
 
 --html writes the same table, or the same comparison, as one HTML page
 with nothing outside it -- no script, no stylesheet, no font -- and under
@@ -78,6 +86,85 @@ def per_mp(doc, path):
     """A frame's cost for one megapixel of what it drew."""
     cost, area = metric(doc, path, "mean"), area_mp(doc)
     return cost / area if cost is not None and area else None
+
+
+def fit(xs, ys):
+    """y = a + b x by least squares, as (a, b); None with fewer than two
+    distinct x."""
+    pts = [(x, y) for x, y in zip(xs, ys, strict=False)
+           if x is not None and y is not None]
+    if len({round(x, 9) for x, _ in pts}) < 2:
+        return None
+    mx = sum(x for x, _ in pts) / len(pts)
+    my = sum(y for _, y in pts) / len(pts)
+    sxx = sum((x - mx) ** 2 for x, _ in pts)
+    sxy = sum((x - mx) * (y - my) for x, y in pts)
+    b = sxy / sxx
+    return my - b * mx, b
+
+
+# The options a fit does not make its key from: the size it is fitted over
+# and the record's own (its name, where the file went, a note).
+FIT_APART = ("width-pt", "height-pt", "mode", "label", "out", "notes")
+
+
+def full_place(doc):
+    """place() with the GPU as its driver names it: NVK's and NVIDIA's own
+    share a short name and are two drivers, which a fit must not mix."""
+    p = doc["platform"]
+    return "%s, %s on %s, %s" % (doc["machine"]["host"] or "?", p["renderer"],
+                                 p["backend"], p["gpu"] or p["gpu_short"])
+
+
+def fits(docs):
+    """Each place's records as a line in the area presented.
+
+    Returns the rows -- where, run under, the areas, and the GPU and CPU
+    fits -- and the places run at one size only, which no line describes.
+    A place is the GPU as its driver names it, which is what tells NVK's
+    from NVIDIA's own where place()'s short name does not, and the run's
+    options make the key too, so a vsync or a measure of its own is a
+    line of its own."""
+    groups = {}
+    for d in docs:
+        if d["run"]["status"] != "complete":
+            continue
+        opts = tuple(sorted((k, v) for k, v in d["options"].items()
+                            if k not in FIT_APART))
+        groups.setdefault((full_place(d), opts), []).append(d)
+    rows, single = [], []
+    for runs in groups.values():
+        where = full_place(runs[0])
+        areas = [area_mp(d) for d in runs]
+        if len({round(a, 9) for a in areas if a is not None}) < 2:
+            single.append(where)
+            continue
+        rows.append((where, conditions(runs[0]),
+                     sorted({round(a, 3) for a in areas if a is not None}),
+                     fit(areas, [metric(d, ("frame", "gpu_ms"), "mean")
+                                 for d in runs]),
+                     fit(areas, [metric(d, ("frame", "cpu_ms"), "mean")
+                                 for d in runs])))
+    return rows, sorted(set(single))
+
+
+def fits_markdown(docs):
+    """The fitted lines as a Markdown table."""
+    rows, single = fits(docs)
+
+    def cell(f, i):
+        return "-" if f is None else "%.2f" % f[i]
+
+    out = ["| where | run under | sizes MP | GPU fixed ms | GPU ms/MP | "
+           "CPU fixed ms | CPU ms/MP |",
+           "|---|---|---|---|---|---|---|"]
+    for where, under, areas, g, c in rows:
+        out.append("| %s | %s | %s | %s | %s | %s | %s |"
+                   % (where, under, ", ".join("%.2f" % a for a in areas),
+                      cell(g, 0), cell(g, 1), cell(c, 0), cell(c, 1)))
+    if single:
+        out += ["", "one size, not fitted: " + ", ".join(single)]
+    return "\n".join(out)
 
 
 # The columns of the Markdown table: a title, a getter from a record and a
@@ -822,6 +909,10 @@ def main(argv):
     form.add_argument("--html", action="store_true",
                       help="the table or the comparison as one HTML page, "
                            "with its charts")
+    form.add_argument("--fit", action="store_true",
+                      help="fit each place's records over the sizes they "
+                           "were run at: a frame's fixed cost and its cost "
+                           "a megapixel")
     args = ap.parse_args(argv)
     # Refused rather than one of them dropped: a comparison is a table of
     # two series' figures, and --csv's line a run has no column for it.
@@ -840,6 +931,9 @@ def main(argv):
     if not docs:
         print("no records", file=sys.stderr)
         return 1
+    if args.fit:
+        print(fits_markdown(docs))
+        return 0
     if args.html:
         sys.stdout.write(report_html(docs))
     elif args.csv:

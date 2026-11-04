@@ -379,7 +379,10 @@ python3 tools/drive/bench.py --hands x11-vulkan-bare wayland-vulkan-bare \
 
 The two KMS rows of an NVIDIA machine are its two kernel drivers,
 `nouveau` first and `nvidia` second; the record does not carry the
-driver, so only the figures tell them apart.
+driver, so only the figures tell them apart. This sweep is one size a
+place: `--sizes 640x360,1280x720` runs each once per area -- on KMS as a
+display mode, its window being the output -- and `report.py --fit` reads
+such records into a frame's fixed cost and its cost a megapixel.
 
 | where | run under | n | size px | MP | fps | MP/s | p50 ms | p99 ms | 1% low | GPU ms | GPU ms/MP | CPU ms | CPU ms/MP | CPU % | latch→shown | read→shown |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|

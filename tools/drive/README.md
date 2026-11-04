@@ -150,14 +150,21 @@ and with `--html` a page of them with charts. `--hands` moves the pointer
 round a small circle over the window, a step every 10 ms or as fast as the
 machine's input answers, through each measure, for the record's latency
 rows -- everywhere but this desk, whose portal reaches whatever is focused.
+`--sizes 640x360,1280x720` runs each environment once per area, a record
+a size: the window is asked for it in points and, on KMS, whose window is
+its output, as a display mode. `report.py --fit` reads such records into
+a frame's fixed cost and its cost a megapixel, which one size cannot
+separate.
 
 ```sh
 python3 tools/drive/bench.py kms-vulkan-bare@schenker
 python3 tools/drive/bench.py x11-vulkan-bare -- --bench-repeats=3 \
     --bench-vsync=off --bench-frames
 python3 tools/drive/bench.py --hands win64-d3d12-native@schenker:nvidia
+python3 tools/drive/bench.py --sizes 640x360,1280x720 x11-vulkan-bare
 python3 tools/bench/report.py                # every record kept, a row a series
 python3 tools/bench/report.py --compare <a> <b>
+python3 tools/bench/report.py --fit
 python3 tools/bench/report.py --html > report.html
 ```
 

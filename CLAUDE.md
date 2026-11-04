@@ -533,7 +533,9 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   brought home on stderr, checked by `tools/bench/check.py` against
   `tools/bench/schema.json`, kept in the state directory's `bench/` and
   written to the ledger; `tools/bench/report.py` makes the tables,
-  `--compare`s two and with `--html` draws them. Every environment: this
+  `--compare`s two and with `--html` draws them, and `--fit` reads a
+  `--sizes` sweep into a frame's fixed cost and its cost a megapixel.
+  Every environment: this
   desk's, the bare machines', the guests', the laptops' and the Mac's;
   `--hands` moves the pointer through each measure, for the latency rows,
   everywhere but this desk. Arguments after `--` go to the program

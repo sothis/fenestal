@@ -817,6 +817,37 @@ static FnlAntialias antialias_of(int aa)
 														: FNL_AA_NONE;
 }
 
+/* The mode a run asks for before its first frame: WxH, or WxH@Hz, the
+ * size's fastest mode where no refresh is named. KMS is the backend that
+ * acts on it, its window being the output; a window server's set_mode
+ * does nothing, so one option may be passed to every run of a sweep. */
+static void request_mode(FnlApp *app, const char *text)
+{
+	int w = 0, h = 0;
+	double hz = 0.0;
+	if (sscanf(text, "%dx%d@%lf", &w, &h, &hz) < 2 || w <= 0 || h <= 0) {
+		fprintf(stderr, "bench: mode %s is not WxH or WxH@Hz\n", text);
+		return;
+	}
+	FnlMode m = { w, h, hz > 0.0 ? (unsigned)(hz * 1000.0 + 0.5) : 0 };
+
+	if (m.refresh_mhz == 0) {
+		FnlMode got;
+		/* Largest first and, within a size, fastest first. */
+		for (int i = 0; fnl_mode_get(app, i, &got); i++) {
+			if (got.w_px == w && got.h_px == h) {
+				m = got;
+				break;
+			}
+		}
+		if (m.refresh_mhz == 0) {
+			fprintf(stderr, "bench: the output has no %dx%d mode\n", w, h);
+			return;
+		}
+	}
+	fnl_request_mode(app, &m);
+}
+
 /* One run, in a window of its own; false when the window would not open. */
 static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 					 const BenchConfig *c, BenchResult *r)
@@ -881,6 +912,8 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 		fnl_set_antialias(app, antialias_of(bench_opt_int(c, OPT_ANTIALIAS)));
 	if (bench_opt_bool(c, OPT_FULLSCREEN))
 		fnl_set_fullscreen(app, true);
+	if (bench_opt_text(c, OPT_MODE)[0])
+		request_mode(app, bench_opt_text(c, OPT_MODE));
 
 	FnlCallbacks cb = *scene;
 	cb.on_gpu_created = run_gpu_created;

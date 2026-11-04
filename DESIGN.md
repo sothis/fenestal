@@ -1504,7 +1504,12 @@ measuring`, `bench: measured`; Windows' C runtime buffers a stderr that
 is a pipe, and the line came home after the measure): uinput on weston
 and KMS, XTEST on the bare Xorg, the agents' motion on Windows and the
 Mac, with no hands on this desk, whose portal reaches whatever is
-focused. A key added after the first records is never required, which is
+focused. `--sizes` runs an environment once a presented area -- asked
+for in points and, on KMS, as a display mode, its window being its
+output -- and `report.py --fit` fits a frame's cost against the area it
+drew: the fixed milliseconds at no pixels and the milliseconds a
+megapixel adds, which one size cannot separate. A key added after the
+first records is never required, which is
 the schema's additive rule applied to the past: the records phase 1 made
 pass the check that phase 4 wrote.
 

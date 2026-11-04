@@ -74,6 +74,10 @@ const BenchOption BENCH_OPTIONS[OPT_COUNT] = {
 		BENCH_PAGE_WINDOW, "presentable area, logical points"),
 	[OPT_HEIGHT_PT] = I("height-pt", "Height", 240, 4320, 40, 720,
 		BENCH_INIT, BENCH_PAGE_WINDOW, "presentable area, logical points"),
+	[OPT_MODE] = T("mode", "Mode", "", BENCH_INIT, BENCH_PAGE_WINDOW,
+		"a display mode to ask for before the first frame, WxH or "
+		"WxH@Hz: KMS's window is its output, so a run there takes its "
+		"size this way"),
 	[OPT_FULLSCREEN] = B("fullscreen", "Fullscreen", 0, BENCH_INIT,
 		BENCH_PAGE_WINDOW, "asked for before the first frame"),
 	[OPT_SCALE] = E("scale", "Scale", SCALES, BENCH_INIT, BENCH_PAGE_WINDOW,
