@@ -415,19 +415,22 @@ such records into a frame's fixed cost and its cost a megapixel.
 ## Benchmark mode at two sizes, 2026-11-04 at `5f7df40`
 
 The same benchmark run once at 800x600 and once at 1920x1080 points, on
-the bare machines and on both laptops' Windows on each GPU and each
-renderer -- on KMS a display mode, its window being the output, so the
-Pi's KMS took both (its HDMI modes) and the laptops' and thinkpad's
-KMS, whose panels list one mode each, stayed at it and are named below
-as one size. The records were made on the tree before it was committed,
-the same code. The fit is `cost = fixed + slope x area` over the areas
-the runs recorded (`report.py --fit`): the milliseconds a frame costs
-at no pixels and the milliseconds a megapixel adds. Two points fit a
-line exactly and each is one run, so the intercepts carry the noise --
-a negative CPU slope is noise, not a saving -- and a third size or
-repeats would settle them. The two sizes read as 0.48 and 2.01 MP on
-the bare screens, 0.48 and 1.92 on aspire's Windows (100%), and 0.75
-and 1.88 on schenker's (125%).
+the bare machines, both laptops' Windows on each GPU and each renderer,
+and schenker's three renderers on macOS -- on KMS a display mode, its
+window being the output, so the Pi's KMS took both (its HDMI modes) and
+the laptops' and thinkpad's KMS, whose panels list one mode each,
+stayed at it and are named below as one size. The records were made on
+the tree before it was committed, the same code; the Mac's, the tree's
+after, at `2ddd482`, whose testbed is the same. The fit is
+`cost = fixed + slope x area` over the areas the runs recorded
+(`report.py --fit`): the milliseconds a frame costs at no pixels and
+the milliseconds a megapixel adds. Two points fit a line exactly and
+each is one run, so the intercepts carry the noise -- a negative CPU
+slope is noise, not a saving -- and a third size or repeats would
+settle them. The two sizes read as 0.48 and 2.01 MP on the bare
+screens, 0.48 and 1.92 on aspire's Windows (100%), 0.75 and 1.88 on
+schenker's (125%), and 0.48 and 1.78 on the Mac, whose 1920x1080
+request the menu bar takes in to 1920x926.
 
 | where | run under | sizes MP | GPU fixed ms | GPU ms/MP | CPU fixed ms | CPU ms/MP |
 |---|---|---|---|---|---|---|
@@ -448,6 +451,9 @@ and 1.88 on schenker's (125%).
 | thinkpad, Vulkan on Wayland, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 2.07 | 3.67 | 16.88 | 0.21 | 0.01 |
 | pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 0.48, 2.07 | 3.59 | 7.26 | 3.03 | -0.57 |
 | pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 0.45, 2.01 | 0.27 | 8.61 | 1.16 | 0.10 |
+| jsons-MBP, Metal on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.24 | 1.15 | 0.22 | -0.00 |
+| jsons-MBP, Vulkan on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.25 | 1.14 | 0.41 | 0.00 |
+| jsons-MBP, OpenGL on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | - | - | 0.75 | 0.26 |
 
 one size, not fitted: aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M, aspire,
 Vulkan on KMS, NVIDIA GeForce GTX 960M (NVK GM107), schenker, Vulkan on KMS,
@@ -465,7 +471,10 @@ size is the GPU's. On Windows the fixed parts are a few tenths at
 most, and Direct3D 12 is the cheaper per pixel of the two renderers on
 both GPUs of both laptops -- aspire's HD 530 0.92 against Vulkan's
 1.57 ms/MP, its 960M 1.13 against 1.70 -- where schenker's 1050 Ti is
-the cheapest of all at 0.27 to 0.33.
+the cheapest of all at 0.27 to 0.33. On the Mac Metal and MoltenVK
+cost the same per pixel, 1.15 and 1.14 ms/MP over a quarter of a
+millisecond fixed, and differ in the per-frame CPU: Metal 0.22 ms,
+MoltenVK 0.41, OpenGL 0.75, whose GPU time the Mac does not keep.
 
 ## From latch to screen, 2026-10-31
 
