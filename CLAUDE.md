@@ -43,10 +43,13 @@ and the questions left open for them. A question it lists is answered in
   includes `cmake --build`, `./build.sh`, launching a program, screenshots,
   and the sanitizer / `-fanalyzer` trees. Edit and reason; the user drives
   verification.
-- Commit directly to the checked-out branch when asked. Two remotes, both
-  pushed by hand and only when asked: `origin`, the NAS (`CLAUDE.local.md`
-  says where), first, then `github`, the public `sothis/fenestal`, with
-  `main` alone -- never `history`, `--all` or `--mirror`. GitHub's CI
+- Commit directly to the checked-out branch when asked. Push by hand and
+  only when asked: one remote, `origin`, fetched from the NAS
+  (`CLAUDE.local.md` says where) and pushed to two URLs, the NAS first and
+  then the public `sothis/fenestal`, so a bare `git push` sends `main` to
+  both (`remote.origin.push` names `main` alone). GitHub gets `main` and
+  nothing else -- never `history`, `--all` or `--mirror`; the local
+  `pre-push` hook refuses any other ref there. GitHub's CI
   (`.github/workflows/ci.yml`) builds each target's release tree on a
   push to `main` and on a pull request -- macOS on a Mac runner, against
   its Xcode's SDK -- and runs ruff; it builds no checker tree and opens no
