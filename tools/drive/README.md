@@ -403,9 +403,10 @@ once: the OpenSSH server on the laptop and a key in it, that task, and a
 desktop that is logged in and not locked — `tools/drive/native-windows.md`
 has each as a command. `FNL_DRIVE_NATIVE` names the machines as
 `~/.ssh/config` knows them, commas between them, and a round is
-`win64-vulkan-native@<name>`. With that unset they are the lines of
-`~/.local/state/fenestal/native-hosts`, so a bare round drives the laptop
-as it drives the guests. A laptop that is on its live key instead is
+`win64-vulkan-native@<name>`; GPUs go after a name as they do in the file,
+and one named without any takes the file's. With that unset they are the
+lines of `~/.local/state/fenestal/native-hosts`, so a bare round drives the
+laptop as it drives the guests. A laptop that is on its live key instead is
 brought to Windows and back by `power.py boot <name> windows|stick`, which
 sets the firmware's next boot for one boot only (efibootmgr from the key,
 `bcdedit {fwbootmgr} bootsequence` from Windows) and waits for the system
@@ -426,8 +427,8 @@ later than that inside two minutes (`FNL_DRIVE_NATIVE_BUSY`) is a hand, and
 a skipped environment. A laptop just booted reads busy for its first two
 minutes, the logon's input; with nobody at it nothing else does (schenker
 polled 12.6 minutes under Windows and 65 under macOS, 2026-10-31, without
-one reset), so a round waits for the machine to settle and the check
-needs no exception. The picture is the screen's own device
+one reset), so `power.py boot` waits the window out before it returns and
+the check needs no exception. The picture is the screen's own device
 context, every monitor together, so it is what Windows composed. A key the
 agent holds would never repeat — the repeat is the keyboard's or its
 driver's, below `SendInput` — so the agent sends the press again itself,
@@ -640,12 +641,14 @@ repeat is the keyboard's and a posted press has none. The picture is
 back: matched here through the profile it is written with, the testbed's
 field, sRGB 14, read 10, under every rendering intent. The busy check is
 the laptop's, against the HID idle clock: input in the last two minutes
-that came after the agent's own last (`FNL_DRIVE_MAC_BUSY`) is a hand. The
-clock is not reset by every posted event -- once it stood 1.3 s before the
-agent's last button-up -- so only input *after* the agent's counts. The
-agent finds a window by its title before an untitled one: AppKit gives each
-program five untitled windows of its own besides, off screen on the same
-layer, and the first of those has no rectangle a round can use.
+that came after the agent's own last (`FNL_DRIVE_MAC_BUSY`) is a hand, and
+`power.py boot` waits that window out before it returns, as it does for
+Windows. The clock is not reset by every posted event -- once it stood
+1.3 s before the agent's last button-up -- so only input *after* the
+agent's counts. The agent finds a window by its title before an untitled
+one: AppKit gives each program five untitled windows of its own besides,
+off screen on the same layer, and the first of those has no rectangle a
+round can use.
 
 What the first rounds found was the library's, each now in DESIGN *macOS*:
 the layer was untagged and its sRGB shown as the panel's own colours; keys

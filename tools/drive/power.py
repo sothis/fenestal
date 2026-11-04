@@ -20,8 +20,9 @@ stick is not first in every machine's order -- and from Windows,
 bcdedit's {fwbootmgr} bootsequence for the stick's firmware entry, or a
 plain restart where there is none (a firmware that tries USB first, or
 schenker's rEFInd, which picks the stick when it is there). It then
-waits for the system asked for and says which came up. Nothing changes
-the firmware's order itself.
+waits for the system asked for and says which came up, and into Windows
+or macOS waits on until the logon's input is too old for a round to take
+for a hand's (SETTLE). Nothing changes the firmware's order itself.
 
 A machine with a macOS stick (OpenCore and macOS on one USB stick) names
 that stick's firmware entry, by its description, in `macos-entry-NAME`
@@ -72,6 +73,14 @@ UP_TIMEOUT = 420.0
 # anyway is sent again while the machine stays off (WAKE_AGAIN).
 COLD_SETTLE = 10.0
 WAKE_AGAIN = 30.0
+# How long a round leaves a machine alone when its last input was not the
+# round's own: native_driver.BUSY and mac_driver.BUSY, whose variables
+# these are and whose default they share. A machine just logged in
+# reports the logon as its last input and neither system says whose it
+# was, so boot() waits the window out after the systems those drivers
+# drive; read and not imported, so power.py stays a file of its own.
+SETTLE = {"windows": ("FNL_DRIVE_NATIVE_BUSY", 120.0),
+          "macos": ("FNL_DRIVE_MAC_BUSY", 120.0)}
 
 
 def ssh(target, command, timeout=60, opts=()):
@@ -324,6 +333,27 @@ def wait_off(host):
     print("%s: off, after %.0f s" % (host, time.monotonic() - t0))
 
 
+def settle(host, target):
+    """Wait out the window in which a round takes a logon's input for a
+    hand's.
+
+    A machine that has just logged in reports the logon as its last
+    input, and the drivers take input they did not send as somebody's
+    hand and skip the round. The logon this tool started is nobody's, so
+    the wait belongs here, once, and not in every round after a boot."""
+    if target not in SETTLE:
+        return
+    var, default = SETTLE[target]
+    try:
+        wait = float(os.environ.get(var, default))
+    except ValueError:
+        wait = default
+    if wait <= 0:
+        return
+    print("%s: waiting %.0f s for the logon's input to age" % (host, wait))
+    time.sleep(wait)
+
+
 def boot(host, target, cold=None):
     now = where(host)
     if now not in UP:
@@ -348,6 +378,7 @@ def boot(host, target, cold=None):
         came = wait_for(host, now)
     if came != target:
         raise SystemExit("%s came up in %s, not %s" % (host, came, target))
+    settle(host, target)
 
 
 def learn(host):

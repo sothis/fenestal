@@ -48,7 +48,8 @@ that a round finds the laptop without being told.
 The machines are FNL_DRIVE_NATIVE's, as ssh knows them and commas between
 them, or else the lines of HOSTS_FILE: the address and the account are
 ~/.ssh/config's. A machine's GPUs go after its name (listed()), and a round
-is then run once on each. A round types into that desktop, and a laptop is one
+is then run once on each; a machine named without GPUs takes the ones the
+file writes down for it. A round types into that desktop, and a laptop is one
 somebody may be sitting at, so it is asked first (BUSY) and a machine with a
 hand on it is a skipped environment.
 """
@@ -84,22 +85,32 @@ def listed(filed=False):
     a part of its name as FNL_GPU takes one -- `schenker intel nvidia` on a
     line, `schenker:intel,schenker:nvidia` between commas. Written down and
     not asked of the machine: what is owed to one has to be known while it
-    is off. A machine with none written gets one round, on the device the
-    library picks."""
+    is off. A machine the environment names and gives no GPUs to takes the
+    ones the file writes down for it, so that `FNL_DRIVE_NATIVE=schenker`
+    is every round owed to that machine and not one on whichever GPU the
+    library picks; one the file gives none either gets one that way."""
+    def parse(text):
+        found = {}
+        for entry in text.split(","):
+            words = entry.replace(":", " ").split()
+            if not words:
+                continue
+            devs = found.setdefault(words[0], [])
+            devs += [d for d in words[1:] if d not in devs]
+        return found
+
+    try:
+        with open(HOSTS_FILE) as f:
+            written = parse(",".join(ln.split("#")[0] for ln in f))
+    except OSError:
+        written = {}
     named = None if filed else os.environ.get("FNL_DRIVE_NATIVE")
     if named is None:
-        try:
-            with open(HOSTS_FILE) as f:
-                named = ",".join(ln.split("#")[0] for ln in f)
-        except OSError:
-            named = ""
-    found = {}
-    for entry in named.split(","):
-        words = entry.replace(":", " ").split()
-        if not words:
-            continue
-        devs = found.setdefault(words[0], [])
-        devs += [d for d in words[1:] if d not in devs]
+        return written
+    found = parse(named)
+    for name in found:
+        if not found[name]:
+            found[name] = list(written.get(name, ()))
     return found
 
 
