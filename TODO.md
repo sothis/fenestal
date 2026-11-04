@@ -104,11 +104,11 @@ files' `@autoreleasepool` returns).
 - **macOS's output name with two monitors of one model**
   (`publish_output()`): `fnl_output_name()` handed to
   `fnl_request_output()` keeps the window where it is.
-- **Direct3D 12**: the Direct3D 11 present refused part-way
-  (`d3d11-present-refused`) and the window still drawn, and an adapter
-  named by `FNL_GPU` let go at the device's end (`choose_adapter()`). On a
-  laptop: the guests draw on WARP, which the composition measure skips, so
-  the fault is armed there and never reached (2026-11-03).
+- **Direct3D 12**: an adapter named by `FNL_GPU` let go at the device's
+  end (`choose_adapter()`). The Direct3D 11 present refused part-way
+  (`d3d11-present-refused`) was run on both laptops' GPUs on 2026-11-03
+  (DESIGN's table). The guests draw on WARP, which the composition
+  measure skips, so the fault is armed there and never reached.
 - **OpenGL's presented count** (`gl_bridge_scan_show()`): a frame with
   no drawable on macOS, or no buffer on KMS, not counted, and nothing
   else then changed.
@@ -170,8 +170,7 @@ files' `@autoreleasepool` returns).
   Direct3D 12 on both GPUs: 107 and 106 checks). `gc` with
   `FNL_FAULT=d3d12-composed,d3d11-present-refused` on both laptops' both
   GPUs fired as DESIGN's table writes it, once a device, the rounds
-  otherwise clean; the table's row still says it is owed on a laptop,
-  and wants the run written in. Owed still:
+  otherwise clean. Owed still:
   - this desk's rounds (`x11-vulkan`, `x11-gl`, `wayland-vulkan`,
     `wayland-gl`, `win64-vulkan` and `win64-d3d12` under wine) and the
     guests' (`win64-*-vm`), last and only when asked;

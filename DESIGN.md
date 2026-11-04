@@ -1819,10 +1819,11 @@ Linux build has Wayland, X11 and KMS, and the backend is chosen when the
 program starts. The second -- every runtime opened at run time, none
 linked -- and the third for Windows -- Direct3D 12 and Vulkan in one
 build, the renderer chosen on the open window -- are built and driven
-everywhere but the Windows laptop and the Mac (TODO.md says what they
-owe). The third, for Linux and macOS -- Vulkan and OpenGL, Metal and
-Vulkan -- is built and driven too. The rest is the design, and the order
-to build it in. One platform per build had a caller shipping for Linux
+on this desktop, the bare machines, the guests and the Windows laptops
+(TODO.md says what those still owe). The third, for Linux and macOS --
+Vulkan and OpenGL, and Metal, Vulkan and OpenGL 4.1 -- is built and
+driven too. What follows is that design, and the order it was built
+in. One platform per build had a caller shipping for Linux
 pick Wayland, X11 or KMS before it could know which one the user's machine
 runs, and made eleven targets and forty-seven trees.
 
@@ -2186,18 +2187,20 @@ lies. `FNL_GPU` stays the device's (*The startup inventory*). The inventory
 says which platform it took and, a line each, why every one above it was
 passed over.
 
-**Builds and rounds.** The targets are `linux`, `win64` and `macos`, with
-the variants they take now: six, three and two, eleven trees for
-forty-seven. The cross trees borrow `linux/release`'s bake. A configure
-option keeps a build of one platform (`FNL_BACKEND` taking one name as well
-as `linux`, as it does now, and `FNL_RENDERER` one as well as all) for a
-consumer who wants the smaller library; the sweep builds only the full
-ones. The twenty-six environments stay: each names a tree and a platform,
-forced by the two variables, and the ledger records the platform the
-inventory reports rather than the tree's name. One check joins the round,
-unforced: that each environment takes what the order above says it should
--- Wayland with Vulkan on this desktop, Win32 with Direct3D 12 on WARP in
-the guests.
+**Builds and rounds.** The targets are `linux`, `win64` and `macos`, and
+`linux-arm64` and `macos-arm64` for the other processors, with the variants
+they take now: six of the native target, three of Windows and two of each
+macOS one, thirteen trees where there were forty-seven, and the ARM Linux
+one's four where its compiler is. The cross trees borrow `linux/release`'s
+bake. A configure option keeps a build of one platform (`FNL_BACKEND`
+taking one name as well as `linux`, as it does now, and `FNL_RENDERER` one
+as well as all) for a consumer who wants the smaller library; the sweep
+builds only the full ones. The twenty-seven environments stay: each names a
+tree and a platform, forced by the two variables, and the ledger records
+the platform the inventory reports rather than the tree's name. One check
+joins the round, unforced: that each environment takes what the order above
+says it should -- Wayland with Vulkan on this desktop, Win32 with Direct3D
+12 on WARP in the guests.
 
 **What every renderer costs in bytes** (2026-10-31, `c3b3aeb`, release):
 little. The Linux shared object is 1.71 MB with three backends and two
@@ -11196,7 +11199,7 @@ time, so the sixth reaches the scaled MLAA image.
 | Metal failed on a window with its layer given the device | `FNL_FAULT=metal-after-layer@1`, the `macos gc` tree, no renderer named | `renderer: Vulkan; passed over Metal: FNL_FAULT: after the layer`, MoltenVK drawing the same NSWindow; with `framebuffers@1` beside it, `renderer: OpenGL; passed over Metal: ...; Vulkan: FNL_FAULT: create_framebuffers` and OpenGL drawing it (schenker, 2026-11-01) |
 | a DXGI that will not present unscaled (Direct3D 12) | `FNL_FAULT=d3d12-no-scaling-none`, in a Debug `win64` tree | `the swapchain would not leave its frames unscaled (0x80070057); they are stretched while the window resizes`, once a device; the window draws as before. Run 2026-11-03: `win64-d3d12` under wine, `gc`, the line once and the round's 93 checks otherwise clean |
 | a window DWM composes (Direct3D 12) | `FNL_FAULT=d3d12-composed`, a Debug `win64` tree on Windows, vsync on, the window at rest for 60 presents | `DWM composes this window's frames; they go through a Direct3D 11 swapchain instead`, then, measured there, `DWM composes the Direct3D 11 swapchain's frames too; back to this device's own`; frames continue on the device's own swapchain |
-| the Direct3D 11 swapchain refused (Direct3D 12) | `FNL_FAULT=d3d12-composed,d3d11-present-refused`, as above | `the D3D11 present (forced)`, then `the Direct3D 11 swapchain could not be made; back to this device's own`, and the window on the device's own swapchain, measured no more Not reached in a guest: the measure skips a software device, and the guests draw on WARP; owed on a laptop |
+| the Direct3D 11 swapchain refused (Direct3D 12) | `FNL_FAULT=d3d12-composed,d3d11-present-refused`, as above | `the D3D11 present (forced)`, then `the Direct3D 11 swapchain could not be made; back to this device's own`, and the window on the device's own swapchain, measured no more. Not reached in a guest: the measure skips a software device, and the guests draw on WARP. Run 2026-11-03: schenker and aspire, both GPUs each, `gc`, the lines once a device and the rounds otherwise clean |
 | the wheel by its message alone under wine (Win32) | `FNL_FAULT=win32-no-raw-wheel`, a Debug `win64-*` tree under wine | `raw mouse input unavailable; under wine a wheel step can be lost`, once; the wheel read from `WM_MOUSEWHEEL` as on Windows |
 | input stamped by the tick alone on Windows (Win32) | `FNL_FAULT=win32-no-raw-thread`, a Debug `win64` tree on Windows, with `--frame-times` | `no raw input thread (FNL_FAULT); input latency is read in the tick's steps`, once; no `raw input:` tally at close, a key's `input` figure 0 or about 16 ms over one, and a capture registered on the window as before. Run 2026-11-03: `win64-vulkan-vm` on win10 and win11, `gc`, the line once and 91 checks otherwise clean each |
 | no input method composition reported (Win32) | `FNL_FAULT=win32-no-imm32`, a Debug `win64` tree, a dead key typed under wine on X11 | `no input method composition (FNL_FAULT): the system shows it in a window of its own`, once; the accent shown in wine's own box at the window's bottom-left and no `FNL_EVENT_COMPOSE`, the letter after it typed accented as before. Run 2026-11-03: `win64-vulkan` under wine, `gc`, the line once and the round's typing, dead keys included, clean |
