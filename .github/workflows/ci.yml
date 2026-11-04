@@ -180,10 +180,14 @@ jobs:
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
             # clang-21, as on Linux, by FNL_CLANG; LLVM's tools and lld on
-            # PATH, where the toolchain file looks for them by name.
+            # PATH, where the toolchain file looks for them by name. llvm@21
+            # comes in as lld@21's dependency and is not named: named, it is
+            # installed on request, and Homebrew then warns that it left it
+            # unlinked beside the image's llvm@20 -- a link nothing here
+            # uses, since every path is brew --prefix's.
             - name: Install LLVM 21 and the shader tools
               run: |
-                  brew install llvm@21 lld@21 glslang spirv-cross
+                  brew install lld@21 glslang spirv-cross
                   echo "$(brew --prefix llvm@21)/bin" >> "$GITHUB_PATH"
                   echo "$(brew --prefix lld@21)/bin" >> "$GITHUB_PATH"
                   echo "FNL_CLANG=$(brew --prefix llvm@21)/bin/clang" \
