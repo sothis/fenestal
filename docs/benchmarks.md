@@ -352,6 +352,25 @@ for the latency rows. A row is one run, so it indicates and does not
 measure; `--bench-repeats` several times would put the standard
 deviation beside each figure.
 
+`size px` is the area drawn, and two rows compare only with it: on KMS
+the window is the output and its area the mode's, and schenker's
+Windows rows are 1600x900 for its display's 125% scale where aspire's
+are 1280x720. `MP/s` is the image the path delivered a second and
+`GPU ms/MP` and `CPU ms/MP` what a megapixel of it cost; `latch→shown`
+and `read→shown` are the record's own stamps, a frame's latch to its
+screen and an input's read to it, p50. Read across the sizes: KMS
+delivers the most image a second, 119 MP/s against the bare windowed
+rows' 55 on the laptops and 60 against the Pi's 44 and 28, and shows a
+frame soonest, 8.7 to 12.7 ms against X11's 16.4 to 16.5. Its copy path
+costs 1.1 to 4.3 ms a megapixel on the laptops against X11's 0.9 to
+2.0, NVK's readback the expensive one, and on the Pi 8.8 against X11's
+12.6: the copy is cheaper per pixel where the rasteriser is the whole
+cost, and the thinkpad's 20.5, 21.8 and 20.6 for KMS, X11 and weston
+are that rasteriser to the last decimal. The Mac's rows are the longest
+from latch to screen, 48 to 70 ms, the same lesson from the other end.
+The Pi's KMS round carries no stamps, so its latency cells are empty; a
+dash is a figure the driver does not keep.
+
 ```sh
 python3 tools/drive/bench.py --hands x11-vulkan-bare wayland-vulkan-bare \
     kms-vulkan-bare win64-vulkan-native win64-d3d12-native \
@@ -360,35 +379,35 @@ python3 tools/drive/bench.py --hands x11-vulkan-bare wayland-vulkan-bare \
 
 The two KMS rows of an NVIDIA machine are its two kernel drivers,
 `nouveau` first and `nvidia` second; the record does not carry the
-driver, so they read alike.
+driver, so only the figures tell them apart.
 
-| where | run under | n | fps | p50 ms | p99 ms | 1% low | GPU ms | CPU ms | CPU % |
-|---|---|---|---|---|---|---|---|---|---|
-| SCHENKER, Vulkan on Win32, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 17.26 | 55 | 1.16 | 0.42 | 5 |
-| SCHENKER, Vulkan on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 60.0 | 16.66 | 17.29 | 57 | 0.44 | 0.67 | 11 |
-| ASPIRE, Vulkan on Win32, Intel HD Graphics 530 | defaults | 1, indication | 60.0 | 16.68 | 17.12 | 58 | 1.55 | 0.52 | 5 |
-| ASPIRE, Vulkan on Win32, NVIDIA GeForce GTX 960M | defaults | 1, indication | 60.0 | 16.63 | 17.53 | 57 | 1.43 | 0.83 | 12 |
-| SCHENKER, Direct3D 12 on Win32, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 16.81 | 58 | 1.10 | 0.33 | 4 |
-| SCHENKER, Direct3D 12 on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 60.0 | 16.66 | 16.84 | 59 | 1.18 | 0.82 | 7 |
-| ASPIRE, Direct3D 12 on Win32, Intel HD Graphics 530 | defaults | 1, indication | 60.0 | 16.66 | 16.83 | 59 | 1.03 | 0.48 | 5 |
-| ASPIRE, Direct3D 12 on Win32, NVIDIA GeForce GTX 960M | defaults | 1, indication | 60.0 | 16.66 | 16.86 | 58 | 1.17 | 1.20 | 11 |
-| aspire, Vulkan on X11, NVIDIA GeForce GTX 960M | defaults | 1, indication | 60.0 | 16.66 | 16.83 | 59 | 1.83 | 0.87 | 8 |
-| schenker, Vulkan on X11, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 60.0 | 16.66 | 16.83 | 59 | 0.83 | 0.59 | 7 |
-| thinkpad, Vulkan on X11, llvmpipe | defaults | 1, indication | 49.5 | 18.22 | 27.84 | 33 | 20.05 | 0.15 | 197 |
-| pi4, Vulkan on X11, V3D 4.2.14.0 | defaults | 1, indication | 60.0 | 16.66 | 17.17 | 57 | 9.31 | 1.64 | 20 |
-| aspire, Vulkan on Wayland, NVIDIA GeForce GTX 960M | defaults | 1, indication | 59.5 | 16.66 | 17.07 | 33 | 1.96 | 0.60 | 7 |
-| schenker, Vulkan on Wayland, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 59.5 | 16.67 | 17.09 | 33 | 0.96 | 0.60 | 8 |
-| thinkpad, Vulkan on Wayland, llvmpipe | defaults | 1, indication | 29.3 | 33.22 | 49.84 | 20 | 18.96 | 0.22 | 109 |
-| pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 1, indication | 30.2 | 33.32 | 34.21 | 22 | 8.47 | 1.70 | 11 |
-| aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M | defaults | 1, indication | 59.0 | 16.66 | 33.27 | 30 | 7.50 | 2.90 | 20 |
-| aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M | defaults | 1, indication | 58.5 | 16.66 | 33.35 | 30 | 7.25 | 2.50 | 17 |
-| schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 59.2 | 16.66 | 32.47 | 30 | 8.64 | 2.49 | 17 |
-| schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 59.1 | 16.67 | 33.24 | 30 | 2.29 | 2.40 | 18 |
-| thinkpad, Vulkan on KMS, llvmpipe | defaults | 1, indication | 30.1 | 33.19 | 33.42 | 30 | 20.56 | 1.89 | 126 |
-| pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 1, indication | 30.0 | 33.34 | 33.50 | 30 | 17.58 | 1.36 | 9 |
-| jsons-MBP, Metal on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 17.10 | 58 | 1.46 | 0.20 | 15 |
-| jsons-MBP, Vulkan on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 17.06 | 58 | 1.47 | 0.41 | 18 |
-| jsons-MBP, OpenGL on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.68 | 17.10 | 58 | - | 0.96 | 22 |
+| where | run under | n | size px | MP | fps | MP/s | p50 ms | p99 ms | 1% low | GPU ms | GPU ms/MP | CPU ms | CPU ms/MP | CPU % | latch→shown | read→shown |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| SCHENKER, Vulkan on Win32, Intel HD Graphics 630 | defaults | 1, indication | 1600x900 | 1.44 | 60.0 | 86 | 16.66 | 17.26 | 55 | 1.16 | 0.81 | 0.42 | 0.29 | 5 | 20.2 | 26.2 |
+| SCHENKER, Vulkan on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 1600x900 | 1.44 | 60.0 | 86 | 16.66 | 17.29 | 57 | 0.44 | 0.30 | 0.67 | 0.46 | 11 | 20.2 | 25.9 |
+| ASPIRE, Vulkan on Win32, Intel HD Graphics 530 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.68 | 17.12 | 58 | 1.55 | 1.68 | 0.52 | 0.56 | 5 | 20.3 | 26.3 |
+| ASPIRE, Vulkan on Win32, NVIDIA GeForce GTX 960M | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.63 | 17.53 | 57 | 1.43 | 1.55 | 0.83 | 0.90 | 12 | 20.2 | 26.1 |
+| SCHENKER, Direct3D 12 on Win32, Intel HD Graphics 630 | defaults | 1, indication | 1600x900 | 1.44 | 60.0 | 86 | 16.66 | 16.81 | 58 | 1.10 | 0.76 | 0.33 | 0.23 | 4 | 20.2 | 22.1 |
+| SCHENKER, Direct3D 12 on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 1600x900 | 1.44 | 60.0 | 86 | 16.66 | 16.84 | 59 | 1.18 | 0.82 | 0.82 | 0.57 | 7 | 19.8 | 22.7 |
+| ASPIRE, Direct3D 12 on Win32, Intel HD Graphics 530 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 16.83 | 59 | 1.03 | 1.12 | 0.48 | 0.52 | 5 | 20.4 | 22.2 |
+| ASPIRE, Direct3D 12 on Win32, NVIDIA GeForce GTX 960M | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 16.86 | 58 | 1.17 | 1.27 | 1.20 | 1.31 | 11 | 19.8 | 22.5 |
+| aspire, Vulkan on X11, NVIDIA GeForce GTX 960M | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 16.83 | 59 | 1.83 | 1.99 | 0.87 | 0.94 | 8 | 16.4 | 22.1 |
+| schenker, Vulkan on X11, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 16.83 | 59 | 0.83 | 0.91 | 0.59 | 0.64 | 7 | 16.5 | 22.7 |
+| thinkpad, Vulkan on X11, llvmpipe | defaults | 1, indication | 1280x720 | 0.92 | 49.5 | 46 | 18.22 | 27.84 | 33 | 20.05 | 21.76 | 0.15 | 0.16 | 197 | 28.9 | 34.3 |
+| pi4, Vulkan on X11, V3D 4.2.14.0 | defaults | 1, indication | 1024x720 | 0.74 | 60.0 | 44 | 16.66 | 17.17 | 57 | 9.31 | 12.62 | 1.64 | 2.22 | 20 | 16.6 | 22.6 |
+| aspire, Vulkan on Wayland, NVIDIA GeForce GTX 960M | defaults | 1, indication | 1280x720 | 0.92 | 59.5 | 55 | 16.66 | 17.07 | 33 | 1.96 | 2.13 | 0.60 | 0.65 | 7 | 16.6 | 22.2 |
+| schenker, Vulkan on Wayland, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 1280x720 | 0.92 | 59.5 | 55 | 16.67 | 17.09 | 33 | 0.96 | 1.04 | 0.60 | 0.65 | 8 | 16.2 | 21.3 |
+| thinkpad, Vulkan on Wayland, llvmpipe | defaults | 1, indication | 1280x720 | 0.92 | 29.3 | 27 | 33.22 | 49.84 | 20 | 18.96 | 20.58 | 0.22 | 0.24 | 109 | 54.3 | 60.1 |
+| pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 1, indication | 1280x720 | 0.92 | 30.2 | 28 | 33.32 | 34.21 | 22 | 8.47 | 9.19 | 1.70 | 1.84 | 11 | 46.4 | 50.5 |
+| aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M | defaults | 1, indication | 1920x1046 | 2.01 | 59.0 | 119 | 16.66 | 33.27 | 30 | 7.50 | 3.74 | 2.90 | 1.44 | 20 | 12.0 | 17.4 |
+| aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M | defaults | 1, indication | 1920x1046 | 2.01 | 58.5 | 117 | 16.66 | 33.35 | 30 | 7.25 | 3.61 | 2.50 | 1.25 | 17 | 12.4 | 17.7 |
+| schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 1920x1046 | 2.01 | 59.2 | 119 | 16.66 | 32.47 | 30 | 8.64 | 4.30 | 2.49 | 1.24 | 17 | 12.7 | 18.4 |
+| schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 1920x1046 | 2.01 | 59.1 | 119 | 16.67 | 33.24 | 30 | 2.29 | 1.14 | 2.40 | 1.20 | 18 | 8.7 | 15.2 |
+| thinkpad, Vulkan on KMS, llvmpipe | defaults | 1, indication | 1366x734 | 1.00 | 30.1 | 30 | 33.19 | 33.42 | 30 | 20.56 | 20.51 | 1.89 | 1.88 | 126 | 33.8 | 39.0 |
+| pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 1, indication | 1920x1046 | 2.01 | 30.0 | 60 | 33.34 | 33.50 | 30 | 17.58 | 8.75 | 1.36 | 0.68 | 9 | - | - |
+| jsons-MBP, Metal on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 17.10 | 58 | 1.46 | 1.59 | 0.20 | 0.22 | 15 | 69.5 | 70.6 |
+| jsons-MBP, Vulkan on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 17.06 | 58 | 1.47 | 1.60 | 0.41 | 0.44 | 18 | 48.3 | 53.9 |
+| jsons-MBP, OpenGL on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.68 | 17.10 | 58 | - | - | 0.96 | 1.04 | 22 | - | - |
 
 ## From latch to screen, 2026-10-31
 

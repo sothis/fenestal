@@ -19,6 +19,13 @@ it. Invalid and aborted runs are counted and left out of the figures.
 Markdown by default, in docs/benchmarks.md's shape; --csv a line a run,
 every metric a column.
 
+The presented image's size is a column, because it is what lets two rows
+be compared: on KMS the window is the output and its area the mode's, a
+windowed run draws the bench's own. `MP/s` is the image the path
+delivered a second, `GPU ms/MP` and `CPU ms/MP` what one cost, and the
+two latency columns are the record's own stamps -- a time, which needs no
+normalising, and on KMS the shortest in the set (DESIGN *Benchmarking*).
+
 --compare takes two records, or two series by id, and sets each metric of
 the second against the first, with the change in per cent; as Markdown or
 --html, never --csv.
@@ -44,16 +51,62 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check  # noqa: E402
 
-# The columns of the Markdown table: a title, the metric's path, the figure
-# of a distribution to take (None for a value), and the format.
+def area_mp(doc):
+    """The presented image's area in megapixels.
+
+    On KMS the window is the output and its area the mode's; a windowed
+    run draws the bench's own -- so this is what makes two rows
+    comparable, and the copy path's cost in particular is its size's."""
+    p = doc["platform"]
+    w, h = p.get("area_w_px"), p.get("area_h_px")
+    return w * h / 1e6 if w and h else None
+
+
+def size_px(doc):
+    p = doc["platform"]
+    w, h = p.get("area_w_px"), p.get("area_h_px")
+    return "%dx%d" % (w, h) if w and h else None
+
+
+def mp_s(doc):
+    """The image the path delivered a second: the rate, size and all."""
+    rate, area = metric(doc, ("frame", "rate_fps"), None), area_mp(doc)
+    return rate * area if rate is not None and area else None
+
+
+def per_mp(doc, path):
+    """A frame's cost for one megapixel of what it drew."""
+    cost, area = metric(doc, path, "mean"), area_mp(doc)
+    return cost / area if cost is not None and area else None
+
+
+# The columns of the Markdown table: a title, a getter from a record and a
+# format -- None where the column is a fact of the place and not a
+# measurement, which takes the first complete run's own value.
+#
+# The size is in the table because only with it are two rows comparable:
+# on KMS the window is the output, and a windowed run draws the bench's
+# area, so a path reads differently at 1280x720 and at 1920x1046. MP/s is
+# the image it delivered a second and ms/MP what one cost; the latencies
+# are the record's own stamps, a time that needs no normalising and the
+# figure the window servers lose on (DESIGN *Benchmarking*).
 COLUMNS = [
-    ("fps", ("frame", "rate_fps"), None, "%.1f"),
-    ("p50 ms", ("frame", "interval_ms"), "p50", "%.2f"),
-    ("p99 ms", ("frame", "interval_ms"), "p99", "%.2f"),
-    ("1% low", ("frame", "low_1pct_fps"), None, "%.0f"),
-    ("GPU ms", ("frame", "gpu_ms"), "mean", "%.2f"),
-    ("CPU ms", ("frame", "cpu_ms"), "mean", "%.2f"),
-    ("CPU %", ("process", "cpu_pct"), None, "%.0f"),
+    ("size px", size_px, None),
+    ("MP", area_mp, "%.2f"),
+    ("fps", lambda d: metric(d, ("frame", "rate_fps"), None), "%.1f"),
+    ("MP/s", mp_s, "%.0f"),
+    ("p50 ms", lambda d: metric(d, ("frame", "interval_ms"), "p50"), "%.2f"),
+    ("p99 ms", lambda d: metric(d, ("frame", "interval_ms"), "p99"), "%.2f"),
+    ("1% low", lambda d: metric(d, ("frame", "low_1pct_fps"), None), "%.0f"),
+    ("GPU ms", lambda d: metric(d, ("frame", "gpu_ms"), "mean"), "%.2f"),
+    ("GPU ms/MP", lambda d: per_mp(d, ("frame", "gpu_ms")), "%.2f"),
+    ("CPU ms", lambda d: metric(d, ("frame", "cpu_ms"), "mean"), "%.2f"),
+    ("CPU ms/MP", lambda d: per_mp(d, ("frame", "cpu_ms")), "%.2f"),
+    ("CPU %", lambda d: metric(d, ("process", "cpu_pct"), None), "%.0f"),
+    ("latch→shown", lambda d: metric(d, ("frame", "latch_to_shown_ms"),
+                                     "p50"), "%.1f"),
+    ("read→shown", lambda d: metric(d, ("input", "read_to_shown_ms"),
+                                    "p50"), "%.1f"),
 ]
 
 # The options a row names when they differ from the default, which is
@@ -158,8 +211,13 @@ def table(docs):
         if len(good) == 1:
             n += ", indication"
         cells = []
-        for _title, path, part, fmt in COLUMNS:
-            m, sd, k = mean_sd([metric(d, path, part) for d in good])
+        for _title, get, fmt in COLUMNS:
+            if fmt is None:
+                # A fact of the place, not a measurement of the run.
+                cells.append(next((get(d) for d in good
+                                   if get(d) is not None), "-"))
+                continue
+            m, sd, k = mean_sd([get(d) for d in good])
             if m is None:
                 cells.append("-")
             elif sd is None:
@@ -189,6 +247,12 @@ def flat(doc):
            "renderer": doc["platform"]["renderer"],
            "gpu": doc["platform"]["gpu"],
            "present_mode": doc["platform"]["present_mode"]}
+    row["area_w_px"] = doc["platform"].get("area_w_px")
+    row["area_h_px"] = doc["platform"].get("area_h_px")
+    row["area_mp"] = area_mp(doc)
+    row["mp_s"] = mp_s(doc)
+    row["gpu_ms_per_mp"] = per_mp(doc, ("frame", "gpu_ms"))
+    row["cpu_ms_per_mp"] = per_mp(doc, ("frame", "cpu_ms"))
     for k, v in doc["options"].items():
         row["option." + k] = v
     for group, members in doc["metrics"].items():
@@ -711,7 +775,7 @@ def report_html(docs):
                esc(span(docs)))]
     head = ["where", "run under", "n"] + [c[0] for c in COLUMNS]
     body += html_table(head, [("s-" + runs[0]["run"]["series"], cells)
-                              for runs, cells in rows], 3)
+                              for runs, cells in rows], 4)
     for runs, cells in rows:
         good = [d for d in runs if d["run"]["status"] == "complete"]
         body.append('<section id="s-%s">' % esc(runs[0]["run"]["series"]))
