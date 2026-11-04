@@ -339,6 +339,57 @@ The HD 630 under macOS 26.7.1, on the built-in panel alone (1920x1080,
 | draw | 60, 10.4% | 60, 10.4% |
 | border | 60, 22.3% | 60, 27.0% |
 
+## Benchmark mode, 2026-11-04 at `5a10308`
+
+The testbed's benchmark mode in every environment the harness reaches
+but this desktop's and the VirtualBox guests': the bare machines on
+their keys, the KMS rounds once on each kernel driver, both laptops on
+Windows on each GPU, and schenker on macOS with each renderer. One
+release build of each tree, at `065e0f1`, the harness alone changed
+since; the defaults, settle 4 s, warm-up 2 s and measure 20 s, vsync
+on, and `--hands`, the pointer circling the window through each measure
+for the latency rows. A row is one run, so it indicates and does not
+measure; `--bench-repeats` several times would put the standard
+deviation beside each figure.
+
+```sh
+python3 tools/drive/bench.py --hands x11-vulkan-bare wayland-vulkan-bare \
+    kms-vulkan-bare win64-vulkan-native win64-d3d12-native \
+    macos-metal-native macos-vulkan-native macos-gl-native
+```
+
+The two KMS rows of an NVIDIA machine are its two kernel drivers,
+`nouveau` first and `nvidia` second; the record does not carry the
+driver, so they read alike.
+
+| where | run under | n | fps | p50 ms | p99 ms | 1% low | GPU ms | CPU ms | CPU % |
+|---|---|---|---|---|---|---|---|---|---|
+| SCHENKER, Vulkan on Win32, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 17.26 | 55 | 1.16 | 0.42 | 5 |
+| SCHENKER, Vulkan on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 60.0 | 16.66 | 17.29 | 57 | 0.44 | 0.67 | 11 |
+| ASPIRE, Vulkan on Win32, Intel HD Graphics 530 | defaults | 1, indication | 60.0 | 16.68 | 17.12 | 58 | 1.55 | 0.52 | 5 |
+| ASPIRE, Vulkan on Win32, NVIDIA GeForce GTX 960M | defaults | 1, indication | 60.0 | 16.63 | 17.53 | 57 | 1.43 | 0.83 | 12 |
+| SCHENKER, Direct3D 12 on Win32, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 16.81 | 58 | 1.10 | 0.33 | 4 |
+| SCHENKER, Direct3D 12 on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 60.0 | 16.66 | 16.84 | 59 | 1.18 | 0.82 | 7 |
+| ASPIRE, Direct3D 12 on Win32, Intel HD Graphics 530 | defaults | 1, indication | 60.0 | 16.66 | 16.83 | 59 | 1.03 | 0.48 | 5 |
+| ASPIRE, Direct3D 12 on Win32, NVIDIA GeForce GTX 960M | defaults | 1, indication | 60.0 | 16.66 | 16.86 | 58 | 1.17 | 1.20 | 11 |
+| aspire, Vulkan on X11, NVIDIA GeForce GTX 960M | defaults | 1, indication | 60.0 | 16.66 | 16.83 | 59 | 1.83 | 0.87 | 8 |
+| schenker, Vulkan on X11, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 60.0 | 16.66 | 16.83 | 59 | 0.83 | 0.59 | 7 |
+| thinkpad, Vulkan on X11, llvmpipe | defaults | 1, indication | 49.5 | 18.22 | 27.84 | 33 | 20.05 | 0.15 | 197 |
+| pi4, Vulkan on X11, V3D 4.2.14.0 | defaults | 1, indication | 60.0 | 16.66 | 17.17 | 57 | 9.31 | 1.64 | 20 |
+| aspire, Vulkan on Wayland, NVIDIA GeForce GTX 960M | defaults | 1, indication | 59.5 | 16.66 | 17.07 | 33 | 1.96 | 0.60 | 7 |
+| schenker, Vulkan on Wayland, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 59.5 | 16.67 | 17.09 | 33 | 0.96 | 0.60 | 8 |
+| thinkpad, Vulkan on Wayland, llvmpipe | defaults | 1, indication | 29.3 | 33.22 | 49.84 | 20 | 18.96 | 0.22 | 109 |
+| pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 1, indication | 30.2 | 33.32 | 34.21 | 22 | 8.47 | 1.70 | 11 |
+| aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M | defaults | 1, indication | 59.0 | 16.66 | 33.27 | 30 | 7.50 | 2.90 | 20 |
+| aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M | defaults | 1, indication | 58.5 | 16.66 | 33.35 | 30 | 7.25 | 2.50 | 17 |
+| schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 59.2 | 16.66 | 32.47 | 30 | 8.64 | 2.49 | 17 |
+| schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050 Ti | defaults | 1, indication | 59.1 | 16.67 | 33.24 | 30 | 2.29 | 2.40 | 18 |
+| thinkpad, Vulkan on KMS, llvmpipe | defaults | 1, indication | 30.1 | 33.19 | 33.42 | 30 | 20.56 | 1.89 | 126 |
+| pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 1, indication | 30.0 | 33.34 | 33.50 | 30 | 17.58 | 1.36 | 9 |
+| jsons-MBP, Metal on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 17.10 | 58 | 1.46 | 0.20 | 15 |
+| jsons-MBP, Vulkan on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.66 | 17.06 | 58 | 1.47 | 0.41 | 18 |
+| jsons-MBP, OpenGL on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 60.0 | 16.68 | 17.10 | 58 | - | 0.96 | 22 |
+
 ## From latch to screen, 2026-10-31
 
 The testbed's bench (`tools/drive/bench.py`, `--bench-measure-s=8`, vsync
