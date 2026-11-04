@@ -22,7 +22,10 @@ plain restart where there is none (a firmware that tries USB first, or
 schenker's rEFInd, which picks the stick when it is there). It then
 waits for the system asked for and says which came up, and into Windows
 or macOS waits on until the logon's input is too old for a round to take
-for a hand's (SETTLE). Nothing changes the firmware's order itself.
+for a hand's (SETTLE) -- on the Mac until IOHIDSystem's own idle clock,
+the one the agent reads, has passed the window from the desktop's login
+on and not from ssh's first answer. Nothing changes the firmware's order
+itself.
 
 A machine with a macOS stick (OpenCore and macOS on one USB stick) names
 that stick's firmware entry, by its description, in `macos-entry-NAME`
@@ -81,6 +84,10 @@ WAKE_AGAIN = 30.0
 # drive; read and not imported, so power.py stays a file of its own.
 SETTLE = {"windows": ("FNL_DRIVE_NATIVE_BUSY", 120.0),
           "macos": ("FNL_DRIVE_MAC_BUSY", 120.0)}
+# How long a Mac's desktop login may lag ssh, which Remote Login answers
+# at boot: schenker's was 25 s late (2026-11-04), so a wait counted from
+# the first answer leaves the login's own input inside the window.
+LOGIN_TIMEOUT = 180.0
 
 
 def ssh(target, command, timeout=60, opts=()):
@@ -333,6 +340,64 @@ def wait_off(host):
     print("%s: off, after %.0f s" % (host, time.monotonic() - t0))
 
 
+def desktop_login(host):
+    """Wait for the Mac's desktop user, whose login restarts the idle
+    clock.
+
+    ssh answers as soon as Remote Login is up, before the desktop's own
+    login, so a wait counted from the first answer ends before the login's
+    input has aged. /dev/console's owner is the desktop's user, root being
+    the login screen's, and it changes at the login that matters."""
+    t0 = time.monotonic()
+    while True:
+        r = ssh(host, "stat -f %Su /dev/console", 10, mac_opts(host))
+        if r.returncode == 0 and r.stdout.strip() not in ("", "root"):
+            return
+        if time.monotonic() - t0 > LOGIN_TIMEOUT:
+            print("%s: no desktop login after %.0f s; a round will say why"
+                  % (host, LOGIN_TIMEOUT))
+            return
+        time.sleep(5)
+
+
+def mac_idle(host):
+    """Seconds since the Mac's last HID input, IOHIDSystem's own clock.
+
+    The agent reads the same HIDIdleTime (mac_agent.m), so a wait on it
+    is the driver's own test and not a guess at how long a login takes to
+    finish; None where the machine will not say."""
+    r = ssh(host, "ioreg -c IOHIDSystem -r -d 1", 10, mac_opts(host))
+    if r.returncode != 0:
+        return None
+    for line in r.stdout.splitlines():
+        if "HIDIdleTime" in line and "=" in line:
+            try:
+                return int(line.rsplit("=", 1)[1].strip()) / 1e9
+            except ValueError:
+                return None
+    return None
+
+
+def mac_settle(host, wait):
+    """Wait for the login and then the idle clock the round will read."""
+    desktop_login(host)
+    t0 = time.monotonic()
+    while True:
+        idle = mac_idle(host)
+        if idle is None:
+            # A machine that will not say: the wait it is, then.
+            print("%s: no idle time from ioreg; waiting %.0f s"
+                  % (host, wait))
+            time.sleep(wait)
+            return
+        if idle >= wait:
+            return
+        if time.monotonic() - t0 > wait + LOGIN_TIMEOUT:
+            print("%s: the idle clock still stands at %.0f s" % (host, idle))
+            return
+        time.sleep(5)
+
+
 def settle(host, target):
     """Wait out the window in which a round takes a logon's input for a
     hand's.
@@ -349,6 +414,11 @@ def settle(host, target):
     except ValueError:
         wait = default
     if wait <= 0:
+        return
+    if target == "macos":
+        print("%s: waiting for the desktop login, then %.0f s of idle"
+              % (host, wait))
+        mac_settle(host, wait)
         return
     print("%s: waiting %.0f s for the logon's input to age" % (host, wait))
     time.sleep(wait)

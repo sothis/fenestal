@@ -643,12 +643,15 @@ field, sRGB 14, read 10, under every rendering intent. The busy check is
 the laptop's, against the HID idle clock: input in the last two minutes
 that came after the agent's own last (`FNL_DRIVE_MAC_BUSY`) is a hand, and
 `power.py boot` waits that window out before it returns, as it does for
-Windows. The clock is not reset by every posted event -- once it stood
-1.3 s before the agent's last button-up -- so only input *after* the
-agent's counts. The agent finds a window by its title before an untitled
-one: AppKit gives each program five untitled windows of its own besides,
-off screen on the same layer, and the first of those has no rectangle a
-round can use.
+Windows -- there until IOHIDSystem's own idle clock (`HIDIdleTime`, the
+one the agent reads) has passed it from the desktop's login on, which
+Remote Login's answer precedes by 25 s on schenker (2026-11-04). The
+clock is not reset by every posted event -- once it stood 1.3 s before
+the agent's last button-up -- so only input *after* the agent's counts.
+The agent finds a window by its title before an untitled one: AppKit
+gives each program five untitled windows of its own besides, off screen
+on the same layer, and the first of those has no rectangle a round can
+use.
 
 What the first rounds found was the library's, each now in DESIGN *macOS*:
 the layer was untagged and its sRGB shown as the panel's own colours; keys
