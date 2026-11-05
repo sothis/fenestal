@@ -120,6 +120,13 @@ void testbed_overlay_footprint_log(void);
  * the frames the panel draws there. */
 void testbed_overlay_frame_cpu_log(void);
 
+/* --frame-stats-log: the frame loop's totals (fnl_frame_stats()) and the
+ * rows they are made of (fnl_frame_samples()) said on stderr twice a
+ * second, with the two figures those means are kept from. Turns frame-stats
+ * counting on: what a window at rest must hold while the panel's own frames
+ * are drawn there. */
+void testbed_overlay_frame_stats_log(void);
+
 /* --reserve-log: fnl_titlebar_reserve()'s answer for a caller's run, with
  * the window's width, on stderr twice a second -- where the run sits beside
  * the library's controls, and the width at which the output box gives way. */

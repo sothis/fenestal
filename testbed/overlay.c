@@ -82,6 +82,7 @@ static const struct {
 	{ "F3",        "Text entry",       { FNL_KEY_UNKNOWN } },
 	{ "F4 / F6",   "Copy / paste",     { FNL_KEY_UNKNOWN } },
 	{ "F5",        "Toggle metrics",   { FNL_KEY_UNKNOWN } },
+	{ "F7",        "Next output",      { FNL_KEY_UNKNOWN } },
 	{ "F9",        "Release mouse",    { FNL_KEY_UNKNOWN } },
 	{ "F11",       "Fullscreen",       { FNL_KEY_UNKNOWN } },
 	{ "Esc",       "Quit",             { FNL_KEY_UNKNOWN } },
@@ -201,6 +202,20 @@ static bool g_reserve_log;
 void testbed_overlay_reserve_log(void)
 {
 	g_reserve_log = true;
+}
+
+/* --frame-stats-log: the totals fnl_frame_stats() keeps and the rows
+ * fnl_frame_samples() hands over, twice a second, with the figures the
+ * frame's means are kept from. The totals are since counting was turned on,
+ * so the rows are summed from there too: the two must be the same account,
+ * and a window at rest must keep the figures while the panel's own frames
+ * are drawn and counted. */
+static bool g_frame_stats_log;
+static bool g_stats_on;
+
+void testbed_overlay_frame_stats_log(void)
+{
+	g_frame_stats_log = true;
 }
 
 /* The GPU memory this process holds on the GPU drawing: the scene's API's
@@ -447,6 +462,43 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 				fprintf(stderr, "reserve: win %d -> not visible\n", cw);
 		}
 	}
+	if (g_frame_stats_log) {
+		static double at = -1.0;
+		static FnlFrameSample rows[1024];
+		static unsigned long long n_rows, presented, rows_us, lost_all;
+		if (!g_stats_on) {
+			fnl_set_frame_stats(app, true);
+			g_stats_on = true;
+		}
+		if (at < 0.0 || f->time - at >= 0.5) {
+			at = f->time;
+			uint64_t lost = 0;
+			const int got = fnl_frame_samples(app, rows,
+					(int)(sizeof rows / sizeof rows[0]), sizeof rows[0],
+					&lost);
+			lost_all += lost;
+			for (int i = 0; i < got; i++) {
+				n_rows++;
+				if (rows[i].presented)
+					presented++;
+				if (rows[i].gpu_ms >= 0.0f)
+					rows_us += (unsigned long long)
+							   (rows[i].gpu_ms * 1e3 + 0.5);
+			}
+			FnlFrameStats st = { .size = sizeof st };
+			const bool have = fnl_frame_stats(app, &st);
+			fprintf(stderr,
+					"frame stats: frames %llu presents %llu, gpu %llu us "
+					"in %llu; rows %llu gpu %llu us, presented %llu, lost "
+					"%llu; cpu %.2f gpu %.2f ms\n",
+					have ? (unsigned long long)st.frames : 0ULL,
+					have ? (unsigned long long)st.presents : 0ULL,
+					have ? (unsigned long long)st.gpu_us : 0ULL,
+					have ? (unsigned long long)st.gpu_samples : 0ULL,
+					n_rows, rows_us, presented, lost_all,
+					fnl_frame_cpu_ms(app), fnl_frame_gpu_ms(app));
+		}
+	}
 	draw_reticle(app);
 }
 
@@ -487,6 +539,26 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 			fnl_clipboard_set(app, TESTBED_CLIPBOARD_TEXT);
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F6)
 			fnl_clipboard_request(app);
+		/* F7 asks for the output after this one, where fullscreen hides the
+		 * bar the output box is on: a harness's way to move a fullscreen
+		 * window. */
+		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F7) {
+			const int n = fnl_output_count(app);
+			const char *cur = fnl_output_name(app);
+			int idx = -1;
+			for (int i = 0; i < n && idx < 0; i++) {
+				const char *name = fnl_output_name_at(app, i);
+				const size_t len = strlen(name);
+				/* The list is by connector; the window's output is that and,
+				 * on Wayland, the model after it. */
+				if (len > 0 && strncmp(cur, name, len) == 0 &&
+					(cur[len] == '\0' || cur[len] == ' '))
+					idx = i;
+			}
+			if (n > 0)
+				fnl_request_output(app,
+					fnl_output_name_at(app, (idx + 1) % n));
+		}
 		/* The panel also lights a row while its key is held. The held set is
 		 * in what the library compares, so that needs no invalidate. */
 		break;

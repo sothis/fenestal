@@ -918,6 +918,7 @@ are written and have never been compiled.
 | `F3` | text entry on and off (see `--echo-events`) |
 | `F4` / `F6` | copy a fixed string / ask for the clipboard |
 | `F5` | the library's metrics panel, shown from the start here: FPS, frame cost, input latency, this process's CPU, RAM, VRAM and GPU use |
+| `F7` | ask for the output after the window's own (`fnl_request_output()`): how a fullscreen window is moved, the bar not being shown there |
 | `F9` | release the pointer |
 | `F11` | toggle fullscreen |
 | `Esc` | quit |
@@ -1018,7 +1019,16 @@ drawn for the figures, with no frame line: the last moving frames' figure,
 not the panel's own. Under OpenGL on NVIDIA (NVML, schenker's GTX 1050 Ti
 under weston, the scene moving) the panel adds nothing: 1120 vblanks missed
 on 39 frame lines with it shown against 1190 hidden, means 16.80 against
-16.81 ms -- the misses are the offload path's own.
+16.81 ms -- the misses are the offload path's own. `--frame-times` with the
+testbed's `--frame-stats-log` (X11, RX 590, 2026-11-05): at rest from
+startup the panel drew a rest frame a half second and the totals counted
+every one -- frames and rows both 124 to 127, GPU 35621 to 36830 us, 403 us
+a frame -- while the two figures held at the last drawn frame's (CPU 0.24,
+GPU 0.39 ms); moving, the drained rows lag the totals by the newest frame or
+two (370 against 369 frames, 115800 against 116768 us at one line); and at
+rest a rest frame's GPU time reaches the totals when it is read, after the
+sample's quarter-second hold is out, so the row drained for it says -1
+(`fnl_frame_samples()`).
 
 Its place is the presentable area's top right, under whatever bar there
 is, and nowhere where the window cannot hold it whole: the library does
@@ -1055,7 +1065,11 @@ what the window takes of the GPU at rest. Measured as the product, with
 the pattern moving on schenker's HDMI at 3840x2160@30: 2.3 % on NVIDIA's
 OpenGL (0.76 ms) and 22 to 25 % on Intel's Vulkan, each what the
 ranking's figure for that entry gives at 30 frames a second (1293 and
-122 fps), and 50 % on llvmpipe (16.6 ms).
+122 fps), and 50 % on llvmpipe (16.6 ms). The row itself, on schenker's
+Intel Vulkan maximized on that monitor (3840x2117, 30 fps, 2026-11-05):
+18.9 %, the product 6.30 ms by 30 fps over 10, 18.9 %; at rest with the
+panel shown and the scene still, 0.0 % where the product stands at the
+last moving frames' 18.9 %.
 
 On the Mac (2026-10-31, `1d987ac`, the testbed at rest with
 `--footprint-log`, the Mac's own `ps` of the same process beside it) the
@@ -1097,6 +1111,7 @@ and averages to `Get-Process`'s.
 | `--text-input` | text entry on at startup: with `--echo-events` each character a key types is a line of its own, a held key repeats, and Escape no longer closes the window, so close it from the titlebar — see *Text entry* |
 | `--footprint-log` | this process's CPU, RAM and VRAM, the metrics panel's figures, on stderr twice a second as `footprint: ...`, for a harness that cannot read the screen — see *The metrics panel*. It asks for cost sampling, which counts the frames the panel draws at rest |
 | `--frame-cpu-log` | the per-frame CPU figure (`fnl_frame_cpu_ms()`) on stderr twice a second as `frame cpu: ...`, without asking for cost sampling: the panel's own figures at rest — see *The metrics panel* |
+| `--frame-stats-log` | the frame loop's totals (`fnl_frame_stats()`) and the rows they are made of (`fnl_frame_samples()`) on stderr twice a second as `frame stats: ...`, with the two figures the means are kept from; turns frame-stats counting on — see *The metrics panel* |
 | `--bench`, `--bench-run`, `--bench-<key>=<value>`, `--bench-replay=<record>`, `--bench-list` | the benchmark mode — see *Benchmarking* |
 | `--licence` | the Ubuntu Font Licence and copyright notice the baked glyphs are under (`--license` is accepted too) |
 | `-h`, `--help` | usage |
@@ -2440,8 +2455,13 @@ backend). X11 asks with `_NET_MOVERESIZE_WINDOW` as a pager, at
 `StaticGravity`, where a manager may place an application's own
 `ConfigureRequest` itself; a maximized or fullscreen window leaves the
 state, moves and takes it again. Win32 moves a maximized window's
-restored rectangle through its placement rather than by `SW_RESTORE`,
-whose answer under wine arrives after the move. Wayland's clients place
+restored rectangle through its placement -- which is where a restore
+lands -- and Windows does not move the window itself with it: measured on
+2026-11-05 (Windows 11 26H2), a pick put the restored rectangle on the
+other monitor, left the window maximized on the one it was on, and a
+restore brought it to the picked one. So the state is left and taken
+again there too: the restore follows the placement, which lands it on the
+new monitor, and the maximize follows the restore. Wayland's clients place
 nothing: the one output a client names is a fullscreen window's
 (`xdg_toplevel.set_fullscreen`), and the bar is not shown in fullscreen, so
 there the box only names and follows, drawn dim

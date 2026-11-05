@@ -910,6 +910,9 @@ promised: before 1.0, nothing between minor releases.
 - OpenGL: a frame that showed nothing -- no drawable on macOS, no buffer
   on KMS -- is no longer counted as presented, and `fnl_present_mode()`
   on macOS no longer reads the renderer's state from another thread.
+- Win32: `fnl_request_output()` on a maximized window moves the window,
+  maximized, where it moved only the window's restored rectangle and left
+  the window itself where it was until a restore.
 
 ## 1.1.0
 

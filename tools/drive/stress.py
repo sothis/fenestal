@@ -2729,6 +2729,7 @@ def expected(line):
             # readouts when a measurement asks for them.
             or re.match(r"scene motion: (on|off)$", line) is not None
             or line.startswith("frame cpu: ")
+            or line.startswith("frame stats: ")
             or line.startswith("reserve: ")
             or line.startswith("footprint: ")
             or line.startswith("backend: ")

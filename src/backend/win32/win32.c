@@ -2493,12 +2493,18 @@ static FnlRect rect_of(RECT r)
 /* To the monitor of this name, keeping the window's size and state, where
  * app_place_on_output() puts it in that monitor's work area. Fullscreen is
  * a monitor's own rectangle, so the window leaves it, moves and takes it
- * again, all three at once here. A maximized window moves its restored
- * rectangle, by its placement, and is maximized again on the monitor that
- * rectangle is then on: a SW_RESTORE first would be a round trip through
- * the manager, whose answer under wine arrives after the move (see
- * win32_set_fullscreen()). The monitor change itself arrives as WM_MOVE,
- * which publishes it. */
+ * again, all three at once here.
+ *
+ * A maximized window's restored rectangle is moved through its placement,
+ * which is where a restore then lands. The window itself does not move with
+ * it: Windows keeps it maximized on the old monitor until something
+ * restores it (measured, Windows 11 26H2, 2026-11-05 -- the restored
+ * rectangle on the other monitor, the window maximized where it was). So
+ * the state is left and taken again here, as X11's move asks a manager to:
+ * the restore lands on the rectangle just placed, and the maximize follows
+ * it there. The restore comes after the placement, never before it, or it
+ * would restore to the old rectangle and move through the old monitor. The
+ * monitor change itself arrives as WM_MOVE, which publishes it. */
 static void win32_set_output(App *a, const char *name)
 {
 	struct BackendState *p = a->backend_state;
@@ -2537,6 +2543,8 @@ static void win32_set_output(App *a, const char *name)
 			wp.showCmd = SW_SHOWMAXIMIZED;
 			wp.flags   = 0;
 			SetWindowPlacement(p->hwnd, &wp);
+			win32_set_maximized(a, false);
+			win32_set_maximized(a, true);
 		}
 	} else {
 		RECT wr;

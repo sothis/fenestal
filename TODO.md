@@ -31,27 +31,39 @@ capability, two checks each), and the give-way was measured the same day:
 the box is drawn at 734 points and gone at 732, and a caller's run yields
 to the title long before it. Owed:
 
-- **Does each move land?** X11 under mutter and under no manager,
-  `_NET_MOVERESIZE_WINDOW` at `StaticGravity` from a pager; maximized and
-  fullscreen, left and taken again by three messages in a row. Win32 on
-  Windows and under wine, a maximized window moved by its placement, and
-  between monitors of different DPI. macOS, a zoomed window. Wayland, a
-  fullscreen window by `fnl_request_output()`.
+- **Does each move land?** Measured on 2026-11-05, every backend that
+  places a window: X11 under mutter and with no manager (schenker's stick,
+  NVIDIA), maximized by the box and fullscreen by the testbed's F7, each
+  to the other monitor and back with the state kept; Win32 on Windows,
+  maximized and fullscreen -- the maximized one by its placement and then
+  a restore (`win32_set_output()`), which it did not before: the placement
+  moved only the restored rectangle, and the window stayed maximized where
+  it was until a restore; Win32 under wine, both renderers, fullscreen and
+  a maximized move that landed; Wayland, fullscreen; the Mac, a zoomed
+  window (Built-in Display to PL4071UH and back). The fullscreen moves
+  want a way in with no bar to click, which the testbed's F7 -- the next
+  output -- is. Still owed: a monitor of another scale, where both of
+  schenker's are 125%. Under wine a maximized window on a monitor with no
+  taskbar (DISPLAY2) is drawn without its titlebar, with or without a
+  move: wine's maximize and not the library's, so the box could not be
+  clicked there and the back was not driven.
 
 ## The metrics panel at rest, after its change
 
 Written by reading (DESIGN *The metrics panel*); the at-rest cost, the
-minute at rest, the sample after the present on amdgpu and on NVIDIA, and
-the per-frame figure under wine were measured on 2026-11-05 and recorded
-there. Owed:
-
-- **The figures' frames left out of the means**: a window brought to
-  rest with `--frame-times`, its GPU and CPU figures unchanged by the
-  frames the panel draws there, and the frame-stats totals still the
-  rows' to the microsecond.
-- **The panel's GPU row as a sampled share**: against the product it
-  replaced (`fnl_frame_gpu_ms()` by `fnl_fps()`) with the pattern moving
-  on schenker, where the two should agree, and near zero at rest.
+minute at rest, the sample after the present on amdgpu and on NVIDIA, the
+per-frame figure under wine, the figures' frames left out of the means
+and the panel's GPU row as a sampled share were measured on 2026-11-05 and
+recorded there. The figures' frames: with `--frame-times` and the
+testbed's `--frame-stats-log` on X11, the panel's rest frames drew and were
+counted -- frames and rows both 124 to 127, GPU 35621 to 36830 us, 403 us
+a frame -- while the figures held at the last drawn frame's (CPU 0.24,
+GPU 0.39 ms); the drained rows lag the totals by the newest frame or two,
+and a rest frame's GPU time reaches the totals after the sample's
+quarter-second hold, so its drained row says -1. The GPU row: on
+schenker's Intel Vulkan at 3840x2117 and 30 fps, 18.9 % against the
+product's 18.9 %; at rest with the panel shown, 0.0 % where the product
+stands at the last moving frames' 18.9 %.
 
 ## The whole-tree review of 2026-11-02
 
