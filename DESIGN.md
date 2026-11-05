@@ -9279,8 +9279,20 @@ against Xorg's 70.9% for a smaller window (1280x754 to the output's
 1366x768): the readback, the fence wait and the flip cost no more than
 Mesa's `noshm` present into an X server. Most of either is lavapipe's
 frame, and weston's 61.8% is the same frame handed over as `wl_shm`.
-The display path itself is waiting on a machine with a hardware driver
-and no desktop on it (`TODO.md`).
+
+**The display path, measured on the laptops (2026-11-05, `bench.py
+--hands`, three runs a machine, Intel's GPU on its own panel at
+1920x1080):** 60.0 fps with p99 16.8 ms and a 1% low of 59, where the
+copy path's flips read 58.5 to 59.2 with p99 33 and a 1% low of 30;
+2.70 to 2.73 ms of GPU and 0.6 to 0.7 of CPU a frame against the copy
+path's 2.29 to 8.64 and 2.4 to 2.9; and 20.5 to 20.6 ms from latch to
+screen against the copy's 8.7 to 12.7. The two ways trade: the queued
+frame costs the display path the quickest present and buys it a cadence
+with no doubled intervals and a quarter of the CPU, which is the
+readback the copy pays. The GPUs differ with the way -- only Intel's
+takes the display, since NVIDIA's 580 names none beside Intel's panel
+(*Moving to another GPU*) -- so the GPU figures read as the device's
+and the CPU and cadence as the path's.
 
 OpenGL's column on the copy path (2026-10-31, `1d987ac`, aspire's GTX
 960M on NVIDIA's driver onto Intel's eDP-1, release, the ranking set
@@ -10773,6 +10785,18 @@ tracking loops of a drag, a resize and a menu, where the pump is not the one
 waiting. In the pump's own wait the source posts an event that ends it and
 `fnl_run()` drains; in any other loop it drains itself, as Win32's
 `FNL_WM_WAKEUP` does inside its modal loops.
+
+**The view can outlive its App by one turn of the loop.** A window ordered
+out is an exit for its tracking area, and AppKit's dequeue monitor may
+route it on a later turn -- after `fnl_shutdown()`, and in a process that
+opens another lifetime, into that one's pump. So the view detaches before
+the window goes: its area is removed and its `app` cleared, a view with no
+App installs no area when AppKit asks it to update, and the pointer
+handlers return on a view that has lost it. The alternative -- an area
+kept until the view is deallocated -- faulted in `mouseExited:` through a
+NULL App at 0x140, the field's offset, when the bench's repeats closed one
+lifetime and opened the next (2026-11-05, schenker, the first three-run
+Mac bench; EXC_BAD_ACCESS on the main thread).
 
 **Keys are virtual key codes**, which name a key by its place on the board as
 `FnlKey` does, so `MAC_KEYS` is the whole translation. A PC keyboard's keys

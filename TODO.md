@@ -572,6 +572,12 @@ and three `pace.py` columns). Owed, in this order:
   between sittings. Owed: whether a sitting drifts -- the same three on
   another day.
 
+- **The bench's three repeats are the teardown's test**: a place runs
+  three lifetimes in one process, closing one window and opening the
+  next, which is what found the view outliving its App (DESIGN *macOS*,
+  2026-11-05). A harness change that gives a place one run a start loses
+  the only automatic test of it.
+
 ## macOS on Apple's processors, and the app bundles
 
 Written 2026-11-04 and built, never run: `./build.sh macos-arm64`

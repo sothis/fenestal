@@ -478,6 +478,34 @@ bigger window can read less of a frame's CPU there -- the Pi's X11 line
 is -1.96 ± 0.02 ms/MP -- and only the GPU's slope is read as the
 image's cost.
 
+## KMS's two ways, 2026-11-05
+
+The display path and the copy path on the laptops' own panels, at the
+same 1920x1046 area -- the 1920x1080 mode less the bar. The display
+path is Intel's GPU through Mesa's display WSI (`FNL_GPU=intel`,
+`FNL_DRIVE_BARE_DRIVER=`), three runs a machine whose figures agree
+within 0.05; the copy path's four rows are one run each from the set
+above, NVK and NVIDIA's own on the NVIDIA GPU, which the harness's KMS
+round names.
+
+| way | machine | n | fps | p99 ms | 1% low | GPU ms | CPU ms | latch→shown | read→shown |
+|---|---|---|---|---|---|---|---|---|---|
+| display (Intel) | aspire | 3 | 60.0 | 16.8 | 59 | 2.72 | 0.68 | 20.5 | 22.6 |
+| display (Intel) | schenker | 3 | 60.0 | 16.8 | 59 | 2.71 | 0.60 | 20.6 | 22.3 |
+| copy (NVK) | aspire | 1 | 59.0 | 33.3 | 30 | 7.50 | 2.90 | 12.0 | 17.4 |
+| copy (NVIDIA) | aspire | 1 | 58.5 | 33.4 | 30 | 7.25 | 2.50 | 12.4 | 17.7 |
+| copy (NVK) | schenker | 1 | 59.2 | 32.5 | 30 | 8.64 | 2.49 | 12.7 | 18.4 |
+| copy (NVIDIA) | schenker | 1 | 59.1 | 33.2 | 30 | 2.29 | 2.40 | 8.7 | 15.2 |
+
+The two ways trade rather than order. The display path holds 60.0 with
+its p99 at the frame interval and a 1% low of 59, and spends 0.6 to
+0.7 ms of CPU a frame; every copy row misses a vblank now and then
+(p99 33, 1% low 30) and spends four times the CPU, the readback, and
+every copy row shows a frame 8 to 12 ms after its latch against the
+display path's 20.6 -- the frame the display WSI keeps queued (DESIGN
+*KMS: no window server*). The GPU differs with the way, so its column
+reads the device: Intel's 2.7 against NVIDIA's 2.3 to 8.6.
+
 ## From latch to screen, 2026-10-31
 
 The testbed's bench (`tools/drive/bench.py`, `--bench-measure-s=8`, vsync
