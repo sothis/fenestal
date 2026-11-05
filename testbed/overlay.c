@@ -194,6 +194,15 @@ void testbed_overlay_frame_cpu_log(void)
 	g_frame_cpu_log = true;
 }
 
+/* --reserve-log: the caller's run's place beside the library's, and the
+ * width at which the output box gives way under it. */
+static bool g_reserve_log;
+
+void testbed_overlay_reserve_log(void)
+{
+	g_reserve_log = true;
+}
+
 /* The GPU memory this process holds on the GPU drawing: the scene's API's
  * figure (scene_<api>.c), or for OpenGL, which keeps none, the system's
  * (gpumem.c). */
@@ -418,6 +427,24 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 			at = f->time;
 			fprintf(stderr, "frame cpu: %.2f ms, fps %d\n",
 					fnl_frame_cpu_ms(app), fnl_fps(app));
+		}
+	}
+	if (g_reserve_log) {
+		static double at = -1.0;
+		if (at < 0.0 || f->time - at >= 0.5) {
+			at = f->time;
+			int cx, cy, cw, ch, rx, ry, rw, rh;
+			bool vis;
+			fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
+			(void)cx; (void)cy; (void)ch;
+			/* 120 points: a caller's run wide enough to be worth asking
+			 * about, and not so wide that only a large window shows it. */
+			vis = fnl_titlebar_reserve(app, 120, &rx, &ry, &rw, &rh);
+			if (vis)
+				fprintf(stderr, "reserve: win %d -> x %d y %d %dx%d\n",
+						cw, rx, ry, rw, rh);
+			else
+				fprintf(stderr, "reserve: win %d -> not visible\n", cw);
 		}
 	}
 	draw_reticle(app);

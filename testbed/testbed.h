@@ -119,6 +119,11 @@ void testbed_overlay_footprint_log(void);
  * figures at rest, where --footprint-log would ask for sampling and count
  * the frames the panel draws there. */
 void testbed_overlay_frame_cpu_log(void);
+
+/* --reserve-log: fnl_titlebar_reserve()'s answer for a caller's run, with
+ * the window's width, on stderr twice a second -- where the run sits beside
+ * the library's controls, and the width at which the output box gives way. */
+void testbed_overlay_reserve_log(void);
 /* The GPU memory this process holds on the GPU drawing, in MiB: the
  * scene's API's figure, or the system's for OpenGL. From on_overlay. */
 bool testbed_vram_mib(FnlApp *app, double *mib);

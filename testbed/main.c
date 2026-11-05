@@ -244,6 +244,9 @@ static void usage(FILE *f, const char *prog)
 		"                     (fnl_frame_cpu_ms()) to stderr twice a second,\n"
 		"                     \"frame cpu: ...\", and nothing else -- the\n"
 		"                     panel's own figures at rest.\n"
+		"  --reserve-log      print fnl_titlebar_reserve()'s answer for a\n"
+		"                     caller's run, with the window's width, twice a\n"
+		"                     second: \"reserve: ...\".\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
@@ -307,6 +310,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		"--no-late-latch", "--late-latch=", "--scale=", "--gpu=",
 		"--custom-titlebar", "--text-input", "--frame-times", "--no-vsync",
 		"--transition=", "--footprint-log", "--frame-cpu-log",
+		"--reserve-log",
 	};
 
 	for (int i = 1; i < argc; i++) {
@@ -356,6 +360,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--frame-cpu-log")) {
 			testbed_overlay_frame_cpu_log();
+			continue;
+		}
+		if (!strcmp(arg, "--reserve-log")) {
+			testbed_overlay_reserve_log();
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {

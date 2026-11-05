@@ -27,7 +27,9 @@ Each needs a hand on the machine or hardware the two laptops do not have.
 
 Written by reading (DESIGN *The titlebar controls*); its stress check was
 added on 2026-11-05 and passes on X11 and wine (the `output-pick`
-capability, two checks each). Owed:
+capability, two checks each), and the give-way was measured the same day:
+the box is drawn at 734 points and gone at 732, and a caller's run yields
+to the title long before it. Owed:
 
 - **Does each move land?** X11 under mutter and under no manager,
   `_NET_MOVERESIZE_WINDOW` at `StaticGravity` from a pager; maximized and
@@ -35,8 +37,6 @@ capability, two checks each). Owed:
   Windows and under wine, a maximized window moved by its placement, and
   between monitors of different DPI. macOS, a zoomed window. Wayland, a
   fullscreen window by `fnl_request_output()`.
-- **The box giving way below 734 points**, and the caller's run beside it
-  (`deco_reserved_rect()`), as a window is narrowed past it.
 
 ## The metrics panel at rest, after its change
 

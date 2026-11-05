@@ -2453,6 +2453,10 @@ where the window is 734 wide or more (`ctl_output_in()`), and the floor is
 the run without it. On KMS it is always there, and in the floor.
 Like every rectangle here it is a function of the window width alone.
 
+Measured on 2026-11-05 on X11, captured at three widths: the box is drawn
+between the checkboxes and `GPU 1` at 740 points, is still drawn at 734,
+and is gone at 732, where the GPU box has taken its place.
+
 **The size list is derived, not shipped.** A hand-written list of resolutions
 would be a product decision, and the library has no business having one. What
 `controls.c` holds is a table of *standard* sizes filtered against two figures
@@ -2738,8 +2742,12 @@ The first three are the library's and are contract:
 would overlap what is already there, which is how a caller reads the rule
 instead of inferring it. Calling it every frame from `on_overlay` is the
 natural way to use it, so it stores the width only when it moved: the pump's
-hit test reads the same word. The last two are a caller's own, and
-`testbed/overlay.c` is one worked answer.
+hit test reads the same word. Measured on 2026-11-05 through the testbed's
+`--reserve-log`: with its title, a 120-point caller's run is invisible until
+the window is about 1300 points wide -- the run yields to the title long
+before the output box gives way at 734 -- and where it is visible its left
+edge holds 855 points in from the window's right edge as the window widens.
+The last two are a caller's own, and `testbed/overlay.c` is one worked answer.
 
 Every rectangle in the bar is a pure function of the window width, which is what
 lets both threads compute it — the render thread to draw and the input thread to
