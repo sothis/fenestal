@@ -412,69 +412,71 @@ such records into a frame's fixed cost and its cost a megapixel.
 | jsons-MBP, Vulkan on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 17.06 | 58 | 1.47 | 1.60 | 0.41 | 0.44 | 18 | 48.3 | 53.9 |
 | jsons-MBP, OpenGL on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.68 | 17.10 | 58 | - | - | 0.96 | 1.04 | 22 | - | - |
 
-## Benchmark mode at two sizes, 2026-11-04 at `5f7df40`
+## Benchmark mode at two sizes, three runs each, 2026-11-04 to 05 at `a3f304a`
 
-The same benchmark run once at 800x600 and once at 1920x1080 points, on
-the bare machines, both laptops' Windows on each GPU and each renderer,
-and schenker's three renderers on macOS -- on KMS a display mode, its
-window being the output, so the Pi's KMS took both (its HDMI modes) and
-the laptops' and thinkpad's KMS, whose panels list one mode each,
-stayed at it and are named below as one size. The records were made on
-the tree before it was committed, the same code; the Mac's, the tree's
-after, at `2ddd482`, whose testbed is the same. The fit is
-`cost = fixed + slope x area` over the areas the runs recorded
-(`report.py --fit`): the milliseconds a frame costs at no pixels and
-the milliseconds a megapixel adds. Two points fit a line exactly and
-each is one run, so the intercepts carry the noise -- a negative CPU
-slope is noise, not a saving -- and a third size or repeats would
-settle them. The two sizes read as 0.48 and 2.01 MP on the bare
-screens, 0.48 and 1.92 on aspire's Windows (100%), 0.75 and 1.88 on
-schenker's (125%), and 0.48 and 1.78 on the Mac, whose 1920x1080
-request the menu bar takes in to 1920x926.
+The same benchmark run three times at 800x600 and three at 1920x1080
+points, on the bare machines, both laptops' Windows on each GPU and
+each renderer, and schenker's three renderers on macOS. On KMS the size
+is a display mode, its window being the output: the Pi's KMS took both
+(its HDMI modes), and the laptops' and thinkpad's KMS places are not
+run here, their panels listing one mode each. The records are at
+`a3f304a`; the Mac's are from the tree that became `e7e9423`, whose
+Cocoa crash fix the repeats themselves found -- its first attempts died
+in `-[FnlCocoaView mouseExited:]` after a run or two, and were rerun
+with the fix -- and the table is `report.py --fit` at `16c619a`, which
+the repeats let carry standard errors. The fit is
+`cost = fixed + slope x area` over the areas the runs recorded: the
+milliseconds a frame costs at no pixels and the milliseconds a megapixel
+adds, each with its standard error. The two sizes read as 0.48 and 2.01
+MP on the bare screens, 0.48 and 1.92 on aspire's Windows (100%), 0.75
+and 1.88 on schenker's (125%), and 0.48 and 1.78 on the Mac, whose
+1920x1080 request the menu bar takes in to 1920x926.
 
 | where | run under | sizes MP | GPU fixed ms | GPU ms/MP | CPU fixed ms | CPU ms/MP |
 |---|---|---|---|---|---|---|
-| SCHENKER, Vulkan on Win32, Intel(R) HD Graphics 630 | defaults | 0.75, 1.88 | 0.04 | 0.77 | 0.40 | 0.01 |
-| SCHENKER, Vulkan on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 0.75, 1.88 | -0.01 | 0.33 | 0.66 | 0.01 |
-| ASPIRE, Vulkan on Win32, Intel(R) HD Graphics 530 | defaults | 0.48, 1.92 | 0.09 | 1.57 | 0.50 | 0.00 |
-| ASPIRE, Vulkan on Win32, NVIDIA GeForce GTX 960M | defaults | 0.48, 1.92 | -0.13 | 1.70 | 0.97 | -0.12 |
-| SCHENKER, Direct3D 12 on Win32, Intel(R) HD Graphics 630 | defaults | 0.75, 1.88 | 0.07 | 0.70 | 0.34 | -0.00 |
-| SCHENKER, Direct3D 12 on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 0.75, 1.88 | 0.41 | 0.27 | 0.82 | 0.01 |
-| ASPIRE, Direct3D 12 on Win32, Intel(R) HD Graphics 530 | defaults | 0.48, 1.92 | 0.16 | 0.92 | 0.46 | 0.02 |
-| ASPIRE, Direct3D 12 on Win32, NVIDIA GeForce GTX 960M | defaults | 0.48, 1.92 | 0.11 | 1.13 | 1.20 | -0.04 |
-| aspire, Vulkan on X11, NVIDIA GeForce GTX 960M | defaults | 0.48, 2.01 | 0.11 | 1.83 | 0.84 | 0.01 |
-| schenker, Vulkan on X11, NVIDIA GeForce GTX 1050 Ti | defaults | 0.48, 2.01 | 0.25 | 0.39 | 0.57 | -0.01 |
-| thinkpad, Vulkan on X11, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 1.00 | 1.86 | 19.52 | 0.19 | -0.05 |
-| pi4, Vulkan on X11, V3D 4.2.14.0 | defaults | 0.48, 0.75 | 3.67 | 4.08 | 2.62 | -2.02 |
-| aspire, Vulkan on Wayland, NVIDIA GeForce GTX 960M | defaults | 0.48, 2.07 | 0.32 | 1.75 | 0.58 | 0.00 |
-| schenker, Vulkan on Wayland, NVIDIA GeForce GTX 1050 Ti | defaults | 0.48, 2.07 | 0.13 | 0.95 | 0.58 | 0.01 |
-| thinkpad, Vulkan on Wayland, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 2.07 | 3.67 | 16.88 | 0.21 | 0.01 |
-| pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 0.48, 2.07 | 3.59 | 7.26 | 3.03 | -0.57 |
-| pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 0.45, 2.01 | 0.27 | 8.61 | 1.16 | 0.10 |
-| jsons-MBP, Metal on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.24 | 1.15 | 0.22 | -0.00 |
-| jsons-MBP, Vulkan on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.25 | 1.14 | 0.41 | 0.00 |
-| jsons-MBP, OpenGL on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | - | - | 0.75 | 0.26 |
+| SCHENKER, Vulkan on Win32, Intel(R) HD Graphics 630 | defaults | 0.75, 1.88 | 0.04 ± 0.00 | 0.77 ± 0.00 | 0.40 ± 0.00 | 0.01 ± 0.00 |
+| SCHENKER, Vulkan on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 0.75, 1.88 | 0.03 ± 0.01 | 0.31 ± 0.01 | 0.67 ± 0.00 | -0.00 ± 0.00 |
+| ASPIRE, Vulkan on Win32, Intel(R) HD Graphics 530 | defaults | 0.48, 1.92 | 0.10 ± 0.01 | 1.56 ± 0.00 | 0.49 ± 0.00 | 0.01 ± 0.00 |
+| ASPIRE, Vulkan on Win32, NVIDIA GeForce GTX 960M | defaults | 0.48, 1.92 | 0.03 ± 0.06 | 1.61 ± 0.04 | 1.03 ± 0.02 | -0.15 ± 0.01 |
+| SCHENKER, Direct3D 12 on Win32, Intel(R) HD Graphics 630 | defaults | 0.75, 1.88 | 0.06 ± 0.01 | 0.71 ± 0.01 | 0.33 ± 0.01 | 0.01 ± 0.01 |
+| SCHENKER, Direct3D 12 on Win32, NVIDIA GeForce GTX 1050 Ti | defaults | 0.75, 1.88 | 0.50 ± 0.21 | 0.16 ± 0.15 | 0.82 ± 0.01 | 0.01 ± 0.00 |
+| ASPIRE, Direct3D 12 on Win32, Intel(R) HD Graphics 530 | defaults | 0.48, 1.92 | 0.14 ± 0.00 | 0.95 ± 0.00 | 0.46 ± 0.00 | 0.02 ± 0.00 |
+| ASPIRE, Direct3D 12 on Win32, NVIDIA GeForce GTX 960M | defaults | 0.48, 1.92 | 0.11 ± 0.00 | 1.12 ± 0.00 | 1.18 ± 0.01 | 0.00 ± 0.01 |
+| aspire, Vulkan on X11, NVIDIA GeForce GTX 960M | defaults | 0.48, 2.01 | 0.12 ± 0.03 | 1.82 ± 0.02 | 0.85 ± 0.00 | 0.00 ± 0.00 |
+| schenker, Vulkan on X11, NVIDIA GeForce GTX 1050 Ti | defaults | 0.48, 2.01 | 0.32 ± 0.23 | 0.24 ± 0.16 | 0.57 ± 0.02 | -0.02 ± 0.02 |
+| thinkpad, Vulkan on X11, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 1.00 | 1.86 ± 0.14 | 19.46 ± 0.18 | 0.19 ± 0.00 | -0.04 ± 0.00 |
+| pi4, Vulkan on X11, V3D 4.2.14.0 | defaults | 0.48, 0.75 | 3.67 ± 0.01 | 4.10 ± 0.02 | 2.57 ± 0.01 | -1.96 ± 0.02 |
+| aspire, Vulkan on Wayland, NVIDIA GeForce GTX 960M | defaults | 0.48, 2.07 | 0.30 ± 0.00 | 1.75 ± 0.00 | 0.59 ± 0.01 | -0.00 ± 0.00 |
+| schenker, Vulkan on Wayland, NVIDIA GeForce GTX 1050 Ti | defaults | 0.48, 2.07 | 0.11 ± 0.01 | 0.94 ± 0.01 | 0.58 ± 0.01 | -0.00 ± 0.01 |
+| thinkpad, Vulkan on Wayland, llvmpipe (LLVM 23.1.4, 128 bits) | defaults | 0.48, 2.07 | 4.18 ± 0.17 | 16.50 ± 0.11 | 0.21 ± 0.00 | 0.01 ± 0.00 |
+| pi4, Vulkan on Wayland, V3D 4.2.14.0 | defaults | 0.48, 2.07 | 1.41 ± 0.75 | 8.31 ± 0.50 | 2.09 ± 0.29 | -0.12 ± 0.19 |
+| pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 0.45, 2.01 | 0.27 ± 0.00 | 8.61 ± 0.00 | 1.16 ± 0.01 | 0.10 ± 0.01 |
+| jsons-MBP, Metal on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.24 ± 0.00 | 1.17 ± 0.00 | 0.22 ± 0.00 | 0.00 ± 0.00 |
+| jsons-MBP, Vulkan on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.23 ± 0.00 | 1.16 ± 0.00 | 0.42 ± 0.00 | 0.00 ± 0.00 |
+| jsons-MBP, OpenGL on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | - | - | 0.77 ± 0.01 | 0.23 ± 0.01 |
 
-one size, not fitted: aspire, Vulkan on KMS, NVIDIA GeForce GTX 960M, aspire,
-Vulkan on KMS, NVIDIA GeForce GTX 960M (NVK GM107), schenker, Vulkan on KMS,
-NVIDIA GeForce GTX 1050 Ti, schenker, Vulkan on KMS, NVIDIA GeForce GTX 1050
-Ti (NVK GP107), thinkpad, Vulkan on KMS, llvmpipe (LLVM 23.1.4, 128 bits)
-
-The split is what one size could not show. On the Pi the window
-servers carry a per-frame GPU floor that KMS does not: 3.67 ms on X11
-and 3.59 on weston against KMS's 0.27, whose cost is then all per
-pixel, 8.61 ms/MP -- the copy path's readback. The laptops' servers
-cost a fraction of a millisecond a frame, where the display path is
-not the bottleneck. CPU is a per-frame cost everywhere: every CPU
-slope is about zero and the intercept 0.2 to 1.2 ms, so the image's
-size is the GPU's. On Windows the fixed parts are a few tenths at
-most, and Direct3D 12 is the cheaper per pixel of the two renderers on
-both GPUs of both laptops -- aspire's HD 530 0.92 against Vulkan's
-1.57 ms/MP, its 960M 1.13 against 1.70 -- where schenker's 1050 Ti is
-the cheapest of all at 0.27 to 0.33. On the Mac Metal and MoltenVK
-cost the same per pixel, 1.15 and 1.14 ms/MP over a quarter of a
-millisecond fixed, and differ in the per-frame CPU: Metal 0.22 ms,
-MoltenVK 0.41, OpenGL 0.75, whose GPU time the Mac does not keep.
+The split is what one size could not show, and the repeats say how well
+each line is pinned. On the Pi the window servers carry a per-frame GPU
+floor that KMS does not: 3.67 ± 0.01 ms on X11 and 4.18 ± 0.17 on
+weston against KMS's 0.27 ± 0.00, whose cost is then all per pixel,
+8.61 ± 0.00 ms/MP, the copy path's readback -- the KMS line the most
+certain in the table. The thinkpad's rasteriser makes the same split
+coarser: 1.86 ± 0.14 against 4.18 ± 0.17. The laptops' servers cost a
+fraction of a millisecond a frame; where their lines are loose --
+schenker's X11 0.32 ± 0.23, Direct3D 12 on its 1050 Ti 0.50 ± 0.21 --
+the scatter is the window server's own. On Windows the fixed parts are
+half a millisecond at most, and Direct3D 12 is the cheaper per pixel of
+the two renderers on both GPUs of both laptops: aspire's HD 530
+0.95 ± 0.00 against Vulkan's 1.56 ± 0.00, its 960M 1.12 ± 0.00 against
+1.61 ± 0.04; schenker's 1050 Ti is the cheapest pair in the set, 0.31 ±
+0.01 under Vulkan and 0.16 ± 0.15 under Direct3D 12. On the Mac Metal
+and MoltenVK cost the same per pixel, 1.17 ± 0.00 and 1.16 ± 0.00 over
+0.24 and 0.23 ms fixed, and differ in the per-frame CPU: Metal 0.22 ms,
+MoltenVK 0.42, OpenGL 0.77, whose GPU time the Mac does not keep. The
+CPU figures leave out the waits, so a presenter that blocks longer at a
+bigger window can read less of a frame's CPU there -- the Pi's X11 line
+is -1.96 ± 0.02 ms/MP -- and only the GPU's slope is read as the
+image's cost.
 
 ## From latch to screen, 2026-10-31
 
