@@ -1507,7 +1507,7 @@ class X11(_XEnvironment):
     # which has its own idea of the layout, and not Wayland, where the keymap
     # is the compositor's to send.
     CAN = _XEnvironment.CAN | frozenset({"wm-props", "multi-output",
-                                         "remap-key"})
+                                         "output-pick", "remap-key"})
 
     # A keycode with nothing on it in any evdev-derived keymap: 97 is evdev
     # 89, KEY_RO, a key only a Japanese board has.
@@ -1723,8 +1723,10 @@ class Win32(_DeskWine, _XEnvironment):
     NO_MOVE_TO = {"d3d12": "wine 10.0's own vkd3d runs no DXIL; the d3d12 "
                            "environments load vkd3d-proton"}
     # "multi-output": moved to the second monitor the window says so, in
-    # wine's names for the two and not this desktop's.
-    CAN = _XEnvironment.CAN | frozenset({"multi-output"})
+    # wine's names for the two and not this desktop's. "output-pick": the
+    # bar's output list calls fnl_request_output(), which under wine moves a
+    # window as it does on X11.
+    CAN = _XEnvironment.CAN | frozenset({"multi-output", "output-pick"})
 
 
 def wine_clear():
@@ -2228,7 +2230,7 @@ class Win32VM(_Placed, _Portal):
     # window to a layout that has a dead key, which every Windows ships.
     CAN = frozenset({"server-rect", "edge-resize", "unminimize",
                      "read-pixels", "composited", "multi-output",
-                     "dead-layout", "resizable"})
+                     "output-pick", "dead-layout", "resizable"})
     # United States-International, by its registry name: the letters stay
     # where any Latin layout has them, and the key right of the semicolon is
     # a dead acute, a dead diaeresis with Shift. Its accent typed alone is

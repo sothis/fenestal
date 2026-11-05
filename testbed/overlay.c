@@ -407,8 +407,18 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 
 /* From the event drain in main.c. The library has already acted on whatever
  * it binds; this adds the testbed's own. */
+/* The scene's motion, echoed when it changes: F2 is the library's binding,
+ * so the testbed never sees the key itself, and a harness driving to a still
+ * window has nothing else to tell it the state. -1 until the first event. */
+static int g_motion_echo = -1;
+
 void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 {
+	const bool moving = fnl_scene_motion(app);
+	if (g_motion_echo < 0 || moving != (g_motion_echo != 0)) {
+		g_motion_echo = moving ? 1 : 0;
+		fprintf(stderr, "scene motion: %s\n", moving ? "on" : "off");
+	}
 	switch (ev->type) {
 	case FNL_EVENT_KEY:
 		/* F1 toggles a panel the library cannot see, so nothing in what it

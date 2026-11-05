@@ -495,6 +495,59 @@ def cross_monitors(r):
           "%s %s, was %s %s" % (st["out"], got, home, home_out))
 
 
+def window_output_box(r):
+    """The output box's list under a window server: a pick moves the window
+    to that monitor and a second pick back. The box's drawing follows the
+    window's output by construction -- it names fnl_output_name(), which
+    cross_monitors() has just checked through a drag -- so what a press can
+    still prove is the list's other half. Declared by what it needs and not
+    by name: two monitors, and a backend whose fnl_request_output() places a
+    window. Wayland's moves only a fullscreen one, through a bar that is
+    not shown there, and the Mac does not move one at all."""
+    b, check = r.b, r.check
+    if not r.can("multi-output"):
+        return r.skip("the output box moves the window",
+                      "one monitor, or a server that shows this client one")
+    if not r.can("output-pick"):
+        return r.skip("the output box moves the window",
+                      "this backend places no window from the API")
+    tgt = b.target_monitor()
+    mons = b.monitors()
+    other = next((m for m in mons if tgt and m[0] != tgt[0]), None)
+    if not tgt or not other:
+        return r.skip("the output box moves the window",
+                      "no second monitor to move to")
+    st = b.refresh()
+    home = st["out"]
+    out_dx = OUTPUT_BOX_DX + (GPU_BOX_SPAN if gpus_listed(b) else 0)
+    # The rows are the backend's order, which the round is not told: the
+    # row that is not the window's is found by trying, as KMS's are.
+    moved = None
+    for row in (0, 1):
+        mk = pick_row(r, out_dx, row)
+        got = b.wait_for("output", mk, timeout=2.0)
+        if got and not is_output(b.refresh()["out"], home.split()[0]):
+            moved = row
+            break
+        # The row of the output the window was already on: the pick shut
+        # the list and moved nothing.
+        time.sleep(NOT_A_DOUBLE_CLICK)
+    st = b.refresh()
+    check("the output box moves the window", moved is not None,
+          "%s on %s, wanted %s" % (st["area"], st["out"], other[0]))
+    if moved is None:
+        return
+    time.sleep(2.0 * b.patience())
+    pick_row(r, out_dx, 1 - moved)
+    b.wait_for("output", mk, timeout=2.0)
+    b.until(lambda: is_output(b.refresh()["out"], home.split()[0]),
+            timeout=5.0)
+    time.sleep(2.0 * b.patience())
+    st = b.refresh()
+    check("and the list puts it back", is_output(st["out"], home.split()[0]),
+          "%s on %s" % (st["area"], st["out"]))
+
+
 def drawn_pointer(r, name="the pointer is drawn where it is"):
     """The pointer is on the screen where the echo says it is.
 
@@ -1861,6 +1914,7 @@ def run(r):
     st = b.refresh()
 
     cross_monitors(r)
+    window_output_box(r)
     drawn_pointer(r)
 
     # ---- pointer capture --------------------------------------------------
