@@ -660,6 +660,20 @@ gives each program five untitled windows of its own besides, off screen
 on the same layer, and the first of those has no rectangle a round can
 use.
 
+**Its displays.** The macOS stick is an OpenCore install (`-wegnoegpu` in
+its boot arguments, the discrete GPU off), and it drives one panel at a
+time: with the external PL4071UH attached on its HDMI, the built-in panel
+stays dark, and unplugging the external brings it back -- the arrangement
+the machine has been worked in. On 2026-11-05 macOS came up driving that
+external at 1920x2160, a half-width mode on its 3840-wide panel: the
+picture flickered, and the desktop showed only the wallpaper with a
+squashed menu bar. `CGDisplaySetDisplayMode()` reported success and
+changed nothing; a display configuration (`CGBeginDisplayConfiguration()`,
+`CGConfigureDisplayWithDisplayMode()`, `CGCompleteDisplayConfiguration()`)
+set 1920x1080 @60, and `.permanently` held it across the reboot. Beside
+the disabled GPU, `pmset` said `gpuswitch 2` (discrete only); it is 1
+(integrated) now.
+
 What the first rounds found was the library's, each now in DESIGN *macOS*:
 the layer was untagged and its sRGB shown as the panel's own colours; keys
 were lost in fullscreen, where AppKit makes the window and not the view
