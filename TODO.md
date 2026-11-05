@@ -41,12 +41,10 @@ to the title long before it. Owed:
 ## The metrics panel at rest, after its change
 
 Written by reading (DESIGN *The metrics panel*); the at-rest cost, the
-minute at rest, the sample after the present on amdgpu and the per-frame
-figure under wine were measured on 2026-11-05 and recorded there. Owed:
+minute at rest, the sample after the present on amdgpu and on NVIDIA, and
+the per-frame figure under wine were measured on 2026-11-05 and recorded
+there. Owed:
 
-- **The sample after the present on NVIDIA**: late latching under OpenGL
-  with the panel shown and the scene moving, for vblanks missed every half
-  second, against before (the amdgpu half is clean).
 - **The figures' frames left out of the means**: a window brought to
   rest with `--frame-times`, its GPU and CPU figures unchanged by the
   frames the panel draws there, and the frame-stats totals still the

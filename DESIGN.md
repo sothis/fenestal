@@ -1015,7 +1015,10 @@ time is not known, `--frame-cpu-log` -- and not `--footprint-log`, which asks
 for cost sampling and so counts the panel's rest frames -- shows the
 per-frame CPU held at 0.35 ms through a rest of nine panel frames in 12 s
 drawn for the figures, with no frame line: the last moving frames' figure,
-not the panel's own.
+not the panel's own. Under OpenGL on NVIDIA (NVML, schenker's GTX 1050 Ti
+under weston, the scene moving) the panel adds nothing: 1120 vblanks missed
+on 39 frame lines with it shown against 1190 hidden, means 16.80 against
+16.81 ms -- the misses are the offload path's own.
 
 Its place is the presentable area's top right, under whatever bar there
 is, and nowhere where the window cannot hold it whole: the library does
