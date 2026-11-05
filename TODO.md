@@ -624,15 +624,17 @@ opened on schenker (`open -n`, and run direct from `Contents/MacOS`),
 and GL each drawing a complete record at 60 fps from the bundle; and
 `./build.sh macos-arm64` built here, an arm64 Mach-O, its first on this
 desktop. CI builds both trees and joins them with `lipo` into the
-ad-hoc signed bundles (`.github/stage.sh`). Owed, in this order:
+ad-hoc signed bundles, MoltenVK in one only where its program has a
+Vulkan scene (`.github/stage.sh`). Owed, in this order:
 
 1. **The arm64 half run anywhere**: no Mac here has Apple's processor.
-2. **MoltenVK only where a scene is Vulkan's**: staged on 2026-11-05 --
-   `.github/stage.sh` copies it only beside a program carrying
-   `scene_vulkan.c` (the testbed and every demo but hello; fenestal-dev
-   has none), two bundles of the eight dropping its 11 MB, and the
-   stubbed run shows that layout. Owed: the CI zip's own listing, and a
-   bundle without it opened on the Mac (hello).
+
+MoltenVK is staged only where a scene is Vulkan's: the testbed and
+every demo but hello carry `scene_vulkan.c`, fenestal-dev has none, and
+CI's zip of 2026-11-05 lists exactly those six bundles with it, at 43.9
+MB against 50.5. A bundle without it runs on the Mac -- `hello.app`
+opened under Metal and GL, its log saying `Vulkan lists 0 GPUs here`,
+and named Vulkan it refuses with the loader's own line.
 
 ## CI
 
