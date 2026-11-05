@@ -118,13 +118,29 @@ if [ "$TARGET" = macos ]; then
         fi
     done
 
+    # MoltenVK only beside a program that has a Vulkan scene. The tree has
+    # every renderer, so a program that never draws with Vulkan still lists
+    # the Vulkan GPUs -- and steps past one that is not there, as any
+    # machine without the runtime does (src/renderer/vulkan/vk_load.c);
+    # hello draws nothing and fenestal-dev's modes draw nothing, and the
+    # other demos and the testbed each carry scene_vulkan.c.
+    has_vulkan() {
+        case $1 in
+        fenestal-dev) return 1 ;;
+        fenestal-testbed) [ -f testbed/scene_vulkan.c ] ;;
+        *) [ -f "demos/$1/scene_vulkan.c" ] ;;
+        esac
+    }
+
     for p in fenestal-testbed fenestal-dev $DEMOS; do
         app=$DIR/bin/$p.app
         mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" \
                  "$app/Contents/Resources"
         lipo -create "$X/$p" "$A/$p" -output "$app/Contents/MacOS/$p"
-        cp "$X/libMoltenVK.dylib" "$app/Contents/Frameworks/"
-        cp "$X/MoltenVK-LICENSE.txt" "$app/Contents/Resources/"
+        if has_vulkan "$p"; then
+            cp "$X/libMoltenVK.dylib" "$app/Contents/Frameworks/"
+            cp "$X/MoltenVK-LICENSE.txt" "$app/Contents/Resources/"
+        fi
         cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -153,7 +169,10 @@ if [ "$TARGET" = macos ]; then
 PLIST
         # Inside out: the bundle's signature seals what it holds, which
         # has to be signed first.
-        codesign --force --sign - "$app/Contents/Frameworks/libMoltenVK.dylib"
+        if [ -f "$app/Contents/Frameworks/libMoltenVK.dylib" ]; then
+            codesign --force --sign - \
+                "$app/Contents/Frameworks/libMoltenVK.dylib"
+        fi
         codesign --force --sign - "$app"
     done
 
