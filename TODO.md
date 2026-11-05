@@ -79,8 +79,11 @@ desk: asan and gc passed on the thinkpad and the Pi, analyzer on the
 thinkpad and a laptop, the Windows analyzer and gc on the laptops and
 the macOS gc on the Mac; the Pi's tsan is the one failure, on the
 driver's own race (TODO *The Raspberry Pi 4*, whose debug info Arch
-Linux ARM does not publish). Owed: a round on this desk and the
-guests.
+Linux ARM does not publish). The desk and the guests were round on
+2026-11-05: x11-vulkan 106 checks with only the known sync-value line
+below, x11-gl 106, wayland-gl 74, win64-vulkan 89, win64-d3d12 93 and
+wayland-vulkan 74, all clean, and the guests' win64-vulkan-vm and
+win64-d3d12-vm 91 each on win10 and win11, all clean.
 
 - **Win32's mouse capture** (`on_button()`, `WM_CAPTURECHANGED`): a press
   in the content dragged off the window and released there, in a guest
