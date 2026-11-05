@@ -73,9 +73,14 @@ Each change was written by reading. The release trees were built and
 round on 2026-11-04 and 05 -- the bare machines, both laptops' Windows
 and the Mac -- the macOS cross tree covers the `.m` files'
 `@autoreleasepool` returns, and the clang tree (`-Wthread-safety`) built
-clean and passed a round on the thinkpad on 2026-11-05. Owed: the
-checker trees -- asan, tsan, analyzer and gc -- built and round, and a
-round on this desk and the guests.
+clean and passed a round on the thinkpad on 2026-11-05. The checker
+trees were built and round on the same day, on the devices and not this
+desk: asan and gc passed on the thinkpad and the Pi, analyzer on the
+thinkpad and a laptop, the Windows analyzer and gc on the laptops and
+the macOS gc on the Mac; the Pi's tsan is the one failure, on the
+driver's own race (TODO *The Raspberry Pi 4*, whose debug info Arch
+Linux ARM does not publish). Owed: a round on this desk and the
+guests.
 
 - **Win32's mouse capture** (`on_button()`, `WM_CAPTURECHANGED`): a press
   in the content dragged off the window and released there, in a guest
@@ -450,6 +455,21 @@ With no monitor it runs on HDMI-A-1 forced on by the kernel's line (DESIGN
 
 - **With the monitor**: the forced line kept or taken off, and `pace.py`'s
   columns for the Pi read against a sink.
+
+- **The checkers on the Pi**: asan, tsan and gc built here for ARM and
+  round there on 2026-11-05 -- asan (`x11-vulkan-bare`) 87 checks and gc
+  (`kms-vulkan-bare`) 59, none failed; tsan (`wayland-vulkan-bare`)
+  failed on one lavapipe race. Both its stacks are the driver's
+  rasteriser threads (`llvmpipe-2` and `-3`, a memcpy at
+  `libvulkan_lvp.so+0x16c994`, the block one of them allocated), the
+  race that `race:_mesa_hash_table_copy` in `tsan.supp` covers where
+  the function is named -- and Arch Linux ARM's debuginfod has none for
+  any of the Pi's Vulkan or GL files (HTTP 404 for all five,
+  `bare_driver.py --setup`, 2026-11-05). Owed: that offset's function
+  name another way, or a dbg package when the distro has one, so the
+  existing key matches; until then the tsan round there fails on the
+  driver's own race, not this project's (the frames between TSan's
+  interceptor and the device's creation are lavapipe's alone).
 
 ## Wine 11 on this desktop
 
