@@ -67,11 +67,15 @@ Written by reading (DESIGN *The metrics panel*) and not yet built or run.
   per-frame CPU figure at rest held at the moving frames'
   (`App::wall_cost`), not the panel's frames'.
 
-## The whole-tree review of 2026-11-02, not yet built or run
+## The whole-tree review of 2026-11-02
 
-Each change written by reading; the build and a round are owed, on every
-tree (the clang one for `-Wthread-safety`, the macOS one for the `.m`
-files' `@autoreleasepool` returns).
+Each change was written by reading. The release trees were built and
+round on 2026-11-04 and 05 -- the bare machines, both laptops' Windows
+and the Mac -- the macOS cross tree covers the `.m` files'
+`@autoreleasepool` returns, and the clang tree (`-Wthread-safety`) built
+clean and passed a round on the thinkpad on 2026-11-05. Owed: the
+checker trees -- asan, tsan, analyzer and gc -- built and round, and a
+round on this desk and the guests.
 
 - **Win32's mouse capture** (`on_button()`, `WM_CAPTURECHANGED`): a press
   in the content dragged off the window and released there, in a guest
@@ -580,24 +584,17 @@ and three `pace.py` columns). Owed, in this order:
 
 ## macOS on Apple's processors, and the app bundles
 
-Written 2026-11-04 and built, never run: `./build.sh macos-arm64`
-(`cmake/macos-arm64.cmake`, the x86-64 file included with
-`FNL_MACOS_ARCH`), and CI's macOS archive -- both trees joined by `lipo`,
-each program an ad-hoc signed app bundle with MoltenVK in its
-`Contents/Frameworks`, where `vk_load.c` now looks as well
-(`.github/stage.sh`). CI built it at `9925edf` and the zip was checked by
-listing: universal library and programs, the dylib's symlinks, a
-`_CodeSignature` in every bundle. Owed, in this order:
+Written 2026-11-04 and built; seen on 2026-11-05: CI's x86-64 bundle
+opened on schenker (`open -n`, and run direct from `Contents/MacOS`),
+`codesign --verify --deep --strict` passing, MoltenVK loaded from
+`Contents/Frameworks` under Vulkan (dyld's own line), and Vulkan, Metal
+and GL each drawing a complete record at 60 fps from the bundle; and
+`./build.sh macos-arm64` built here, an arm64 Mach-O, its first on this
+desktop. CI builds both trees and joins them with `lipo` into the
+ad-hoc signed bundles (`.github/stage.sh`). Owed, in this order:
 
-1. **A bundle opened on schenker** (x86-64): `fenestal-testbed.app` from
-   the CI zip, quarantine removed, with `FNL_RENDERER=vulkan` -- that the
-   bundle starts, that MoltenVK is found in `Contents/Frameworks`, and
-   that Metal and GL draw from a bundle as from the tree.
-2. **The arm64 half run anywhere**: no Mac here has Apple's processor.
-3. **`./build.sh macos-arm64` here**: CI builds it with Homebrew's LLVM 21
-   on a Mac; this desktop's cross build of it has not run, and the next
-   bare `./build.sh` is the first.
-4. **MoltenVK only where a scene is Vulkan's**: each of the eight bundles
+1. **The arm64 half run anywhere**: no Mac here has Apple's processor.
+2. **MoltenVK only where a scene is Vulkan's**: each of the eight bundles
    carries its 11 MB, most of the zip's 50 MB; a program with no Vulkan
    scene needs none.
 
