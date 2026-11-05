@@ -369,7 +369,8 @@ cost, and the thinkpad's 20.5, 21.8 and 20.6 for KMS, X11 and weston
 are that rasteriser to the last decimal. The Mac's rows are the longest
 from latch to screen, 48 to 70 ms, the same lesson from the other end.
 The Pi's KMS round carries no stamps, so its latency cells are empty; a
-dash is a figure the driver does not keep.
+dash is a figure the driver does not keep -- the Mac's OpenGL answers 0
+from its timer queries (DESIGN *OpenGL on macOS*).
 
 ```sh
 python3 tools/drive/bench.py --hands x11-vulkan-bare wayland-vulkan-bare \
@@ -472,7 +473,8 @@ the two renderers on both GPUs of both laptops: aspire's HD 530
 0.01 under Vulkan and 0.16 ± 0.15 under Direct3D 12. On the Mac Metal
 and MoltenVK cost the same per pixel, 1.17 ± 0.00 and 1.16 ± 0.00 over
 0.24 and 0.23 ms fixed, and differ in the per-frame CPU: Metal 0.22 ms,
-MoltenVK 0.42, OpenGL 0.77, whose GPU time the Mac does not keep. The
+MoltenVK 0.42, OpenGL 0.77, whose GPU time is a dash: the driver's timer
+queries answer 0 (DESIGN *OpenGL on macOS*). The
 CPU figures leave out the waits, so a presenter that blocks longer at a
 bigger window can read less of a frame's CPU there -- the Pi's X11 line
 is -1.96 ± 0.02 ms/MP -- and only the GPU's slope is read as the
