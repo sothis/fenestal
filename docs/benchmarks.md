@@ -478,6 +478,44 @@ bigger window can read less of a frame's CPU there -- the Pi's X11 line
 is -1.96 ± 0.02 ms/MP -- and only the GPU's slope is read as the
 image's cost.
 
+## Three sizes, 2026-11-05 at `2c62135` and `6719f7a`
+
+A third size on the bare machines -- 640x480, 800x600 and 1920x1080
+points, the Pi's KMS taking all three as modes, three runs a size. Two
+points fit a line whatever the cost's shape; a third shows whether the
+line is that shape. The worst distance of an area's mean from the fit,
+in GPU milliseconds, is that test, and a place whose cost is linear
+reads a few hundredths. The X11 and weston runs are at `2c62135` (the
+tree differing from it only in TODO.md), the Pi's KMS at `6719f7a`.
+
+| where | sizes MP | worst GPU residual ms |
+|---|---|---|
+| aspire, X11 | 0.31, 0.48, 2.01 | 0.002 |
+| aspire, weston | 0.31, 0.48, 2.07 | 0.016 |
+| schenker, X11 | 0.31, 0.48, 2.01 | 0.045 |
+| schenker, weston | 0.31, 0.48, 2.07 | 0.002 |
+| thinkpad, X11 | 0.31, 0.48, 1.00 | 0.064 |
+| thinkpad, weston | 0.31, 0.48, 2.07 | 0.552 |
+| pi4, X11 | 0.31, 0.48, 0.75 | 0.716 |
+| pi4, weston | 0.31, 0.48, 2.07 | 0.002 |
+| pi4, KMS | 0.29, 0.45, 2.01 | 0.002 |
+
+The Pi's X11 is the one path whose line is not the cost's: 3.07 ± 0.01,
+5.59 ± 0.02 and 6.75 ± 0.00 ms of GPU at its three areas -- 14.6 ms/MP
+between the first two and 4.3 between the last two, the small sizes'
+per-tile cost inflating the pixel there -- so its two-size split
+(3.67 ± 0.01 + 4.10) is a chord and is not to be quoted; the three-size
+fit, 1.07 ± 0.57 + 7.93 ± 1.06, says as much by its own error bars. The
+thinkpad's weston bends far less: 8.11 ± 0.09, 12.03 ± 0.16 and
+37.93 ± 0.62 ms, a 0.55 ms residual. Everywhere else the line holds to
+a few hundredths, the Pi's KMS tightest at 0.002 with its fit unchanged,
+0.27 ± 0.00 + 8.61 ± 0.00. The third size also pinned what two could
+not: the Pi's weston from 1.41 ± 0.75 + 8.31 ± 0.50 to 0.34 ± 0.02 +
+8.85 ± 0.01, and schenker's X11 from 0.32 ± 0.23 + 0.24 ± 0.16 to
+0.27 ± 0.12 + 0.28 ± 0.10. The CPU's residuals are as small and its
+slopes as before -- the Pi's X11 negative, where a bigger window blocks
+longer and the figure leaves the waits out.
+
 ## KMS's two ways, 2026-11-05
 
 The display path and the copy path on the laptops' own panels, at the
