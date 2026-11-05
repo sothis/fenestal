@@ -34,7 +34,8 @@ the second against the first, with the change in per cent; as Markdown or
 --fit reads the records of each place at more than one presented size --
 what bench.py --sizes makes, a run a size -- and fits a frame's cost
 against the area: the milliseconds it costs at no pixels and the
-milliseconds a megapixel adds, GPU and CPU each. That is the figure one
+milliseconds a megapixel adds, GPU and CPU each, with the standard
+errors of both where the runs repeat. That is the figure one
 size cannot give: a compositor's per-frame cost is the intercept and a
 copy path's readback the slope.
 
@@ -90,18 +91,29 @@ def per_mp(doc, path):
 
 
 def fit(xs, ys):
-    """y = a + b x by least squares, as (a, b); None with fewer than two
-    distinct x."""
+    """y = a + b x by least squares, as (a, b, se_a, se_b).
+
+    None with fewer than two distinct x. The standard errors are None
+    with fewer than three points, which leave no degrees of freedom: a
+    fit of one run a size is a line through two points and says nothing
+    about its own certainty."""
     pts = [(x, y) for x, y in zip(xs, ys, strict=False)
            if x is not None and y is not None]
     if len({round(x, 9) for x, _ in pts}) < 2:
         return None
-    mx = sum(x for x, _ in pts) / len(pts)
-    my = sum(y for _, y in pts) / len(pts)
+    n = len(pts)
+    mx = sum(x for x, _ in pts) / n
+    my = sum(y for _, y in pts) / n
     sxx = sum((x - mx) ** 2 for x, _ in pts)
     sxy = sum((x - mx) * (y - my) for x, y in pts)
     b = sxy / sxx
-    return my - b * mx, b
+    a = my - b * mx
+    if n < 3:
+        return a, b, None, None
+    ssr = sum((y - (a + b * x)) ** 2 for x, y in pts)
+    s2 = ssr / (n - 2)
+    return (a, b, math.sqrt(s2 * (1.0 / n + mx * mx / sxx)),
+            math.sqrt(s2 / sxx))
 
 
 # The options a fit does not make its key from: the size it is fitted over
@@ -154,7 +166,11 @@ def fits_markdown(docs):
     rows, single = fits(docs)
 
     def cell(f, i):
-        return "-" if f is None else "%.2f" % f[i]
+        if f is None:
+            return "-"
+        if f[i + 2] is None:
+            return "%.2f" % f[i]
+        return "%.2f ± %.2f" % (f[i], f[i + 2])
 
     out = ["| where | run under | sizes MP | GPU fixed ms | GPU ms/MP | "
            "CPU fixed ms | CPU ms/MP |",
