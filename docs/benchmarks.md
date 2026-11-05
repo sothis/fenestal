@@ -518,6 +518,30 @@ not: the Pi's weston from 1.41 ± 0.75 + 8.31 ± 0.50 to 0.34 ± 0.02 +
 slopes as before -- the Pi's X11 negative, where a bigger window blocks
 longer and the figure leaves the waits out.
 
+The same third size on the laptops' Windows and on the Mac, three runs
+a size (2026-11-05, `c354a11`, the tree differing only in TODO.md and
+`.github/stage.sh`). The Windows sizes read as 0.48, 0.75 and 1.88 MP on
+schenker (125%) and 0.31, 0.48 and 1.92 on aspire (100%), the Mac's as
+0.31, 0.48 and 1.78 -- its 1920x1080 taken in to 1920x926. Their worst
+distance of an area's mean from the line:
+
+| where | sizes MP | worst GPU residual ms |
+|---|---|---|
+| SCHENKER, Vulkan, HD 630 / GTX 1050 Ti | 0.48, 0.75, 1.88 | 0.006 / 0.005 |
+| SCHENKER, Direct3D 12, HD 630 / GTX 1050 Ti | 0.48, 0.75, 1.88 | 0.003 / 0.088 |
+| ASPIRE, Vulkan, HD 530 / GTX 960M | 0.31, 0.48, 1.92 | 0.018 / 0.019 |
+| ASPIRE, Direct3D 12, HD 530 / GTX 960M | 0.31, 0.48, 1.92 | 0.022 / 0.012 |
+| jsons-MBP, Metal | 0.31, 0.48, 1.78 | 0.029 |
+| jsons-MBP, Vulkan | 0.31, 0.48, 1.78 | 0.027 |
+| jsons-MBP, OpenGL | 0.31, 0.48, 1.78 | - |
+
+Every Windows line holds to 0.09 ms at its three areas -- the loose
+Direct3D 12 line on schenker's 1050 Ti the one at the top of that -- and
+the Mac's Metal and MoltenVK lines come out the same to two decimals,
+0.20 ms fixed with 1.17 and 1.18 ms/MP, over residuals of 0.03. The
+Mac's OpenGL keeps no GPU time (DESIGN *OpenGL on macOS*), so its line
+is the CPU's, 0.76 + 0.25 ms/MP with a 0.004 ms residual.
+
 ## KMS's two ways, 2026-11-05
 
 The display path and the copy path on the laptops' own panels, at the
