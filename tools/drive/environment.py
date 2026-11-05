@@ -78,9 +78,10 @@ _XCLIPS: list[subprocess.Popen] = []
 # mutter places a new window on the monitor the pointer is on, and a Wayland
 # client is never told where its window is. So every round parks the pointer
 # inside one named output before the window exists: the window is born under
-# it, and find_window() answers from its first probe. The alternative is a
-# sweep from a corner of the outputs' union, which with monitors of different
-# heights is not a rectangle and may have corners on no screen at all.
+# it, and find_window() answers from its first probe. The alternative is the
+# sweep, which is bounded by the output the echo names but starts from a
+# corner of the outputs' union -- with monitors of different heights not a
+# rectangle, and corners on no screen at all.
 #
 # FNL_DRIVE_OUTPUT names the output; the default is the primary. Read from
 # `xrandr --listmonitors` for all three backends, because XWayland reports
@@ -801,6 +802,11 @@ class _Portal(Environment):
         """Portal units to a window point. See Driver.gain."""
         return 1.0
 
+    def _portal_per_px(self):
+        """Portal points per pixel the pointer counts in. 1 here, where the
+        portal moves in the same points a window reports."""
+        return 1.0
+
     # ---- whose keyboard it is ---------------------------------------------
     #
     # The portal types into the desktop, not into a window: a key goes to
@@ -960,7 +966,8 @@ class _Portal(Environment):
                 time.sleep(self.PARK_BEAT)
             # Then a quarter of the monitor inwards, clear of the panel and
             # of whatever the compositor reserves at the edges.
-            self.portal.rel(-sx * (mw // 4), -sy * (mh // 4))
+            p = self._portal_per_px()
+            self.portal.rel(-sx * (mw // 4) * p, -sy * (mh // 4) * p)
             time.sleep(self.PARK_BEAT)
             self.parked_on = name
             # Which way "inwards" was, for an environment that goes on to centre
@@ -981,7 +988,7 @@ class _Portal(Environment):
         return self.drv.move_to(wx, wy)
 
     def move_by(self, dx, dy):
-        g = self._gain()
+        g = self._gain() * self._portal_per_px()
         self.portal.rel(dx * g, dy * g)
         self.drv.at = None          # the mapping is unknown again
 
@@ -1176,7 +1183,8 @@ class _XEnvironment(_Placed, _Portal):
         self.win = X.find_window(pid=self._window_pid())
         self.slow = variant in ("asan", "tsan")
         self.drv = self.W.Driver(self.portal, self.testbed, slow=self.slow,
-                                 gain=self._gain, aim=self._aim)
+                                 gain=self._driver_gain, aim=self._aim,
+                                 monitors=self.monitors)
         self.pin_to_target()
         # The answer is not acted on here. The round asks the same question
         # as its first check: a start() that raised would report a focus
@@ -1190,6 +1198,45 @@ class _XEnvironment(_Placed, _Portal):
         # application reports, which cannot disagree with what it drew.
         st = self.testbed.state() or {"scale": 120}
         return st["scale"] / 120.0
+
+    def _desk_portal(self):
+        """Whether the pointer is this desk's RemoteDesktop portal, which
+        moves in the compositor's logical points, or a bare machine's own
+        hands, which move in its X server's pixels."""
+        return isinstance(getattr(self, "portal", None),
+                          getattr(getattr(self, "W", None), "Portal", ()))
+
+    def _xwayland_scale(self):
+        """How many X pixels a compositor logical point is worth here: the
+        X screen's Xft.dpi over 96, which is the scale the library's X11
+        backend reads too. 1 where the pointer is a bare machine's hands,
+        which take the X server's own pixels."""
+        gx = getattr(self, "_gx", None)
+        if gx is None:
+            gx = 1.0
+            if self._desk_portal():
+                try:
+                    said = subprocess.run(["xrdb", "-query"],
+                                          capture_output=True, text=True,
+                                          timeout=5).stdout
+                except Exception:
+                    said = ""
+                m = re.search(r"^Xft\.dpi:\s*(\d+)", said, re.MULTILINE)
+                if m:
+                    gx = max(1.0, int(m.group(1)) / 96.0)
+            self._gx = gx
+        return gx
+
+    def _portal_per_px(self):
+        return 1.0 / self._xwayland_scale()
+
+    def _driver_gain(self):
+        """Portal points per window point: a window's points are the
+        library's logical points, so on this desk they are the portal's
+        too -- except under wine, whose window counts the X screen's
+        pixels, one XWayland scale above them. A bare machine's hands take
+        those X pixels, which is what _gain() says."""
+        return self._gain() * self._portal_per_px()
 
     def _aim(self, wx, wy, tries=8):
         """Put the pointer at a window point by asking the X server where both
@@ -1210,6 +1257,7 @@ class _XEnvironment(_Placed, _Portal):
             return None
         g = self._gain()
         tx, ty = x + wx * g, y + wy * g
+        p = self._portal_per_px()
         moved = False
         for _ in range(tries):
             px, py = self.X.pointer_pos()
@@ -1220,7 +1268,7 @@ class _XEnvironment(_Placed, _Portal):
                 # Already there, by a reading nothing has yet confirmed: step
                 # off and let the loop walk back, so that "there" is observed.
                 dx = 4 if dx <= 0 else -4
-            self.portal.rel(dx, dy)
+            self.portal.rel(dx * p, dy * p)
             # A fixed beat and not a poll for the first change: the first
             # reading that differs is not reliably the last, and aiming off
             # it lost the window at a resize corner three rounds in ten.
@@ -1260,7 +1308,9 @@ class _XEnvironment(_Placed, _Portal):
             pd = getattr(self, "parked_dir", None)
             if pd:
                 sx, sy, pw, ph = pd
-                self.portal.rel(-sx * (pw // 4), -sy * (ph // 4))
+                p = self._portal_per_px()
+                self.portal.rel(-sx * (pw // 4) * p,
+                                -sy * (ph // 4) * p)
             # Where that left the pointer is find_window()'s to observe.
             self.drv.at = None
         except Exception:
@@ -1885,7 +1935,8 @@ class Wayland(_Portal):
                and time.time() < end):
             time.sleep(POLL)
         time.sleep(self.MAP_BEAT)
-        self.drv = W.Driver(self.portal, self.testbed, slow=self.slow)
+        self.drv = W.Driver(self.portal, self.testbed, slow=self.slow,
+                            monitors=self.monitors)
         try:
             self.drv.find_window()
         except Exception:
@@ -2290,7 +2341,7 @@ class Win32VM(_Placed, _Portal):
             raise RuntimeError("no window from %s on that desktop: %r"
                                % (self.program, self.testbed.dump(3)))
         self.drv = W.Driver(self.portal, self.testbed, gain=self._gain,
-                            aim=self._aim)
+                            aim=self._aim, monitors=self.monitors)
         # Windows gives a window started this way no foreground: nobody
         # typed to launch it. Asked for and not asserted, for the reason
         # _XEnvironment.start() gives.
@@ -3416,7 +3467,8 @@ class X11Bare(_OnBare, X11):
                     if not self.alive() or time.time() >= end:
                         raise
             self.drv = W.Driver(self.portal, self.testbed, slow=self.slow,
-                                gain=self._gain, aim=self._aim)
+                                gain=self._gain, aim=self._aim,
+                                monitors=self.monitors)
             # And no focus() here: whether the window has the keyboard
             # with nobody to give it one is the round's first question.
             self.pin_to_target()
@@ -3749,7 +3801,8 @@ class WaylandBare(_OnBare, Wayland):
                 said = self.dump(3)
                 raise D.Unreachable("the program exited at start: %s"
                                     % (said[-1] if said else "silently"))
-            self.drv = W.Driver(self.portal, self.testbed, slow=self.slow)
+            self.drv = W.Driver(self.portal, self.testbed, slow=self.slow,
+                                monitors=self.monitors)
             self.drv.find_window()
             self._validated()
         except Exception as e:

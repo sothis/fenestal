@@ -33,6 +33,7 @@ screen (Task Manager, sign out). FNL_DRIVE_HOLD=0 holds nothing.
     sudo python3 input_hold.py serve 1800     # by hand: hold, stdin ends it
 """
 
+import fcntl
 import os
 import select
 import shlex
@@ -44,6 +45,14 @@ import time
 # Long past any round; a hold that outlives one has lost its harness.
 LIMIT = 1800
 EVIOCGRAB = 0x40044590
+# EVIOCGKEY(96): _IOC(_IOC_READ, 'E', 0x18, 96), KEY_CNT (0x300) bits of
+# held keys and buttons -- what a hand still holds as the grab begins.
+EVIOCGKEY = 0x80000000 | (0x45 << 8) | 0x18 | (96 << 16)
+KEY_BYTES = 96
+# How long a key or button still down is waited for before the grab. Its
+# release a moment after the round starts reaches the compositor this way;
+# after the grace the round goes on and says a key was still down.
+GRACE = 1.5
 EV_KEY = 1
 KEY_A, BTN_LEFT, BTN_TOUCH = 30, 0x110, 0x14a
 # The chord that gives the input back by hand: Control, Alt and Escape,
@@ -67,6 +76,16 @@ def _bits(path):
     for w in words:
         v = (v << 64) | int(w, 16)
     return v
+
+
+def _keys_down(fd):
+    """The keycodes, buttons included, held down on the device now."""
+    buf = bytearray(KEY_BYTES)
+    try:
+        fcntl.ioctl(fd, EVIOCGKEY, buf, True)
+    except OSError:
+        return set()
+    return {i for i in range(KEY_BYTES * 8) if buf[i >> 3] >> (i & 7) & 1}
 
 
 def _wanted(ev):
@@ -98,10 +117,14 @@ def _wanted(ev):
 def serve(limit):
     """Hold every such device until stdin ends, the limit passes or the
     chord is pressed; say what was held, and why it ended. Exit 3 for the
-    chord, which the harness reads as a hand that wants the machine."""
-    import fcntl
+    chord, which the harness reads as a hand that wants the machine.
+
+    Before the grab, a key or button still down is waited for: the grab
+    would swallow its release, and the compositor would keep it down --
+    GNOME's window switcher, opened as the round begins, then stays up and
+    takes every motion the round sends."""
     import glob
-    held = {}
+    opened = []
     for path in sorted(glob.glob("/dev/input/event*")):
         name = _wanted(os.path.basename(path))
         if not name:
@@ -110,13 +133,30 @@ def serve(limit):
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
         except OSError:
             continue
+        opened.append((fd, name))
+
+    # Read the devices' own state, before any of them is grabbed.
+    settled = False
+    end = time.monotonic() + GRACE
+    while True:
+        if not any(_keys_down(fd) for fd, _ in opened):
+            settled = True
+            break
+        if time.monotonic() >= end:
+            break
+        time.sleep(0.02)
+
+    held = {}
+    for fd, name in opened:
         try:
             fcntl.ioctl(fd, EVIOCGRAB, 1)
         except OSError:
             os.close(fd)
             continue
         held[fd] = name
-    print("held %d: %s" % (len(held), "; ".join(sorted(held.values()))),
+    print("held %d%s: %s" % (len(held),
+                             "" if settled else " (keys were still down)",
+                             "; ".join(sorted(held.values()))),
           flush=True)
     down = set()
     end = time.monotonic() + limit

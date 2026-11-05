@@ -22,8 +22,10 @@ Two consequences worth knowing before reading the code.
   event appears.
 """
 
+import itertools
 import json
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -34,7 +36,7 @@ import dbus
 import dbus.mainloop.glib
 from gi.repository import GLib
 
-from testbed import QUIET, STATE_DIR
+from testbed import POLL, QUIET, STATE_DIR
 
 BUS_NAME = "org.freedesktop.portal.Desktop"
 OBJ_PATH = "/org/freedesktop/portal/desktop"
@@ -74,6 +76,18 @@ BTN_LEFT, BTN_RIGHT, BTN_MIDDLE = 0x110, 0x111, 0x112
 
 TOKEN_FILE = os.path.join(STATE_DIR, "portal-token.json")
 
+# Handle tokens are unique for everything the portal has exported, and it
+# keeps a Request object at the token's path past the round that made it:
+# a per-session count restarts at "fnl1", the previous round's object is
+# still there, and the portal refuses the new one ("An object is already
+# exported"), leaving the round a session whose input never reaches the
+# compositor. The sender's unique name does not save a later process
+# either -- the portal has answered requests under a name that came back.
+# So the token carries a value no earlier process used, and a count for
+# this one. The session handle has the same rule.
+_TOKEN_PREFIX = "%d_%s" % (os.getpid(), secrets.token_hex(4))
+_TOKENS = itertools.count(1)
+
 
 class PortalUnavailable(RuntimeError):
     """No consent, so no input -- which is not a failing check. A type of
@@ -95,7 +109,6 @@ class Portal:
         self.rd = dbus.Interface(obj, IFACE_RD)
         self.ss = dbus.Interface(obj, IFACE_SC)
         self.sender = self.bus.get_unique_name()[1:].replace(".", "_")
-        self.seq = 0
         self.verbose = verbose
         # Whether a consent dialog is an acceptable outcome. A person running
         # this by hand says yes; a timed round says no and is skipped, because
@@ -110,8 +123,7 @@ class Portal:
         """Every portal method answers asynchronously on a Request object whose
         path is derived from our bus name and a token we choose.  Subscribing
         *before* the call is not optional: the reply can beat the return."""
-        self.seq += 1
-        token = "fnl%d" % self.seq
+        token = "fnl%s_%d" % (_TOKEN_PREFIX, next(_TOKENS))
         path = "/org/freedesktop/portal/desktop/request/%s/%s" % (self.sender,
                                                                   token)
         done = threading.Event()
@@ -173,8 +185,10 @@ class Portal:
         # wait is for a person.
         wait = 120.0 if not saved else 20.0
 
-        res = self._request(self.rd.CreateSession, timeout=wait,
-                            options={"session_handle_token": "fnlsess"})
+        res = self._request(
+            self.rd.CreateSession, timeout=wait,
+            options={"session_handle_token":
+                     "fnlsess%s_%d" % (_TOKEN_PREFIX, next(_TOKENS))})
         self.session = res["session_handle"]
 
         # persist_mode 2 asks the portal to remember this grant; the token it
@@ -343,10 +357,18 @@ class Driver:
     # edge, and a sweep that had run onto it never came back to the first.
     LEFT_STEP = 1000
     LEFT_STEPS = 30
+    # The work area leaves out the panel and the dock, and a window may be
+    # under either -- a fullscreen one is. This desktop's bar is 26 points
+    # and its dock 67, so a sweep reaches this far past the echoed area.
+    SWEEP_MARGIN = 128
 
-    def __init__(self, portal, testbed, slow=False, gain=None, aim=None):
+    def __init__(self, portal, testbed, slow=False, gain=None, aim=None,
+                 monitors=None):
         self.p = portal
         self.s = testbed
+        # The outputs as the environment has them, for the corner a sweep
+        # starts from: a bare machine's own list, not this desk's xrandr.
+        self.monitors = monitors
         self.at = None            # last known window point
         # How many of the portal's units one window point is worth, asked
         # each time because it can change under a round. 1 on Wayland, where
@@ -387,7 +409,69 @@ class Driver:
         self._left_edge()
         self.p.rel(-30000, -30000)
 
-    def _retrace(self, step, made, end):
+    def _monitor(self, out):
+        """The output the echo names, as the caller's monitors() gives it,
+        or None where the names are not this desktop's (wine's DISPLAY1)."""
+        if not self.monitors:
+            return None
+        want = out.split()[0]
+        for mon in self.monitors():
+            if mon[0] == want:
+                return mon
+        return None
+
+    def _union(self):
+        """The bounding box of every output, or None."""
+        mons = self.monitors() if self.monitors else []
+        if not mons:
+            return None
+        x0 = min(m[2] for m in mons)
+        y0 = min(m[3] for m in mons)
+        x1 = max(m[2] + m[4] for m in mons)
+        y1 = max(m[3] + m[5] for m in mons)
+        return (x0, y0, x1 - x0, y1 - y0)
+
+    def _clamp(self, sx, sy):
+        """The pointer to a layout corner, one axis at a time and in steps.
+        A monitor boundary's pointer barrier is beaten by sustained motion,
+        not by one jump, and a diagonal can enter the gap in a union that is
+        not a rectangle, where each axis alone has somewhere legal to go."""
+        for _ in range(2):
+            for _ in range(self.LEFT_STEPS):
+                self.p.rel(sx * self.LEFT_STEP, 0)
+            time.sleep(self.ROW_BEAT)
+            for _ in range(self.LEFT_STEPS):
+                self.p.rel(0, sy * self.LEFT_STEP)
+            time.sleep(self.ROW_BEAT)
+
+    def _corner_on(self, mon):
+        """The pointer to a corner of the outputs' union that is on `mon`,
+        returning the directions the sweep goes inwards in, or None where
+        no union corner is on it.
+
+        The corner has to be the union's: a monitor's own corner need not
+        be one (a shorter monitor between two taller ones has none of its
+        corners on the union), and a corner on no screen clamps where the
+        compositor likes. None is the caller's to handle: this desk's
+        Samsung, shorter than the iiyama and not touching a union corner,
+        has no such corner, and a whole-layout sweep is the fallback."""
+        box = self._union()
+        if not mon or not box:
+            return None
+        _name, _pri, mx, my, mw, mh = mon
+        bx, by, bw, bh = box
+        # A corner is the far edge less one pixel; the clamp lands there.
+        for cx, cy, ox, oy in ((bx, by, -1, -1),
+                               (bx + bw - 1, by, +1, -1),
+                               (bx, by + bh - 1, -1, +1),
+                               (bx + bw - 1, by + bh - 1, +1, +1)):
+            if not (mx <= cx < mx + mw and my <= cy < my + mh):
+                continue
+            self._clamp(ox, oy)
+            return (-ox, -oy)
+        return None
+
+    def _retrace(self, step, made, end, sign=1):
         """Back along the row a probe at a time, each step its own probe:
         after a late answer the program has just woken, so a step that
         lands on the window is answered at once, and the window is found
@@ -399,43 +483,130 @@ class Driver:
             if time.time() > end:
                 break
             m = self.s.mark()
-            self.p.rel(-step, 0)
+            self.p.rel(-sign * step, 0)
             ev = self.s.wait_for("motion", m, timeout=2 * self.probe)
             if ev:
                 self.at = (float(ev["parts"][1]), float(ev["parts"][2]))
                 return True
         return False
 
-    def find_window(self, timeout=40.0, step=520, rows=10, cols=13):
-        """Serpentine sweep until a motion event appears.
+    def _home(self):
+        """The output the application last said its window is on: its name
+        as the echo gives it, and its work area in points. None before the
+        window has said; every event carries both, and it is the only thing
+        outside the process that knows a window crossed monitors."""
+        st = self.s.state()
+        if not st:
+            return None
+        out, area = st.get("out"), st.get("output")
+        # "?" is the echo's word for an output it could not name, and a
+        # zeroed area is one it could not measure: neither bounds a sweep.
+        if not out or out == "?" or not area or not area[0] or not area[1]:
+            return None
+        return out, area
+
+    def find_window(self, timeout=40.0, step=520):
+        """Serpentine sweep on the output the window last said it is on,
+        until a motion event appears.
 
         A probe is a move and a wait of at most `probe` for its echo, so a
-        miss is cheap and the sweep stays inside its own deadline.
-        The step is well under the window's smaller dimension, so a window
-        anywhere is crossed. The pointer is pinned to a corner first; where
-        that is does not matter, only that it is the same every time."""
+        miss is cheap and the sweep stays inside its own deadline. The
+        step is well under the window's smaller dimension, so a window
+        anywhere on that output is crossed.
+
+        Where the outputs' union has a corner on that output the sweep is
+        bounded by it, and no other monitor is searched. Where it has none
+        -- a monitor inset from every corner of the layout -- or the echo's
+        name is not the desktop's, the layout's top-left is the start and
+        the union is crossed, still bounded. A window not found then stops
+        the round with an error. That is the point: when the shell has the
+        window -- GNOME's overview takes every motion event -- no sweep
+        anywhere finds it, and one that crosses the other outputs forever
+        only hides which output went unanswered."""
         # Ask first: mutter puts a new window under the pointer, and the
         # sweep is the slow and fallible path, not the normal one.
         if self._observe():
             return self.at
 
         end = time.time() + timeout
+        home = self._home()
+        if not home and not self.s.state():
+            # The first event is the focus at open, and the state on it
+            # names the output. Without one there is nothing to bound a
+            # sweep to.
+            while not home and self.s.alive() and time.time() < end:
+                time.sleep(POLL)
+                home = self._home()
+        if not home:
+            raise RuntimeError(
+                "no event named the window's output (%d events seen, "
+                "last %r)" % (self.s.mark(), self.s.dump(1)))
+        out, (ow, oh) = home
+        mon = self._monitor(out)
+        # The step has to be under the window's smaller dimension, in the
+        # space the sweep moves in. The echo gives it in the window's own
+        # points, which on an environment whose points are not the portal's
+        # (an X window at a scale, wine's DISPLAY1) are larger than the
+        # portal's, so a third of the echo's figure is under the window
+        # there too. 160 is the floor: no window is narrower than that.
+        st = self.s.state() or {}
+        area = st.get("area") or (0, 0)
+        small = min(area) if area and min(area) > 0 else 0
+        if small:
+            step = max(160, min(step, small // 3))
+        # Where the sweep can start: a corner of the outputs' union on the
+        # window's output, the one place a relative pointer can be put
+        # without being told where it is. Where there is none, or the echo
+        # names no output of this desktop's, the layout's top-left is the
+        # start and the union is crossed, still bounded and still an error
+        # when nothing is found.
+        corner = self._corner_on(mon) if mon else None
+        box = self._union()
+        if corner:
+            width = ow + self.SWEEP_MARGIN
+            height = oh + self.SWEEP_MARGIN
+        elif mon and box:
+            # The output's top-left within the union, in portal units: the
+            # monitors are the caller's (X pixels here) and the echoed work
+            # area is points. Their ratio is the factor between them, a
+            # panel and a dock making it a little over the true one, which
+            # is the safe way round.
+            s = max(1, min(round(mon[4] / ow), round(mon[5] / oh)))
+            width = (max(0, mon[2] - box[0]) // s + ow +
+                     self.SWEEP_MARGIN)
+            height = (max(0, mon[3] - box[1]) // s + oh +
+                      self.SWEEP_MARGIN)
+        elif box:
+            width, height = box[2], box[3]
+        else:
+            width = ow + self.SWEEP_MARGIN
+            height = oh + self.SWEEP_MARGIN
+        cols = max(1, (width + step - 1) // step)
+        rows = max(1, (height + step - 1) // step)
         # Three passes with a longer settle each time: a window that has not
         # finished mapping is swept straight past.
         for attempt in range(3):
-            self._corner()
+            if corner:
+                inward = self._corner_on(mon)
+            else:
+                self._corner()
+                inward = (1, 1)
+            sx, sy = inward
             # No evidence to wait on: the pointer is in a corner, over
             # nothing that echoes, and the window may still be mapping.
             time.sleep(self.SWEEP_BEAT * (1 + attempt))
 
             stale = False
-            for _ in range(rows):
+            for row in range(rows):
+                went = 0                    # points along this row so far
                 made = 0                    # probes along this row so far
                 for _ in range(cols):
                     if time.time() > end:
                         break
+                    dx = min(step, width - went)
                     m = self.s.mark()
-                    self.p.rel(step, 0)
+                    self.p.rel(sx * dx, 0)
+                    went += dx
                     made += 1
                     got = self.s.wait_for("motion", m, timeout=self.probe)
                     if got:
@@ -447,7 +618,7 @@ class Driver:
                         self.s.quiet(QUIET * self.patience,
                                      0.5 * self.patience)
                         if (self._observe() or
-                                self._retrace(step, made, end)):
+                                self._retrace(step, made, end, sx)):
                             return self.at
                         # Answered from an earlier row: a pass made again
                         # from the corner, the program now awake.
@@ -455,14 +626,24 @@ class Driver:
                         break
                 if stale:
                     break
-                self._left_edge()                   # back to the left edge
-                self.p.rel(0, step)                 # and down one row
+                if corner:
+                    # Back along the row it went out, not to the layout's
+                    # left edge: that edge is another monitor's.
+                    self.p.rel(-sx * went, 0)
+                else:
+                    # The layout's left edge, which at a row the output is
+                    # on reaches it from any output to its right -- what a
+                    # whole-layout sweep wants, and the reason _corner()
+                    # and this line are the fallback and not the rule.
+                    self._left_edge()
+                self.p.rel(0, sy * min(step, height - row * step))
                 time.sleep(self.ROW_BEAT)
             if time.time() > end:
                 break
         raise RuntimeError(
-            "swept the screen and found no window (%d events seen, last %r)"
-            % (self.s.mark(), self.s.dump(1)))
+            "swept %s (%dx%d points) and found no window "
+            "(%d events seen, last %r)"
+            % (out, ow, oh, self.s.mark(), self.s.dump(1)))
 
     def move_to(self, wx, wy, tries=6, tol=1.5):
         """Put the pointer at window point (wx, wy).
