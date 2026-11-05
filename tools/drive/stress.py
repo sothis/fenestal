@@ -1686,9 +1686,10 @@ def run(r):
                b.PIN_UNHELD)
     elif tgt:
         px = st["px"]
+        want = b.fullscreen_px(tgt)
         check("fullscreen is the monitor the round is pinned to",
-              px == (tgt[3], tgt[4]),
-              "%s wanted %s %dx%d" % (px, tgt[0], tgt[3], tgt[4]))
+              px == want,
+              "%s wanted %s %dx%d" % (px, tgt[0], want[0], want[1]))
     if mon:
         fs = b.rect()
         check("fullscreen covers the monitor", rect_eq(fs, mon), str(fs))

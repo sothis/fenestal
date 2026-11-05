@@ -710,6 +710,13 @@ class Environment:
         target_monitor() is."""
         return monitors()
 
+    def fullscreen_px(self, mon):
+        """The pixel size a fullscreen window reports on `mon`, as the
+        monitor list gives it. The monitor's own size everywhere but a
+        Wayland window on this desk, whose compositor mode is its logical
+        size at the window's own scale -- see Wayland.fullscreen_px()."""
+        return (mon[3], mon[4])
+
     # ---- the clipboard's other program ------------------------------------
     #
     # A window that pastes what it copied has shown only that it remembers a
@@ -806,6 +813,35 @@ class _Portal(Environment):
         """Portal points per pixel the pointer counts in. 1 here, where the
         portal moves in the same points a window reports."""
         return 1.0
+
+    def _desk_portal(self):
+        """Whether the pointer is this desk's RemoteDesktop portal, which
+        moves in the compositor's logical points, or a bare machine's own
+        hands, which move in its X server's pixels."""
+        return isinstance(getattr(self, "portal", None),
+                          getattr(getattr(self, "W", None), "Portal", ()))
+
+    def _xwayland_scale(self):
+        """How many X pixels a compositor logical point is worth here: the
+        X screen's Xft.dpi over 96, which is the scale the library's X11
+        backend reads too, and the factor between the monitor list (which
+        XWayland reports) and the portal's points. 1 where the pointer is a
+        bare machine's hands, which take the X server's own pixels."""
+        gx = getattr(self, "_gx", None)
+        if gx is None:
+            gx = 1.0
+            if self._desk_portal():
+                try:
+                    said = subprocess.run(["xrdb", "-query"],
+                                          capture_output=True, text=True,
+                                          timeout=5).stdout
+                except Exception:
+                    said = ""
+                m = re.search(r"^Xft\.dpi:\s*(\d+)", said, re.MULTILINE)
+                if m:
+                    gx = max(1.0, int(m.group(1)) / 96.0)
+            self._gx = gx
+        return gx
 
     # ---- whose keyboard it is ---------------------------------------------
     #
@@ -1198,34 +1234,6 @@ class _XEnvironment(_Placed, _Portal):
         # application reports, which cannot disagree with what it drew.
         st = self.testbed.state() or {"scale": 120}
         return st["scale"] / 120.0
-
-    def _desk_portal(self):
-        """Whether the pointer is this desk's RemoteDesktop portal, which
-        moves in the compositor's logical points, or a bare machine's own
-        hands, which move in its X server's pixels."""
-        return isinstance(getattr(self, "portal", None),
-                          getattr(getattr(self, "W", None), "Portal", ()))
-
-    def _xwayland_scale(self):
-        """How many X pixels a compositor logical point is worth here: the
-        X screen's Xft.dpi over 96, which is the scale the library's X11
-        backend reads too. 1 where the pointer is a bare machine's hands,
-        which take the X server's own pixels."""
-        gx = getattr(self, "_gx", None)
-        if gx is None:
-            gx = 1.0
-            if self._desk_portal():
-                try:
-                    said = subprocess.run(["xrdb", "-query"],
-                                          capture_output=True, text=True,
-                                          timeout=5).stdout
-                except Exception:
-                    said = ""
-                m = re.search(r"^Xft\.dpi:\s*(\d+)", said, re.MULTILINE)
-                if m:
-                    gx = max(1.0, int(m.group(1)) / 96.0)
-            self._gx = gx
-        return gx
 
     def _portal_per_px(self):
         return 1.0 / self._xwayland_scale()
@@ -1954,22 +1962,44 @@ class Wayland(_Portal):
             return e["parts"][1] == "1"
         return False
 
+    def fullscreen_px(self, mon):
+        """The mode the compositor gives a fullscreen window on `mon`: the
+        monitor's logical size at the window's own scale. The monitor list
+        is XWayland's screen, one XWayland scale larger, and the window's
+        scale is the fractional one it draws at (180ths here); neither is
+        the other."""
+        if not self._desk_portal():
+            return (mon[3], mon[4])
+        st = self.testbed.state() or {"scale": 120}
+        s = st["scale"] / 120.0 / self._xwayland_scale()
+        return (round(mon[3] * s), round(mon[4] * s))
+
     def move_window_by(self, dx, dy):
         """By its titlebar, which is the only handle there is.
 
         In points, the space drag() aims in, so the caller's pixel delta is
-        divided by the scale. More steps than a short drag gets: the
-        compositor moves the window per motion event, and a monitor's width
-        in ten jumps is a drag it can lose track of.
+        divided by the factor between the monitor list and the pointer. On
+        this desk that is the XWayland scale -- the monitor list is
+        XWayland's screen, the portal moves in the compositor's points --
+        and not the window's own scale, which is the fractional scale it
+        draws at: dividing by 180ths here lands a drag thirty-three per
+        cent too far, halfway off the far monitor. On a bare machine the
+        hands move in the X screen's own pixels, which is the window's
+        scale.
+
+        More steps than a short drag gets: the compositor moves the window
+        per motion event, and a monitor's width in ten jumps is a drag it
+        can lose track of.
 
         By the title and not the middle: the controls are right-aligned and
         do not shrink, so a window taken in (make_room()) has them in its
         middle, and a press there toggles a checkbox and moves nothing --
         caption_x() says where, at the width the window has."""
         st = self.state() or {"scale": 120}
-        s = st["scale"] / 120.0
+        g = (self._xwayland_scale() if self._desk_portal()
+             else st["scale"] / 120.0)
         x = caption_x(st["area"][0] if "area" in st else None)
-        self.drv.drag(x, 17, x + dx / s, 17 + dy / s, steps=24, settle=0.7)
+        self.drv.drag(x, 17, x + dx / g, 17 + dy / g, steps=24, settle=0.7)
 
     def capture(self, path):
         from PIL import Image
