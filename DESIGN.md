@@ -998,6 +998,20 @@ caller that wants the frame's figures live at rest still asks
 `fnl_set_cost_sampling()`, and the panel's frames then count as every sampled
 one does.
 
+Measured on 2026-11-05, `--frame-times` for the frames and this process's CPU
+read off `/proc` (the testbed now echoes the scene's motion, so the window is
+known idle): at rest on the RX 590's Vulkan the panel costs 0.25 % of a core
+shown against 0.00 % hidden, drawing 13 frames in 8 s (1.6 a second); on
+lavapipe ~30 % against 4.5 %, 25 frames in 12 s (2.1 a second), the hidden
+figure being llvmpipe's own workers at idle, which drew two frames in the
+12 s. A minute at rest on X11 with vsync, the panel up: 88 frames over 88
+`frame at rest: N drawn` lines (1.47 a second) and not one frame line, 0.38 %
+of a core; the scene moving then gives `miss 0/0` and `hold 0.00`, so the
+display hold never deepened. Under OpenGL on amdgpu (fdinfo), late latching
+on and the scene moving, no vblank is missed with the panel shown or hidden
+and no frame line reports one, the shown mean 16.06 ms against 16.57 hidden:
+the sample after the present costs nothing.
+
 Its place is the presentable area's top right, under whatever bar there
 is, and nowhere where the window cannot hold it whole: the library does
 not know the caller's own panels, so it is drawn over them rather than

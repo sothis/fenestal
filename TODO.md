@@ -25,8 +25,9 @@ Each needs a hand on the machine or hardware the two laptops do not have.
 
 ## The output box under a window server
 
-Written by reading (DESIGN *The titlebar controls*) and not yet built or
-run anywhere.
+Written by reading (DESIGN *The titlebar controls*); its stress check was
+added on 2026-11-05 and passes on X11 and wine (the `output-pick`
+capability, two checks each). Owed:
 
 - **Does each move land?** X11 under mutter and under no manager,
   `_NET_MOVERESIZE_WINDOW` at `StaticGravity` from a pager; maximized and
@@ -36,21 +37,16 @@ run anywhere.
   fullscreen window by `fnl_request_output()`.
 - **The box giving way below 734 points**, and the caller's run beside it
   (`deco_reserved_rect()`), as a window is narrowed past it.
-- **A check in the stress round** for the box following a move, and for a
-  pick moving the window, declared by what it needs and not by name.
 
 ## The metrics panel at rest, after its change
 
-Written by reading (DESIGN *The metrics panel*) and not yet built or run.
+Written by reading (DESIGN *The metrics panel*); the at-rest cost, the
+minute at rest and the sample after the present on amdgpu were measured on
+2026-11-05 and recorded there. Owed:
 
-- **What the panel costs a still window now**: the testbed at rest with
-  it shown, against hidden, on the RX 590 and on lavapipe, where it was
-  30 % of a core sampled five times a second. The frame rate and the two
-  costs should hold the last drawn frames' figures, and the panel draw at
-  most twice a second.
-- **The sample after the present**: a run with late latching under
-  OpenGL on NVIDIA (NVML) and on amdgpu (fdinfo), panel shown and the
-  scene moving, for vblanks missed every half second, against before.
+- **The sample after the present on NVIDIA**: late latching under OpenGL
+  with the panel shown and the scene moving, for vblanks missed every half
+  second, against before (the amdgpu half is clean).
 - **The figures' frames left out of the means**: a window brought to
   rest with `--frame-times`, its GPU and CPU figures unchanged by the
   frames the panel draws there, and the frame-stats totals still the
@@ -58,11 +54,6 @@ Written by reading (DESIGN *The metrics panel*) and not yet built or run.
 - **The panel's GPU row as a sampled share**: against the product it
   replaced (`fnl_frame_gpu_ms()` by `fnl_fps()`) with the pattern moving
   on schenker, where the two should agree, and near zero at rest.
-- **The figures' frames drawn at rest**: on X11 with vsync, the panel up
-  on a still window for a minute and then the scene moving: the display
-  hold still at its shallow queue (`display_ahead` never deepened to 2),
-  and
-  `--frame-times` saying `frame at rest: N drawn to show the figures`.
 - **Under wine**, where the thread's CPU time is not known: the panel's
   per-frame CPU figure at rest held at the moving frames'
   (`App::wall_cost`), not the panel's frames'.
