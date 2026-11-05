@@ -836,3 +836,19 @@ every system (DESIGN *Benchmarking*). Owed:
   keeps opening on its own surface. Owed: the same two runs on GNOME
   (mutter), which wants a machine whose drawing GPU does not drive its
   panel and GNOME on it; none here has both.
+
+- **The KMS places whose panel lists one mode cannot be fitted**: the
+  laptops' and the thinkpad's KMS window is their output, and each
+  output has one mode, so `--sizes` leaves the area unchanged there and
+  the fit has one point (2026-11-05). Owed: a second monitor on one of
+  them, or a machine whose output lists more, so the copy path and the
+  display path are fittable there as the Pi's KMS is.
+
+- **The Mac's OpenGL keeps no GPU time**: every `macos-gl-native` record
+  has `frame.gpu_ms` empty where Metal's and MoltenVK's have it, so the
+  fit's GPU columns are a dash for it and the one-size tables read "-"
+  (2026-11-05). The GL renderer's `GL_TIMESTAMP` pair is made and
+  queried as on Linux, and `gl_time_read()` takes a result only once
+  `GL_QUERY_RESULT_AVAILABLE` says so; owed: whether that never becomes
+  true through the CGL loader on the 4.1 profile, and the fix, or the
+  reason it cannot be.
