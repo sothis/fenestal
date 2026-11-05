@@ -185,6 +185,15 @@ void testbed_overlay_footprint_log(void)
 	g_footprint_log = true;
 }
 
+/* --frame-cpu-log: the per-frame CPU figure alone, without asking for cost
+ * sampling, so the panel's at-rest frames stay the panel's. */
+static bool g_frame_cpu_log;
+
+void testbed_overlay_frame_cpu_log(void)
+{
+	g_frame_cpu_log = true;
+}
+
 /* The GPU memory this process holds on the GPU drawing: the scene's API's
  * figure (scene_<api>.c), or for OpenGL, which keeps none, the system's
  * (gpumem.c). */
@@ -376,8 +385,9 @@ static void footprint_log(FnlApp *app, double now)
 	const int fps = fnl_fps(app);
 	const double gpu = ms >= 0.0 && fps >= 0 ? ms * fps / 10.0 : -1.0;
 	fprintf(stderr, "footprint: CPU %.1f %%, RAM %.0f MiB, VRAM %.0f MiB, "
-			"GPU %.1f %%, on %s with %s\n", cpu, ram, vram, gpu,
-			fnl_gpu_name(app), fnl_renderer_name(app));
+			"frame CPU %.2f ms, GPU %.1f %%, on %s with %s\n", cpu, ram,
+			vram, fnl_frame_cpu_ms(app), gpu, fnl_gpu_name(app),
+			fnl_renderer_name(app));
 }
 
 /* From on_overlay, after the events. The overlay's ordering rule is this
@@ -402,6 +412,14 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 	if (g_footprint_log)
 		footprint_log(app, f->time);
 	fnl_set_cost_sampling(app, g_footprint_log);
+	if (g_frame_cpu_log) {
+		static double at = -1.0;
+		if (at < 0.0 || f->time - at >= 0.5) {
+			at = f->time;
+			fprintf(stderr, "frame cpu: %.2f ms, fps %d\n",
+					fnl_frame_cpu_ms(app), fnl_fps(app));
+		}
+	}
 	draw_reticle(app);
 }
 

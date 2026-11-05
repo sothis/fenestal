@@ -113,6 +113,12 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *frame);
  * second, the figures the library's metrics panel shows. Before
  * fnl_init(). */
 void testbed_overlay_footprint_log(void);
+
+/* --frame-cpu-log: the per-frame CPU figure (fnl_frame_cpu_ms()) said on
+ * stderr twice a second, and nothing else turned on -- the panel's own
+ * figures at rest, where --footprint-log would ask for sampling and count
+ * the frames the panel draws there. */
+void testbed_overlay_frame_cpu_log(void);
 /* The GPU memory this process holds on the GPU drawing, in MiB: the
  * scene's API's figure, or the system's for OpenGL. From on_overlay. */
 bool testbed_vram_mib(FnlApp *app, double *mib);

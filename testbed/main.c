@@ -237,7 +237,13 @@ static void usage(FILE *f, const char *prog)
 		"  --footprint-log    print this process's CPU, RAM and VRAM -- the\n"
 		"                     metrics panel's figures -- to stderr twice a\n"
 		"                     second, \"footprint: ...\", for a harness that\n"
-		"                     cannot read the screen.\n"
+		"                     cannot read the screen. It asks for cost\n"
+		"                     sampling, which counts the frames the panel\n"
+		"                     draws at rest; --frame-cpu-log does not.\n"
+		"  --frame-cpu-log    print the per-frame CPU figure\n"
+		"                     (fnl_frame_cpu_ms()) to stderr twice a second,\n"
+		"                     \"frame cpu: ...\", and nothing else -- the\n"
+		"                     panel's own figures at rest.\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
@@ -300,7 +306,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 	static const char *const CLASH[] = {
 		"--no-late-latch", "--late-latch=", "--scale=", "--gpu=",
 		"--custom-titlebar", "--text-input", "--frame-times", "--no-vsync",
-		"--transition=", "--footprint-log",
+		"--transition=", "--footprint-log", "--frame-cpu-log",
 	};
 
 	for (int i = 1; i < argc; i++) {
@@ -346,6 +352,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--footprint-log")) {
 			testbed_overlay_footprint_log();
+			continue;
+		}
+		if (!strcmp(arg, "--frame-cpu-log")) {
+			testbed_overlay_frame_cpu_log();
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {

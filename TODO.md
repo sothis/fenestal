@@ -41,8 +41,8 @@ capability, two checks each). Owed:
 ## The metrics panel at rest, after its change
 
 Written by reading (DESIGN *The metrics panel*); the at-rest cost, the
-minute at rest and the sample after the present on amdgpu were measured on
-2026-11-05 and recorded there. Owed:
+minute at rest, the sample after the present on amdgpu and the per-frame
+figure under wine were measured on 2026-11-05 and recorded there. Owed:
 
 - **The sample after the present on NVIDIA**: late latching under OpenGL
   with the panel shown and the scene moving, for vblanks missed every half
@@ -54,9 +54,6 @@ minute at rest and the sample after the present on amdgpu were measured on
 - **The panel's GPU row as a sampled share**: against the product it
   replaced (`fnl_frame_gpu_ms()` by `fnl_fps()`) with the pattern moving
   on schenker, where the two should agree, and near zero at rest.
-- **Under wine**, where the thread's CPU time is not known: the panel's
-  per-frame CPU figure at rest held at the moving frames'
-  (`App::wall_cost`), not the panel's frames'.
 
 ## The whole-tree review of 2026-11-02
 

@@ -1010,7 +1010,12 @@ of a core; the scene moving then gives `miss 0/0` and `hold 0.00`, so the
 display hold never deepened. Under OpenGL on amdgpu (fdinfo), late latching
 on and the scene moving, no vblank is missed with the panel shown or hidden
 and no frame line reports one, the shown mean 16.06 ms against 16.57 hidden:
-the sample after the present costs nothing.
+the sample after the present costs nothing. Under wine, where the thread's CPU
+time is not known, `--frame-cpu-log` -- and not `--footprint-log`, which asks
+for cost sampling and so counts the panel's rest frames -- shows the
+per-frame CPU held at 0.35 ms through a rest of nine panel frames in 12 s
+drawn for the figures, with no frame line: the last moving frames' figure,
+not the panel's own.
 
 Its place is the presentable area's top right, under whatever bar there
 is, and nowhere where the window cannot hold it whole: the library does
@@ -1087,7 +1092,8 @@ and averages to `Get-Process`'s.
 | `--no-vsync` | draw flat out, for measuring; `FNL_VSYNC=0` in the environment does the same for any program (*Vsync and present modes*) |
 | `--echo-events` | print every event the library delivers, for a test harness — the library's own echo, which `FNL_ECHO_EVENTS=1` switches on for any program built on it |
 | `--text-input` | text entry on at startup: with `--echo-events` each character a key types is a line of its own, a held key repeats, and Escape no longer closes the window, so close it from the titlebar — see *Text entry* |
-| `--footprint-log` | this process's CPU, RAM and VRAM, the metrics panel's figures, on stderr twice a second as `footprint: ...`, for a harness that cannot read the screen — see *The metrics panel* |
+| `--footprint-log` | this process's CPU, RAM and VRAM, the metrics panel's figures, on stderr twice a second as `footprint: ...`, for a harness that cannot read the screen — see *The metrics panel*. It asks for cost sampling, which counts the frames the panel draws at rest |
+| `--frame-cpu-log` | the per-frame CPU figure (`fnl_frame_cpu_ms()`) on stderr twice a second as `frame cpu: ...`, without asking for cost sampling: the panel's own figures at rest — see *The metrics panel* |
 | `--bench`, `--bench-run`, `--bench-<key>=<value>`, `--bench-replay=<record>`, `--bench-list` | the benchmark mode — see *Benchmarking* |
 | `--licence` | the Ubuntu Font Licence and copyright notice the baked glyphs are under (`--license` is accepted too) |
 | `-h`, `--help` | usage |
