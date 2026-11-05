@@ -96,7 +96,12 @@ guests.
 - **KMS's per-group key types** (`key_cut()`): a two-layout console
   (`FNL_KMS_LAYOUT=us,de`) typing each layout's third level where its type
   says, on the thinkpad, and an option that augments a key (`compose:ralt`)
-  leaving its group's levels.
+  leaving its group's levels. Seen on the thinkpad (2026-11-05): the
+  round's `de,us grp:alt_shift_toggle` console typed 17 sequences, the
+  third levels among them, and the group key switched Y both ways; a
+  `--layout='de,us compose:ralt'` run parses and draws (the log names it),
+  but no check types through that option yet -- owed, an option that
+  augments a key and the levels still typed through it.
 - **X11's output move from fullscreen or maximized** (`x11_set_output()`,
   `BackendState::norm_x`): an X11 window on this desk, where GNOME
   manages it, restored where it was, placed on the other monitor.
@@ -462,14 +467,22 @@ With no monitor it runs on HDMI-A-1 forced on by the kernel's line (DESIGN
   failed on one lavapipe race. Both its stacks are the driver's
   rasteriser threads (`llvmpipe-2` and `-3`, a memcpy at
   `libvulkan_lvp.so+0x16c994`, the block one of them allocated), the
-  race that `race:_mesa_hash_table_copy` in `tsan.supp` covers where
-  the function is named -- and Arch Linux ARM's debuginfod has none for
-  any of the Pi's Vulkan or GL files (HTTP 404 for all five,
-  `bare_driver.py --setup`, 2026-11-05). Owed: that offset's function
-  name another way, or a dbg package when the distro has one, so the
-  existing key matches; until then the tsan round there fails on the
-  driver's own race, not this project's (the frames between TSan's
-  interceptor and the device's creation are lavapipe's alone).
+  race that `race:_mesa_hash_table_copy` in `tsan.supp` covers. The
+  function is named by its code, not its symbols: the ARM library has
+  none, and Arch Linux ARM's debuginfod has none for any of the Pi's
+  Vulkan or GL files (HTTP 404 for all five, `bare_driver.py --setup`;
+  no `debuginfod.archlinuxarm.org` exists). The 196-byte function at
+  `libvulkan_lvp.so+0x16c8e0` copies a hash table's 0x48-byte header
+  with four 16-byte moves, allocates its entries with `0x18` the
+  entry's size and the table's count, and the faulting call at
+  `+0x16c994` memcpys the inline entries (`0x1c8` bytes) through the
+  GOT -- instruction for instruction what `_mesa_hash_table_copy`
+  (`src/util/hash_table.c:234-235`) does in the same Mesa 26.2.6
+  built for x86_64, whose debug info names it and both source lines.
+  Owed: a symbol source for the ARM library -- the distro's dbg, or a
+  Mesa built for ARM with its debug info -- so the existing key
+  matches; until then the round fails on the driver's own race, not
+  this project's.
 
 ## Wine 11 on this desktop
 
@@ -614,9 +627,12 @@ desktop. CI builds both trees and joins them with `lipo` into the
 ad-hoc signed bundles (`.github/stage.sh`). Owed, in this order:
 
 1. **The arm64 half run anywhere**: no Mac here has Apple's processor.
-2. **MoltenVK only where a scene is Vulkan's**: each of the eight bundles
-   carries its 11 MB, most of the zip's 50 MB; a program with no Vulkan
-   scene needs none.
+2. **MoltenVK only where a scene is Vulkan's**: staged on 2026-11-05 --
+   `.github/stage.sh` copies it only beside a program carrying
+   `scene_vulkan.c` (the testbed and every demo but hello; fenestal-dev
+   has none), two bundles of the eight dropping its 11 MB, and the
+   stubbed run shows that layout. Owed: the CI zip's own listing, and a
+   bundle without it opened on the Mac (hello).
 
 ## CI
 
