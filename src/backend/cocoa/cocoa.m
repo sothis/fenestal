@@ -624,24 +624,48 @@ static void left_release(App *a, NSPoint pt)
  * the window was even in front. */
 - (BOOL)acceptsFirstMouse:(NSEvent *)e
 {
+	if (!app)
+		return NO;
 	const NSPoint pt = event_pt(app, e);
 	Edge edge;
 	return deco_hit(app, pt.x, pt.y, &edge) != ZONE_CONTENT;
 }
 
+/* The area is this view's the while it has an App: AppKit routes enter and
+ * exit through it, and their handlers read the App. A view outliving its
+ * App -- the window is on its way out -- gets none. */
 - (void)updateTrackingAreas
 {
-	if (tracking)
+	if (tracking) {
 		[self removeTrackingArea:tracking];
-	tracking = [[NSTrackingArea alloc]
-		initWithRect:NSZeroRect
-			 options:NSTrackingMouseEnteredAndExited |
-					 NSTrackingMouseMoved | NSTrackingCursorUpdate |
-					 NSTrackingActiveAlways | NSTrackingInVisibleRect
-			   owner:self
-			userInfo:nil];
-	[self addTrackingArea:tracking];
+		tracking = nil;
+	}
+	if (app) {
+		tracking = [[NSTrackingArea alloc]
+			initWithRect:NSZeroRect
+				 options:NSTrackingMouseEnteredAndExited |
+						 NSTrackingMouseMoved | NSTrackingCursorUpdate |
+						 NSTrackingActiveAlways | NSTrackingInVisibleRect
+				   owner:self
+				userInfo:nil];
+		[self addTrackingArea:tracking];
+	}
 	[super updateTrackingAreas];
+}
+
+/* The window is going. Its orderOut makes AppKit an exit to route, which
+ * the dequeue monitor may deliver on the next run -- after this App is
+ * gone -- so the area that would take it goes here, before the window,
+ * and the App with it: a late event is a no-op and not a read of a freed
+ * App (the bench's repeats, three lifetimes in one process, faulted in
+ * mouseExited: here). */
+- (void)detach
+{
+	if (tracking) {
+		[self removeTrackingArea:tracking];
+		tracking = nil;
+	}
+	app = NULL;
 }
 
 - (void)viewDidChangeBackingProperties
@@ -655,6 +679,8 @@ static void left_release(App *a, NSPoint pt)
 
 - (void)cursorUpdate:(NSEvent *)e
 {
+	if (!app)
+		return;
 	const NSPoint pt = event_pt(app, e);
 	Edge edge;
 	const Zone z = deco_hit(app, pt.x, pt.y, &edge);
@@ -663,6 +689,8 @@ static void left_release(App *a, NSPoint pt)
 
 - (void)pointer:(NSEvent *)e
 {
+	if (!app)
+		return;
 	if (app->pointer_captured)
 		pointer_relative(app, e);
 	else
@@ -673,6 +701,8 @@ static void left_release(App *a, NSPoint pt)
  * drag is not one: the press it carries is the one a move is handed. */
 - (void)mouseMoved:(NSEvent *)e
 {
+	if (!app)
+		return;
 	if (!app->pointer_captured)
 		left_release(app, event_pt(app, e));
 	[self pointer:e];
@@ -684,7 +714,7 @@ static void left_release(App *a, NSPoint pt)
 
 - (void)mouseEntered:(NSEvent *)e
 {
-	if (app->pointer_captured)
+	if (!app || app->pointer_captured)
 		return;
 	/* A caller should hear where: a hover that waits for the pointer to
 	 * move again is stale for one that enters and stops. */
@@ -694,7 +724,7 @@ static void left_release(App *a, NSPoint pt)
 - (void)mouseExited:(NSEvent *)e
 {
 	(void)e;
-	if (app->pointer_captured)
+	if (!app || app->pointer_captured)
 		return;
 	deco_release(app);              /* the press is someone else's now */
 	deco_publish_hover(app, ZONE_CONTENT);
@@ -1477,6 +1507,11 @@ static void cocoa_close(App *a)
 		left_down = nil;
 		if (p->key_up_monitor)
 			[NSEvent removeMonitor:CFBridgingRelease(p->key_up_monitor)];
+		/* Before the window goes: its orderOut is an exit for the
+		 * tracking area, and the monitor may deliver it in the next
+		 * lifetime, when this App is gone. */
+		if (p->view)
+			[VIEW(p) detach];
 		if (p->window) {
 			NSWindow *w = CFBridgingRelease(p->window);
 			p->window = NULL;
@@ -1484,10 +1519,8 @@ static void cocoa_close(App *a)
 			[w orderOut:nil];
 			[w close];
 		}
-		if (p->view) {
-			FnlCocoaView *v = CFBridgingRelease(p->view);
-			v->app = NULL;
-		}
+		if (p->view)
+			CFBridgingRelease(p->view);
 		if (p->layer)
 			CFBridgingRelease(p->layer);
 		if (p->window_delegate)

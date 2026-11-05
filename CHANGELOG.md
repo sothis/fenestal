@@ -6,6 +6,10 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- Cocoa: a window closed and another opened in the same process no longer
+  crashes on the exit event AppKit still owed the old window's tracking
+  area; the area is removed before the window goes, and the view's
+  pointer handlers no longer read an App the view has lost.
 - X11 with Vulkan, where the device can present one to one from its
   corner (`VK_KHR_swapchain_maintenance1`, or the EXT name), a resize
   keeps the swapchain and at rest the images are the window's size
