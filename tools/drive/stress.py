@@ -2724,6 +2724,13 @@ def expected(line):
     which devices it found, how it ranked them and which it took; the frame
     lines are its statistics, which the round turns on."""
     return (line.startswith("EV ") and not line.startswith("EV lost")
+            # The testbed's own diagnostics: the scene's motion said on
+            # every run, and the footprint, frame-CPU and titlebar-reserve
+            # readouts when a measurement asks for them.
+            or re.match(r"scene motion: (on|off)$", line) is not None
+            or line.startswith("frame cpu: ")
+            or line.startswith("reserve: ")
+            or line.startswith("footprint: ")
             or line.startswith("backend: ")
             or line.startswith("renderer: ")
             or line.startswith("Vulkan on")
