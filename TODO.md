@@ -118,7 +118,9 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   touch.
 - **macOS's output name with two monitors of one model**
   (`publish_output()`): `fnl_output_name()` handed to
-  `fnl_request_output()` keeps the window where it is.
+  `fnl_request_output()` keeps the window where it is. The Mac's two are
+  the built-in panel and the PL4071UH, so a pair of one model is still
+  owed.
 - **Direct3D 12**: an adapter named by `FNL_GPU` let go at the device's
   end (`choose_adapter()`). The Direct3D 11 present refused part-way
   (`d3d11-present-refused`) was run on both laptops' GPUs on 2026-11-03
@@ -579,16 +581,19 @@ and three `pace.py` columns). Owed, in this order:
 
 1. **What the design assumes and has not seen**, each answered in DESIGN
    *macOS* with what was seen: the ISO swap, on the stick's own keyboard
-   (type 43) and a USB one; a covered window's drawables; the capture's
-   deltas, which are AppKit's accelerated ones where Win32's are raw; and
-   a second monitor, which the round's move between outputs wants. Seen
-   once (2026-10-28): with the iiyama PL4071UH attached, macOS showed it
-   at 1920x2160, half its panel, and the built-in panel went black while
-   macOS called it online, the main display and powered (no display
-   sleep). The rounds there ran on the panel with the move left out;
-   with the iiyama detached, from a cold start, macOS sees the panel
-   alone. Owed: whether the panel goes black with another monitor, or
-   with the iiyama showing its whole panel.
+   (type 43) and a USB one; a covered window's drawables; and the
+   capture's deltas, which are AppKit's accelerated ones where Win32's
+   are raw. A second monitor is seen: since 2026-11-06 the stick drives
+   the built-in panel and the external iiyama PL4071UH from power-up;
+   both survive a display sleep, and an external plugged in after login
+   shows beside the panel (DESIGN *macOS*; tools/drive/README.md
+   *Driving a window* says what the stick and the firmware do). A
+   maximized window moved between them and back with its state kept
+   (2026-11-05, read from the window's reports; the built-in was dark
+   then). Owed: the round's multi-output section and the move under each
+   renderer, with both panels showing and captured; and the iiyama at
+   its whole 3840x2160 panel -- a 30 Hz mode that has shown artifacts
+   when set at boot, and not the one kept (2560x1440@60).
 2. **What the harness has and has not run** (`mac_driver.py`,
    `mac_agent.m`): "dead-layout" through macOS's input sources runs there
    and passes (2026-10-31, U.S. International - PC selected from the ssh

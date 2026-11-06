@@ -10731,9 +10731,11 @@ vkd3d-proton's and DXVK's threads, not the API's.
 `src/backend/cocoa/cocoa.m` and `src/renderer/metal/` are driven by the round,
 on the Mac (`macos-metal-native` and `macos-vulkan-native`;
 tools/drive/README.md *Driving a window*): 64 checks with captures under each
-tree, none failed, three not applicable -- the move to another monitor, with one
-there; the drawn pointer, which is the window server's; and a display mode from
-the titlebar, since the window server sizes and places the window. Among them is
+tree, none failed, three not applicable in the first runs -- the move to
+another monitor, with one there then; the drawn pointer, which is the window
+server's; and a display mode from the titlebar, since the window server sizes
+and places the window. The Mac has driven two panels since 2026-11-06 (below),
+so the move is a check the round can run. Among them is
 what the design assumed of AppKit: `miniaturize:` and `zoom:` on a borderless
 window, its fullscreen on one, the resize loop and the drag, and the layer's
 top-left gravity, the frame filling the window after eight resizes back to back
@@ -10757,6 +10759,36 @@ pattern, and minimal's textured cubes, depth-tested, at 57 frames a second. The
 Mac is schenker, booted from a USB stick into macOS 26 (`power.py boot schenker
 macos`), its HD 630 the device and its GTX 1050 Ti hidden, so a frame there is a
 real GPU's and not a rasteriser's.
+
+**The Mac drives two panels, from power-up.** Until 2026-11-06 the stick
+drove one at a time: with the iiyama PL4071UH on its HDMI, the built-in
+panel was black while macOS called it online, the main display and powered
+(no display sleep), and unplugging the external brought it back. Both show
+together now, and four things make that so, each needed. The firmware's
+hidden *Primary IGFX Boot Display* is LFP, where its default lights the
+external alone. An OpenCore driver of the lab's (`PipeOff.efi`, run before
+macOS) switches off every pipe the firmware lit beside the built-in
+panel's: Apple's Kaby Lake driver scans that panel out of a framebuffer
+slot in stolen memory, and only slot 0, the firmware's boot pipe, shows a
+picture there -- booted on the external, the panel trained its link, took
+slot 1 and stayed black; with the panel dark the driver also raises its
+supply, or macOS finds no EDID over AUX and drops it. `igfxagdc=0` is the
+third: with AGDC on, an external plugged in later stops at *AGDC managing
+Display* and never gets a pipe. `igfxonln=1 igfxonlnfbs=0x01` is the
+fourth: on a display sleep the framebuffer driver asks the HDMI port for
+its status over DisplayPort AUX, times out and frees it, where the list
+holds framebuffer 1 online; WhateverGreen ignores the list without
+`igfxonln`. tools/drive/README.md *Driving a window* says what each is and
+how the stick is set up. Both have survived a display sleep with the
+external attached, and an external plugged in after login shows beside the
+panel. The external's 3840x2160 mode is 30 Hz over that port and has shown
+artifacts when set at boot; 2560x1440 @60 is the mode kept, set with a
+display configuration -- `CGDisplaySetDisplayMode()` reports success and
+changes nothing. A maximized window moved from Built-in Display to
+PL4071UH and back, maximized at each step and home again (2026-11-05,
+read from the window's reports: the built-in was dark then, so there was
+no picture on it to capture). With both lit, the round's move between
+them, with a capture of each, is TODO.md *macOS*'s.
 
 **The window is borderless and the library draws all of it**, as on Win32.
 A titled window with its bar made transparent was the alternative, and it
