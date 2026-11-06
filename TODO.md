@@ -590,10 +590,11 @@ and three `pace.py` columns). Owed, in this order:
    *Driving a window* says what the stick and the firmware do). A
    maximized window moved between them and back with its state kept
    (2026-11-05, read from the window's reports; the built-in was dark
-   then). Owed: the round's multi-output section and the move under each
-   renderer, with both panels showing and captured; and the iiyama at
-   its whole 3840x2160 panel -- a 30 Hz mode that has shown artifacts
-   when set at boot, and not the one kept (2560x1440@60).
+   then). Run since with both panels lit: the round moved the window to
+   PL4071UH and back under Metal, Vulkan and GL, 95 checks each and none
+   failed (2026-11-06). Owed: the iiyama at its whole 3840x2160 panel --
+   a 30 Hz mode that has shown artifacts when set at boot, and not the
+   one kept (2560x1440@60).
 2. **What the harness has and has not run** (`mac_driver.py`,
    `mac_agent.m`): "dead-layout" through macOS's input sources runs there
    and passes (2026-10-31, U.S. International - PC selected from the ssh

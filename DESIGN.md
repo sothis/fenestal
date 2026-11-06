@@ -10787,8 +10787,9 @@ display configuration -- `CGDisplaySetDisplayMode()` reports success and
 changes nothing. A maximized window moved from Built-in Display to
 PL4071UH and back, maximized at each step and home again (2026-11-05,
 read from the window's reports: the built-in was dark then, so there was
-no picture on it to capture). With both lit, the round's move between
-them, with a capture of each, is TODO.md *macOS*'s.
+no picture on it to capture). With both lit, the round moved the window
+between them and back under each renderer -- 95 checks under Metal,
+Vulkan and GL, none failed (2026-11-06).
 
 **The window is borderless and the library draws all of it**, as on Win32.
 A titled window with its bar made transparent was the alternative, and it
