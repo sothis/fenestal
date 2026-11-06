@@ -661,18 +661,34 @@ on the same layer, and the first of those has no rectangle a round can
 use.
 
 **Its displays.** The macOS stick is an OpenCore install (`-wegnoegpu` in
-its boot arguments, the discrete GPU off), and it drives one panel at a
-time: with the external PL4071UH attached on its HDMI, the built-in panel
-stays dark, and unplugging the external brings it back -- the arrangement
-the machine has been worked in. On 2026-11-05 macOS came up driving that
-external at 1920x2160, a half-width mode on its 3840-wide panel: the
-picture flickered, and the desktop showed only the wallpaper with a
-squashed menu bar. `CGDisplaySetDisplayMode()` reported success and
-changed nothing; a display configuration (`CGBeginDisplayConfiguration()`,
-`CGConfigureDisplayWithDisplayMode()`, `CGCompleteDisplayConfiguration()`)
-set 1920x1080 @60, and `.permanently` held it across the reboot. Beside
-the disabled GPU, `pmset` said `gpuswitch 2` (discrete only); it is 1
-(integrated) now.
+its boot arguments, the discrete GPU off), and it drives both panels, the
+built-in one and the external PL4071UH on its HDMI, from power-up. Four
+things make that so, and each is needed:
+
+- The firmware's hidden "Primary IGFX Boot Display" is LFP, so that the
+  firmware lights the built-in panel beside the external; at its default
+  it lights the external alone. A BIOS reset to defaults undoes it.
+- An OpenCore driver of the lab's, run before macOS, switches off every
+  pipe the firmware lit beside the built-in panel's. Apple's Kaby Lake
+  driver always scans the built-in panel out of a framebuffer slot in
+  stolen memory, and only slot 0 -- the firmware's boot pipe -- shows a
+  picture there; booted on the external, the panel trains its link, takes
+  slot 1 and stays black. With the panel dark the driver also raises its
+  supply, or macOS finds no EDID over AUX and drops it.
+- `igfxagdc=0`: with AGDC on, an external plugged in later stops at "AGDC
+  managing Display" and never gets a pipe.
+- `igfxonln=1 igfxonlnfbs=0x01`: on wake the framebuffer driver asks the
+  HDMI port for its status over DisplayPort AUX, times out and frees the
+  port; forcing framebuffer 1 online keeps the external across a display
+  sleep. WhateverGreen ignores the list without `igfxonln`.
+
+The external's 3840x2160 mode is 30 Hz over that port and has shown
+artifacts when set at boot; 2560x1440 @60 is the one to keep, set with a
+display configuration (`CGBeginDisplayConfiguration()`,
+`CGConfigureDisplayWithDisplayMode()`, `CGCompleteDisplayConfiguration()`
+with `.permanently`), since `CGDisplaySetDisplayMode()` reports success and
+changes nothing. Beside the disabled GPU `pmset`'s `gpuswitch` is 1
+(integrated).
 
 What the first rounds found was the library's, each now in DESIGN *macOS*:
 the layer was untagged and its sRGB shown as the panel's own colours; keys
