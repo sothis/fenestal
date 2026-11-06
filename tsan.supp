@@ -57,7 +57,7 @@ race_top:pthread_barrier_wait
 # tools/drive/bare_driver.py --setup fetches it (DEBUGINFO_WHY).
 race:util_vma_heap_free
 
-# ---- radeonsi under OpenGL: two of the driver's own hand-offs -------------
+# ---- radeonsi under OpenGL: the driver's own hand-offs ---------------------
 # Checked against the wayland-gl tsan round on this desk's RX 590 (radeonsi,
 # Mesa 26.0.8-1ubuntu0.3), the driver's frames named from Ubuntu's
 # mesa-libgallium-dbgsym. Neither stack has a frame of this project's own
@@ -85,7 +85,20 @@ race:si_shader_binary_upload_at
 # function and not on race_top, which names TSan's memset interceptor.
 race:_mesa_hash_table_clear
 #
-# Both match only where the driver's debug info is installed, as the NVK
+# The command stream's own buffers, the same context's hand-off again: the
+# render thread's gl_draw_frame() and the driver's <program>:gdrv0 thread
+# both flush and grow the CS (amdgpu_cs_flush(), amdgpu_do_add_buffer())
+# and begin a new one (si_begin_new_gfx_cs()), ordered by the batch fences
+# the threaded context hands a frame over through. Seen on the x11-vulkan
+# tsan round (2026-11-06), whose GPU box moves the window onto radeonsi's
+# OpenGL: every frame between TSan's interceptor and gl_draw_frame() is
+# Mesa's, no block is this project's, and the library reaches the three
+# only through the GL entry point it calls.
+race:amdgpu_cs_flush
+race:amdgpu_do_add_buffer
+race:si_begin_new_gfx_cs
+#
+# All match only where the driver's debug info is installed, as the NVK
 # entry above does: without it the frames are <null> and the report fails
 # the round as before.
 

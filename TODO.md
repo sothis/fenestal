@@ -187,13 +187,15 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   Direct3D 12 on both GPUs: 107 and 106 checks). `gc` with
   `FNL_FAULT=d3d12-composed,d3d11-present-refused` on both laptops' both
   GPUs fired as DESIGN's table writes it, once a device, the rounds
-  otherwise clean. Owed still:
-  - this desk's rounds (`x11-vulkan`, `x11-gl`, `wayland-vulkan`,
-    `wayland-gl`, `win64-vulkan` and `win64-d3d12` under wine) and the
-    guests' (`win64-*-vm`), last and only when asked;
-  - the review's items under the checkers (`asan`, `tsan`, `gc` with the
-    validation layer): Wayland's frame callbacks, the present wait from
-    the waiter thread;
+  otherwise clean. The checker rounds were run on 2026-11-06 at
+  `ca042a7`: `wayland-vulkan` under asan, tsan and gc with the validation
+  layer, 75 checks each and none failed (Wayland's frame callbacks), and
+  `x11-vulkan` under the same three, 109 checks each, none failed but the
+  known sync-value line in gc (the present wait). tsan found radeonsi's
+  threaded-context command stream handed between the render thread and
+  the driver's own (`amdgpu_cs_flush()`, `amdgpu_do_add_buffer()`,
+  `si_begin_new_gfx_cs()`) when the GPU box moved the window onto OpenGL;
+  each is suppressed in `tsan.supp` with its frames named. Owed still:
   - what no round does: KMS with two layouts (`FNL_KMS_LAYOUT=us,de`)
     and `compose:ralt`; a tablet or touchscreen on KMS; two monitors of
     one model on the Mac; a real input method on Windows;
