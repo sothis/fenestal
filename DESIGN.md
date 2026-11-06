@@ -4503,6 +4503,17 @@ spread between the earlier sweeps is between sittings, not one sweep's
 noise; OpenGL's column is the noisy one, two cells of twenty-one a half
 over the rest.
 
+A third sitting at `a24e42f` lay between the two, 19 to 31% at 30 to 60
+sizes a second and 56% at 250, below Vulkan's again, and a fourth sweep
+of the same library a day later read 2026-10-22's, 18 to 24% and 51%.
+Three on another day (2026-11-06, `e31d865`, macOS 26.7.1, both panels
+lit where the earlier sweeps had one) say the sitting itself does not
+drift: 5 and 15 agree within 0.5 points of a core, 30 and 45 within 1.9,
+and 250 within 2.6, while the 60 cell moved 7.3 (23.7, 29.3, 31.0) as
+October's 250 cell moved 7 -- the noise of a sweep is one cell's, and
+which cell changes; the level does move between sittings, 250's 52.5 to
+55.1 below October's 58 to 65.
+
 ### Vsync and present modes
 
 A window is vsynced, on `FIFO`, for its whole life, and neither a caller

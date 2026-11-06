@@ -603,17 +603,6 @@ and three `pace.py` columns). Owed, in this order:
    Owed: that dialog seen, its owner and layer, and whether `screen` reads
    0 while it is up.
 
-- **Metal's CPU at the size rates** on schenker's HD 630: two sweeps at
-  `dd53eff` agree on 20 to 36% at 30 to 60 sizes a second and 69% at
-  250, a fifth to two fifths over the one sweep of 2026-10-22 at
-  `2e13253`, where Vulkan's is unchanged (DESIGN *Late latching*); a
-  third at `a24e42f` lies between the two, 19 to 31% and 56%, below
-  Vulkan's again, and a fourth of the same library a day later is
-  2026-10-22's, 18 to 24% and 51%. Three sweeps at one commit agree
-  within 1.6 points (DESIGN *Late latching*, 2026-10-31), so the spread is
-  between sittings. Owed: whether a sitting drifts -- the same three on
-  another day.
-
 - **The bench's three repeats are the teardown's test**: a place runs
   three lifetimes in one process, closing one window and opening the
   next, which is what found the view outliving its App (DESIGN *macOS*,
