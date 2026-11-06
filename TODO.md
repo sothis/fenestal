@@ -645,16 +645,13 @@ and named Vulkan it refuses with the loader's own line.
 
 `.github/workflows/ci.yml`: each target's release tree on a push to `main`
 and on a pull request -- Linux, Windows and ARM Linux in an Ubuntu 26.04
-container, macOS x86-64 and arm64 on a `macos-26` runner -- and ruff. The
-run's artifacts are the commented source zip and one archive per target,
-uploaded as they are (`.tar.xz` for Linux, `.zip` for Windows and
-macOS); the Linux job hands the Mac its font and headers through the
-cache. Owed:
+container, macOS x86-64 and arm64 on a `macos-26` runner -- and ruff. A
+push of a `v*` tag builds the same trees and attaches their archives to a
+GitHub Release, named for the tag. The run's artifacts are the commented
+source zip and one archive per target, uploaded as they are (`.tar.xz` for
+Linux, `.zip` for Windows and macOS); the Linux job hands the Mac its font
+and headers through the cache. Owed:
 
-- **Releases**: a tag that attaches the archives to a GitHub Release. A
-  run's artifacts expire and want a signed-in download, and `gh run
-  download` cannot unpack one that is not a zip (`gh api
-  .../artifacts/<id>/zip` fetches it as it is).
 - **The checker trees**: clang, asan, tsan, analyzer and gc left CI with
   the move to release trees; a weekly or by-hand job would bring them
   back without slowing a push.

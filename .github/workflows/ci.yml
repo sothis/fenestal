@@ -2,8 +2,10 @@
 # Copyright (c) 2026 Janos Sonntag
 #
 # The release tree of every target, on every push to main and every pull
-# request, and ruff over tools/. The run's artifacts are the commented
-# source zip and an archive of what each target made (.github/stage.sh). A
+# request, and ruff over tools/. A push of a v* tag is a release: the same
+# trees, and a job that attaches what they made to a GitHub Release. The
+# run's artifacts are the commented source zip and an archive of what each
+# target made (.github/stage.sh). A
 # build that succeeds has run verifyfont, verifykeymap, the fuzz replay,
 # the ABI comparison, the layering, the tables and the API reference's
 # caller check, so a green Linux build is those as well. The checker trees
@@ -28,6 +30,7 @@ name: CI
 on:
     push:
         branches: [main]
+        tags: ['v*']
     pull_request:
     workflow_dispatch:
 
@@ -278,3 +281,53 @@ jobs:
             # rules are a change of their own.
             - name: ruff check tools
               run: pipx run --spec ruff==0.17.0 ruff check tools
+
+    # A tag is a release. The jobs above build the tagged commit as they
+    # build a branch's; this one attaches what they made to a GitHub
+    # Release, which a reader downloads without signing in and which does
+    # not expire as a run's artifacts do. The assets are named for the tag,
+    # not the commit, and the notes are CHANGELOG.md's section for it. A
+    # tag with no section falls back to GitHub's generated notes.
+    release:
+        name: publish
+        needs: [linux, macos]
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        # The workflow's read is for building; this job writes the release.
+        permissions:
+            contents: write
+        steps:
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            # Every target's archive, an artifact of its own and merged into
+            # one directory here. The run is this job's own.
+            - name: Take the run's artifacts
+              # v8.0.2
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+              with:
+                  path: dist
+                  merge-multiple: true
+            - name: Publish the release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  version=${GITHUB_REF_NAME#v}
+                  for f in dist/*; do
+                      mv "$f" "$(printf '%s' "$f" |
+                          sed -E "s/-[0-9a-f]{12}\./-$GITHUB_REF_NAME./")"
+                  done
+                  awk -v want="## $version" '
+                      /^## / {
+                          if (shown) exit
+                          if ($0 == want) { shown = 1; next }
+                      }
+                      shown
+                  ' CHANGELOG.md > notes.md
+                  if [ -s notes.md ]; then
+                      gh release create "$GITHUB_REF_NAME" dist/* \
+                          --title "Fenestal $version" --notes-file notes.md
+                  else
+                      gh release create "$GITHUB_REF_NAME" dist/* \
+                          --title "Fenestal $version" --generate-notes
+                  fi
