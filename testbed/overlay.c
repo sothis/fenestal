@@ -483,7 +483,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 					presented++;
 				if (rows[i].gpu_ms >= 0.0f)
 					rows_us += (unsigned long long)
-							   (rows[i].gpu_ms * 1e3 + 0.5);
+							   (rows[i].gpu_ms * 1e3f + 0.5f);
 			}
 			FnlFrameStats st = { .size = sizeof st };
 			const bool have = fnl_frame_stats(app, &st);
