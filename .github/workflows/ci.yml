@@ -4,12 +4,14 @@
 # The release tree of every target, on every push to main and every pull
 # request, and ruff over tools/. A push of a v* tag is a release: the same
 # trees, and a job that attaches what they made to a GitHub Release. The
-# run's artifacts are the commented source zip and an archive of what each
+# weekly run, and one asked for by hand, builds the checker trees too --
+# clang, asan, tsan, analyzer and gc, on every target that takes them --
+# which a push does not; they are compiled there and never run. The run's
+# artifacts are the commented source zip and an archive of what each
 # target made (.github/stage.sh). A
 # build that succeeds has run verifyfont, verifykeymap, the fuzz replay,
 # the ABI comparison, the layering, the tables and the API reference's
-# caller check, so a green Linux build is those as well. The checker trees
-# -- clang, asan, tsan, analyzer, gc -- are left to CONTRIBUTING.md's list.
+# caller check, so a green Linux build is those as well.
 #
 # What it cannot run: a program. There is no display or GPU here, and the
 # harness (tools/drive/) drives desktops and machines of its own; a change in
@@ -33,6 +35,9 @@ on:
         tags: ['v*']
     pull_request:
     workflow_dispatch:
+    # Mondays at 04:00 UTC: the checker trees, which a push skips.
+    schedule:
+        - cron: '0 4 * * 1'
 
 permissions:
     contents: read
@@ -52,7 +57,7 @@ jobs:
     linux:
         name: linux, win64, linux-arm64
         runs-on: ubuntu-latest
-        timeout-minutes: 60
+        timeout-minutes: 90
         container:
             image: ubuntu:26.04
         env:
@@ -168,13 +173,40 @@ jobs:
                   path: ${{ steps.arm64.outputs.archive }}
                   archive: false
                   if-no-files-found: error
+            # The checker trees, which a push does not build: this run and
+            # one asked for by hand do. Every variant the target takes, and
+            # the cross trees' after the Linux release's bake; each is a
+            # build with its in-build checks, and none is run -- there is no
+            # desktop here.
+            - name: Checker trees
+              if: >-
+                  ${{ !cancelled() && steps.linux.outcome == 'success' &&
+                      (github.event_name == 'schedule' ||
+                       github.event_name == 'workflow_dispatch') }}
+              run: |
+                  apt-get install -qy clang-21
+                  for v in clang asan tsan analyzer gc; do
+                      echo "::group::linux $v"
+                      ./build.sh linux $v
+                      echo "::endgroup::"
+                  done
+                  for v in asan tsan gc; do
+                      echo "::group::linux-arm64 $v"
+                      ./build.sh linux-arm64 $v
+                      echo "::endgroup::"
+                  done
+                  for v in analyzer gc; do
+                      echo "::group::win64 $v"
+                      ./build.sh win64 $v
+                      echo "::endgroup::"
+                  done
 
     macos:
         name: macos
         needs: linux
         if: ${{ !cancelled() && needs.linux.outputs.bake == 'success' }}
         runs-on: macos-26
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
             # The source checks and the zips are the checkout's, and the
             # Linux job has run them.
@@ -270,6 +302,19 @@ jobs:
                   path: ${{ steps.macos.outputs.archive }}
                   archive: false
                   if-no-files-found: error
+            # The Mac's checker trees, as the Linux job's: gc on both
+            # processors, with the same inputs as the release trees.
+            - name: macos and macos-arm64 gc
+              if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+              run: |
+                  inc="$PWD/mac/include"
+                  for t in macos macos-arm64; do
+                      echo "::group::$t gc"
+                      ./build.sh $t gc "-DFNL_HOST_INCLUDE=$inc" \
+                          "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
+                          "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
+                      echo "::endgroup::"
+                  done
 
     ruff:
         runs-on: ubuntu-latest
@@ -329,7 +374,18 @@ jobs:
                       }
                       shown
                   ' CHANGELOG.md > notes.md
-                  if [ -s notes.md ]; then
+                  # A re-run finds the release this job made and puts the
+                  # archives in place of its own; a first run makes it.
+                  if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+                      gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+                      if [ -s notes.md ]; then
+                          gh release edit "$GITHUB_REF_NAME" \
+                              --title "Fenestal $version" --notes-file notes.md
+                      else
+                          gh release edit "$GITHUB_REF_NAME" \
+                              --title "Fenestal $version"
+                      fi
+                  elif [ -s notes.md ]; then
                       gh release create "$GITHUB_REF_NAME" dist/* \
                           --title "Fenestal $version" --notes-file notes.md
                   else
