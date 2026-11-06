@@ -57,7 +57,7 @@ jobs:
     linux:
         name: linux, win64, linux-arm64
         runs-on: ubuntu-latest
-        timeout-minutes: 90
+        timeout-minutes: 60
         container:
             image: ubuntu:26.04
         env:
@@ -173,18 +173,64 @@ jobs:
                   path: ${{ steps.arm64.outputs.archive }}
                   archive: false
                   if-no-files-found: error
-            # The checker trees, which a push does not build: this run and
-            # one asked for by hand do. Every variant the target takes, and
-            # the cross trees' after the Linux release's bake; each is a
-            # build with its in-build checks, and none is run -- there is no
-            # desktop here.
-            - name: Checker trees
-              if: >-
-                  ${{ !cancelled() && steps.linux.outcome == 'success' &&
-                      (github.event_name == 'schedule' ||
-                       github.event_name == 'workflow_dispatch') }}
+
+    # The checker trees, which a push does not build: the weekly run and one
+    # asked for by hand do. They have a job and a container of their own:
+    # TSan's shadow cannot share the runner's ASLR layout, and it disables
+    # ASLR itself with personality(), which the default seccomp profile
+    # refuses -- so this job's container is the one unconfined, and no
+    # push's. The bake comes from the Linux job's cache, as the Mac's does.
+    checkers:
+        name: checkers
+        needs: linux
+        if: >-
+            ${{ !cancelled() &&
+                (github.event_name == 'schedule' ||
+                 github.event_name == 'workflow_dispatch') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        container:
+            image: ubuntu:26.04
+            options: --security-opt seccomp=unconfined
+        env:
+            DEBIAN_FRONTEND: noninteractive
+        steps:
+            - name: Install packages
               run: |
-                  apt-get install -qy clang-21
+                  apt-get update -q
+                  apt-get install -qy \
+                      git ca-certificates cmake make gcc g++ pkgconf \
+                      python3 linux-libc-dev libvulkan-dev libegl-dev \
+                      libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
+                      libfreetype-dev glslang-tools spirv-cross xkb-data \
+                      xz-utils zstd clang-21 \
+                      gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 \
+                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            # The font tools run during the build and a cross or checker
+            # tree takes the host's bake rather than making one; the Linux
+            # job saved it with verifyfont's pass, which a lender needs.
+            - name: Take the Linux job's font
+              # v6.1.0
+              uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: mac
+                  key: ${{ env.MACOS_INPUTS }}
+                  fail-on-cache-miss: true
+            - name: Place the font
+              run: |
+                  g=build/linux/release/generated
+                  mkdir -p $g
+                  cp mac/font/* $g/
+                  touch $g/font_atlas.bin
+                  sleep 1
+                  touch $g/font_verified.stamp
+            # Every variant the target takes. Each is a build with its
+            # in-build checks, and none is run -- there is no desktop here.
+            - name: Checker trees
+              run: |
+                  git config --global --add safe.directory "$GITHUB_WORKSPACE"
                   for v in clang asan tsan analyzer gc; do
                       echo "::group::linux $v"
                       ./build.sh linux $v
