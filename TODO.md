@@ -600,8 +600,12 @@ and three `pace.py` columns). Owed, in this order:
    picture is refused while a window not the program's, the Dock's or the
    menu bar's is in front of the window (`over`), which is what the
    Screen Recording grant's dialog asking to be confirmed again would be.
-   Owed: that dialog seen, its owner and layer, and whether `screen` reads
-   0 while it is up.
+   A reset (`tccutil reset ScreenCapture`, 2026-11-06) clears the decision
+   and `screen` reads 0, but an ssh session's capture is then denied
+   outright -- `screencapture` says "could not create image from display",
+   no dialog -- so the re-confirmation is macOS's own timer and cannot be
+   forced that way. Owed still: that dialog seen, its owner and layer, and
+   whether `screen` reads 0 while it is up.
 
 - **The bench's three repeats are the teardown's test**: a place runs
   three lifetimes in one process, closing one window and opening the
