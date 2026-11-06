@@ -301,21 +301,26 @@ jobs:
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
             # Every target's archive, an artifact of its own and merged into
-            # one directory here. The run is this job's own.
+            # one directory here. The run is this job's own. The archives
+            # are already packed, and three of them are themselves zips, so
+            # they are saved as they were uploaded -- extracted, a zip
+            # artifact would come apart into the program tree or the source.
             - name: Take the run's artifacts
               # v8.0.2
               uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
               with:
                   path: dist
                   merge-multiple: true
+                  skip-decompress: true
             - name: Publish the release
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   version=${GITHUB_REF_NAME#v}
                   for f in dist/*; do
-                      mv "$f" "$(printf '%s' "$f" |
-                          sed -E "s/-[0-9a-f]{12}\./-$GITHUB_REF_NAME./")"
+                      n=$(printf '%s' "$f" |
+                          sed -E "s/-[0-9a-f]{12}\./-$GITHUB_REF_NAME./")
+                      if [ "$n" != "$f" ]; then mv "$f" "$n"; fi
                   done
                   awk -v want="## $version" '
                       /^## / {
