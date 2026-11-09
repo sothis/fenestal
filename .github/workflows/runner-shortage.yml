@@ -1,0 +1,82 @@
+name: Runner shortage retry
+
+# When GitHub has no hosted runner for a job (macOS runners run short now and
+# then), it cancels the job after about fifteen minutes with "The job was not
+# acquired by Runner of type hosted even after multiple attempts", and every job
+# that needs it is skipped. On a tag that skips the release.
+#
+# CI dispatches this workflow from its `shortage_retry` job when a push run ends
+# without succeeding. This asks .github/scripts/runner-shortage.sh whether a
+# missing runner is the only reason, and if so waits five minutes and re-runs the
+# failed jobs (their dependents with them), up to attempt 50 (GitHub re-runs a run
+# at most 50 times, so one is left for a person). A run with a real failure, one
+# cancelled by a newer push or by hand, and a branch run its branch has moved on
+# from are left as they are. Pull request and schedule runs never get here: only
+# push runs dispatch it.
+#
+# It is dispatched instead of triggered on `workflow_run` on purpose. That trigger
+# fires for every completed CI run, and when the `retry` job's `if` then skips it
+# GitHub still creates the run and lists it as skipped.
+on:
+    workflow_dispatch:
+        inputs:
+            run_id:
+                description: CI run id to judge
+                required: true
+            attempt:
+                description: Run attempt to judge
+                required: true
+
+permissions:
+    actions: write   # re-run the failed jobs
+    checks: read     # read why a job was cancelled (its annotations)
+    contents: read
+
+jobs:
+    retry:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+            - name: Re-run the jobs GitHub found no runner for
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RUN: ${{ inputs.run_id }}
+                  ATTEMPT: ${{ inputs.attempt }}
+              run: |
+                  set -euo pipefail
+                  # The dispatch comes from inside the run it names, so that run
+                  # ends moments later. Wait for it: the verdict below reads the
+                  # jobs' conclusions, and a job still in flight has none.
+                  status=unknown
+                  for _ in $(seq 1 24); do
+                      if ! status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .status 2>/dev/null); then
+                          status=unknown
+                      fi
+                      if [ "$status" = completed ]; then break; fi
+                      sleep 5
+                  done
+                  if [ "$status" != completed ]; then
+                      echo "::warning::run $RUN did not finish within two minutes of the dispatch; leaving it"
+                      exit 0
+                  fi
+                  verdict=$(.github/scripts/runner-shortage.sh "$GITHUB_REPOSITORY" "$RUN" "$ATTEMPT")
+                  echo "run $RUN attempt $ATTEMPT: $verdict"
+                  [ "$verdict" = retry ] || exit 0
+                  # The pool may still be short a minute later; five gives it a chance.
+                  sleep 300
+                  # Asked again: a newer push may have landed while this waited.
+                  verdict=$(.github/scripts/runner-shortage.sh "$GITHUB_REPOSITORY" "$RUN" "$ATTEMPT")
+                  [ "$verdict" = retry ] || { echo "run $RUN: $verdict"; exit 0; }
+                  # `rerun --failed` acts on the run's LATEST attempt, but the verdict is
+                  # about attempt $ATTEMPT. If someone re-ran the run by hand during the
+                  # wait, the latest attempt is one nobody judged; leave it to them.
+                  latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .run_attempt)
+                  [ "$latest" = "$ATTEMPT" ] || { echo "run $RUN: attempt $latest started meanwhile; keep"; exit 0; }
+                  # GITHUB_TOKEN is enough: the re-run needs no event of its own --
+                  # when it ends, its own `shortage_retry` job (re-run as a dependent
+                  # of the jobs that failed) asks for the next judgement.
+                  gh run rerun "$RUN" --failed -R "$GITHUB_REPOSITORY"
+                  echo "::notice::re-ran the failed jobs of run $RUN (attempt $ATTEMPT): GitHub had found no runner for them"
