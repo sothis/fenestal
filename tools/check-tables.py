@@ -81,8 +81,8 @@ def main():
              block('src/backend/win32/win32.c', 'SC_EXTENDED[]'))
     # A key a platform cannot name, and why. macOS delivers its media keys as
     # system-defined events (NX_KEYTYPE_SOUND_UP and the two beside it), not
-    # keyDown, which is what MAC_KEYS maps: they arrive as FNL_KEY_UNKNOWN
-    # there until the Cocoa backend reads that channel.
+    # keyDown, so there is no keyCode for MAC_KEYS to map: cocoa.m answers them
+    # in cocoa_media_key(), off that channel.
     aside = {
         'src/backend/cocoa/cocoa.m MAC_KEYS': {'FNL_KEY_VOLUME_DOWN',
                                               'FNL_KEY_VOLUME_UP',

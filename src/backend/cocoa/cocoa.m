@@ -1567,6 +1567,27 @@ static bool is_input_event(NSEventType t)
 	}
 }
 
+/* The keyboard's media keys: AppKit delivers these as a system-defined event
+ * rather than a key, so MAC_KEYS has no row for them. Subtype 8 is the
+ * auxiliary control buttons and data1 packs the key in its high byte,
+ * whether it went down (0x0a) or up (0x0b) in the middle, and the repeat flag
+ * in the low one -- NX_KEYTYPE_SOUND_UP is 0, SOUND_DOWN 1, MUTE 7. */
+static bool cocoa_media_key(App *a, NSEvent *e)
+{
+	if (e.type != NSEventTypeSystemDefined || e.subtype != 8)
+		return false;
+	const unsigned data = (unsigned)e.data1;
+	FnlKey k;
+	switch ((data >> 16) & 0xff) {
+	case 0:  k = FNL_KEY_VOLUME_UP;   break;
+	case 1:  k = FNL_KEY_VOLUME_DOWN; break;
+	case 7:  k = FNL_KEY_MUTE;        break;
+	default: return false;
+	}
+	app_key(a, k, ((data >> 8) & 0xff) == 0x0a);
+	return true;
+}
+
 /* One turn: wait for an event, then dispatch it and whatever else is queued
  * rather than going back to sleep between each. The wakeup's own event ends
  * the wait and is dispatched to nobody. */
@@ -1587,7 +1608,10 @@ static void cocoa_pump(App *a)
 				if (is_input_event(e.type))
 					app_input_age(a, NSProcessInfo.processInfo.systemUptime -
 									 e.timestamp);
-				[NSApp sendEvent:e];
+				/* A media key is answered here and reaches nobody else; the
+				 * rest is AppKit's. */
+				if (!cocoa_media_key(a, e))
+					[NSApp sendEvent:e];
 			}
 			pump_waiting = true;
 			e = [NSApp nextEventMatchingMask:NSEventMaskAny

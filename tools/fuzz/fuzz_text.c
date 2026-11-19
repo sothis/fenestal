@@ -42,6 +42,58 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	for (int sz = 0; sz < TEXT_SIZE_COUNT; sz++)
 		(void)text_width(s, (TextSize)sz);
 
+	/* fnl_text_elide(): what comes out fits the width it was given, ends
+	 * inside its buffer, holds whole code points, and is the line's own
+	 * bytes up to where it was cut -- a cut leaving no half sequence
+	 * behind. */
+	for (int sz = 0; sz < TEXT_SIZE_COUNT; sz++) {
+		for (int max_w = 8; max_w <= 96; max_w += 11) {
+			char buf[64];
+			text_elide(buf, sizeof buf, s, max_w, (TextSize)sz);
+			const size_t n = strlen(buf);
+			if (n + 1 > sizeof buf) {
+				fprintf(stderr, "elide: overran, n %zu\n", n);
+				abort();
+			}
+			const int w = text_width(buf, (TextSize)sz);
+			if (w > max_w) {
+				fprintf(stderr, "elide: %d points for %d, sz %d: %s\n",
+						w, max_w, sz, buf);
+				abort();
+			}
+			const bool dots = n >= 3 && strcmp(buf + n - 3, "...") == 0;
+			const size_t cut = dots ? n - 3 : n;
+			if (cut && strncmp(buf, s, cut) != 0) {
+				fprintf(stderr, "elide: not the line, cut %zu: %s\n",
+						cut, buf);
+				abort();
+			}
+			/* Only a real cut has a boundary: at zero the dots are all that
+			 * fits, and what the line starts with is its own business. */
+			if (dots && cut > 0 && s[cut] &&
+				((unsigned char)s[cut] & 0xc0) == 0x80) {
+				fprintf(stderr, "elide: cut %zu mid-sequence\n", cut);
+				abort();
+			}
+		}
+		char tiny[4];
+		text_elide(tiny, sizeof tiny, s, 60, (TextSize)sz);
+		if (strlen(tiny) + 1 > sizeof tiny) {
+			fprintf(stderr, "elide: tiny overran\n");
+			abort();
+		}
+		for (const char *p = tiny; *p; ) {
+			uint32_t cp;
+			bool     ok;
+			const char *q = utf8_decode(p, &cp, &ok);
+			if (q <= p) {
+				fprintf(stderr, "elide: tiny stopped\n");
+				abort();
+			}
+			p = q;
+		}
+	}
+
 	free(s);
 	return 0;
 }

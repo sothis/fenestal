@@ -47,11 +47,12 @@ static const struct { char name[5]; uint8_t code; } KEY_NAME_CODES[] = {
 	{ "KP9", 73 }, { "KPAD", 78 }, { "KPDL", 83 }, { "KPDV", 98 },
 	{ "KPEN", 96 }, { "KPMU", 55 }, { "KPSU", 74 }, { "LALT", 56 },
 	{ "LCTL", 29 }, { "LEFT", 105 }, { "LFSH", 42 }, { "LSGT", 86 },
-	{ "LWIN", 125 }, { "MENU", 127 }, { "NMLK", 69 }, { "PAUS", 119 },
+	{ "LWIN", 125 }, { "MENU", 127 }, { "MUTE", 113 }, { "NMLK", 69 },
+	{ "PAUS", 119 },
 	{ "PGDN", 109 }, { "PGUP", 104 }, { "PRSC", 99 }, { "RALT", 100 },
 	{ "RCTL", 97 }, { "RGHT", 106 }, { "RTRN", 28 }, { "RTSH", 54 },
 	{ "RWIN", 126 }, { "SCLK", 70 }, { "SPCE", 57 }, { "TAB", 15 },
-	{ "TLDE", 41 }, { "UP", 103 },
+	{ "TLDE", 41 }, { "UP", 103 }, { "VOL-", 114 }, { "VOL+", 115 },
 };
 
 void x11_keys_from_names(struct BackendState *p, const uint8_t *names,

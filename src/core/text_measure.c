@@ -305,8 +305,10 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 		n++;
 	}
 	/* One line only, so a layout that reserved a line cannot be pushed down by
-	 * its content; and a cut on a code point boundary whatever happens next. */
-	while (n > 0 && ((unsigned char)dst[n] & 0xc0) == 0x80)
+	 * its content; and a cut on a code point boundary whatever happens next.
+	 * The line's own byte decides it: dst[n] is the terminator's place and
+	 * holds nothing yet. */
+	while (n > 0 && ((unsigned char)src[n] & 0xc0) == 0x80)
 		n--;
 	dst[n] = '\0';
 	if (text_width(dst, sz) <= max_w)
