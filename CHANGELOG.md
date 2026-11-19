@@ -6,6 +6,13 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- A first start on a display with no kept figures opens at once on the
+  automatic pick, instead of measuring every GPU entry first (some 4 s an
+  entry, with the window taking no input meanwhile). The ranking is read
+  where it exists and measured only where the caller asks:
+  `FNL_GPU_RANK=calibrate`, or the GPU box's last row. What
+  `FnlInitDesc::no_gpu_ranking` did for one program is now what every
+  program gets; the flag still turns the reading off as well.
 - `fnl_invalidate_in()`: the frame after this one, drawn no sooner than a
   number of milliseconds from now. A progress bar or a meter asks for its own
   refresh rate without a clock thread and without a frame per display

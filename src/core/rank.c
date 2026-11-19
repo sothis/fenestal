@@ -961,13 +961,19 @@ static void enter(App *a, int state, double now)
 static double time_left(const App *a, double now);
 
 /* Whether to calibrate, asked once the list is whole and again whenever
- * the window is on another display or the list has entries it had not:
- * every entry with no figure on this display, or every entry once where
- * FNL_GPU_RANK=calibrate asks; never where a ranking is only used. */
+ * the window is on another display or the list has entries it had not.
+ *
+ * Only where the caller asked for it: an entry with no figure for this
+ * display used to be measured as soon as the window was up, which is some
+ * four seconds an entry with the window taking no input meanwhile -- not
+ * what a program somebody opened to use should do on its first start. The
+ * figures are used where they are kept, the window opens on the automatic
+ * pick where they are not, and the box's last row measures on demand
+ * (app_rank_recalibrate()). */
 static void check_missing(App *a)
 {
 	a->rank_dirty = false;
-	if (a->rank_mode != RANK_AUTO && a->rank_mode != RANK_CALIBRATE)
+	if (a->rank_mode != RANK_CALIBRATE)
 		return;
 	char display[RANK_DISPLAY_MAX];
 	display_now(a, display, sizeof display);
@@ -975,7 +981,7 @@ static void check_missing(App *a)
 	 * -- is no display to measure: asked again once it enters one. */
 	if (strncmp(display, "- ", 2) == 0)
 		return;
-	const bool all = a->rank_mode == RANK_CALIBRATE && !a->rank_forced;
+	const bool all = !a->rank_forced;
 	a->rank_forced = true;
 	plan(a, display, all);
 	if (a->cal.n == 0)

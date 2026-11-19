@@ -247,11 +247,15 @@ typedef struct {
 	 *
 	 * The GPU list is ranked by each entry's measured frame rate on each
 	 * display and mode, kept in the user's cache directory per program and
-	 * backend (the GPU box's last row measures them again):
-	 * an entry with no figure for the display the window is on is measured
-	 * once the window is up -- the window says so with the time left and
-	 * takes no input meanwhile, some 4 s an entry -- and a GPU or display
-	 * taken away keeps its figures. The list is ordered by the window's
+	 * backend: a GPU or display taken away keeps its figures, and the list
+	 * is ordered by the window's display's where it has any.
+	 *
+	 * Nothing is measured unless the caller asks: FNL_GPU_RANK=calibrate,
+	 * or the GPU box's last row, which measures every entry and says so with
+	 * the time left, taking no input meanwhile, some 4 s an entry. An entry
+	 * with no figure for the display the window is on used to be measured as
+	 * soon as the window was up; it now opens on the automatic pick instead
+	 * (fnl_init()'s gpu_index above). The list is ordered by the window's
 	 * display's, best first, and a window that names no GPU opened on its
 	 * first entry; gpu_index and an index in FNL_GPU then count that list,
 	 * a name as before, and each still stands once a calibration ends: the
