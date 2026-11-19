@@ -22,6 +22,7 @@ fnl_text_width
 fnl_text_line
 fnl_text_height
 fnl_text_advance
+fnl_text_elide
 fnl_overlay_text
 fnl_overlay_rect
 fnl_overlay_stroke
@@ -31,8 +32,11 @@ fnl_overlay_flush
 fnl_overlay_clip
 fnl_window_size_pt
 fnl_invalidate
+fnl_invalidate_in
 fnl_titlebar_reserve
 fnl_titlebar_custom
+fnl_titlebar_height
+fnl_titlebar_owned
 fnl_titlebar_claim
 fnl_claim
 fnl_begin_move

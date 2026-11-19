@@ -1,0 +1,12 @@
+-I/home/json/ws/fenestal/include
+-I/home/json/ws/fenestal/src
+-I/home/json/ws/fenestal/tools
+-I/home/json/ws/fenestal/build/linux/release/generated
+-std=gnu11
+-D_DEFAULT_SOURCE
+-DFNL_BUILD
+-DFNL_HAVE_KMS
+-DFNL_HAVE_WAYLAND
+-DFNL_HAVE_X11
+-DFNL_HAVE_RENDERER_GL
+-DFNL_HAVE_RENDERER_VULKAN

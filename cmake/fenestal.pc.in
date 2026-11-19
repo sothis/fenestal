@@ -1,0 +1,12 @@
+prefix=@CMAKE_CURRENT_BINARY_DIR@
+includedir=@CMAKE_CURRENT_SOURCE_DIR@/include
+
+Name: fenestal
+Description: A window, a device, a frame loop and a text overlay, wrapped around a scene that is yours.
+Version: @PROJECT_VERSION@
+Cflags: -I${includedir}@_fnl_pc_vk_inc@
+Libs: -L${prefix} -lfenestal
+# What the archive needs beyond -lfenestal: the math the layout does, the
+# runtimes it opens at run time, and the render thread. Ask for them with
+# pkg-config --static, or link the shared object and leave them to it.
+Libs.private: -lm -ldl -lpthread

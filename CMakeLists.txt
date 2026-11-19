@@ -1729,6 +1729,29 @@ add_library(fenestal ALIAS fenestal_shared)
 add_library(fenestal::fenestal ALIAS fenestal_shared)
 add_library(fenestal::static ALIAS fenestal_static)
 
+# ---- A pkg-config file for a build that is not CMake's ---------------------
+# The supported way in is add_subdirectory() above, and nothing is installed.
+# A project that builds with its own Makefile still needs the include path and
+# the archive's private dependencies written down somewhere, and that is what
+# pkg-config is for. This one is written into the build tree beside the library
+# and installs nothing, so the rule above holds:
+#
+#     PKG_CONFIG_PATH=<this dir> pkg-config --cflags --libs fenestal
+#     PKG_CONFIG_PATH=<this dir> pkg-config --static --libs fenestal
+#
+# The two libraries have the same name, so --static is what brings the system
+# libraries an archive does not carry. The Linux trees only: a Windows consumer
+# links what CMake hands it, and a Mac one wants the frameworks by name.
+if(NOT WIN32 AND NOT APPLE)
+    set(_fnl_pc_vk_inc "")
+    if(vulkan IN_LIST FNL_RENDERERS AND _vk_usage_inc)
+        list(JOIN _vk_usage_inc " -I" _fnl_pc_vk_inc)
+        set(_fnl_pc_vk_inc " -I${_fnl_pc_vk_inc}")
+    endif()
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fenestal.pc.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/fenestal.pc @ONLY)
+endif()
+
 # ---- The example ----------------------------------------------------------
 # A client of the library: it includes only the public headers, and linking
 # it is what proves they stand alone. It compiles its own shaders with its

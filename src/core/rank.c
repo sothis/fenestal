@@ -541,7 +541,12 @@ void app_rank_start(App *a)
 				 : strcmp(v, "keep") == 0        ? RANK_KEEP
 				 : strcmp(v, "order") == 0       ? RANK_ORDER
 				 : strcmp(v, "off") == 0         ? RANK_OFF
-												 : RANK_AUTO;
+														 : RANK_AUTO;
+	/* FnlInitDesc::no_gpu_ranking means what unset now does not: nothing
+	 * measured with the window up, for a program a person starts to use. The
+	 * environment still decides where it speaks. */
+	if (a->rank_no_measure && (!v || !v[0]))
+		a->rank_mode = RANK_OFF;
 	if (v && v[0] && a->rank_mode == RANK_AUTO)
 		fnl_log(FNL_LOG_WARN, "FNL_GPU_RANK is '%s': calibrate, keep, "
 				"order, off, or unset", v);

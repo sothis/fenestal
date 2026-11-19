@@ -225,9 +225,12 @@ Zone deco_hit(App *a, double px, double py, Edge *edge)
 	const int  x = (int)floor(px), y = (int)floor(py);
 	/* The presentable area is the content but for what the caller claimed
 	 * in it, which is a control of its own: a press there is its event and
-	 * takes no pointer. In fullscreen, too, where there is nothing else. */
+	 * takes no pointer. In fullscreen, too, where there is nothing else.
+	 * A window that is all interface (FnlInitDesc::content_is_ui) needs
+	 * nothing claimed for the same answer. */
 	if (!deco_client(a->is_fullscreen))
-		return claim_at(a, x, y) ? ZONE_CLIENT_ITEM : ZONE_CONTENT;
+		return a->content_is_ui || claim_at(a, x, y) ? ZONE_CLIENT_ITEM
+													: ZONE_CONTENT;
 	if (ctl_modal(a))
 		return ZONE_CONTROL;
 
@@ -252,7 +255,7 @@ Zone deco_hit(App *a, double px, double py, Edge *edge)
 
 	if (y >= 0 && y < deco_bar_h(a, a->is_fullscreen))
 		return deco_zone_at(a, w, x, y);
-	return claim_at(a, x, y) ? ZONE_CLIENT_ITEM : ZONE_CONTENT;
+	return a->content_is_ui || claim_at(a, x, y) ? ZONE_CLIENT_ITEM : ZONE_CONTENT;
 }
 
 /* Which of the library's own buttons is lit; any other zone is none. Where

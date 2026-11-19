@@ -292,6 +292,27 @@ typedef struct {
 	 * environment ("vulkan", "gl", "d3d12", "metal") names one of them
 	 * instead, which is taken or fails. */
 	uint32_t renderers;
+
+	/* The presentable area is the caller's own interface -- controls drawn
+	 * with the overlay, a scene behind them or none at all -- so every press
+	 * in it arrives as an FNL_EVENT_BUTTON and no click takes the pointer.
+	 *
+	 * What fnl_claim() buys for a panel, for a window that is nothing but
+	 * panels: one flag in place of claiming the whole area again every frame
+	 * and releasing the capture that a press landing on a stale claim took.
+	 * The library's own titlebar, a bar of the caller's and the resize edges
+	 * are unchanged -- those presses are decided before this is read. */
+	bool content_is_ui;
+
+	/* Read no GPU ranking and measure none, wherever FNL_GPU_RANK is unset:
+	 * the window then opens at once on the automatic pick instead of
+	 * measuring every entry on this display first (see gpu_name above), with
+	 * the window saying so and taking no input meanwhile.
+	 *
+	 * For a program a person starts to use rather than to watch: the
+	 * calibration is the testbed's and the harness's. FNL_GPU_RANK in the
+	 * environment still decides where it is set. */
+	bool no_gpu_ranking;
 } FnlInitDesc;
 
 /* Every descriptor's first field is its own sizeof, which is the ABI story
@@ -579,6 +600,10 @@ typedef struct { double dx, dy; } FnlRelativeEvent;
  * right. */
 typedef struct { double x, y, dx, dy; } FnlScrollEvent;
 
+/* The keyboard focus arrived or left. A leave delivers no release for what is
+ * still held: fnl_key_down() clears the keys, but a button press, and the drag
+ * a caller is tracking from it, are never released either -- so drop them
+ * here, along with anything else the window no longer owns. */
 typedef struct { bool focused; } FnlFocusEvent;
 
 /* The presentable area, in logical points and in pixels -- the same pair
@@ -922,6 +947,19 @@ FNL_API int fnl_text_line(FnlTextSize sz);     /* baseline to baseline [any] */
 FNL_API int fnl_text_height(FnlTextSize sz);   /* cap height           [any] */
 FNL_API int fnl_text_advance(FnlTextSize sz);  /* one cell; mono only  [any] */
 
+/* Fit one line of `src` into `max_w` logical points at `sz`, in `dst`, a buffer
+ * of `cap` bytes: the string itself where it fits, else cut at a code point
+ * boundary and ended in "...", else "" where not even that fits. Everything
+ * from a '\n' or '\r' on is dropped, so a layout that reserves one line gets
+ * one. `dst` may be `src`.
+ *
+ * For text in a column of a fixed width, which fnl_overlay_clip() cannot bound:
+ * glyphs are one draw for the whole frame, so what does not fit is elided
+ * rather than clipped. Reads the same tables fnl_text_width() does, and where
+ * that answers a reserve width so does this. Safe from [any] thread. */
+FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src,
+							int max_w, FnlTextSize sz);          /* [any] */
+
 /* `y` is the top of the glyph box, not the baseline, so a line of text and a
  * rectangle behind it take the same y. */
 FNL_API void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz,
@@ -988,6 +1026,22 @@ FNL_API void fnl_window_size_pt(const FnlApp *app,
  * after this one differs from this one". */
 FNL_API void fnl_invalidate(FnlApp *app);                           /* [any] */
 
+/* The same frame, but drawn no sooner than `ms` milliseconds from now.
+ *
+ * For what changes on its own -- a progress bar, a meter, a countdown -- where
+ * fnl_invalidate() would ask for a frame per display refresh: the window keeps
+ * drawing itself at the rate asked for, and the caller needs no clock thread
+ * of its own (fnl_invalidate() is the wake it would otherwise call). A
+ * pending time is not extended, and an earlier one replaces a later: the
+ * next frame comes at the first opportunity at or after the soonest time
+ * asked for.
+ *
+ * Called from on_overlay it schedules the frame *after* this one, which is
+ * how a window that must keep refreshing asks for its own next turn.
+ * fnl_invalidate() spends it at once. Cheap and idempotent, and ms <= 0 is
+ * fnl_invalidate(). Safe from [any] thread. */
+FNL_API void fnl_invalidate_in(FnlApp *app, int ms);                 /* [any] */
+
 /* ---- controls in the titlebar ---------------------------------------------
  *
  * Reserve a run of the library's titlebar for controls of your own, and get
@@ -1035,6 +1089,17 @@ FNL_API bool fnl_titlebar_reserve(FnlApp *app, int want_w,
  * is no window -- and never that the window server declined. */
 FNL_API bool fnl_titlebar_custom(FnlApp *app, int height_pt,
 								 int min_width_pt);                  /* [any] */
+
+/* How tall the titlebar band is, in window points: 0 in fullscreen, the
+ * library's own DECO height or the caller's under fnl_titlebar_custom(). The
+ * same figure fnl_content_rect_pt() starts the presentable area below, without
+ * having to infer it from that call's y. */
+FNL_API int fnl_titlebar_height(const FnlApp *app);                  /* [any] */
+
+/* Whether the band is the caller's (fnl_titlebar_custom()) rather than the
+ * library's own, so a caller that draws across the top of the window knows
+ * whether anything of the library's is drawn there too. */
+FNL_API bool fnl_titlebar_owned(const FnlApp *app);                  /* [any] */
 
 /* Claim a rectangle of your titlebar as yours, so a press there reaches you
  * as an ordinary event instead of starting a window drag. Everything in the

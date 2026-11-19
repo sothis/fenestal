@@ -6,6 +6,29 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_invalidate_in()`: the frame after this one, drawn no sooner than a
+  number of milliseconds from now. A progress bar or a meter asks for its own
+  refresh rate without a clock thread and without a frame per display
+  refresh; a time asked for is not extended by asking again, and
+  `fnl_invalidate()` spends it at once.
+- `fnl_text_elide()`: one line fitted into a width, cut on a code point
+  boundary and ended in "...", or "" where not even that fits. What
+  `fnl_overlay_clip()` cannot do for text, since a frame's glyphs are one
+  draw.
+- `FnlInitDesc::content_is_ui`: the presentable area is the caller's own
+  interface, so a press in it is an event and takes no pointer -- what
+  `fnl_claim()` buys for a panel, for a window that is nothing but panels.
+- `FnlInitDesc::no_gpu_ranking`: no ranking read and nothing measured at
+  start, for a program a person starts to use rather than to watch. What
+  `FNL_GPU_RANK=off` said, in the descriptor, and the environment still
+  decides where it speaks.
+- `fnl_titlebar_height()` and `fnl_titlebar_owned()`: the band's height and
+  whose it is, rather than inferring both from where the presentable area
+  starts.
+- A generated `fenestal.pc` in the build tree, for a consumer whose build is
+  not CMake's: `PKG_CONFIG_PATH=<build dir> pkg-config --cflags --libs
+  fenestal`. Nothing is installed.
+- The ABI baseline follows the descriptor's two new fields.
 - Cocoa: a window closed and another opened in the same process no longer
   crashes on the exit event AppKit still owed the old window's tracking
   area; the area is removed before the window goes, and the view's

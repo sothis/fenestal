@@ -278,3 +278,68 @@ int scale_index(int s120)
 	}
 	return best;
 }
+
+/* See fnl_text_elide(). A cut lands on a code point boundary and is ended in
+ * "..." -- a glyph that does not fit cannot be clipped instead, since the
+ * frame's glyphs are one draw.
+ *
+ * Binary search over where to cut, measuring the buffer itself: backing off a
+ * character at a time costs a measure per character dropped, which is a title
+ * in a narrow column times two. text_width() is monotone in the prefix, every
+ * advance being non-negative, so the search is sound. */
+void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
+{
+	if (!dst || cap == 0)
+		return;
+	dst[0] = '\0';
+	if (!src || !src[0] || max_w <= 0)
+		return;
+
+	/* The dots and the terminator come out of the same buffer, so a cut leaves
+	 * room for both; a buffer of four bytes or fewer ends without them. */
+	const size_t dots_n = cap > 4 ? 3 : 0;
+	const size_t lim = cap - dots_n - 1;
+	size_t n = 0;
+	while (src[n] && src[n] != '\n' && src[n] != '\r' && n < lim) {
+		dst[n] = src[n];
+		n++;
+	}
+	/* One line only, so a layout that reserved a line cannot be pushed down by
+	 * its content; and a cut on a code point boundary whatever happens next. */
+	while (n > 0 && ((unsigned char)dst[n] & 0xc0) == 0x80)
+		n--;
+	dst[n] = '\0';
+	if (text_width(dst, sz) <= max_w)
+		return;
+	if (dots_n == 0)
+		return;              /* truncated, and no room to say it was cut */
+	if (text_width("...", sz) > max_w) {
+		dst[0] = '\0';      /* not even the dots fit */
+		return;
+	}
+
+	/* The longest prefix whose dots still fit. Each probe measures the line
+	 * with the dots written over its end: the reserve width of a concatenation
+	 * is not the sum of the two, since each takes the widest of the baked
+	 * scales, so it has to be measured whole. The bytes a probe wrote are put
+	 * back, so every probe sees the whole line. */
+	size_t lo = 0, hi = n;
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo + 1) / 2;
+		while (mid > 0 && ((unsigned char)dst[mid] & 0xc0) == 0x80)
+			mid--;
+		if (mid == lo)
+			break;               /* no whole code point left between */
+		char tail[4];
+		memcpy(tail, dst + mid, sizeof tail);
+		memcpy(dst + mid, "...", 4);
+		const bool fits = text_width(dst, sz) <= max_w;
+		memcpy(dst + mid, tail, sizeof tail);
+		if (fits)
+			lo = mid;
+		else
+			hi = mid - 1;
+	}
+	dst[lo] = '\0';
+	memcpy(dst + lo, "...", dots_n + 1);    /* the terminator with them */
+}

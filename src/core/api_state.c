@@ -185,6 +185,32 @@ void fnl_content_rect_pt(const FnlApp *app, int *x, int *y, int *w, int *h)
 	if (h) *h = ch;
 }
 
+/* How tall the band is for the window as it is: the caller's own under
+ * fnl_titlebar_custom(), the library's otherwise, and none in fullscreen.
+ * deco_bar_h() is the one definition, under the lock the render thread latches
+ * the pair with. */
+int fnl_titlebar_height(const FnlApp *app)
+{
+	App *a = (App *)app;
+	if (!a)
+		return 0;
+	fnl_mutex_lock(&a->lock);
+	const int h = deco_bar_h(a, a->want_fullscreen);
+	fnl_mutex_unlock(&a->lock);
+	return h;
+}
+
+bool fnl_titlebar_owned(const FnlApp *app)
+{
+	App *a = (App *)app;
+	if (!a)
+		return false;
+	fnl_mutex_lock(&a->lock);
+	const bool v = a->deco_custom;
+	fnl_mutex_unlock(&a->lock);
+	return v;
+}
+
 /* ---- writing ------------------------------------------------------------- */
 
 /* Everything the caller draws that the library cannot see, as one counter.
@@ -200,7 +226,35 @@ void fnl_invalidate(FnlApp *app)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->want_user_gen++;
+	/* A frame is coming now, so a time asked for is spent: fnl_invalidate_in()
+	 * schedules the next one, and this is it. */
+	a->want_draw_at = 0.0;
 	fnl_cond_signal(&a->cond);
+	fnl_mutex_unlock(&a->lock);
+}
+
+/* The same, at a time rather than at once. Kept under the lock beside the
+ * counter it spends, and never extends a time already pending: a caller that
+ * asks again every frame gets one frame an interval, not one an interval from
+ * the last ask.
+ *
+ * The render thread spends it (frame.c), which is where a prerequisite the
+ * caller cannot see -- a swapchain to make, a device to build -- is answered
+ * before its own frame anyway. */
+void fnl_invalidate_in(FnlApp *app, int ms)
+{
+	App *a = (App *)app;
+	if (!a)
+		return;
+	if (ms <= 0) {
+		fnl_invalidate(app);
+		return;
+	}
+	const double at = now_seconds() + (double)ms / 1000.0;
+	fnl_mutex_lock(&a->lock);
+	if (a->want_draw_at <= 0.0 || at < a->want_draw_at)
+		a->want_draw_at = at;
+	fnl_cond_signal(&a->cond);       /* for a loop at rest: wake and re-plan */
 	fnl_mutex_unlock(&a->lock);
 }
 

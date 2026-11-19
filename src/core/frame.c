@@ -1766,8 +1766,32 @@ static void rest_wait(App *a)
 	if (t <= 0.0)
 		t = REST_POLL;
 	fnl_mutex_lock(&a->lock);
-	if (!a->quit && !a->want_urgent)
+	/* Not past a time fnl_invalidate_in() asked for: the next frame is that
+	 * one, and a wait of a whole period would draw it late. */
+	if (a->want_draw_at > 0.0) {
+		const double left = a->want_draw_at - now_seconds();
+		if (left < t)
+			t = left;
+	}
+	if (!a->quit && !a->want_urgent && t > 0.0)
 		fnl_cond_wait_for(&a->cond, &a->lock, t);
+	fnl_mutex_unlock(&a->lock);
+}
+
+/* Whether a time fnl_invalidate_in() asked for has come, spent as the
+ * invalidate it stands for: the frame after this turn is drawn for it. Taken
+ * at the top of a turn rather than in rest_wait(), so a loop that is not at
+ * rest spends it too -- the deadline must not outlive the state it asked to
+ * be shown. */
+static void draw_time_spend(App *a)
+{
+	if (a->want_draw_at <= 0.0)
+		return;
+	fnl_mutex_lock(&a->lock);
+	if (a->want_draw_at > 0.0 && now_seconds() >= a->want_draw_at) {
+		a->want_draw_at = 0.0;
+		a->want_user_gen++;
+	}
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -1813,6 +1837,7 @@ void *render_loop(void *arg)
 	RENDERER(a)->thread_enter(a);
 
 	for (;;) {
+		draw_time_spend(a);
 		if (a->resting)
 			rest_wait(a);
 

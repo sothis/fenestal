@@ -2723,6 +2723,8 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 		a->scale_override120 = s;
 	}
 	gpu_choice(a, &d);
+	a->content_is_ui    = d.content_is_ui;
+	a->rank_no_measure  = d.no_gpu_ranking;
 	a->frame_times       = d.frame_times;
 	parts_open(a);
 	a->echo_events       = d.echo_events || echo_wanted_by_env();

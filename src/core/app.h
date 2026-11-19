@@ -1038,6 +1038,10 @@ struct FnlApp {
 
 	/* FnlInitDesc::echo_events, or FNL_ECHO_EVENTS in the environment. */
 	bool                  echo_events;
+	/* FnlInitDesc::content_is_ui: the presentable area is the caller's own
+	 * interface, so a press in it is the caller's event and takes no pointer
+	 * (deco_hit()). Read by the pump alone; written once at fnl_init. */
+	bool                  content_is_ui;
 	/* Whether a handler on the process's terminating signals could still
 	 * reach this app (FnlInitDesc::install_signal_handlers). The handler
 	 * reaches app_wakeup(), so while this is set the backends leave their
@@ -1386,6 +1390,10 @@ struct FnlApp {
 	 * had its one measure of everything; and the display and the list
 	 * that were last asked about, the list by its keys' hash. */
 	int                   rank_mode;
+	/* FnlInitDesc::no_gpu_ranking: what FNL_GPU_RANK unset means off, and what
+	 * a kept ranking is still read for -- the order is used, nothing is
+	 * measured (rank.c's app_rank_start()). */
+	bool                  rank_no_measure;
 	bool                  rank_dirty;
 	bool                  rank_forced;
 	char                  rank_display[RANK_DISPLAY_MAX];
@@ -1811,6 +1819,11 @@ struct FnlApp {
 	 * the lock because the shim has no atomic add, and a lost bump is a
 	 * stale frame. */
 	uint32_t              want_user_gen;
+	/* fnl_invalidate_in(): when the next frame may be drawn even though
+	 * nothing moved, in now_seconds()'s base, or 0 for none. Under the lock
+	 * with the counter it spends -- the render thread takes it at the top of a
+	 * turn (src/core/frame.c) and rest_wait() does not wait past it. */
+	double                want_draw_at;
 	/* The antialiasing mode the caller asked for (fnl_set_antialias()),
 	 * and the one in force: aa_asked as far as the device drawing now can
 	 * take it, worked out again at every device build (app_aa_settle()),
@@ -2660,6 +2673,10 @@ FNL_MUST_USE FnlResult text_load_cells(void);
  * threads get the same answer. There is deliberately no measure in pixels;
  * see the foot of text_measure.c. */
 int  text_width(const char *s, TextSize sz);
+/* Fit one line of `s` into max_w points in `dst` (cap bytes, terminator
+ * included): unchanged where it fits, else cut on a code point boundary and
+ * ended in "...", else "" where not even that fits. See fnl_text_elide(). */
+void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz);
 /* Which baked atlas is nearest this surface scale. */
 int  scale_index(int s120);
 /* Decode one UTF-8 code point, returning the next position. utf8_decode()
