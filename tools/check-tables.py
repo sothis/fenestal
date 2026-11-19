@@ -79,6 +79,15 @@ def main():
     keys = [k for k in enum(header, 'FnlKey') if k != 'FNL_KEY_UNKNOWN']
     win32 = (block('src/backend/win32/win32.c', 'SC_PLAIN[]') |
              block('src/backend/win32/win32.c', 'SC_EXTENDED[]'))
+    # A key a platform cannot name, and why. macOS delivers its media keys as
+    # system-defined events (NX_KEYTYPE_SOUND_UP and the two beside it), not
+    # keyDown, which is what MAC_KEYS maps: they arrive as FNL_KEY_UNKNOWN
+    # there until the Cocoa backend reads that channel.
+    aside = {
+        'src/backend/cocoa/cocoa.m MAC_KEYS': {'FNL_KEY_VOLUME_DOWN',
+                                              'FNL_KEY_VOLUME_UP',
+                                              'FNL_KEY_MUTE'},
+    }
     for where, have in (
             ('src/backend/evdev_keys.h EVDEV_KEYS',
              block('src/backend/evdev_keys.h', 'EVDEV_KEYS[')),
@@ -88,7 +97,8 @@ def main():
             ('src/core/echo.c KEY_NAMES',
              block('src/core/echo.c', 'KEY_NAMES[]'))):
         problems += ['%s has no row for %s' % (where, k)
-                     for k in keys if k not in have]
+                     for k in keys
+                     if k not in have and k not in aside.get(where, ())]
 
     echo = names('src/core/echo.c')
     for kind in ('FnlEventType', 'FnlButton'):

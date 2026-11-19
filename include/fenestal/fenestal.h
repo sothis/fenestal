@@ -493,6 +493,14 @@ typedef enum {
 	FNL_KEY_KP_SUBTRACT    = 103,
 	FNL_KEY_KP_ADD         = 104,
 	FNL_KEY_KP_ENTER       = 105,
+
+	/* The speakers: a machine with no desktop has nobody else to answer for
+	 * them. Named where the backend hears them as keys -- evdev, so KMS and
+	 * Wayland; the systems whose media keys are a channel of their own leave
+	 * these FNL_KEY_UNKNOWN. */
+	FNL_KEY_VOLUME_DOWN    = 106,
+	FNL_KEY_VOLUME_UP      = 107,
+	FNL_KEY_MUTE           = 108,
 } FnlKey;
 
 typedef enum {

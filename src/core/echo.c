@@ -138,6 +138,9 @@ static const char *const KEY_NAMES[] = {
 	[FNL_KEY_KP_SUBTRACT]     = "KPSubtract",
 	[FNL_KEY_KP_ADD]          = "KPAdd",
 	[FNL_KEY_KP_ENTER]        = "KPEnter",
+	[FNL_KEY_VOLUME_DOWN]     = "VolumeDown",
+	[FNL_KEY_VOLUME_UP]       = "VolumeUp",
+	[FNL_KEY_MUTE]            = "Mute",
 };
 
 bool echo_key_known(FnlKey k)

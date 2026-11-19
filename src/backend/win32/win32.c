@@ -189,6 +189,10 @@ static const uint8_t SC_EXTENDED[] = {
 	[0x5b] = FNL_KEY_LSUPER,
 	[0x5c] = FNL_KEY_RSUPER,
 	[0x5d] = FNL_KEY_MENU,
+	/* The consumer keys' extended set: E0 20, E0 2E, E0 30. */
+	[0x20] = FNL_KEY_MUTE,
+	[0x2e] = FNL_KEY_VOLUME_DOWN,
+	[0x30] = FNL_KEY_VOLUME_UP,
 };
 
 /* The codes seedable() asks about by name. */
