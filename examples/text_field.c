@@ -7,6 +7,7 @@
  * composition drawn at the caret, and copy and paste.
  *
  * Shows: fnl_set_text_input fnl_is_text_input fnl_compose_text
+ *        fnl_invalidate_in
  *        fnl_set_text_rect_pt fnl_clipboard_set fnl_clipboard_request
  *        fnl_clipboard_text fnl_text_advance fnl_set_cursor
  *        fnl_content_rect_pt
@@ -47,7 +48,6 @@ static int chars(const char *s)
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	Field *f = ud;
-	(void)frame;
 
 	int cx, cy, cw, ch;
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
@@ -110,7 +110,12 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	char comp[64];
 	if (fnl_compose_text(app, comp, sizeof comp) > 0)
 		fnl_overlay_text(app, caret, fy, FNL_TEXT_BODY, pend, comp);
+	/* A caret on its own clock: half a second a frame, not one per display
+	 * refresh, which is what the text draws nothing for otherwise. */
+	const bool caret_on = (int)(frame->time * 2.0) % 2 == 0;
+	fnl_overlay_rect(app, caret, fy, 1, line, caret_on ? ink : pend);
 	fnl_set_text_rect_pt(app, caret, fy, 1, line);
+	fnl_invalidate_in(app, 500);
 }
 
 int main(void)

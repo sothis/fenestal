@@ -8,7 +8,7 @@
  * event and captures nothing, while a click anywhere else in the scene
  * still takes the pointer.
  *
- * Shows: fnl_claim fnl_is_pointer_captured
+ * Shows: fnl_claim fnl_is_pointer_captured fnl_text_elide
  */
 
 #include <fenestal/fenestal.h>
@@ -69,10 +69,15 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	const FnlColor bg  = { 0.10f, 0.10f, 0.12f, 0.85f };
 	const FnlColor lit = { 0.22f, 0.24f, 0.30f, 0.95f };
 	const FnlColor ink = { 0.90f, 0.90f, 0.90f, 1.0f };
+	char fitted[64];
 	for (int r = 0; r < ROWS; r++) {
 		const int y = py + r * ROW_H;
 		fnl_overlay_rect(app, px, y, ROW_W, ROW_H, r == p->hover ? lit : bg);
-		fnl_overlay_text(app, px + 8, y + 5, FNL_TEXT_UI, ink, NAMES[r]);
+		/* A label too long for its row, cut on a code point boundary: the
+		 * overlay's clip covers rectangles and strokes, never glyphs. */
+		fnl_text_elide(fitted, sizeof fitted, NAMES[r], ROW_W - 52,
+					   FNL_TEXT_UI);
+		fnl_overlay_text(app, px + 8, y + 5, FNL_TEXT_UI, ink, fitted);
 		fnl_overlay_text(app, px + ROW_W - 40, y + 5, FNL_TEXT_UI, ink,
 						 p->on[r] ? "on" : "off");
 	}

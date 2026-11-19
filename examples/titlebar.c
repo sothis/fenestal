@@ -7,7 +7,8 @@
  * keeps the drag, the double-click and the resize edges. The controls are
  * claimed every frame, beside the drawing they describe.
  *
- * Shows: fnl_titlebar_custom fnl_titlebar_claim fnl_minimize
+ * Shows: fnl_titlebar_custom fnl_titlebar_claim fnl_titlebar_height
+ *        fnl_titlebar_owned fnl_minimize
  *        fnl_set_maximized fnl_is_maximized fnl_is_active fnl_begin_move
  *        fnl_begin_resize fnl_titlebar_reserve
  */
@@ -35,7 +36,10 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		? (FnlColor){ 0.20f, 0.22f, 0.28f, 1.0f }
 		: (FnlColor){ 0.16f, 0.16f, 0.18f, 1.0f };
 	const FnlColor ink  = { 0.9f, 0.9f, 0.9f, 1.0f };
-	fnl_overlay_rect(app, 0, 0, w, BAR_H, bar);
+	/* The band as the library reports it, rather than the height asked
+	 * for: 0 in fullscreen, where there is none. */
+	const int bar_h = fnl_titlebar_owned(app) ? fnl_titlebar_height(app) : 0;
+	fnl_overlay_rect(app, 0, 0, w, bar_h, bar);
 	fnl_overlay_text(app, 12, 8, FNL_TEXT_UI, ink, "my own titlebar");
 	fnl_overlay_text(app, b->buttons_x + 14, 8, FNL_TEXT_UI, ink, "_");
 	fnl_overlay_text(app, b->buttons_x + BTN_W + 14, 8, FNL_TEXT_UI, ink,
