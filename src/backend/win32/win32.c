@@ -1528,6 +1528,8 @@ static void on_motion(App *a, HWND hwnd, LPARAM lp)
 								.dwFlags = TME_LEAVE,
 								.hwndTrack = hwnd };
 		a->backend_state->tracking_leave = TrackMouseEvent(&tme) != 0;
+		/* Nothing was tracked, so this is the pointer arriving. */
+		app_pointer_presence(a, true, a->ptr_x, a->ptr_y);
 	}
 	app_pointer_motion(a, a->ptr_x, a->ptr_y);
 	Edge edge;
@@ -2056,7 +2058,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
 	case WM_MOUSELEAVE:
 		a->backend_state->tracking_leave = false;
-		deco_publish_hover(a, ZONE_CONTENT);
+		app_pointer_presence(a, false, a->ptr_x, a->ptr_y);
 		return 0;
 
 	case WM_TIMER:

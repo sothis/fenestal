@@ -1593,6 +1593,7 @@ static void on_enter(App *a, const xcb_enter_notify_event_t *e)
 	/* A caller should hear where: a hover that waits for the pointer to move
 	 * again is stale for one that enters and stops. */
 	pointer_at(a, e->event_x, e->event_y);
+	app_pointer_presence(a, true, a->ptr_x, a->ptr_y);
 	pointer_update(a, a->ptr_x, a->ptr_y);
 }
 
@@ -1601,7 +1602,7 @@ static void on_leave(App *a)
 	if (a->backend_state->captured)
 		return;
 	deco_release(a);                /* the press is someone else's now */
-	deco_publish_hover(a, ZONE_CONTENT);
+	app_pointer_presence(a, false, a->ptr_x, a->ptr_y);
 }
 
 /* X11 has no scroll axis: it has four more buttons. */

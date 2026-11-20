@@ -6,6 +6,11 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `FNL_EVENT_ENTER` and `FNL_EVENT_LEAVE`: the pointer arriving at the window
+  and leaving it, with where it crossed. A hover kept from motion alone
+  outlives the pointer without them, and a press dragged off the window has no
+  end. X11, Wayland, Win32 and Cocoa send both; a bare display has no outside
+  to leave, so KMS sends neither, and a captured pointer neither.
 - `fnl_text_wrap()`: several lines fitted into a width, breaking at a space
   where it can and inside a word where the word is longer than the line, with
   the number of lines answered back. The sibling of `fnl_text_elide()` -- one

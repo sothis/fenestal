@@ -2395,6 +2395,10 @@ void app_close_requested(App *a);
 /* Where the pointer is. Nothing while captured: a captured pointer has no
  * position to report, and FNL_EVENT_RELATIVE carries it. */
 void app_pointer_motion(App *a, double x_pt, double y_pt);
+/* The pointer arrived at the window or left it (FNL_EVENT_ENTER/LEAVE). A
+ * backend that has an outside calls it; KMS, whose window is the display,
+ * never does. */
+void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt);
 /* How far a captured pointer moved, in window points. The event only: the
  * reticle is the backend's to move, in its own units (app_reticle_move()). */
 void app_pointer_relative(App *a, double dx_pt, double dy_pt);

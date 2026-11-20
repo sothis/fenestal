@@ -1707,6 +1707,22 @@ void app_pointer_motion(App *a, double x_pt, double y_pt)
 	app_event(a, &ev);
 }
 
+/* The pointer arriving at the window, and leaving it. A captured pointer has
+ * no position to leave or arrive at, and a calibration holds input back as it
+ * does for motion; the hover the bar keeps is dropped on the way out, or a
+ * button stays lit over a window the pointer has left. */
+void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt)
+{
+	if (a->pointer_captured || app_rank_holds_input(a))
+		return;
+	FnlEvent ev = { .type = entered ? FNL_EVENT_ENTER : FNL_EVENT_LEAVE };
+	ev.presence.x = x_pt;
+	ev.presence.y = y_pt;
+	app_event(a, &ev);
+	if (!entered)
+		deco_publish_hover(a, ZONE_CONTENT);
+}
+
 /* Held back by a calibration as a position is: a capture taken before one
  * began goes on through it. */
 /* [render] The present just made did not commit, by the graphics API's

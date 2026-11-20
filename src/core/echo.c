@@ -269,6 +269,12 @@ void echo_event(const App *app, const FnlEvent *ev)
 		echo(app, "scroll %.2f %.2f at %.1f %.1f", ev->scroll.dx,
 			 ev->scroll.dy, ev->scroll.x, ev->scroll.y);
 		break;
+	case FNL_EVENT_ENTER:
+		echo(app, "enter %.1f %.1f", ev->presence.x, ev->presence.y);
+		break;
+	case FNL_EVENT_LEAVE:
+		echo(app, "leave %.1f %.1f", ev->presence.x, ev->presence.y);
+		break;
 	case FNL_EVENT_FOCUS:
 		echo(app, "focus %d", (int)ev->focus.focused);
 		break;

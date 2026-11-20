@@ -581,6 +581,14 @@ typedef enum {
 	 * a move it follows the dissolve (fnl_set_transition_ms()). Since
 	 * 0.9. */
 	FNL_EVENT_GPU        = 18,  /* ev.gpu */
+
+	/* Input again, and appended here for the reason the list is append-only:
+	 * the pointer arriving at the window and leaving it. Where it is: at the
+	 * edge it crossed, which for a drag that leaves is where the button is
+	 * held. A captured pointer has no position to arrive at or leave from,
+	 * and a bare display has no outside to leave -- KMS posts neither. */
+	FNL_EVENT_ENTER      = 19,  /* ev.presence */
+	FNL_EVENT_LEAVE      = 20,  /* ev.presence */
 } FnlEventType;
 
 /* Each event's own fields, one struct a kind, named so that FnlEvent's union
@@ -623,6 +631,11 @@ typedef struct { double dx, dy; } FnlRelativeEvent;
  * touchpad arrives in fractions of one. Positive is down and to the
  * right. */
 typedef struct { double x, y, dx, dy; } FnlScrollEvent;
+
+/* Where the pointer crossed the window's edge, in window points: the
+ * FNL_EVENT_ENTER and FNL_EVENT_LEAVE pair. A hover a caller keeps from
+ * motion alone outlives the pointer without it. */
+typedef struct { double x, y; } FnlPresenceEvent;
 
 /* The keyboard focus arrived or left. A leave delivers no release for what is
  * still held: fnl_key_down() clears the keys, but a button press, and the drag
@@ -711,6 +724,7 @@ typedef struct {
 		FnlLengthEvent    clipboard;
 		FnlOutputEvent    output;
 		FnlGpuEvent       gpu;
+		FnlPresenceEvent  presence;
 	};
 } FnlEvent;
 

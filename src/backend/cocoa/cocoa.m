@@ -719,6 +719,7 @@ static void left_release(App *a, NSPoint pt)
 	/* A caller should hear where: a hover that waits for the pointer to
 	 * move again is stale for one that enters and stops. */
 	pointer_at(app, event_pt(app, e));
+	app_pointer_presence(app, true, app->ptr_x, app->ptr_y);
 }
 
 - (void)mouseExited:(NSEvent *)e
@@ -727,7 +728,7 @@ static void left_release(App *a, NSPoint pt)
 	if (!app || app->pointer_captured)
 		return;
 	deco_release(app);              /* the press is someone else's now */
-	deco_publish_hover(app, ZONE_CONTENT);
+	app_pointer_presence(app, false, app->ptr_x, app->ptr_y);
 }
 
 - (void)button:(FnlButton)b pressed:(bool)down event:(NSEvent *)e

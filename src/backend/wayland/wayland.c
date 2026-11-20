@@ -820,6 +820,7 @@ static void ptr_enter(void *data, struct wl_pointer *wp, uint32_t serial,
 	/* An enter carries no time: the motion it posts counts from now. */
 	app_input_age(a, -1.0);
 	post_motion(a);
+	app_pointer_presence(a, true, a->ptr_x, a->ptr_y);
 }
 static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
 					  struct wl_surface *s)
@@ -831,7 +832,7 @@ static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
 	a->backend_state->left_held = false;
 	deco_release(a);              /* the press is someone else's problem now */
 	app_reticle_publish(a);
-	deco_publish_hover(a, ZONE_CONTENT);
+	app_pointer_presence(a, false, a->ptr_x, a->ptr_y);
 }
 static void ptr_motion(void *data, struct wl_pointer *wp, uint32_t time,
 					   wl_fixed_t sx, wl_fixed_t sy)
