@@ -76,85 +76,88 @@ extern "C" {
  * must define FNL_STATIC so that the Windows import attribute is not applied
  * to a symbol that lives in the same image. */
 #if defined(_WIN32) && !defined(FNL_STATIC)
-#  ifdef FNL_BUILD
-#    define FNL_API __declspec(dllexport)
-#  else
-#    define FNL_API __declspec(dllimport)
-#  endif
-#elif defined(FNL_BUILD)
-#  define FNL_API __attribute__((visibility("default")))
+#ifdef FNL_BUILD
+#define FNL_API __declspec(dllexport)
 #else
-#  define FNL_API
+#define FNL_API __declspec(dllimport)
+#endif
+#elif defined(FNL_BUILD)
+#define FNL_API __attribute__((visibility("default")))
+#else
+#define FNL_API
 #endif
 
 /* A compile-time assertion, in whichever spelling the including language has:
  * a bare _Static_assert would make this header unusable from C++. */
 #ifdef __cplusplus
-#  define FNL_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#define FNL_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
 #else
-#  define FNL_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#define FNL_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
 
 #define FNL_VERSION_MAJOR 0
 #define FNL_VERSION_MINOR 9
 #define FNL_VERSION_PATCH 0
-#define FNL_VERSION ((FNL_VERSION_MAJOR << 16) | (FNL_VERSION_MINOR << 8) | \
-					 FNL_VERSION_PATCH)
+#define FNL_VERSION                                                            \
+	((FNL_VERSION_MAJOR << 16) | (FNL_VERSION_MINOR << 8) | FNL_VERSION_PATCH)
 
 /* A declaration that still works and is going away: it warns where it is
  * used, with the message naming its replacement. */
 #if defined(__cplusplus) && __cplusplus >= 201402L
-#  define FNL_DEPRECATED(msg) [[deprecated(msg)]]
+#define FNL_DEPRECATED(msg) [[deprecated(msg)]]
 #elif defined(__GNUC__) || defined(__clang__)
-#  define FNL_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#define FNL_DEPRECATED(msg) __attribute__((deprecated(msg)))
 #else
-#  define FNL_DEPRECATED(msg)
+#define FNL_DEPRECATED(msg)
 #endif
 
 /* The library that actually loaded, which a shared build lets differ from the
  * header that was compiled against. fnl_init compares them. */
-FNL_API uint32_t fnl_version(void);                              /* [any] */
+FNL_API uint32_t fnl_version(void); /* [any] */
 
 /* ---- results -------------------------------------------------------------
  * Negative is failure and zero is success, so `if (r < 0)` is the test and a
  * non-zero success can be added later without breaking a caller. */
 typedef enum {
-	FNL_OK                   =  0,
-	FNL_SKIPPED              =  1,   /* nothing to do; not an error */
+	FNL_OK      = 0,
+	FNL_SKIPPED = 1, /* nothing to do; not an error */
 
 	FNL_ERR_UNSUPPORTED      = -1,
-	FNL_ERR_NO_DISPLAY       = -2,   /* no compositor / no window server */
-	FNL_ERR_NO_DEVICE        = -3,   /* no GPU that can present here */
+	FNL_ERR_NO_DISPLAY       = -2, /* no compositor / no window server */
+	FNL_ERR_NO_DEVICE        = -3, /* no GPU that can present here */
 	FNL_ERR_OUT_OF_MEMORY    = -4,
 	FNL_ERR_DEVICE_LOST      = -5,
 	FNL_ERR_INVALID_ARGUMENT = -6,
 	FNL_ERR_VERSION_MISMATCH = -7,
-	FNL_ERR_SYSTEM           = -8,   /* refused; see fnl_last_error */
+	FNL_ERR_SYSTEM           = -8, /* refused; see fnl_last_error */
 } FnlResult;
 
 typedef enum {
-	FNL_LOG_ERROR = 0, FNL_LOG_WARN = 1, FNL_LOG_INFO = 2, FNL_LOG_DEBUG = 3
+	FNL_LOG_ERROR = 0,
+	FNL_LOG_WARN  = 1,
+	FNL_LOG_INFO  = 2,
+	FNL_LOG_DEBUG = 3
 } FnlLogLevel;
 
 /* One of the library's own titlebar controls, for
  * FnlInitDesc::no_titlebar_controls. The antialiasing pair counts as one:
  * they are two names for the same choice of how the scene is sampled. */
-#define FNL_TITLEBAR_ANTIALIAS (1u << 0)  /* the FSAA and MLAA checkboxes */
-#define FNL_TITLEBAR_SCALE     (1u << 1)  /* the render-scale checkbox  */
-#define FNL_TITLEBAR_OUTPUT    (1u << 2)  /* the output box             */
-#define FNL_TITLEBAR_GPU       (1u << 3)  /* the GPU box                */
-#define FNL_TITLEBAR_MODE      (1u << 4)  /* the size or mode drop-down */
-#define FNL_TITLEBAR_ALL       (0xffffffffu)
+#define FNL_TITLEBAR_ANTIALIAS (1u << 0) /* the FSAA and MLAA checkboxes */
+#define FNL_TITLEBAR_SCALE (1u << 1)     /* the render-scale checkbox  */
+#define FNL_TITLEBAR_OUTPUT (1u << 2)    /* the output box             */
+#define FNL_TITLEBAR_GPU (1u << 3)       /* the GPU box                */
+#define FNL_TITLEBAR_MODE (1u << 4)      /* the size or mode drop-down */
+#define FNL_TITLEBAR_ALL (0xffffffffu)
 
-FNL_API const char *fnl_result_str(FnlResult r);                 /* [any] */
+FNL_API const char *fnl_result_str(FnlResult r); /* [any] */
 /* The last failure on this thread, in full. Thread-local, and valid until the
  * next Fenestal call on the same thread. */
-FNL_API const char *fnl_last_error(void);                        /* [any] */
+FNL_API const char *fnl_last_error(void); /* [any] */
 /* The same text, copied into your own buffer, where the one above is valid
  * only until the next Fenestal call on this thread -- one call too few to log
  * it after anything else. Returns the bytes written, terminator not counted,
  * as snprintf does; a `cap` of 0 writes nothing and returns the length. */
-FNL_API size_t fnl_error_copy(char *dst, size_t cap);            /* [any] */
+FNL_API size_t fnl_error_copy(char *dst, size_t cap); /* [any] */
 
 /* One line, no trailing newline, no ownership. Called from any thread the
  * library owns, the render thread included. */
@@ -165,7 +168,7 @@ typedef void (*FnlLogFn)(void *ud, FnlLogLevel lvl, const char *msg);
  * them. FNL_LOG_DEBUG, the default, is everything; FNL_LOG_ERROR alone is
  * what went wrong. The diagnostics -- echo_events, --frame-times, the GPU
  * list -- print at INFO, so a caller that wants them wants FNL_LOG_DEBUG. */
-FNL_API void fnl_set_log_level(FnlLogLevel lvl);                 /* [any] */
+FNL_API void fnl_set_log_level(FnlLogLevel lvl); /* [any] */
 
 /* Which renderer draws: Vulkan, OpenGL (4.5 core on Linux, 4.1 on macOS),
  * Direct3D 12 (Windows) or Metal (macOS). A build has one or several --
@@ -175,27 +178,30 @@ FNL_API void fnl_set_log_level(FnlLogLevel lvl);                 /* [any] */
  * fallback; fnl_renderer() reports which it is, and the matching interop
  * header is fnl_vulkan.h, fnl_gl.h, fnl_d3d12.h or fnl_metal.h. */
 typedef enum {
-	FNL_RENDERER_DEFAULT = 0, FNL_RENDERER_VULKAN = 1, FNL_RENDERER_OPENGL = 2,
-	FNL_RENDERER_D3D12 = 3, FNL_RENDERER_METAL = 4
+	FNL_RENDERER_DEFAULT = 0,
+	FNL_RENDERER_VULKAN  = 1,
+	FNL_RENDERER_OPENGL  = 2,
+	FNL_RENDERER_D3D12   = 3,
+	FNL_RENDERER_METAL   = 4
 } FnlRenderer;
 
 /* A renderer's bit in FnlInitDesc::renderers. ANY is every renderer, for a
  * caller that draws no scene of its own -- the overlay alone -- and so has
  * no API to name. */
 #define FNL_RENDERER_BIT(g) (1u << (unsigned)(g))
-#define FNL_RENDERERS_ANY   0xffffffffu
+#define FNL_RENDERERS_ANY 0xffffffffu
 
 typedef struct FnlApp FnlApp;
 
 typedef struct {
-	size_t   size;             /* sizeof(FnlInitDesc) -- see the note below */
-	uint32_t header_version;   /* pass FNL_VERSION */
+	size_t size;             /* sizeof(FnlInitDesc) -- see the note below */
+	uint32_t header_version; /* pass FNL_VERSION */
 
-	FnlLogFn log;              /* NULL: one line to stderr */
-	void    *log_ud;
+	FnlLogFn log; /* NULL: one line to stderr */
+	void *log_ud;
 
-	const char *title;         /* UTF-8; NULL for the default */
-	int         width_pt, height_pt;  /* presentable area; 0 for the default */
+	const char *title;       /* UTF-8; NULL for the default */
+	int width_pt, height_pt; /* presentable area; 0 for the default */
 
 	/* Install handlers for SIGINT/SIGTERM/SIGHUP, so that a captured pointer
 	 * can never outlive the process. Off by default: a library that takes
@@ -213,8 +219,8 @@ typedef struct {
 	 * newer. On unless disabled, and self-tuning unless pinned:
 	 * late_latch_fixed above zero holds that delay in seconds instead. The
 	 * self-tuned delay differs between window servers and is expected to. */
-	bool   no_late_latch;
-	double late_latch_fixed;          /* UNSTABLE: a tuning fixture */
+	bool no_late_latch;
+	double late_latch_fixed; /* UNSTABLE: a tuning fixture */
 
 	/* Run at this surface scale instead of the one the desktop asks for, as
 	 * 120ths (120 = 100%). Zero means the desktop's own preference. A test
@@ -369,10 +375,10 @@ typedef struct {
  * Which one a frame uses is the library's to decide, from the render scale and
  * the antialiasing mode. */
 typedef enum {
-	FNL_TARGET_DIRECT       = 0,  /* the swapchain, single-sampled */
-	FNL_TARGET_OFFSCREEN    = 1,  /* an image the frame then scales onto it */
-	FNL_TARGET_OFFSCREEN_MS = 2,  /* multisampled, resolved into that image */
-	FNL_TARGET_COUNT              /* a count; grows if a target is added */
+	FNL_TARGET_DIRECT       = 0, /* the swapchain, single-sampled */
+	FNL_TARGET_OFFSCREEN    = 1, /* an image the frame then scales onto it */
+	FNL_TARGET_OFFSCREEN_MS = 2, /* multisampled, resolved into that image */
+	FNL_TARGET_COUNT             /* a count; grows if a target is added */
 } FnlSceneTarget;
 
 /* What on_record and on_overlay are drawing for. `index` and `time` are
@@ -380,30 +386,30 @@ typedef enum {
  * recordings shows one on later frames too: neither is a clock the picture
  * follows. Anything that moves goes by scene_time, or by fnl_invalidate(). */
 typedef struct {
-	uint64_t index;                  /* presents, all time */
-	double   time;                   /* seconds since the window opened */
+	uint64_t index; /* presents, all time */
+	double time;    /* seconds since the window opened */
 
-	int      area_w_px, area_h_px;   /* the presentable area */
+	int area_w_px, area_h_px; /* the presentable area */
 	/* What the scene is being rendered at. Equal to the area under
 	 * FNL_TARGET_DIRECT; smaller when a render scale is pinned. */
-	int      scene_w_px, scene_h_px;
+	int scene_w_px, scene_h_px;
 
 	FnlSceneTarget target;
-	int      samples;                /* what FSAA actually got, or 1 */
+	int samples; /* what FSAA actually got, or 1 */
 
 	/* Seconds into the scene's animation, or 0 while motion is off. Use this
 	 * rather than `time` for anything that moves: a change in it is a reason
 	 * to record the frame, so frozen at zero a still window records
 	 * nothing. */
-	float    scene_time;
+	float scene_time;
 } FnlFrame;
 
 /* Antialiasing. The values are pinned for FnlKey's reason; what refuses the
  * two modes is with fnl_set_antialias() further down. */
 typedef enum {
 	FNL_AA_NONE = 0,
-	FNL_AA_MSAA = 1,     /* multisampling; antialiases geometry coverage */
-	FNL_AA_MLAA = 2,     /* a post-process over the finished scene       */
+	FNL_AA_MSAA = 1, /* multisampling; antialiases geometry coverage */
+	FNL_AA_MLAA = 2, /* a post-process over the finished scene       */
 } FnlAntialias;
 
 /* ---- input ----------------------------------------------------------------
@@ -424,106 +430,106 @@ typedef enum {
  * links against a shared object it did not compile. New keys are added at the
  * end; none is ever inserted or renumbered. */
 typedef enum {
-	FNL_KEY_UNKNOWN        =   0,
-	FNL_KEY_W              =   1,
-	FNL_KEY_A              =   2,
-	FNL_KEY_S              =   3,
-	FNL_KEY_D              =   4,
-	FNL_KEY_UP             =   5,
-	FNL_KEY_DOWN           =   6,
-	FNL_KEY_LEFT           =   7,
-	FNL_KEY_RIGHT          =   8,
-	FNL_KEY_LSHIFT         =   9,
-	FNL_KEY_RSHIFT         =  10,
-	FNL_KEY_ESCAPE         =  11,
-	FNL_KEY_F1             =  12,
-	FNL_KEY_F2             =  13,
-	FNL_KEY_F9             =  14,
-	FNL_KEY_F10            =  15,
-	FNL_KEY_F11            =  16,
-	FNL_KEY_B              =  17,
-	FNL_KEY_C              =  18,
-	FNL_KEY_E              =  19,
-	FNL_KEY_F              =  20,
-	FNL_KEY_G              =  21,
-	FNL_KEY_H              =  22,
-	FNL_KEY_I              =  23,
-	FNL_KEY_J              =  24,
-	FNL_KEY_K              =  25,
-	FNL_KEY_L              =  26,
-	FNL_KEY_M              =  27,
-	FNL_KEY_N              =  28,
-	FNL_KEY_O              =  29,
-	FNL_KEY_P              =  30,
-	FNL_KEY_Q              =  31,
-	FNL_KEY_R              =  32,
-	FNL_KEY_T              =  33,
-	FNL_KEY_U              =  34,
-	FNL_KEY_V              =  35,
-	FNL_KEY_X              =  36,
-	FNL_KEY_Y              =  37,
-	FNL_KEY_Z              =  38,
-	FNL_KEY_0              =  39,   /* the digit row, not the keypad */
-	FNL_KEY_1              =  40,
-	FNL_KEY_2              =  41,
-	FNL_KEY_3              =  42,
-	FNL_KEY_4              =  43,
-	FNL_KEY_5              =  44,
-	FNL_KEY_6              =  45,
-	FNL_KEY_7              =  46,
-	FNL_KEY_8              =  47,
-	FNL_KEY_9              =  48,
-	FNL_KEY_F3             =  49,
-	FNL_KEY_F4             =  50,
-	FNL_KEY_F5             =  51,
-	FNL_KEY_F6             =  52,
-	FNL_KEY_F7             =  53,
-	FNL_KEY_F8             =  54,
-	FNL_KEY_F12            =  55,
-	FNL_KEY_SPACE          =  56,
-	FNL_KEY_ENTER          =  57,
-	FNL_KEY_TAB            =  58,
-	FNL_KEY_BACKSPACE      =  59,
-	FNL_KEY_MINUS          =  60,
-	FNL_KEY_EQUAL          =  61,
-	FNL_KEY_LBRACKET       =  62,
-	FNL_KEY_RBRACKET       =  63,
-	FNL_KEY_BACKSLASH      =  64,
-	FNL_KEY_SEMICOLON      =  65,
-	FNL_KEY_APOSTROPHE     =  66,
-	FNL_KEY_GRAVE          =  67,   /* left of 1 */
-	FNL_KEY_COMMA          =  68,
-	FNL_KEY_PERIOD         =  69,
-	FNL_KEY_SLASH          =  70,
-	FNL_KEY_INTL_BACKSLASH =  71,   /* between left Shift and Z */
-	FNL_KEY_LCTRL          =  72,
-	FNL_KEY_RCTRL          =  73,
-	FNL_KEY_LALT           =  74,
-	FNL_KEY_RALT           =  75,
-	FNL_KEY_LSUPER         =  76,   /* the Windows or Command key */
-	FNL_KEY_RSUPER         =  77,
-	FNL_KEY_MENU           =  78,   /* the context-menu key */
-	FNL_KEY_INSERT         =  79,
-	FNL_KEY_DELETE         =  80,
-	FNL_KEY_HOME           =  81,
-	FNL_KEY_END            =  82,
-	FNL_KEY_PAGE_UP        =  83,
-	FNL_KEY_PAGE_DOWN      =  84,
-	FNL_KEY_CAPS_LOCK      =  85,
-	FNL_KEY_NUM_LOCK       =  86,
-	FNL_KEY_SCROLL_LOCK    =  87,
-	FNL_KEY_PRINT_SCREEN   =  88,
-	FNL_KEY_PAUSE          =  89,
-	FNL_KEY_KP_0           =  90,   /* the keypad, whatever Num Lock says */
-	FNL_KEY_KP_1           =  91,
-	FNL_KEY_KP_2           =  92,
-	FNL_KEY_KP_3           =  93,
-	FNL_KEY_KP_4           =  94,
-	FNL_KEY_KP_5           =  95,
-	FNL_KEY_KP_6           =  96,
-	FNL_KEY_KP_7           =  97,
-	FNL_KEY_KP_8           =  98,
-	FNL_KEY_KP_9           =  99,
+	FNL_KEY_UNKNOWN        = 0,
+	FNL_KEY_W              = 1,
+	FNL_KEY_A              = 2,
+	FNL_KEY_S              = 3,
+	FNL_KEY_D              = 4,
+	FNL_KEY_UP             = 5,
+	FNL_KEY_DOWN           = 6,
+	FNL_KEY_LEFT           = 7,
+	FNL_KEY_RIGHT          = 8,
+	FNL_KEY_LSHIFT         = 9,
+	FNL_KEY_RSHIFT         = 10,
+	FNL_KEY_ESCAPE         = 11,
+	FNL_KEY_F1             = 12,
+	FNL_KEY_F2             = 13,
+	FNL_KEY_F9             = 14,
+	FNL_KEY_F10            = 15,
+	FNL_KEY_F11            = 16,
+	FNL_KEY_B              = 17,
+	FNL_KEY_C              = 18,
+	FNL_KEY_E              = 19,
+	FNL_KEY_F              = 20,
+	FNL_KEY_G              = 21,
+	FNL_KEY_H              = 22,
+	FNL_KEY_I              = 23,
+	FNL_KEY_J              = 24,
+	FNL_KEY_K              = 25,
+	FNL_KEY_L              = 26,
+	FNL_KEY_M              = 27,
+	FNL_KEY_N              = 28,
+	FNL_KEY_O              = 29,
+	FNL_KEY_P              = 30,
+	FNL_KEY_Q              = 31,
+	FNL_KEY_R              = 32,
+	FNL_KEY_T              = 33,
+	FNL_KEY_U              = 34,
+	FNL_KEY_V              = 35,
+	FNL_KEY_X              = 36,
+	FNL_KEY_Y              = 37,
+	FNL_KEY_Z              = 38,
+	FNL_KEY_0              = 39, /* the digit row, not the keypad */
+	FNL_KEY_1              = 40,
+	FNL_KEY_2              = 41,
+	FNL_KEY_3              = 42,
+	FNL_KEY_4              = 43,
+	FNL_KEY_5              = 44,
+	FNL_KEY_6              = 45,
+	FNL_KEY_7              = 46,
+	FNL_KEY_8              = 47,
+	FNL_KEY_9              = 48,
+	FNL_KEY_F3             = 49,
+	FNL_KEY_F4             = 50,
+	FNL_KEY_F5             = 51,
+	FNL_KEY_F6             = 52,
+	FNL_KEY_F7             = 53,
+	FNL_KEY_F8             = 54,
+	FNL_KEY_F12            = 55,
+	FNL_KEY_SPACE          = 56,
+	FNL_KEY_ENTER          = 57,
+	FNL_KEY_TAB            = 58,
+	FNL_KEY_BACKSPACE      = 59,
+	FNL_KEY_MINUS          = 60,
+	FNL_KEY_EQUAL          = 61,
+	FNL_KEY_LBRACKET       = 62,
+	FNL_KEY_RBRACKET       = 63,
+	FNL_KEY_BACKSLASH      = 64,
+	FNL_KEY_SEMICOLON      = 65,
+	FNL_KEY_APOSTROPHE     = 66,
+	FNL_KEY_GRAVE          = 67, /* left of 1 */
+	FNL_KEY_COMMA          = 68,
+	FNL_KEY_PERIOD         = 69,
+	FNL_KEY_SLASH          = 70,
+	FNL_KEY_INTL_BACKSLASH = 71, /* between left Shift and Z */
+	FNL_KEY_LCTRL          = 72,
+	FNL_KEY_RCTRL          = 73,
+	FNL_KEY_LALT           = 74,
+	FNL_KEY_RALT           = 75,
+	FNL_KEY_LSUPER         = 76, /* the Windows or Command key */
+	FNL_KEY_RSUPER         = 77,
+	FNL_KEY_MENU           = 78, /* the context-menu key */
+	FNL_KEY_INSERT         = 79,
+	FNL_KEY_DELETE         = 80,
+	FNL_KEY_HOME           = 81,
+	FNL_KEY_END            = 82,
+	FNL_KEY_PAGE_UP        = 83,
+	FNL_KEY_PAGE_DOWN      = 84,
+	FNL_KEY_CAPS_LOCK      = 85,
+	FNL_KEY_NUM_LOCK       = 86,
+	FNL_KEY_SCROLL_LOCK    = 87,
+	FNL_KEY_PRINT_SCREEN   = 88,
+	FNL_KEY_PAUSE          = 89,
+	FNL_KEY_KP_0           = 90, /* the keypad, whatever Num Lock says */
+	FNL_KEY_KP_1           = 91,
+	FNL_KEY_KP_2           = 92,
+	FNL_KEY_KP_3           = 93,
+	FNL_KEY_KP_4           = 94,
+	FNL_KEY_KP_5           = 95,
+	FNL_KEY_KP_6           = 96,
+	FNL_KEY_KP_7           = 97,
+	FNL_KEY_KP_8           = 98,
+	FNL_KEY_KP_9           = 99,
 	FNL_KEY_KP_DECIMAL     = 100,
 	FNL_KEY_KP_DIVIDE      = 101,
 	FNL_KEY_KP_MULTIPLY    = 102,
@@ -535,9 +541,9 @@ typedef enum {
 	 * them. Named where the backend hears them as keys -- evdev, so KMS and
 	 * Wayland; the systems whose media keys are a channel of their own leave
 	 * these FNL_KEY_UNKNOWN. */
-	FNL_KEY_VOLUME_DOWN    = 106,
-	FNL_KEY_VOLUME_UP      = 107,
-	FNL_KEY_MUTE           = 108,
+	FNL_KEY_VOLUME_DOWN = 106,
+	FNL_KEY_VOLUME_UP   = 107,
+	FNL_KEY_MUTE        = 108,
 } FnlKey;
 
 typedef enum {
@@ -555,61 +561,61 @@ typedef enum {
  * ignore it. Nothing here is ever removed. */
 typedef enum {
 	/* ---- input ---- */
-	FNL_EVENT_KEY        = 0,   /* ev.key    */
-	FNL_EVENT_BUTTON     = 1,   /* ev.button */
-	FNL_EVENT_MOTION     = 2,   /* ev.motion -- where the pointer is */
-	FNL_EVENT_RELATIVE   = 3,   /* ev.relative -- how far, while captured */
-	FNL_EVENT_SCROLL     = 4,   /* ev.scroll */
-	FNL_EVENT_FOCUS      = 5,   /* ev.focus  */
-	FNL_EVENT_CLOSE      = 6,   /* the window was asked to close */
+	FNL_EVENT_KEY      = 0, /* ev.key    */
+	FNL_EVENT_BUTTON   = 1, /* ev.button */
+	FNL_EVENT_MOTION   = 2, /* ev.motion -- where the pointer is */
+	FNL_EVENT_RELATIVE = 3, /* ev.relative -- how far, while captured */
+	FNL_EVENT_SCROLL   = 4, /* ev.scroll */
+	FNL_EVENT_FOCUS    = 5, /* ev.focus  */
+	FNL_EVENT_CLOSE    = 6, /* the window was asked to close */
 
 	/* ---- what the library did ----
 	 *
 	 * Each is posted once, after the fact, and only when the value actually
 	 * moved -- these are edges, not a per-frame report -- so an application
 	 * never has to poll a getter to notice. */
-	FNL_EVENT_RESIZE     = 7,   /* ev.resize    -- the presentable area */
-	FNL_EVENT_SCALE      = 8,   /* ev.scale     -- surface scale */
-	FNL_EVENT_WINDOW     = 9,   /* ev.window    -- fullscreen/maximized */
-	FNL_EVENT_ANTIALIAS  = 10,  /* ev.antialias -- FSAA/MLAA/off */
-	FNL_EVENT_SCENE_SIZE = 11,  /* ev.scene     -- the render-scale pin */
-	FNL_EVENT_CAPTURE    = 12,  /* ev.capture   -- taken, or let go */
+	FNL_EVENT_RESIZE     = 7,  /* ev.resize    -- the presentable area */
+	FNL_EVENT_SCALE      = 8,  /* ev.scale     -- surface scale */
+	FNL_EVENT_WINDOW     = 9,  /* ev.window    -- fullscreen/maximized */
+	FNL_EVENT_ANTIALIAS  = 10, /* ev.antialias -- FSAA/MLAA/off */
+	FNL_EVENT_SCENE_SIZE = 11, /* ev.scene     -- the render-scale pin */
+	FNL_EVENT_CAPTURE    = 12, /* ev.capture   -- taken, or let go */
 
 	/* The queue overflowed and this many events were dropped. Posted once,
 	 * in their place, so a gap in the stream is something you are told about
 	 * rather than something you infer. See fnl_poll_event(). */
-	FNL_EVENT_LOST       = 13,  /* ev.lost */
+	FNL_EVENT_LOST = 13, /* ev.lost */
 
 	/* Input again, and down here because the list is append-only: what a key
 	 * typed, once the layout has had its say. Delivered only while text entry
 	 * is on -- see fnl_set_text_input(). */
-	FNL_EVENT_TEXT       = 14,  /* ev.text */
+	FNL_EVENT_TEXT = 14, /* ev.text */
 	/* The text being composed changed: an input method's candidate, or the
 	 * accent a dead key is holding. Not typed yet and may never be -- read it
 	 * with fnl_compose_text() and draw it as provisional. */
-	FNL_EVENT_COMPOSE    = 15,  /* ev.compose */
+	FNL_EVENT_COMPOSE = 15, /* ev.compose */
 	/* What fnl_clipboard_request() asked for has arrived. Read it with
 	 * fnl_clipboard_text(). */
-	FNL_EVENT_CLIPBOARD  = 16,  /* ev.clipboard */
+	FNL_EVENT_CLIPBOARD = 16, /* ev.clipboard */
 	/* A notification, on the terms of the ones above: the window is on
 	 * another output now, or its output changed size. Read the name with
 	 * fnl_output_name(). Since 0.9. */
-	FNL_EVENT_OUTPUT     = 17,  /* ev.output */
+	FNL_EVENT_OUTPUT = 17, /* ev.output */
 	/* A notification, on the same terms: the window is drawn on another GPU
 	 * -- fnl_request_gpu(), or a rebuild after a loss that landed
 	 * elsewhere -- or the list grew, by the other renderers' GPUs listed
 	 * after the first frame. Read the list again (fnl_gpu_count()). After
 	 * a move it follows the dissolve (fnl_set_transition_ms()). Since
 	 * 0.9. */
-	FNL_EVENT_GPU        = 18,  /* ev.gpu */
+	FNL_EVENT_GPU = 18, /* ev.gpu */
 
 	/* Input again, and appended here for the reason the list is append-only:
 	 * the pointer arriving at the window and leaving it. Where it is: at the
 	 * edge it crossed, which for a drag that leaves is where the button is
 	 * held. A captured pointer has no position to arrive at or leave from,
 	 * and a bare display has no outside to leave -- KMS posts neither. */
-	FNL_EVENT_ENTER      = 19,  /* ev.presence */
-	FNL_EVENT_LEAVE      = 20,  /* ev.presence */
+	FNL_EVENT_ENTER = 19, /* ev.presence */
+	FNL_EVENT_LEAVE = 20, /* ev.presence */
 } FnlEventType;
 
 /* Each event's own fields, one struct a kind, named so that FnlEvent's union
@@ -619,23 +625,25 @@ typedef enum {
  * for a caller that hands one kind of event on by itself. */
 typedef struct {
 	FnlKey key;
-	bool   pressed;
+	bool pressed;
 	/* An auto-repeat rather than a fresh press. Always false unless text
 	 * entry is on. Under fnl_set_text_input() a held key comes round again
 	 * as a press with this set and no release between, at the rate the
 	 * desktop is configured for. The library's own bindings never act on
 	 * one; a caller that toggles on a press should test this whenever it
 	 * also takes text. */
-	bool   repeat;
+	bool repeat;
 } FnlKeyEvent;
 
 typedef struct {
-	double    x, y;
+	double x, y;
 	FnlButton button;
-	bool      pressed;
+	bool pressed;
 } FnlButtonEvent;
 
-typedef struct { double x, y; } FnlMotionEvent;
+typedef struct {
+	double x, y;
+} FnlMotionEvent;
 /* How far a captured pointer moved, in window points. Unaccelerated -- the
  * hand's movement, what a camera turned by the mouse wants -- on Wayland
  * (the relative pointer's unaccelerated delta, or its accelerated one where
@@ -645,66 +653,98 @@ typedef struct { double x, y; } FnlMotionEvent;
  * whose core protocol reports positions alone (raw motion is XInput 2's,
  * which the library does not speak), and on macOS, whose events carry the
  * cursor's deltas. */
-typedef struct { double dx, dy; } FnlRelativeEvent;
+typedef struct {
+	double dx, dy;
+} FnlRelativeEvent;
 
 /* At the pointer, in window points, and by how far in *notches*: one click
  * of a wheel is 1.0 on every backend, and a smooth source such as a
  * touchpad arrives in fractions of one. Positive is down and to the
  * right. */
-typedef struct { double x, y, dx, dy; } FnlScrollEvent;
+typedef struct {
+	double x, y, dx, dy;
+} FnlScrollEvent;
 
 /* Where the pointer crossed the window's edge, in window points: the
  * FNL_EVENT_ENTER and FNL_EVENT_LEAVE pair. A hover a caller keeps from
  * motion alone outlives the pointer without it. */
-typedef struct { double x, y; } FnlPresenceEvent;
+typedef struct {
+	double x, y;
+} FnlPresenceEvent;
 
 /* The keyboard focus arrived or left. A leave delivers no release for what is
  * still held: fnl_key_down() clears the keys, but a button press, and the drag
  * a caller is tracking from it, are never released either -- so drop them
  * here, along with anything else the window no longer owns. */
-typedef struct { bool focused; } FnlFocusEvent;
+typedef struct {
+	bool focused;
+} FnlFocusEvent;
 
 /* The presentable area, in logical points and in pixels -- the same pair
  * fnl_content_size_px() and FnlFrame report, so a layout can be rebuilt from
  * this without asking again. */
-typedef struct { int w_pt, h_pt, w_px, h_px; } FnlResizeEvent;
+typedef struct {
+	int w_pt, h_pt, w_px, h_px;
+} FnlResizeEvent;
 
 /* The surface scale in 120ths: 120 is 100%, 180 is 150%. */
-typedef struct { int scale120; } FnlScaleEvent;
+typedef struct {
+	int scale120;
+} FnlScaleEvent;
 
-typedef struct { bool fullscreen, maximized; } FnlWindowEvent;
-typedef struct { FnlAntialias aa; } FnlAntialiasEvent;
+typedef struct {
+	bool fullscreen, maximized;
+} FnlWindowEvent;
+typedef struct {
+	FnlAntialias aa;
+} FnlAntialiasEvent;
 
 /* The render-scale pin in pixels, or 0 by 0 once it is let go and the scene
  * is drawn straight into the window again. */
-typedef struct { int w_px, h_px; } FnlSceneEvent;
+typedef struct {
+	int w_px, h_px;
+} FnlSceneEvent;
 
-typedef struct { bool captured; } FnlCaptureEvent;
+typedef struct {
+	bool captured;
+} FnlCaptureEvent;
 
 /* How many events were dropped where this one sits. */
-typedef struct { unsigned count; } FnlLostEvent;
+typedef struct {
+	unsigned count;
+} FnlLostEvent;
 
 /* One code point, both ways round: as a number, for a caller that filters
  * or maps what is typed, and as UTF-8 with its terminator, for one that
  * appends it to a string and wants to do nothing else. Never a control
  * character -- Enter, Tab, Backspace and Escape are keys and arrive as
  * FNL_EVENT_KEY. */
-typedef struct { uint32_t codepoint; char utf8[8]; } FnlTextEvent;
+typedef struct {
+	uint32_t codepoint;
+	char utf8[8];
+} FnlTextEvent;
 
 /* The composition's and the clipboard's: a length and not the text, because
  * neither has an upper bound and an event is a fixed size -- the bytes
  * fnl_compose_text() and fnl_clipboard_text() will hand over, terminator
  * not counted. Zero is a composition that ended, or a clipboard with no
  * text in it. */
-typedef struct { unsigned length; } FnlLengthEvent;
+typedef struct {
+	unsigned length;
+} FnlLengthEvent;
 
 /* The output's size in logical points, as fnl_output_size_pt() reports
  * it. */
-typedef struct { int w_pt, h_pt; } FnlOutputEvent;
+typedef struct {
+	int w_pt, h_pt;
+} FnlOutputEvent;
 
 /* The GPU now in use, as an index into fnl_gpu_count()'s list, and the
  * renderer drawing on it. */
-typedef struct { int index; FnlRenderer renderer; } FnlGpuEvent;
+typedef struct {
+	int index;
+	FnlRenderer renderer;
+} FnlGpuEvent;
 
 /* Pointer positions are in *logical points*, with the origin at the window's
  * top-left -- the same space the overlay draws in, so a hit test compares
@@ -724,28 +764,28 @@ typedef struct {
 	 * movement since the last. 0 for what no hand did: a notification,
 	 * text, a key's repeat. In what was the padding after `type`, so the
 	 * struct is the size it was. Since 0.9. */
-	float        input_age;
-	double       time;          /* the same clock FnlFrame::time is on */
+	float input_age;
+	double time; /* the same clock FnlFrame::time is on */
 	union {
-		FnlKeyEvent       key;
-		FnlButtonEvent    button;
-		FnlMotionEvent    motion;
-		FnlRelativeEvent  relative;
-		FnlScrollEvent    scroll;
-		FnlFocusEvent     focus;
-		FnlResizeEvent    resize;
-		FnlScaleEvent     scale;
-		FnlWindowEvent    window;
+		FnlKeyEvent key;
+		FnlButtonEvent button;
+		FnlMotionEvent motion;
+		FnlRelativeEvent relative;
+		FnlScrollEvent scroll;
+		FnlFocusEvent focus;
+		FnlResizeEvent resize;
+		FnlScaleEvent scale;
+		FnlWindowEvent window;
 		FnlAntialiasEvent antialias;
-		FnlSceneEvent     scene;
-		FnlCaptureEvent   capture;
-		FnlLostEvent      lost;
-		FnlTextEvent      text;
-		FnlLengthEvent    compose;
-		FnlLengthEvent    clipboard;
-		FnlOutputEvent    output;
-		FnlGpuEvent       gpu;
-		FnlPresenceEvent  presence;
+		FnlSceneEvent scene;
+		FnlCaptureEvent capture;
+		FnlLostEvent lost;
+		FnlTextEvent text;
+		FnlLengthEvent compose;
+		FnlLengthEvent clipboard;
+		FnlOutputEvent output;
+		FnlGpuEvent gpu;
+		FnlPresenceEvent presence;
 	};
 } FnlEvent;
 
@@ -797,7 +837,7 @@ FNL_STATIC_ASSERT(sizeof(FnlEvent) == 48 || sizeof(FnlEvent) == 40,
  * fnl_shutdown(). */
 typedef struct {
 	size_t size;
-	void  *ud;
+	void *ud;
 
 	void (*on_gpu_created)(void *ud, FnlApp *app);
 	void (*on_gpu_lost)(void *ud, FnlApp *app);
@@ -805,11 +845,11 @@ typedef struct {
 	void (*on_overlay)(void *ud, FnlApp *app, const FnlFrame *frame);
 } FnlCallbacks;
 
-FNL_API FnlResult fnl_init(const FnlInitDesc *desc, FnlApp **out);  /* [main] */
+FNL_API FnlResult fnl_init(const FnlInitDesc *desc, FnlApp **out); /* [main] */
 /* After fnl_run() has returned. Called from a callback it logs a line and
  * does nothing, rather than wait for the render thread from the render
  * thread or free the app fnl_run() is still running on. */
-FNL_API void      fnl_shutdown(FnlApp *app);                        /* [main] */
+FNL_API void fnl_shutdown(FnlApp *app); /* [main] */
 
 /* Pump the backend on this thread and the frame loop on one of the library's
  * own, until the window closes or fnl_quit() is called. Returns FNL_OK on an
@@ -818,7 +858,7 @@ FNL_API void      fnl_shutdown(FnlApp *app);                        /* [main] */
  * On the thread that called fnl_init(), or FNL_ERR_INVALID_ARGUMENT. That
  * should be the thread that entered main(), and on macOS it has to be:
  * AppKit is the main thread's, and fnl_init() refuses any other there. */
-FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb);     /* [main] */
+FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb); /* [main] */
 
 /* fnl_run() in three, for a caller that has an event loop of its own -- a
  * toolkit's, an engine's, a program that already pumps something:
@@ -844,16 +884,16 @@ FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb);     /* [main] */
  *
  * All three are [main] -- the thread that called fnl_init() -- and none may
  * be called from a callback. */
-FNL_API FnlResult fnl_start(FnlApp *app, const FnlCallbacks *cb);   /* [main] */
+FNL_API FnlResult fnl_start(FnlApp *app, const FnlCallbacks *cb); /* [main] */
 /* One turn, and the block it takes is bounded by `timeout_ms`: -1 waits for
  * as long as the window server takes, 0 does not wait at all. A caller with
  * timers of its own passes theirs, so its loop keeps its cadence; the
  * backend's own deadlines still cut the wait short, and a wakeup from another
  * thread (fnl_quit(), a knob) ends it at once. */
-FNL_API FnlResult fnl_pump(FnlApp *app, int timeout_ms);            /* [main] */
-FNL_API FnlResult fnl_stop(FnlApp *app);                            /* [main] */
+FNL_API FnlResult fnl_pump(FnlApp *app, int timeout_ms); /* [main] */
+FNL_API FnlResult fnl_stop(FnlApp *app);                 /* [main] */
 
-FNL_API void      fnl_quit(FnlApp *app);                            /* [any]  */
+FNL_API void fnl_quit(FnlApp *app); /* [any]  */
 
 /* ---- the event queue ------------------------------------------------------
  *
@@ -893,7 +933,7 @@ FNL_API void      fnl_quit(FnlApp *app);                            /* [any]  */
  *
  * [any] thread, but drain from one: two threads draining it each get some of
  * the events. */
-FNL_API bool fnl_poll_event(FnlApp *app, FnlEvent *out);            /* [any] */
+FNL_API bool fnl_poll_event(FnlApp *app, FnlEvent *out); /* [any] */
 
 /* The device's name. A per-thread snapshot, on the same terms as
  * fnl_output_name() below: valid until the next call on that thread. It is
@@ -901,7 +941,7 @@ FNL_API bool fnl_poll_event(FnlApp *app, FnlEvent *out);            /* [any] */
  * different device. "" with no window, and "(no device)" with a window
  * whose renderer has not yet picked one; the name stays the last device's
  * while a lost one is replaced. */
-FNL_API const char *fnl_gpu_name(const FnlApp *app);                /* [any] */
+FNL_API const char *fnl_gpu_name(const FnlApp *app); /* [any] */
 
 /* The same name made short enough for a title: the vendor's "(R)" and
  * "(TM)", Mesa's "Mesa " in front and the driver's detail behind left out
@@ -910,11 +950,11 @@ FNL_API const char *fnl_gpu_name(const FnlApp *app);                /* [any] */
  * GTX 1050 Ti/PCIe/SSE2" is "NVIDIA GeForce GTX 1050 Ti". For
  * showing; fnl_gpu_name() is the one to match against. A per-thread
  * snapshot, on fnl_gpu_name()'s terms. */
-FNL_API const char *fnl_gpu_short_name(const FnlApp *app);          /* [any] */
+FNL_API const char *fnl_gpu_short_name(const FnlApp *app); /* [any] */
 /* Which renderer this window is drawn with, for a caller deciding which
  * interop header to reach for. With no window, the build's renderer where it
  * has one and DEFAULT where it has several. */
-FNL_API FnlRenderer fnl_renderer(const FnlApp *app);                /* [any] */
+FNL_API FnlRenderer fnl_renderer(const FnlApp *app); /* [any] */
 
 /* ---- choosing the GPU ------------------------------------------------------
  *
@@ -946,43 +986,43 @@ FNL_API FnlRenderer fnl_renderer(const FnlApp *app);                /* [any] */
  * output, and where it is a window server's, those whose driver takes the
  * GPU it is told, which on X11 is none but the server's own. Since 0.9. */
 typedef enum {
-	FNL_GPU_KIND_UNKNOWN    = 0,   /* hardware the API does not describe */
-	FNL_GPU_KIND_INTEGRATED = 1,   /* shares the CPU's memory */
-	FNL_GPU_KIND_DISCRETE   = 2,   /* memory of its own */
-	FNL_GPU_KIND_VIRTUAL    = 3,   /* a virtual machine's */
-	FNL_GPU_KIND_SOFTWARE   = 4,   /* a rasteriser on the CPU */
+	FNL_GPU_KIND_UNKNOWN    = 0, /* hardware the API does not describe */
+	FNL_GPU_KIND_INTEGRATED = 1, /* shares the CPU's memory */
+	FNL_GPU_KIND_DISCRETE   = 2, /* memory of its own */
+	FNL_GPU_KIND_VIRTUAL    = 3, /* a virtual machine's */
+	FNL_GPU_KIND_SOFTWARE   = 4, /* a rasteriser on the CPU */
 } FnlGpuKind;
 
 /* How many GPUs the list has, and which is in use: -1 with no window or no
  * device yet. */
-FNL_API int fnl_gpu_count(const FnlApp *app);                       /* [any] */
-FNL_API int fnl_gpu_current(const FnlApp *app);                     /* [any] */
+FNL_API int fnl_gpu_count(const FnlApp *app);   /* [any] */
+FNL_API int fnl_gpu_current(const FnlApp *app); /* [any] */
 /* An entry's name, as fnl_gpu_name() gives the one in use, and "" past the
  * end: a per-thread snapshot on fnl_gpu_name()'s terms. And its kind,
  * FNL_GPU_KIND_UNKNOWN past the end. */
-FNL_API const char *fnl_gpu_name_at(const FnlApp *app, int i);      /* [any] */
-FNL_API FnlGpuKind fnl_gpu_kind_at(const FnlApp *app, int i);       /* [any] */
+FNL_API const char *fnl_gpu_name_at(const FnlApp *app, int i); /* [any] */
+FNL_API FnlGpuKind fnl_gpu_kind_at(const FnlApp *app, int i);  /* [any] */
 /* The renderer that draws on entry `i`, FNL_RENDERER_DEFAULT past the
  * end. Since 0.9. */
-FNL_API FnlRenderer fnl_gpu_renderer_at(const FnlApp *app, int i);  /* [any] */
+FNL_API FnlRenderer fnl_gpu_renderer_at(const FnlApp *app, int i); /* [any] */
 /* What entry `i`'s frames reach the window through where that is another
  * graphics API's swapchain, and "" where it is the renderer's own or past
  * the end: "D3D11" for Vulkan on Windows presenting through a DXGI
  * swapchain, which a GPU that can share images with Direct3D 11 lists
  * beside its plain Vulkan entry. A per-thread snapshot on fnl_gpu_name()'s
  * terms. Since 0.9. */
-FNL_API const char *fnl_gpu_via_at(const FnlApp *app, int i);       /* [any] */
+FNL_API const char *fnl_gpu_via_at(const FnlApp *app, int i); /* [any] */
 /* Draw on entry `i` from the next frame on, through the dissolve
  * fnl_set_transition_ms() sets across a move. */
-FNL_API void fnl_request_gpu(FnlApp *app, int i);                   /* [any] */
+FNL_API void fnl_request_gpu(FnlApp *app, int i); /* [any] */
 
 /* The notice and the licence the baked glyph coverage travels under: Fenestal
  * Glyphs Sans and Mono, renamed Modified Versions of Ubuntu Sans and Ubuntu
  * Sans Mono, which the notice names. The Ubuntu Font Licence requires every
  * copy to carry both, which in a library means every binary a host ships.
  * Both point at static storage and are valid before fnl_init(). */
-FNL_API const char *fnl_font_notice(void);                          /* [any] */
-FNL_API const char *fnl_font_licence(void);                         /* [any] */
+FNL_API const char *fnl_font_notice(void);  /* [any] */
+FNL_API const char *fnl_font_licence(void); /* [any] */
 
 /* ---- the overlay ----------------------------------------------------------
  *
@@ -1013,18 +1053,24 @@ FNL_API const char *fnl_font_licence(void);                         /* [any] */
 /* Straight (non-premultiplied) RGBA, authored in *sRGB* -- the numbers a colour
  * picker gives. Fenestal converts to whatever space the surface blends in,
  * which is not something a caller can determine or should have to. Alpha is
- * linear in both encodings and is passed through. */
-typedef struct { float r, g, b, a; } FnlColor;
+ * linear in both encodings and is passed through -- and passed through is not
+ * blended: a filled rectangle writes its colour, alpha included, over what is
+ * under it (DESIGN *Recording*). A colour with alpha below one is therefore a
+ * hole in the window, not a wash; draw a panel a step from the colour behind
+ * it where a wash was meant. */
+typedef struct {
+	float r, g, b, a;
+} FnlColor;
 
 /* The three baked faces: two monospaced sizes and one proportional. Baked, not
  * scalable -- each is rasterised and grid-fitted at the exact pixel sizes the
  * supported display scales land on -- which is why this is an enum of three
  * rather than a size in points. */
 typedef enum {
-	FNL_TEXT_BODY  = 0,  /* monospaced; the workhorse */
-	FNL_TEXT_LARGE = 1,  /* monospaced; a readout to read across a room */
-	FNL_TEXT_UI    = 2,  /* proportional; chrome that is prose, not data */
-	FNL_TEXT_SIZE_COUNT  /* a count; grows if a face is added */
+	FNL_TEXT_BODY  = 0, /* monospaced; the workhorse */
+	FNL_TEXT_LARGE = 1, /* monospaced; a readout to read across a room */
+	FNL_TEXT_UI    = 2, /* proportional; chrome that is prose, not data */
+	FNL_TEXT_SIZE_COUNT /* a count; grows if a face is added */
 } FnlTextSize;
 
 /* Metrics, in logical points, safe from [any] thread.
@@ -1035,17 +1081,17 @@ typedef enum {
  *
  * fnl_text_advance() is a per-face cell step and so answers 0 for the
  * proportional size, which has an advance per glyph instead. */
-FNL_API int fnl_text_width(const char *utf8, FnlTextSize sz);       /* [any] */
+FNL_API int fnl_text_width(const char *utf8, FnlTextSize sz); /* [any] */
 
 /* The name of a key as the diagnostics print it -- "F5", "VolumeUp",
  * "KPEnter" -- for a help line or a binding a caller reads back, and the
  * reverse for a config file: case is ignored, and "unknown" is what an
  * unrecognised name parses to, so the two round-trip. Static storage, [any]. */
-FNL_API const char *fnl_key_name(FnlKey key);                       /* [any] */
-FNL_API FnlKey fnl_key_from_name(const char *name);                 /* [any] */
-FNL_API int fnl_text_line(FnlTextSize sz);     /* baseline to baseline [any] */
-FNL_API int fnl_text_height(FnlTextSize sz);   /* cap height           [any] */
-FNL_API int fnl_text_advance(FnlTextSize sz);  /* one cell; mono only  [any] */
+FNL_API const char *fnl_key_name(FnlKey key);       /* [any] */
+FNL_API FnlKey fnl_key_from_name(const char *name); /* [any] */
+FNL_API int fnl_text_line(FnlTextSize sz);    /* baseline to baseline [any] */
+FNL_API int fnl_text_height(FnlTextSize sz);  /* cap height           [any] */
+FNL_API int fnl_text_advance(FnlTextSize sz); /* one cell; mono only  [any] */
 
 /* Fit one line of `src` into `max_w` logical points at `sz`, in `dst`, a buffer
  * of `cap` bytes: the string itself where it fits, else cut at a code point
@@ -1057,8 +1103,8 @@ FNL_API int fnl_text_advance(FnlTextSize sz);  /* one cell; mono only  [any] */
  * glyphs are one draw for the whole frame, so what does not fit is elided
  * rather than clipped. Reads the same tables fnl_text_width() does, and where
  * that answers a reserve width so does this. Safe from [any] thread. */
-FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src,
-							int max_w, FnlTextSize sz);          /* [any] */
+FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src, int max_w,
+							FnlTextSize sz); /* [any] */
 
 /* Wrap `src` into `dst` (cap bytes, terminator included) at `max_w` points,
  * with '\n' between the lines, and answer how many lines it came to. A break
@@ -1070,16 +1116,20 @@ FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src,
  *
  * The sibling of fnl_text_elide(): one line cut to a width, or several lines
  * fitted into it. Both read the same tables and are safe from [any] thread. */
-FNL_API int fnl_text_wrap(char *dst, size_t cap, const char *src,
-						  int max_w, FnlTextSize sz);            /* [any] */
+FNL_API int fnl_text_wrap(char *dst, size_t cap, const char *src, int max_w,
+						  FnlTextSize sz); /* [any] */
 
 /* `y` is the top of the glyph box, not the baseline, so a line of text and a
  * rectangle behind it take the same y. */
 FNL_API void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz,
-							  FnlColor c, const char *utf8);     /* [overlay] */
+							  FnlColor c, const char *utf8); /* [overlay] */
 
+/* Opaque, like every filled rectangle: the colour replaces what is under it
+ * and its alpha goes to the surface's alpha channel rather than blending (see
+ * FnlColor). The rectangles are drawn first whatever the call order, so one is
+ * a background and anything that must sit on it is a stroke or text. */
 FNL_API void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h,
-							  FnlColor c);                       /* [overlay] */
+							  FnlColor c); /* [overlay] */
 
 /* A picture to draw: pixels the library copies, keeps and uploads again
  * itself. A logo, an icon, cover art -- the overlay draws text, rectangles
@@ -1110,40 +1160,39 @@ typedef enum {
 	FNL_IMAGE_FORMAT_COUNT /* a count; grows if a format is added */
 } FnlImageFormat;
 
-FNL_API bool fnl_image_supported(const FnlApp *app);              /* [overlay] */
+FNL_API bool fnl_image_supported(const FnlApp *app); /* [overlay] */
 FNL_API FnlImage *fnl_image_create(FnlApp *app, int w, int h,
 								   FnlImageFormat fmt,
-								   const void *pixels);            /* [overlay] */
-FNL_API void fnl_image_destroy(FnlImage *img);                     /* [overlay] */
+								   const void *pixels); /* [overlay] */
+FNL_API void fnl_image_destroy(FnlImage *img);          /* [overlay] */
 /* Draw it into this rectangle of the window, scaled to fit it: one image,
  * whole, however the rectangle differs from its own size. */
 FNL_API void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
-							   const FnlImage *img);               /* [overlay] */
+							   const FnlImage *img); /* [overlay] */
 
 /* A stroke of `width` points, with round caps and analytic antialiasing.
  * Coordinates are floats because a stroke is geometry rather than a cell. */
-FNL_API void fnl_overlay_stroke(FnlApp *app, float x0, float y0,
-								float x1, float y1, float width,
-								FnlColor c);                     /* [overlay] */
+FNL_API void fnl_overlay_stroke(FnlApp *app, float x0, float y0, float x1,
+								float y1, float width,
+								FnlColor c); /* [overlay] */
 
 /* Two arms meeting at (x1,y1), as ONE primitive rather than two strokes: two
  * antialiased strokes blend over each other where they meet and leave a
  * visibly bright pixel on the corner. One primitive computes the join's
  * coverage once. */
-FNL_API void fnl_overlay_elbow(FnlApp *app, float x0, float y0,
-							   float x1, float y1, float x2, float y2,
-							   float width, FnlColor c);         /* [overlay] */
+FNL_API void fnl_overlay_elbow(FnlApp *app, float x0, float y0, float x1,
+							   float y1, float x2, float y2, float width,
+							   FnlColor c); /* [overlay] */
 
 /* A closed rectangle outline, from two opposite corners. Its own primitive for
  * the elbow's reason carried further: four joins is one more than a bend can
  * carry. */
-FNL_API void fnl_overlay_box(FnlApp *app, float x0, float y0,
-							 float x1, float y1, float width,
-							 FnlColor c);                        /* [overlay] */
+FNL_API void fnl_overlay_box(FnlApp *app, float x0, float y0, float x1,
+							 float y1, float width, FnlColor c); /* [overlay] */
 
 /* Issue everything appended so far, so that what follows draws strictly on
  * top: the escape hatch from the invariant above. */
-FNL_API void fnl_overlay_flush(FnlApp *app);                     /* [overlay] */
+FNL_API void fnl_overlay_flush(FnlApp *app); /* [overlay] */
 
 /* Confine subsequent rectangles and strokes to a rectangle, in logical points.
  * Passing w or h <= 0 restores the whole window. Everything appended before
@@ -1154,15 +1203,15 @@ FNL_API void fnl_overlay_flush(FnlApp *app);                     /* [overlay] */
  * on_overlay returns, issuing what was appended under it first, so a clip
  * never reaches the frame's text and cannot outlive your callback. Where text
  * has to stay inside something, bound what you draw instead. */
-FNL_API void fnl_overlay_clip(FnlApp *app, int x, int y,
-							  int w, int h);                     /* [overlay] */
+FNL_API void fnl_overlay_clip(FnlApp *app, int x, int y, int w,
+							  int h); /* [overlay] */
 
 /* The window's size in logical points, titlebar included -- the coordinate
  * space every fnl_overlay_* call above is in. Not an [overlay] call: safe
  * from [any] thread, and it answers with the size as of the last frame that
  * was drawn. */
-FNL_API void fnl_window_size_pt(const FnlApp *app,
-								int *w_pt, int *h_pt);               /* [any] */
+FNL_API void fnl_window_size_pt(const FnlApp *app, int *w_pt,
+								int *h_pt); /* [any] */
 
 /* Tell the library that what your callbacks draw has changed.
  *
@@ -1176,7 +1225,7 @@ FNL_API void fnl_window_size_pt(const FnlApp *app,
  * Cheap and idempotent: several calls between two frames cost one re-record.
  * Safe from [any] thread. Called from inside on_overlay it means "the frame
  * after this one differs from this one". */
-FNL_API void fnl_invalidate(FnlApp *app);                           /* [any] */
+FNL_API void fnl_invalidate(FnlApp *app); /* [any] */
 
 /* Run `fn(ud)` on the render thread at the start of the next frame, before
  * on_record and on_overlay, and draw that frame.
@@ -1191,7 +1240,7 @@ FNL_API void fnl_invalidate(FnlApp *app);                           /* [any] */
  * silently, and the caller posts again later. Safe from [any] thread; `fn`
  * runs on the render thread and may call anything a callback may, its own
  * fnl_post() included. */
-FNL_API bool fnl_post(FnlApp *app, void (*fn)(void *ud), void *ud);  /* [any] */
+FNL_API bool fnl_post(FnlApp *app, void (*fn)(void *ud), void *ud); /* [any] */
 
 /* The same frame, but drawn no sooner than `ms` milliseconds from now.
  *
@@ -1207,7 +1256,7 @@ FNL_API bool fnl_post(FnlApp *app, void (*fn)(void *ud), void *ud);  /* [any] */
  * how a window that must keep refreshing asks for its own next turn.
  * fnl_invalidate() spends it at once. Cheap and idempotent, and ms <= 0 is
  * fnl_invalidate(). Safe from [any] thread. */
-FNL_API void fnl_invalidate_in(FnlApp *app, int ms);                 /* [any] */
+FNL_API void fnl_invalidate_in(FnlApp *app, int ms); /* [any] */
 
 /* ---- controls in the titlebar ---------------------------------------------
  *
@@ -1229,8 +1278,8 @@ FNL_API void fnl_invalidate_in(FnlApp *app, int ms);                 /* [any] */
  *
  * Calling it also tells the library not to treat that rectangle as titlebar,
  * so a press on your control does not start a window drag. */
-FNL_API bool fnl_titlebar_reserve(FnlApp *app, int want_w,
-								  int *x, int *y, int *w, int *h);   /* [any] */
+FNL_API bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y,
+								  int *w, int *h); /* [any] */
 
 /* ---- replacing the titlebar -----------------------------------------------
  *
@@ -1255,18 +1304,18 @@ FNL_API bool fnl_titlebar_reserve(FnlApp *app, int want_w,
  * the call, not inside it. False means the request was not recorded -- there
  * is no window -- and never that the window server declined. */
 FNL_API bool fnl_titlebar_custom(FnlApp *app, int height_pt,
-								 int min_width_pt);                  /* [any] */
+								 int min_width_pt); /* [any] */
 
 /* How tall the titlebar band is, in window points: 0 in fullscreen, the
  * library's own DECO height or the caller's under fnl_titlebar_custom(). The
  * same figure fnl_content_rect_pt() starts the presentable area below, without
  * having to infer it from that call's y. */
-FNL_API int fnl_titlebar_height(const FnlApp *app);                  /* [any] */
+FNL_API int fnl_titlebar_height(const FnlApp *app); /* [any] */
 
 /* Whether the band is the caller's (fnl_titlebar_custom()) rather than the
  * library's own, so a caller that draws across the top of the window knows
  * whether anything of the library's is drawn there too. */
-FNL_API bool fnl_titlebar_owned(const FnlApp *app);                  /* [any] */
+FNL_API bool fnl_titlebar_owned(const FnlApp *app); /* [any] */
 
 /* Claim a rectangle of your titlebar as yours, so a press there reaches you
  * as an ordinary event instead of starting a window drag. Everything in the
@@ -1288,8 +1337,8 @@ FNL_API bool fnl_titlebar_owned(const FnlApp *app);                  /* [any] */
  * close in a bar the library did not draw, so draw your own and act on them
  * with fnl_minimize(), fnl_set_maximized(), fnl_set_fullscreen() and
  * fnl_quit(). */
-FNL_API bool fnl_titlebar_claim(FnlApp *app, int x, int y,
-								int w, int h);                   /* [overlay] */
+FNL_API bool fnl_titlebar_claim(FnlApp *app, int x, int y, int w,
+								int h); /* [overlay] */
 
 /* Claim a rectangle of the window as yours, anywhere in it: a panel of your
  * own drawn over the scene, whose presses are ordinary events and do not
@@ -1319,7 +1368,8 @@ FNL_API bool fnl_claim(FnlApp *app, int x, int y, int w, int h); /* [overlay] */
  *
  * Window points, as the claims are. [any] thread, and the answer is the last
  * frame's. */
-FNL_API int fnl_claim_at(const FnlApp *app, double x_pt, double y_pt);  /* [any] */
+FNL_API int fnl_claim_at(const FnlApp *app, double x_pt,
+						 double y_pt); /* [any] */
 
 /* The eight resize edges, for fnl_begin_resize(). */
 typedef enum {
@@ -1344,8 +1394,8 @@ typedef enum {
  * server last saw, so it does nothing once the button is up. Both return
  * false with no window, in fullscreen, and while the pointer is captured;
  * fnl_begin_resize() also returns false while maximized. */
-FNL_API bool fnl_begin_move(FnlApp *app);                            /* [any] */
-FNL_API bool fnl_begin_resize(FnlApp *app, FnlEdge edge);            /* [any] */
+FNL_API bool fnl_begin_move(FnlApp *app);                 /* [any] */
+FNL_API bool fnl_begin_resize(FnlApp *app, FnlEdge edge); /* [any] */
 
 /* ---- the knobs ------------------------------------------------------------
  *
@@ -1364,31 +1414,31 @@ FNL_API bool fnl_begin_resize(FnlApp *app, FnlEdge edge);            /* [any] */
  * was. Read the value back if it matters.
  */
 
-FNL_API bool fnl_is_fullscreen(const FnlApp *app);                  /* [any] */
+FNL_API bool fnl_is_fullscreen(const FnlApp *app); /* [any] */
 /* Whether the window has the keyboard focus. */
-FNL_API bool fnl_is_active(const FnlApp *app);                      /* [any] */
+FNL_API bool fnl_is_active(const FnlApp *app); /* [any] */
 /* Whether the window is on screen: shown, and not covered or minimized. The
  * library parks a covered window (draws nothing, waits for it to come back)
  * and this is how a caller hears it, rather than inferring it from frames
  * that stop. As of the last frame that was built. */
-FNL_API bool fnl_is_shown(const FnlApp *app);                       /* [any] */
-FNL_API bool fnl_is_maximized(const FnlApp *app);                   /* [any] */
-FNL_API bool fnl_is_pointer_captured(const FnlApp *app);            /* [any] */
+FNL_API bool fnl_is_shown(const FnlApp *app);            /* [any] */
+FNL_API bool fnl_is_maximized(const FnlApp *app);        /* [any] */
+FNL_API bool fnl_is_pointer_captured(const FnlApp *app); /* [any] */
 /* The best sample count FSAA can use on this device, or 1 when it offers none
  * worth having. */
-FNL_API int  fnl_max_samples(const FnlApp *app);                    /* [any] */
+FNL_API int fnl_max_samples(const FnlApp *app); /* [any] */
 /* Whether the scene can be rendered anywhere but straight into the window --
  * the one target the render scale, FSAA and MLAA are all built on. Where it
  * is false, fnl_set_antialias() and fnl_set_scene_size_px() are both no-ops and
  * a control for either should be drawn dim. */
-FNL_API bool fnl_offscreen_supported(const FnlApp *app);            /* [any] */
-FNL_API FnlAntialias fnl_antialias(const FnlApp *app);              /* [any] */
+FNL_API bool fnl_offscreen_supported(const FnlApp *app); /* [any] */
+FNL_API FnlAntialias fnl_antialias(const FnlApp *app);   /* [any] */
 
 /* Presents per second, not loop turns, over a fifth of a second at a time. A
  * window drawing nothing because nothing has changed keeps the rate it last
  * drew at -- unless fnl_set_cost_sampling() is on, when the count goes on
  * through the rest and reads the rate of the frames sampling draws. */
-FNL_API int fnl_fps(const FnlApp *app);                             /* [any] */
+FNL_API int fnl_fps(const FnlApp *app); /* [any] */
 
 /* What drawing one frame costs, apart from how often a frame is drawn,
  * which for a window that draws only when something changed is all
@@ -1411,8 +1461,8 @@ FNL_API int fnl_fps(const FnlApp *app);                             /* [any] */
  * and once more when the window comes to rest; like fnl_fps()'s, a change
  * re-records the frame, so a caller drawing them needs no fnl_invalidate().
  * Since 0.9. */
-FNL_API double fnl_frame_gpu_ms(const FnlApp *app);                 /* [any] */
-FNL_API double fnl_frame_cpu_ms(const FnlApp *app);                 /* [any] */
+FNL_API double fnl_frame_gpu_ms(const FnlApp *app); /* [any] */
+FNL_API double fnl_frame_cpu_ms(const FnlApp *app); /* [any] */
 
 /* How long an input takes to reach the caller: from when the key, the
  * button, the wheel or the pointer moved -- by the window server's own
@@ -1424,7 +1474,7 @@ FNL_API double fnl_frame_cpu_ms(const FnlApp *app);                 /* [any] */
  * motion that coalesced counts each movement in it, and a repeat, a
  * character typed or a notification none. Refreshed as fnl_frame_gpu_ms()
  * is, and like it a change re-records the frame. Since 0.9. */
-FNL_API double fnl_input_latency_ms(const FnlApp *app);             /* [any] */
+FNL_API double fnl_input_latency_ms(const FnlApp *app); /* [any] */
 
 /* Keep the two figures above, and fnl_fps(), measured while nothing
  * changes. On, a window at rest draws one frame five times a second -- the
@@ -1433,7 +1483,7 @@ FNL_API double fnl_input_latency_ms(const FnlApp *app);             /* [any] */
  * off, the default, a window at rest draws nothing and the figures stay the
  * last drawn frame's. For a caller while it shows them, and turned off when
  * it stops. Since 0.9. */
-FNL_API void fnl_set_cost_sampling(FnlApp *app, bool on);           /* [any] */
+FNL_API void fnl_set_cost_sampling(FnlApp *app, bool on); /* [any] */
 
 /* The scene's animation clock, which F2 also switches: on, scene_time runs
  * from zero and every frame records again; off, the default, it stops at
@@ -1441,8 +1491,8 @@ FNL_API void fnl_set_cost_sampling(FnlApp *app, bool on);           /* [any] */
  * ranking's measure runs the clock while it measures whatever this says,
  * and leaves the setting alone: fnl_scene_motion() reads what was last
  * set, by a call or F2, during a measure as well. Since 0.9. */
-FNL_API void fnl_set_scene_motion(FnlApp *app, bool on);            /* [any] */
-FNL_API bool fnl_scene_motion(const FnlApp *app);                   /* [any] */
+FNL_API void fnl_set_scene_motion(FnlApp *app, bool on); /* [any] */
+FNL_API bool fnl_scene_motion(const FnlApp *app);        /* [any] */
 
 /* The metrics panel: the library's own readout of what it measures, drawn
  * over everything else at the presentable area's top right, on every
@@ -1464,8 +1514,8 @@ FNL_API bool fnl_scene_motion(const FnlApp *app);                   /* [any] */
  * small to hold it, and it is drawn over the caller's own overlay, so a
  * caller with a panel at the top right moves its own while this is shown.
  * Since 0.9. */
-FNL_API void fnl_set_metrics_panel(FnlApp *app, bool shown);        /* [any] */
-FNL_API bool fnl_metrics_panel(const FnlApp *app);                  /* [any] */
+FNL_API void fnl_set_metrics_panel(FnlApp *app, bool shown); /* [any] */
+FNL_API bool fnl_metrics_panel(const FnlApp *app);           /* [any] */
 
 /* The key that shows and hides the panel above: FNL_KEY_F5 until set, and
  * FNL_KEY_UNKNOWN for none, which leaves fnl_set_metrics_panel() the only
@@ -1473,8 +1523,8 @@ FNL_API bool fnl_metrics_panel(const FnlApp *app);                  /* [any] */
  * was. A binding of the library's like F2: it acts on a press, the event
  * still reaches the caller, and it acts with text entry on too, so a key
  * that types is a poor choice for a program that takes text. Since 0.9. */
-FNL_API void   fnl_set_metrics_key(FnlApp *app, FnlKey key);        /* [any] */
-FNL_API FnlKey fnl_metrics_key(const FnlApp *app);                  /* [any] */
+FNL_API void fnl_set_metrics_key(FnlApp *app, FnlKey key); /* [any] */
+FNL_API FnlKey fnl_metrics_key(const FnlApp *app);         /* [any] */
 
 /* Where the frame loop's time went, as totals a caller reads twice and
  * subtracts: the instrument, where --frame-times' line is the diagnostic.
@@ -1490,28 +1540,27 @@ FNL_API FnlKey fnl_metrics_key(const FnlApp *app);                  /* [any] */
  * `hold_ms` are now's: the display period learnt, 0 while none is, and the
  * late latch's hold. */
 typedef struct {
-	size_t   size;               /* sizeof(FnlFrameStats), set by the caller */
-	uint64_t frames;             /* the renderer was asked to draw */
-	uint64_t presents;           /* and handed one to the display */
+	size_t size;       /* sizeof(FnlFrameStats), set by the caller */
+	uint64_t frames;   /* the renderer was asked to draw */
+	uint64_t presents; /* and handed one to the display */
 	uint64_t pace_us, fence_us, acquire_us;
 	uint64_t record_us, submit_us, present_us;
 	uint64_t rebuild_us, draw_us;
 	uint64_t gpu_us, gpu_samples;
-	uint64_t gpu_idle;           /* frames whose slot the GPU had finished */
+	uint64_t gpu_idle; /* frames whose slot the GPU had finished */
 	uint64_t cycles, missed;
-	uint64_t rebuilds;           /* swapchains made */
-	double   period_ms, hold_ms;
+	uint64_t rebuilds; /* swapchains made */
+	double period_ms, hold_ms;
 } FnlFrameStats;
 
 /* Start (or stop) counting FnlFrameStats, and keeping FnlFrameSample.
  * Since 0.9. */
-FNL_API void fnl_set_frame_stats(FnlApp *app, bool on);             /* [any] */
+FNL_API void fnl_set_frame_stats(FnlApp *app, bool on); /* [any] */
 /* The totals so far, as many bytes of them as `out->size` says, so a caller
  * built against a shorter struct reads its prefix. False with no window, a
  * `size` too small for the field itself, or before counting was ever on.
  * Published once a frame, so up to a frame behind. Since 0.9. */
-FNL_API bool fnl_frame_stats(const FnlApp *app,
-							 FnlFrameStats *out);                   /* [any] */
+FNL_API bool fnl_frame_stats(const FnlApp *app, FnlFrameStats *out); /* [any] */
 
 /* One drawn frame, as the totals above count it: its phases in
  * milliseconds, the presents before it (FnlFrame::index), and when its
@@ -1521,12 +1570,12 @@ FNL_API bool fnl_frame_stats(const FnlApp *app,
  * read frames after it was drawn; -1 where none was read. */
 typedef struct {
 	uint64_t index;
-	double   time;
-	float    pace_ms, fence_ms, acquire_ms;
-	float    record_ms, submit_ms, present_ms;
-	float    rebuild_ms, draw_ms;
-	bool     presented;          /* handed to the display, not only drawn */
-	float    gpu_ms;
+	double time;
+	float pace_ms, fence_ms, acquire_ms;
+	float record_ms, submit_ms, present_ms;
+	float rebuild_ms, draw_ms;
+	bool presented; /* handed to the display, not only drawn */
+	float gpu_ms;
 } FnlFrameSample;
 
 /* The frames drawn since the last call, while fnl_set_frame_stats() is on:
@@ -1540,7 +1589,7 @@ typedef struct {
  * oldest, and `lost`, where not NULL, says how many since the last call.
  * Since 0.9. */
 FNL_API int fnl_frame_samples(FnlApp *app, FnlFrameSample *out, int max,
-							  size_t stride, uint64_t *lost);       /* [any] */
+							  size_t stride, uint64_t *lost); /* [any] */
 
 /* A frame on the screen: which (FnlFrame::index) and when it got there, by
  * the display's own stamp, on FnlFrame::time's clock -- where the window
@@ -1555,8 +1604,8 @@ FNL_API int fnl_frame_samples(FnlApp *app, FnlFrameSample *out, int max,
  * where false is one that tore. */
 typedef struct {
 	uint64_t index;
-	double   time;
-	bool     vblank;
+	double time;
+	bool vblank;
 } FnlFrameShown;
 
 /* The frames shown since the last call, while fnl_set_frame_stats() is
@@ -1567,7 +1616,7 @@ typedef struct {
  * how long from that read to the screen; and with FnlEvent::input_age,
  * from the input itself. Since 0.9. */
 FNL_API int fnl_frame_shown(FnlApp *app, FnlFrameShown *out, int max,
-							size_t stride, uint64_t *lost);         /* [any] */
+							size_t stride, uint64_t *lost); /* [any] */
 
 /* How the window crosses a move to another GPU, renderer or kernel driver
  * (fnl_request_gpu()). The last frame on the device before is read back
@@ -1584,12 +1633,12 @@ FNL_API int fnl_frame_shown(FnlApp *app, FnlFrameShown *out, int max,
  * no dissolve. A resize, a fullscreen toggle and a loss get none: the
  * first two are the window server's to animate and the frames stay
  * continuous, and a loss leaves nothing to read back. Since 0.9. */
-FNL_API void fnl_set_transition_ms(FnlApp *app, int ms);            /* [any] */
+FNL_API void fnl_set_transition_ms(FnlApp *app, int ms); /* [any] */
 
 /* What the scene is actually being rendered at, in pixels. Equal to the
  * presentable area unless a scene size was pinned below. */
-FNL_API void fnl_scene_size_px(const FnlApp *app,
-							   int *w_px, int *h_px);                /* [any] */
+FNL_API void fnl_scene_size_px(const FnlApp *app, int *w_px,
+							   int *h_px); /* [any] */
 
 /* The presentable area -- the region a scene draws into, which is the window
  * minus any titlebar the library is drawing.
@@ -1598,10 +1647,10 @@ FNL_API void fnl_scene_size_px(const FnlApp *app,
  * scene resolution against. The rectangle in *logical points* is where to draw
  * over it, and its origin is how an overlay finds the top of the content
  * without knowing whether there is a titlebar above it or how tall it is. */
-FNL_API void fnl_content_size_px(const FnlApp *app,
-								 int *w_px, int *h_px);              /* [any] */
-FNL_API void fnl_content_rect_pt(const FnlApp *app, int *x, int *y,
-								 int *w, int *h);                    /* [any] */
+FNL_API void fnl_content_size_px(const FnlApp *app, int *w_px,
+								 int *h_px); /* [any] */
+FNL_API void fnl_content_rect_pt(const FnlApp *app, int *x, int *y, int *w,
+								 int *h); /* [any] */
 
 /* The smallest presentable area worth *offering*, in logical points: what to
  * filter a resolution menu or a list of presets against. It does not change
@@ -1612,10 +1661,10 @@ FNL_API void fnl_content_rect_pt(const FnlApp *app, int *x, int *y,
  * and its controls on screen. Anything laid out inside the presentable area
  * should give way rather than assume this much room -- the area can be one
  * point tall. */
-FNL_API void fnl_min_content_size_pt(const FnlApp *app,
-									 int *w_pt, int *h_pt);          /* [any] */
+FNL_API void fnl_min_content_size_pt(const FnlApp *app, int *w_pt,
+									 int *h_pt); /* [any] */
 
-FNL_API void fnl_set_fullscreen(FnlApp *app, bool on);               /* [any] */
+FNL_API void fnl_set_fullscreen(FnlApp *app, bool on); /* [any] */
 /* The other two window states, which the library's own titlebar buttons drive
  * and which a replacement titlebar needs to drive for itself. Asked for, not
  * set: a window server may answer with something else or with nothing, and
@@ -1623,8 +1672,8 @@ FNL_API void fnl_set_fullscreen(FnlApp *app, bool on);               /* [any] */
  *
  * There is no fnl_unminimize() to match, and no window server here offers one
  * -- a minimized window is restored by the desktop, not by itself. */
-FNL_API void fnl_minimize(FnlApp *app);                              /* [any] */
-FNL_API void fnl_set_maximized(FnlApp *app, bool on);                /* [any] */
+FNL_API void fnl_minimize(FnlApp *app);               /* [any] */
+FNL_API void fnl_set_maximized(FnlApp *app, bool on); /* [any] */
 
 /* Antialiasing. Both modes are built on the offscreen scene target, so where
  * fnl_offscreen_supported() is false, asking leaves the window at
@@ -1636,19 +1685,19 @@ FNL_API void fnl_set_maximized(FnlApp *app, bool on);                /* [any] */
  * reads FNL_AA_NONE there, with an FNL_EVENT_ANTIALIAS, and a move back to
  * one that can draws it again, with another. A value that is not an
  * FnlAntialias is taken as FNL_AA_NONE, which turns antialiasing off. */
-FNL_API void fnl_set_antialias(FnlApp *app, FnlAntialias aa);       /* [any] */
+FNL_API void fnl_set_antialias(FnlApp *app, FnlAntialias aa); /* [any] */
 
 /* The pointer's shape over what the caller draws. Values are pinned for
  * FnlKey's reason. The list is what every backend can show, which is why
  * there are no diagonal resizes in it. */
 typedef enum {
-	FNL_CURSOR_DEFAULT     = 0,   /* the arrow */
-	FNL_CURSOR_TEXT        = 1,   /* an I-beam: text can be selected */
-	FNL_CURSOR_POINTER     = 2,   /* a hand: this can be pressed */
+	FNL_CURSOR_DEFAULT     = 0, /* the arrow */
+	FNL_CURSOR_TEXT        = 1, /* an I-beam: text can be selected */
+	FNL_CURSOR_POINTER     = 2, /* a hand: this can be pressed */
 	FNL_CURSOR_CROSSHAIR   = 3,
-	FNL_CURSOR_MOVE        = 4,   /* this can be dragged any way */
-	FNL_CURSOR_EW_RESIZE   = 5,   /* a divider that moves left and right */
-	FNL_CURSOR_NS_RESIZE   = 6,   /* one that moves up and down */
+	FNL_CURSOR_MOVE        = 4, /* this can be dragged any way */
+	FNL_CURSOR_EW_RESIZE   = 5, /* a divider that moves left and right */
+	FNL_CURSOR_NS_RESIZE   = 6, /* one that moves up and down */
 	FNL_CURSOR_NOT_ALLOWED = 7,
 	FNL_CURSOR_WAIT        = 8,
 } FnlCursor;
@@ -1667,18 +1716,18 @@ typedef enum {
  * unknown value is ignored. On Wayland the shape is a request the compositor
  * draws from the user's theme, and one without wp_cursor_shape_v1 leaves the
  * cursor as it found it. */
-FNL_API void fnl_set_cursor(FnlApp *app, FnlCursor shape);          /* [any] */
+FNL_API void fnl_set_cursor(FnlApp *app, FnlCursor shape); /* [any] */
 
 /* The window's title, which FnlInitDesc::title set at fnl_init(): the
  * window server's and the library's own titlebar's. UTF-8; NULL or empty
  * puts "Fenestal" back, and past 127 bytes it is cut at a character's
  * start. Asked for, as the knobs above are: the window server is told on
  * the pump's next turn and the bar on the next frame. */
-FNL_API void fnl_set_title(FnlApp *app, const char *utf8);           /* [any] */
+FNL_API void fnl_set_title(FnlApp *app, const char *utf8); /* [any] */
 
 /* Let the pointer go. There is no call that *takes* it: a capture begins with
  * the user clicking into the presentable area. */
-FNL_API void fnl_release_pointer(FnlApp *app);                       /* [any] */
+FNL_API void fnl_release_pointer(FnlApp *app); /* [any] */
 
 /* Render the scene at a fixed size and scale the result over the window -- what
  * a game calls a render scale. (0, 0) is native: the scene is drawn straight
@@ -1706,16 +1755,16 @@ FNL_API void fnl_set_scene_size_px(FnlApp *app, int w_px, int h_px); /* [any] */
  * offers -- MAILBOX, then IMMEDIATE, under Vulkan; a swap or sync interval
  * of 0 elsewhere -- and may still be paced by the refresh where nothing
  * else is on offer (DESIGN *Vsync and present modes*). */
-FNL_API const char *fnl_output_name(const FnlApp *app);             /* [any] */
-FNL_API const char *fnl_present_mode(const FnlApp *app);            /* [any] */
+FNL_API const char *fnl_output_name(const FnlApp *app);  /* [any] */
+FNL_API const char *fnl_present_mode(const FnlApp *app); /* [any] */
 
 /* Whether the window's presents wait for the display, on unless asked off --
  * by FNL_VSYNC=0 in the environment, or by this. A change lands at the next
  * frame, which builds the swapchain again: a tearing mode's is not the
  * vsynced one's. fnl_present_mode() says what the renderer resolved to, and
  * fnl_frame_samples() what the pacing then cost. */
-FNL_API void fnl_set_vsync(FnlApp *app, bool on);                   /* [any] */
-FNL_API bool fnl_vsync(const FnlApp *app);                          /* [any] */
+FNL_API void fnl_set_vsync(FnlApp *app, bool on); /* [any] */
+FNL_API bool fnl_vsync(const FnlApp *app);        /* [any] */
 
 /* Which backend and which renderer this program is running on -- together,
  * its platform. The backend is "Wayland", "X11", "Win32", "Cocoa" or "KMS"
@@ -1728,7 +1777,7 @@ FNL_API bool fnl_vsync(const FnlApp *app);                          /* [any] */
  * For showing rather than branching on; the enum is for that.
  * fnl_gpu_name() is the *device*. Neither changes over a window's life, so
  * the pointer keeps. Empty before there is a window. */
-FNL_API const char *fnl_backend_name(const FnlApp *app);            /* [any] */
+FNL_API const char *fnl_backend_name(const FnlApp *app); /* [any] */
 
 /* What the backend above is itself running on, where that is not the
  * machine: "wine on Wayland", "wine on X11", or "wine" when which of its
@@ -1736,27 +1785,27 @@ FNL_API const char *fnl_backend_name(const FnlApp *app);            /* [any] */
  * Windows included. For showing: a Win32 window under wine is an X11 or a
  * Wayland one underneath, and which it is decides what the window manager
  * does with it. The pointer keeps. */
-FNL_API const char *fnl_window_host(const FnlApp *app);             /* [any] */
-FNL_API const char *fnl_renderer_name(const FnlApp *app);           /* [any] */
+FNL_API const char *fnl_window_host(const FnlApp *app);   /* [any] */
+FNL_API const char *fnl_renderer_name(const FnlApp *app); /* [any] */
 /* What the renderer's frames reach the window through, as fnl_gpu_via_at()
  * says it for the entry in use: "D3D11" where Vulkan presents through a
  * DXGI swapchain on Windows -- chosen from the GPU list, or by itself where
  * a swapchain of Vulkan's own is slow to resize -- and "" everywhere else.
  * For showing beside fnl_renderer_name(). A per-thread snapshot on
  * fnl_gpu_name()'s terms. Since 0.9. */
-FNL_API const char *fnl_renderer_via(const FnlApp *app);            /* [any] */
+FNL_API const char *fnl_renderer_via(const FnlApp *app); /* [any] */
 /* The output the window is on, in logical points -- what a size-picker has to
  * filter against, since a window larger than its monitor is one the compositor
  * will clamp and never show whole. Zeroed when no output is known yet. */
-FNL_API void fnl_output_size_pt(const FnlApp *app,
-								int *w_pt, int *h_pt);               /* [any] */
+FNL_API void fnl_output_size_pt(const FnlApp *app, int *w_pt,
+								int *h_pt); /* [any] */
 
 /* That output's refresh rate in millihertz, as the window server says it
  * -- 60000 for 60 Hz, 59951 for what most panels call 60; on Win32 the
  * display configuration's signal -- and 0 where it says nothing. What the
  * frame loop spaces frames on until it has measured the period itself.
  * Since 0.9. */
-FNL_API unsigned fnl_output_refresh_mhz(const FnlApp *app);         /* [any] */
+FNL_API unsigned fnl_output_refresh_mhz(const FnlApp *app); /* [any] */
 
 /* ---- display modes and outputs --------------------------------------------
  *
@@ -1780,20 +1829,19 @@ FNL_API unsigned fnl_output_refresh_mhz(const FnlApp *app);         /* [any] */
  * itself, either one rebuilds the device as a lost surface does:
  * on_gpu_lost and on_gpu_created run. */
 typedef struct FnlMode {
-	int          w_px, h_px;
-	unsigned int refresh_mhz;    /* millihertz: 59940 is 59.94 Hz */
+	int w_px, h_px;
+	unsigned int refresh_mhz; /* millihertz: 59940 is 59.94 Hz */
 } FnlMode;
 
 /* The modes of the output the window is on, largest first and, within a
  * size, fastest first; fnl_mode_get() copies one out, and false past the
  * end. fnl_mode_current() is the one in force. */
-FNL_API int  fnl_mode_count(const FnlApp *app);                     /* [any] */
-FNL_API bool fnl_mode_get(const FnlApp *app, int i,
-						  FnlMode *mode);                            /* [any] */
-FNL_API bool fnl_mode_current(const FnlApp *app, FnlMode *mode);     /* [any] */
+FNL_API int fnl_mode_count(const FnlApp *app);                      /* [any] */
+FNL_API bool fnl_mode_get(const FnlApp *app, int i, FnlMode *mode); /* [any] */
+FNL_API bool fnl_mode_current(const FnlApp *app, FnlMode *mode);    /* [any] */
 /* Set this mode: its size exactly, and of those the refresh nearest. A size
  * the output does not have does nothing. */
-FNL_API void fnl_request_mode(FnlApp *app, const FnlMode *mode);     /* [any] */
+FNL_API void fnl_request_mode(FnlApp *app, const FnlMode *mode); /* [any] */
 
 /* The outputs the window can be moved to, the one it is on among them, a
  * monitor plugged in or out with the window open joining or leaving the
@@ -1812,9 +1860,9 @@ FNL_API void fnl_request_mode(FnlApp *app, const FnlMode *mode);     /* [any] */
  * fullscreen window, its clients placing nothing, and the Mac does not move
  * one: each says so through the log sink. The move arrives as
  * FNL_EVENT_OUTPUT, as one by the user does. */
-FNL_API int  fnl_output_count(const FnlApp *app);                   /* [any] */
-FNL_API const char *fnl_output_name_at(const FnlApp *app, int i);   /* [any] */
-FNL_API void fnl_request_output(FnlApp *app, const char *name);     /* [any] */
+FNL_API int fnl_output_count(const FnlApp *app);                  /* [any] */
+FNL_API const char *fnl_output_name_at(const FnlApp *app, int i); /* [any] */
+FNL_API void fnl_request_output(FnlApp *app, const char *name);   /* [any] */
 
 /* The surface scale in 120ths: 120 is 100%, 180 is 150%. It is whatever the
  * desktop asks for: the fractional-scale protocol on Wayland, the window's own
@@ -1822,7 +1870,7 @@ FNL_API void fnl_request_output(FnlApp *app, const char *name);     /* [any] */
  * (120 or 240). 120ths rather than a float
  * because they are exact, and every layout figure is derived from the scale
  * by integer arithmetic. */
-FNL_API int fnl_scale120(const FnlApp *app);                        /* [any] */
+FNL_API int fnl_scale120(const FnlApp *app); /* [any] */
 
 /* Ask for a presentable area of this size, in logical points. The window comes
  * out taller by whatever titlebar the library is drawing.
@@ -1832,7 +1880,7 @@ FNL_API int fnl_scale120(const FnlApp *app);                        /* [any] */
  * ignore it. Read the size back from the next frame rather than assuming.
  * On KMS the window is its output's mode, and fnl_request_mode() is how to
  * change that; this does nothing there. */
-FNL_API void fnl_request_size_pt(FnlApp *app, int w_pt, int h_pt);   /* [any] */
+FNL_API void fnl_request_size_pt(FnlApp *app, int w_pt, int h_pt); /* [any] */
 
 /* The held keys, as a set. Safe from [any] thread and cheap enough to ask
  * every frame. Asked per key and answered per key: FNL_KEY_W held says
@@ -1841,7 +1889,7 @@ FNL_API void fnl_request_size_pt(FnlApp *app, int w_pt, int h_pt);   /* [any] */
  * Focus arriving seeds the set from the keys that are *already* down, and
  * focus leaving clears it, because the matching releases are never
  * delivered. */
-FNL_API bool fnl_key_down(const FnlApp *app, FnlKey k);             /* [any] */
+FNL_API bool fnl_key_down(const FnlApp *app, FnlKey k); /* [any] */
 
 /* ---- text entry -----------------------------------------------------------
  *
@@ -1909,8 +1957,8 @@ FNL_API bool fnl_key_down(const FnlApp *app, FnlKey k);             /* [any] */
  * [any]. It is a flag the pump reads as each key arrives, so it applies from
  * the next key press on and never to one already delivered -- which is why a
  * key that *opens* a field does not also type into it. */
-FNL_API void fnl_set_text_input(FnlApp *app, bool on);              /* [any] */
-FNL_API bool fnl_is_text_input(const FnlApp *app);                  /* [any] */
+FNL_API void fnl_set_text_input(FnlApp *app, bool on); /* [any] */
+FNL_API bool fnl_is_text_input(const FnlApp *app);     /* [any] */
 
 /* The composition, as UTF-8. Copies at most `size` bytes including the
  * terminator, never splitting a character, and returns the length of the
@@ -1918,14 +1966,14 @@ FNL_API bool fnl_is_text_input(const FnlApp *app);                  /* [any] */
  * Empty when nothing is being composed. `buf` may be NULL with a size of 0,
  * to ask only how long it is. */
 FNL_API size_t fnl_compose_text(const FnlApp *app, char *buf,
-								size_t size);                      /* [any] */
+								size_t size); /* [any] */
 
 /* Where the caret is, in window points: the rectangle an input method puts
  * its candidate list beside. Only a hint and only used where there is such a
  * list, but a field that does not say gets its candidates at the window's
  * corner. Call it when the caret moves. */
-FNL_API void fnl_set_text_rect_pt(FnlApp *app, int x, int y,
-								  int w, int h);                     /* [any] */
+FNL_API void fnl_set_text_rect_pt(FnlApp *app, int x, int y, int w,
+								  int h); /* [any] */
 
 /* ---- the clipboard --------------------------------------------------------
  *
@@ -1961,11 +2009,10 @@ FNL_API void fnl_set_text_rect_pt(FnlApp *app, int x, int y,
  * window server. Call them in answer to a key press: Wayland lets a client
  * touch the clipboard only while it has the keyboard, and only on the
  * strength of an input event it was actually sent. */
-FNL_API bool fnl_clipboard_set(FnlApp *app, const char *utf8);      /* [any] */
-FNL_API void fnl_clipboard_request(FnlApp *app);                    /* [any] */
+FNL_API bool fnl_clipboard_set(FnlApp *app, const char *utf8); /* [any] */
+FNL_API void fnl_clipboard_request(FnlApp *app);               /* [any] */
 FNL_API size_t fnl_clipboard_text(const FnlApp *app, char *buf,
-								  size_t size);                    /* [any] */
-
+								  size_t size); /* [any] */
 
 #ifdef __cplusplus
 }
