@@ -93,6 +93,10 @@ struct RendererState {
 	/* ---- the overlay ---------------------------------------------------- */
 	__strong id<MTLRenderPipelineState> pso_rect;
 	__strong id<MTLRenderPipelineState> pso_shape;
+	/* A caller's picture (fnl_image_create()): the pipeline state that draws
+	 * it, and the texture each image holds as FnlImage::gpu -- the only
+	 * thing a Metal image needs of its own. */
+	__strong id<MTLRenderPipelineState> pso_image;
 	__strong id<MTLRenderPipelineState> pso_text;
 	__strong id<MTLRenderPipelineState> pso_blit;
 	__strong id<MTLRenderPipelineState> pso_mlaa;

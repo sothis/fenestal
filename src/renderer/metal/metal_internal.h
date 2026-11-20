@@ -41,7 +41,7 @@
 /* Where the shaders' resources are bound (DESIGN *One shader source*):
  * `Push` at buffer 0 in both stages, the instance stream at buffer 1, and
  * the one image and its sampler at 0. */
-#define MT_BUF_PUSH     0
+#define MT_BUF_PUSH 0
 #define MT_BUF_INSTANCE 1
 
 /* ---- device.m ------------------------------------------------------------ */
@@ -81,11 +81,18 @@ void mt_own_state(App *a, id<MTLRenderCommandEncoder> enc);
 /* The fetch or the filter, one covering triangle reading `tex` at `pso`. */
 void mt_fetch(App *a, id<MTLRenderCommandEncoder> enc,
 			  id<MTLRenderPipelineState> pso, id<MTLTexture> tex);
+/* Whether this device draws a caller's image at all: false refuses
+ * fnl_image_create() rather than drawing nothing. */
+bool mt_image_supported(const App *a);
+/* Draw `img` into this rectangle, uploading the library's copy of its
+ * pixels first where this device has no texture of it yet. */
+void mt_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
+void mt_image_free(App *a, FnlImage *img);
 
 /* ---- frame.m ------------------------------------------------------------- */
 bool mt_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 				   uint32_t cfg_serial, bool cfg_pending);
-int  mt_active_samples(const App *a, const FnlDrawState *ds);
+int mt_active_samples(const App *a, const FnlDrawState *ds);
 void mt_gpu_time_poll(App *a);
 
 /* The overlay's draws, the seam's overlay entries before the cover. */

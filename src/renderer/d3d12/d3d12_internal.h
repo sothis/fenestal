@@ -36,13 +36,13 @@
 #include <fenestal/fnl_d3d12.h>
 
 /* Release a COM object and null the pointer; nothing for a null one. */
-#define D3D_RELEASE(p)                                                        \
-	do {                                                                      \
-		if (p) {                                                              \
-			IUnknown *u_ = (IUnknown *)(void *)(p);                           \
-			u_->lpVtbl->Release(u_);                                          \
-			(p) = NULL;                                                       \
-		}                                                                     \
+#define D3D_RELEASE(p)                                                         \
+	do {                                                                       \
+		if (p) {                                                               \
+			IUnknown *u_ = (IUnknown *)(void *)(p);                            \
+			u_->lpVtbl->Release(u_);                                           \
+			(p) = NULL;                                                        \
+		}                                                                      \
 	} while (0)
 
 /* A failed HRESULT as a recorded result, with what failed and the code. */
@@ -51,7 +51,7 @@ FNL_MUST_USE FnlResult d3d_fail(FnlResult code, const char *what, HRESULT hr);
 /* The formats every image here is made in. The swapchain's buffers are
  * UNORM, as the flip model requires, and drawn through _SRGB views, so a
  * write is encoded and a blend is linear, as on Vulkan's _SRGB surface. */
-#define D3D_BACK_FORMAT  DXGI_FORMAT_R8G8B8A8_UNORM
+#define D3D_BACK_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 #define D3D_COLOR_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
 #define D3D_DEPTH_FORMAT DXGI_FORMAT_D32_FLOAT
 
@@ -88,7 +88,7 @@ FNL_MUST_USE FnlResult d3d_bridge_swapchain(App *a);
 
 /* ---- present_d3d11.c: through a Direct3D 11 swapchain ------------------- */
 /* FNL_D3D12_DXGI11: 1 always, 0 never, -1 unset, which measures. */
-int  d3d_via11_forced(void);
+int d3d_via11_forced(void);
 /* The Direct3D 11 device on the adapter, made the first time, as what
  * the swapchain is made from. */
 FNL_MUST_USE FnlResult d3d_via11_open(App *a, IUnknown **by);
@@ -111,6 +111,11 @@ D3D12_CPU_DESCRIPTOR_HANDLE d3d_dsv(App *a, int slot);
 D3D12_GPU_DESCRIPTOR_HANDLE d3d_srv_gpu(App *a, int slot);
 D3D12_CPU_DESCRIPTOR_HANDLE d3d_srv_cpu(App *a, int slot);
 D3D12_GPU_DESCRIPTOR_HANDLE d3d_smp_gpu(App *a, int slot);
+/* One shader-visible-or-not heap of `n` descriptors of `type`, with its
+ * descriptor stride. The overlay's images take one of their own. */
+FNL_MUST_USE FnlResult d3d_make_heap(App *a, D3D12_DESCRIPTOR_HEAP_TYPE type,
+									 UINT n, bool visible,
+									 ID3D12DescriptorHeap **out, UINT *inc);
 FNL_MUST_USE FnlResult d3d_make_heaps(App *a);
 /* The swapchain's buffers and the window's depth at the size the frame
  * policy settled, resizing the swapchain when it has another: the
@@ -139,11 +144,18 @@ void d3d_own_state(App *a);
 /* The fetch or the filter, one covering triangle reading `srv` at
  * `pso`. */
 void d3d_fetch(App *a, ID3D12PipelineState *pso, int srv);
+/* Whether this device draws a caller's image at all: false refuses
+ * fnl_image_create() rather than drawing nothing. */
+bool d3d_image_supported(const App *a);
+/* Draw `img` into this rectangle, uploading the library's copy of its
+ * pixels first where this device has no texture of it yet. */
+void d3d_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
+void d3d_image_free(App *a, FnlImage *img);
 
 /* ---- frame.c ------------------------------------------------------------- */
 bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 					uint32_t cfg_serial, bool cfg_pending);
-int  d3d_active_samples(const App *a, const FnlDrawState *ds);
+int d3d_active_samples(const App *a, const FnlDrawState *ds);
 void d3d_gpu_time_poll(App *a);
 
 /* The overlay's draws, the seam's overlay entries before the cover. */

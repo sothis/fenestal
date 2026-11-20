@@ -23,6 +23,8 @@
 #include "dxil/rect.frag.h"
 #include "dxil/shape.vert.h"
 #include "dxil/shape.frag.h"
+#include "dxil/image.vert.h"
+#include "dxil/image.frag.h"
 #include "dxil/text.vert.h"
 #include "dxil/text_lcd.frag.h"
 #include "dxil/fullscreen.vert.h"
@@ -31,30 +33,60 @@
 #include "font_data.h"
 #include "font_codec.h"
 
-/* The two `Push` blocks as root constants: the same bytes as the Vulkan
- * renderer's OverlayPush and TextPush, in 32-bit words. */
+/* The `Push` blocks as root constants: the same bytes as the Vulkan
+ * renderer's OverlayPush, TextPush and ImagePush, in 32-bit words.
+ *
+ * PUSH_WORDS is the largest of them, the image's, which carries its
+ * destination rectangle as well as the extent: it is what the root
+ * signature's constant range spans. A draw sets only the words its own
+ * block has -- SetGraphicsRoot32BitConstants() leaves the rest of the range
+ * as it was -- so one range serves all three. */
+#define PUSH_WORDS 8
+
 typedef struct {
 	float screen[2];
 } D3dOverlayPush;
 
 typedef struct {
-	float    screen[2];
+	float screen[2];
 	uint32_t srgb;
-	float    texel_u;
+	float texel_u;
 } D3dTextPush;
 
 _Static_assert(sizeof(D3dOverlayPush) == 8,
 			   "D3dOverlayPush must match shaders/*.vert");
 _Static_assert(sizeof(D3dTextPush) == 16,
 			   "D3dTextPush must match shaders/text.*");
-_Static_assert(offsetof(D3dTextPush, srgb) == 8,
-			   "D3dTextPush layout drifted");
+_Static_assert(offsetof(D3dTextPush, srgb) == 8, "D3dTextPush layout drifted");
 _Static_assert(offsetof(D3dTextPush, texel_u) == 12,
 			   "D3dTextPush layout drifted");
 
+/* The image pipeline's `Push` block: the destination rectangle, where the
+ * instanced pipelines' carries the extent alone. The same bytes as the
+ * Vulkan renderer's ImagePush, which is what DESIGN *One shader source*
+ * rests on. */
+typedef struct {
+	float rect[4];
+	float screen[2];
+	float pad[2]; /* the block's size rounds to the vec4's alignment */
+} D3dImagePush;
+
+_Static_assert(sizeof(D3dImagePush) == (size_t)PUSH_WORDS * 4,
+			   "D3dImagePush must match shaders/image.* and PUSH_WORDS");
+_Static_assert(offsetof(D3dImagePush, screen) == 16,
+			   "D3dImagePush layout drifted");
+
+/* The device object behind FnlImage::gpu: the texture, and which descriptor
+ * of the image heap its view sits in, freed by d3d_image_free(). Here and
+ * not with the rest of the images because d3d_destroy_overlay(), above them
+ * in this file, lets every one of them go. */
+typedef struct {
+	ID3D12Resource *tex;
+	uint32_t slot;
+} D3dImageObj;
+
 /* The root signature's parameters, in order. */
 enum { ROOT_PUSH = 0, ROOT_SRV, ROOT_SAMPLER, ROOT_COUNT };
-#define PUSH_WORDS 4
 
 /* ---- the root signature -------------------------------------------------- */
 
@@ -66,13 +98,13 @@ enum { ROOT_PUSH = 0, ROOT_SRV, ROOT_SAMPLER, ROOT_COUNT };
 static HRESULT root_make(ID3D12Device *dev, ID3D12RootSignature **out)
 {
 	const D3D12_DESCRIPTOR_RANGE srv = {
-		.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		.RangeType      = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
 		.NumDescriptors = 1,
 		.OffsetInDescriptorsFromTableStart =
 			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
 	};
 	const D3D12_DESCRIPTOR_RANGE smp = {
-		.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+		.RangeType      = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
 		.NumDescriptors = 1,
 		.OffsetInDescriptorsFromTableStart =
 			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
@@ -96,7 +128,7 @@ static HRESULT root_make(ID3D12Device *dev, ID3D12RootSignature **out)
 	};
 	const D3D12_ROOT_SIGNATURE_DESC d = {
 		.NumParameters = ROOT_COUNT,
-		.pParameters = p,
+		.pParameters   = p,
 		.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
 	};
 	ID3DBlob *blob = NULL, *err = NULL;
@@ -113,8 +145,7 @@ static HRESULT root_make(ID3D12Device *dev, ID3D12RootSignature **out)
 	}
 	hr = ID3D12Device_CreateRootSignature(
 		dev, 0, ID3D10Blob_GetBufferPointer(blob),
-		ID3D10Blob_GetBufferSize(blob), &IID_ID3D12RootSignature,
-		(void **)out);
+		ID3D10Blob_GetBufferSize(blob), &IID_ID3D12RootSignature, (void **)out);
 	ID3D10Blob_Release(blob);
 	return hr;
 }
@@ -135,14 +166,14 @@ static FnlResult make_root(App *a)
 typedef enum { BLEND_NONE, BLEND_ALPHA, BLEND_DUAL_SRC, BLEND_CONSTANT } Blend;
 
 typedef struct {
-	const char          *name;
+	const char *name;
 	const unsigned char *vs;
-	size_t               vs_len;
+	size_t vs_len;
 	const unsigned char *ps;
-	size_t               ps_len;
-	const size_t        *offsets;      /* per-instance vec4s, or NULL */
-	int                  n_inputs;
-	Blend                blend;
+	size_t ps_len;
+	const size_t *offsets; /* per-instance vec4s, or NULL */
+	int n_inputs;
+	Blend blend;
 } PsoDesc;
 
 #define BYTES(x) (x), sizeof(x)
@@ -158,35 +189,35 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 	FNL_ASSERT(s->n_inputs <= 3);
 	for (int i = 0; i < s->n_inputs; i++)
 		in[i] = (D3D12_INPUT_ELEMENT_DESC){
-			.SemanticName = SEMANTIC,
-			.SemanticIndex = (UINT)i,
-			.Format = DXGI_FORMAT_R32G32B32A32_FLOAT,
-			.InputSlot = 0,
+			.SemanticName      = SEMANTIC,
+			.SemanticIndex     = (UINT)i,
+			.Format            = DXGI_FORMAT_R32G32B32A32_FLOAT,
+			.InputSlot         = 0,
 			.AlignedByteOffset = (UINT)s->offsets[i],
-			.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
+			.InputSlotClass    = D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
 			.InstanceDataStepRate = 1,
 		};
 
 	D3D12_RENDER_TARGET_BLEND_DESC b = {
-		.BlendEnable = s->blend != BLEND_NONE,
-		.SrcBlend = D3D12_BLEND_ONE,
-		.DestBlend = D3D12_BLEND_ZERO,
-		.BlendOp = D3D12_BLEND_OP_ADD,
-		.SrcBlendAlpha = D3D12_BLEND_ONE,
-		.DestBlendAlpha = D3D12_BLEND_ZERO,
-		.BlendOpAlpha = D3D12_BLEND_OP_ADD,
-		.LogicOp = D3D12_LOGIC_OP_NOOP,
+		.BlendEnable           = s->blend != BLEND_NONE,
+		.SrcBlend              = D3D12_BLEND_ONE,
+		.DestBlend             = D3D12_BLEND_ZERO,
+		.BlendOp               = D3D12_BLEND_OP_ADD,
+		.SrcBlendAlpha         = D3D12_BLEND_ONE,
+		.DestBlendAlpha        = D3D12_BLEND_ZERO,
+		.BlendOpAlpha          = D3D12_BLEND_OP_ADD,
+		.LogicOp               = D3D12_LOGIC_OP_NOOP,
 		.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL,
 	};
 	if (s->blend == BLEND_ALPHA) {
-		b.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		b.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-		b.SrcBlendAlpha = D3D12_BLEND_ONE;
+		b.SrcBlend       = D3D12_BLEND_SRC_ALPHA;
+		b.DestBlend      = D3D12_BLEND_INV_SRC_ALPHA;
+		b.SrcBlendAlpha  = D3D12_BLEND_ONE;
 		b.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
 	} else if (s->blend == BLEND_DUAL_SRC) {
-		b.SrcBlend = D3D12_BLEND_SRC1_COLOR;
-		b.DestBlend = D3D12_BLEND_INV_SRC1_COLOR;
-		b.SrcBlendAlpha = D3D12_BLEND_SRC1_ALPHA;
+		b.SrcBlend       = D3D12_BLEND_SRC1_COLOR;
+		b.DestBlend      = D3D12_BLEND_INV_SRC1_COLOR;
+		b.SrcBlendAlpha  = D3D12_BLEND_SRC1_ALPHA;
 		b.DestBlendAlpha = D3D12_BLEND_INV_SRC1_ALPHA;
 	} else if (s->blend == BLEND_CONSTANT) {
 		/* The cover: one weight a draw (OMSetBlendFactor), the alpha
@@ -194,9 +225,9 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 		 * channels one each, and Direct3D 12 has no constant-alpha factor
 		 * every Windows 10 runs, so d3d_overlay_cover() sets all four to
 		 * the weight. */
-		b.SrcBlend = D3D12_BLEND_BLEND_FACTOR;
-		b.DestBlend = D3D12_BLEND_INV_BLEND_FACTOR;
-		b.SrcBlendAlpha = D3D12_BLEND_ZERO;
+		b.SrcBlend       = D3D12_BLEND_BLEND_FACTOR;
+		b.DestBlend      = D3D12_BLEND_INV_BLEND_FACTOR;
+		b.SrcBlendAlpha  = D3D12_BLEND_ZERO;
 		b.DestBlendAlpha = D3D12_BLEND_ONE;
 	}
 
@@ -218,13 +249,15 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 		.SampleDesc = { 1, 0 },
 	};
 	d.BlendState.RenderTarget[0] = b;
-	ID3D12PipelineState *p = NULL;
-	const HRESULT hr = ID3D12Device_CreateGraphicsPipelineState(
-		dev, &d, &IID_ID3D12PipelineState, (void **)&p);
+	ID3D12PipelineState *p       = NULL;
+	const HRESULT hr             = ID3D12Device_CreateGraphicsPipelineState(
+        dev, &d, &IID_ID3D12PipelineState, (void **)&p);
 	if (FAILED(hr)) {
 		if (!quiet)
-			fnl_log(FNL_LOG_ERROR, "the %s pipeline state was refused "
-					"(0x%08lx)", s->name, (unsigned long)hr);
+			fnl_log(FNL_LOG_ERROR,
+					"the %s pipeline state was refused "
+					"(0x%08lx)",
+					s->name, (unsigned long)hr);
 		return NULL;
 	}
 	return p;
@@ -247,10 +280,12 @@ bool d3d_draws_on(ID3D12Device *dev)
 		return false;
 	const size_t rect[2] = { offsetof(RectInstance, rect),
 							 offsetof(RectInstance, color) };
-	const PsoDesc d = { "rectangle", BYTES(rect_vert_dxil),
-						BYTES(rect_frag_dxil), rect, 2, BLEND_NONE };
+	const PsoDesc d      = {
+        "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
+        BLEND_NONE
+	};
 	ID3D12PipelineState *p = pso_make(dev, root, &d, true);
-	const bool ok = p != NULL;
+	const bool ok          = p != NULL;
 	D3D_RELEASE(p);
 	D3D_RELEASE(root);
 	return ok;
@@ -274,51 +309,52 @@ static void destroy_atlas(App *a)
 static FnlResult build_atlas(App *a, int si)
 {
 	struct RendererState *g = D3D(a);
-	const int aw = (int)FONT_ATLAS_W[si];
-	const int ah = (int)FONT_ATLAS_H[si];
-	const size_t bytes = (size_t)aw * (size_t)ah;
-	const size_t pitch = ((size_t)aw + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)
-					   & ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+	const int aw            = (int)FONT_ATLAS_W[si];
+	const int ah            = (int)FONT_ATLAS_H[si];
+	const size_t bytes      = (size_t)aw * (size_t)ah;
+	const size_t pitch = ((size_t)aw + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+						 ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
 
 	unsigned char *scratch = calloc(1, bytes);
 	if (!scratch)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"out of memory expanding the %dx%d glyph atlas",
-						aw, ah);
-	if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si],
-					 FONT_ATLAS_LEN[si], scratch, bytes)) {
+						"out of memory expanding the %dx%d glyph atlas", aw,
+						ah);
+	if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si], FONT_ATLAS_LEN[si],
+					 scratch, bytes)) {
 		free(scratch);
 		return fnl_fail(FNL_ERR_SYSTEM,
 						"the baked atlas for scale %d does not decode to "
-						"%dx%d", FONT_SCALE[si], aw, ah);
+						"%dx%d",
+						FONT_SCALE[si], aw, ah);
 	}
 
-	FnlResult rc = FNL_OK;
-	ID3D12Resource *up = NULL;
+	FnlResult rc                  = FNL_OK;
+	ID3D12Resource *up            = NULL;
 	ID3D12CommandAllocator *alloc = NULL;
-	ID3D12GraphicsCommandList *l = NULL;
+	ID3D12GraphicsCommandList *l  = NULL;
 
 	const D3D12_HEAP_PROPERTIES dflt = { .Type = D3D12_HEAP_TYPE_DEFAULT };
-	const D3D12_HEAP_PROPERTIES upl = { .Type = D3D12_HEAP_TYPE_UPLOAD };
-	const D3D12_RESOURCE_DESC td = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-		.Width = (UINT64)aw,
-		.Height = (UINT)ah,
-		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = DXGI_FORMAT_R8_UNORM,
-		.SampleDesc = { 1, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+	const D3D12_HEAP_PROPERTIES upl  = { .Type = D3D12_HEAP_TYPE_UPLOAD };
+	const D3D12_RESOURCE_DESC td     = {
+			.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+			.Width            = (UINT64)aw,
+			.Height           = (UINT)ah,
+			.DepthOrArraySize = 1,
+			.MipLevels        = 1,
+			.Format           = DXGI_FORMAT_R8_UNORM,
+			.SampleDesc       = { 1, 0 },
+			.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN,
 	};
 	const D3D12_RESOURCE_DESC bd = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
-		.Width = (UINT64)(pitch * (size_t)ah),
-		.Height = 1,
+		.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
+		.Width            = (UINT64)(pitch * (size_t)ah),
+		.Height           = 1,
 		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = DXGI_FORMAT_UNKNOWN,
-		.SampleDesc = { 1, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+		.MipLevels        = 1,
+		.Format           = DXGI_FORMAT_UNKNOWN,
+		.SampleDesc       = { 1, 0 },
+		.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
 	};
 	if (FAILED(ID3D12Device_CreateCommittedResource(
 			g->device, &dflt, D3D12_HEAP_FLAG_NONE, &td,
@@ -332,7 +368,7 @@ static FnlResult build_atlas(App *a, int si)
 					  "no room for the %dx%d glyph atlas", aw, ah);
 		goto out;
 	}
-	unsigned char *map = NULL;
+	unsigned char *map     = NULL;
 	const D3D12_RANGE none = { 0, 0 };
 	if (FAILED(ID3D12Resource_Map(up, 0, &none, (void **)&map))) {
 		rc = fnl_fail(FNL_ERR_SYSTEM, "could not map the atlas's upload");
@@ -344,8 +380,8 @@ static FnlResult build_atlas(App *a, int si)
 	ID3D12Resource_Unmap(up, 0, NULL);
 
 	HRESULT hr = ID3D12Device_CreateCommandAllocator(
-		g->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-		&IID_ID3D12CommandAllocator, (void **)&alloc);
+		g->device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator,
+		(void **)&alloc);
 	if (SUCCEEDED(hr))
 		hr = ID3D12Device_CreateCommandList(
 			g->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL,
@@ -355,8 +391,8 @@ static FnlResult build_atlas(App *a, int si)
 		goto out;
 	}
 	const D3D12_TEXTURE_COPY_LOCATION dst = {
-		.pResource = g->font_tex,
-		.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+		.pResource        = g->font_tex,
+		.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
 		.SubresourceIndex = 0,
 	};
 	const D3D12_TEXTURE_COPY_LOCATION src = {
@@ -373,8 +409,7 @@ static FnlResult build_atlas(App *a, int si)
 			},
 		},
 	};
-	ID3D12GraphicsCommandList_CopyTextureRegion(l, &dst, 0, 0, 0, &src,
-												NULL);
+	ID3D12GraphicsCommandList_CopyTextureRegion(l, &dst, 0, 0, 0, &src, NULL);
 	const D3D12_RESOURCE_BARRIER to_read = {
 		.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
 		.Transition = {
@@ -390,10 +425,10 @@ static FnlResult build_atlas(App *a, int si)
 		goto out;
 
 	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
-		.Format = DXGI_FORMAT_R8_UNORM,
-		.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+		.Format                  = DXGI_FORMAT_R8_UNORM,
+		.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D,
 		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-		.Texture2D = { .MipLevels = 1 },
+		.Texture2D               = { .MipLevels = 1 },
 	};
 	ID3D12Device_CreateShaderResourceView(g->device, g->font_tex, &v,
 										  d3d_srv_cpu(a, SRV_ATLAS));
@@ -440,15 +475,15 @@ static FnlResult make_arenas(App *a, ID3D12Resource **bufs, size_t bytes,
 							 void **maps)
 {
 	const D3D12_HEAP_PROPERTIES upl = { .Type = D3D12_HEAP_TYPE_UPLOAD };
-	const D3D12_RESOURCE_DESC d = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
-		.Width = (UINT64)bytes,
-		.Height = 1,
-		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = DXGI_FORMAT_UNKNOWN,
-		.SampleDesc = { 1, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+	const D3D12_RESOURCE_DESC d     = {
+			.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
+			.Width            = (UINT64)bytes,
+			.Height           = 1,
+			.DepthOrArraySize = 1,
+			.MipLevels        = 1,
+			.Format           = DXGI_FORMAT_UNKNOWN,
+			.SampleDesc       = { 1, 0 },
+			.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
 	};
 	const D3D12_RANGE none = { 0, 0 };
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -468,7 +503,7 @@ static FnlResult make_arenas(App *a, ID3D12Resource **bufs, size_t bytes,
 static void destroy_arenas(ID3D12Resource **bufs, void **maps)
 {
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		D3D_RELEASE(bufs[i]);           /* unmaps it too */
+		D3D_RELEASE(bufs[i]); /* unmaps it too */
 		maps[i] = NULL;
 	}
 }
@@ -478,46 +513,55 @@ FnlResult d3d_create_overlay(App *a)
 	struct RendererState *g = D3D(a);
 	FNL_TRY(make_root(a));
 
-	const size_t rect[2] = { offsetof(RectInstance, rect),
-							 offsetof(RectInstance, color) };
-	const size_t shape[3] = { offsetof(ShapeInstance, p0),
-							  offsetof(ShapeInstance, p2),
-							  offsetof(ShapeInstance, color) };
-	const size_t text[3] = { offsetof(GlyphInstance, rect),
-							 offsetof(GlyphInstance, uv),
-							 offsetof(GlyphInstance, color) };
-	const PsoDesc descs[6] = {
-		{ "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil),
-		  rect, 2, BLEND_NONE },
-		{ "stroke", BYTES(shape_vert_dxil), BYTES(shape_frag_dxil),
-		  shape, 3, BLEND_ALPHA },
+	const size_t rect[2]   = { offsetof(RectInstance, rect),
+							   offsetof(RectInstance, color) };
+	const size_t shape[3]  = { offsetof(ShapeInstance, p0),
+							   offsetof(ShapeInstance, p2),
+							   offsetof(ShapeInstance, color) };
+	const size_t text[3]   = { offsetof(GlyphInstance, rect),
+							   offsetof(GlyphInstance, uv),
+							   offsetof(GlyphInstance, color) };
+	const PsoDesc descs[7] = {
+		{ "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
+		  BLEND_NONE },
+		{ "stroke", BYTES(shape_vert_dxil), BYTES(shape_frag_dxil), shape, 3,
+		  BLEND_ALPHA },
+		/* A caller's picture: one quad at the rectangle the push block names
+		 * and no vertex input at all, so the corner is the vertex index. */
+		{ "image", BYTES(image_vert_dxil), BYTES(image_frag_dxil), NULL, 0,
+		  BLEND_ALPHA },
 		/* The subpixel variant always: dual-source blending is core in
 		 * Direct3D 12, where Vulkan has it as an optional feature. */
-		{ "text", BYTES(text_vert_dxil), BYTES(text_lcd_frag_dxil),
-		  text, 3, BLEND_DUAL_SRC },
-		{ "fetch", BYTES(fullscreen_vert_dxil), BYTES(blit_frag_dxil),
-		  NULL, 0, BLEND_NONE },
-		{ "MLAA", BYTES(fullscreen_vert_dxil), BYTES(mlaa_frag_dxil),
-		  NULL, 0, BLEND_NONE },
+		{ "text", BYTES(text_vert_dxil), BYTES(text_lcd_frag_dxil), text, 3,
+		  BLEND_DUAL_SRC },
+		{ "fetch", BYTES(fullscreen_vert_dxil), BYTES(blit_frag_dxil), NULL, 0,
+		  BLEND_NONE },
+		{ "MLAA", BYTES(fullscreen_vert_dxil), BYTES(mlaa_frag_dxil), NULL, 0,
+		  BLEND_NONE },
 		/* The cover: the fetch once more, blended by a constant, for the
 		 * frame read back before a move (d3d_overlay_cover()). */
-		{ "cover", BYTES(fullscreen_vert_dxil), BYTES(blit_frag_dxil),
-		  NULL, 0, BLEND_CONSTANT },
+		{ "cover", BYTES(fullscreen_vert_dxil), BYTES(blit_frag_dxil), NULL, 0,
+		  BLEND_CONSTANT },
 	};
-	ID3D12PipelineState **out[6] = { &g->pso_rect, &g->pso_shape,
-									 &g->pso_text, &g->pso_blit,
-									 &g->pso_mlaa, &g->pso_cover };
-	for (int i = 0; i < 6; i++) {
+	ID3D12PipelineState **out[7] = { &g->pso_rect, &g->pso_shape, &g->pso_image,
+									 &g->pso_text, &g->pso_blit,  &g->pso_mlaa,
+									 &g->pso_cover };
+	for (int i = 0; i < 7; i++) {
 		*out[i] = make_pso(a, &descs[i]);
 		if (!*out[i])
 			return fnl_fail(FNL_ERR_SYSTEM,
 							"the overlay's pipeline states did not build");
 	}
 
-	FNL_TRY(make_arenas(a, g->text_buf, TEXT_ARENA_BYTES,
-						(void **)a->text_map));
-	FNL_TRY(make_arenas(a, g->ovl_buf, OVERLAY_ARENA_BYTES,
-						(void **)a->ovl_map));
+	/* The caller's images' views: a heap of their own, so that an image
+	 * coming and going leaves the fixed slots (d3d12_state.h) alone. */
+	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+						  IMAGE_SETS_MAX, true, &g->image_heap, &g->image_inc));
+
+	FNL_TRY(
+		make_arenas(a, g->text_buf, TEXT_ARENA_BYTES, (void **)a->text_map));
+	FNL_TRY(
+		make_arenas(a, g->ovl_buf, OVERLAY_ARENA_BYTES, (void **)a->ovl_map));
 
 	/* The scale is 120 until the render thread latches another, as on
 	 * Vulkan. */
@@ -528,17 +572,34 @@ FnlResult d3d_create_overlay(App *a)
 void d3d_destroy_overlay(App *a)
 {
 	struct RendererState *g = D3D(a);
+	/* The caller's images first: their textures are this device's, and the
+	 * heap below is what holds their views. Each is left with a null gpu, so
+	 * a rebuilt device -- and a swap to another renderer -- uploads the copy
+	 * again rather than handing the next renderer's image_free() an object
+	 * that is not its. The queue was drained before this
+	 * (destroy_device_objects()). */
+	for (FnlImage *img = a->images; img; img = img->next) {
+		D3dImageObj *o = img->gpu;
+		if (!o)
+			continue;
+		img->gpu = NULL;
+		D3D_RELEASE(o->tex);
+		free(o);
+	}
+	D3D_RELEASE(g->image_heap);
+	g->image_used = 0;
 	destroy_atlas(a);
 	destroy_arenas(g->text_buf, (void **)a->text_map);
 	destroy_arenas(g->ovl_buf, (void **)a->ovl_map);
 	D3D_RELEASE(g->cover_tex);
-	g->cover_gen = 0;
+	g->cover_gen  = 0;
 	g->cover_live = false;
 	D3D_RELEASE(g->snap_read);
 	g->snap_read_bytes = 0;
 	D3D_RELEASE(g->pso_cover);
 	D3D_RELEASE(g->pso_rect);
 	D3D_RELEASE(g->pso_shape);
+	D3D_RELEASE(g->pso_image);
 	D3D_RELEASE(g->pso_text);
 	D3D_RELEASE(g->pso_blit);
 	D3D_RELEASE(g->pso_mlaa);
@@ -549,10 +610,14 @@ void d3d_destroy_overlay(App *a)
 
 void d3d_own_state(App *a)
 {
-	struct RendererState *g = D3D(a);
+	struct RendererState *g      = D3D(a);
 	ID3D12GraphicsCommandList *l = g->list;
-	ID3D12DescriptorHeap *heaps[2] = { g->srv_heap, g->smp_heap };
-	ID3D12GraphicsCommandList_SetDescriptorHeaps(l, 2, heaps);
+	/* The images' heap as well: their views are read through a table of
+	 * their own (image_srv_gpu()), and a table must point into a heap the
+	 * list has bound. */
+	ID3D12DescriptorHeap *heaps[3] = { g->srv_heap, g->smp_heap,
+									   g->image_heap };
+	ID3D12GraphicsCommandList_SetDescriptorHeaps(l, 3, heaps);
 	ID3D12GraphicsCommandList_SetGraphicsRootSignature(l, g->root);
 	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -583,11 +648,11 @@ static void flush(App *a, ID3D12PipelineState *pso, ID3D12Resource *buf,
 {
 	if (*count == *drawn || !D3D(a)->overlay_on || !pso || !buf)
 		return;
-	ID3D12GraphicsCommandList *l = D3D(a)->list;
+	ID3D12GraphicsCommandList *l     = D3D(a)->list;
 	const D3D12_VERTEX_BUFFER_VIEW v = {
 		.BufferLocation = ID3D12Resource_GetGPUVirtualAddress(buf) + offset,
-		.SizeInBytes = (UINT)(bytes - offset),
-		.StrideInBytes = (UINT)stride,
+		.SizeInBytes    = (UINT)(bytes - offset),
+		.StrideInBytes  = (UINT)stride,
 	};
 	ID3D12GraphicsCommandList_SetPipelineState(l, pso);
 	ID3D12GraphicsCommandList_IASetVertexBuffers(l, 0, 1, &v);
@@ -595,8 +660,7 @@ static void flush(App *a, ID3D12PipelineState *pso, ID3D12Resource *buf,
 											  (float)a->extent.h } };
 	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(
 		l, ROOT_PUSH, sizeof push / 4, &push, 0);
-	ID3D12GraphicsCommandList_DrawInstanced(l, 4, *count - *drawn, 0,
-											*drawn);
+	ID3D12GraphicsCommandList_DrawInstanced(l, 4, *count - *drawn, 0, *drawn);
 	*drawn = *count;
 }
 
@@ -609,9 +673,9 @@ void d3d_overlay_flush_rects(App *a)
 
 void d3d_overlay_flush_shapes(App *a)
 {
-	flush(a, D3D(a)->pso_shape, D3D(a)->ovl_buf[a->ovl_img],
-		  OVERLAY_SHAPE_OFF, OVERLAY_ARENA_BYTES, sizeof(ShapeInstance),
-		  &a->shape_count, &a->shape_drawn);
+	flush(a, D3D(a)->pso_shape, D3D(a)->ovl_buf[a->ovl_img], OVERLAY_SHAPE_OFF,
+		  OVERLAY_ARENA_BYTES, sizeof(ShapeInstance), &a->shape_count,
+		  &a->shape_drawn);
 }
 
 /* NULL restores the whole image. Row 0 is the top, as on Vulkan. */
@@ -619,9 +683,9 @@ void d3d_overlay_scissor(App *a, const FnlRect *r)
 {
 	if (!D3D(a)->overlay_on)
 		return;
-	const D3D12_RECT s = r ? (D3D12_RECT){ r->x, r->y, r->x + r->w,
-										   r->y + r->h }
-						   : (D3D12_RECT){ 0, 0, a->extent.w, a->extent.h };
+	const D3D12_RECT s =
+		r ? (D3D12_RECT){ r->x, r->y, r->x + r->w, r->y + r->h }
+		  : (D3D12_RECT){ 0, 0, a->extent.w, a->extent.h };
 	ID3D12GraphicsCommandList_RSSetScissorRects(D3D(a)->list, 1, &s);
 }
 
@@ -644,36 +708,36 @@ static bool cover_upload(App *a)
 	}
 	const DXGI_FORMAT fmt = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 	const int w = a->snap_w, h = a->snap_h;
-	const size_t row = (size_t)w * 4u;
-	const size_t pitch = (row + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)
-					   & ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+	const size_t row   = (size_t)w * 4u;
+	const size_t pitch = (row + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+						 ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
 
-	bool ok = false;
-	ID3D12Resource *up = NULL;
+	bool ok                       = false;
+	ID3D12Resource *up            = NULL;
 	ID3D12CommandAllocator *alloc = NULL;
-	ID3D12GraphicsCommandList *l = NULL;
+	ID3D12GraphicsCommandList *l  = NULL;
 
 	const D3D12_HEAP_PROPERTIES dflt = { .Type = D3D12_HEAP_TYPE_DEFAULT };
-	const D3D12_HEAP_PROPERTIES upl = { .Type = D3D12_HEAP_TYPE_UPLOAD };
-	const D3D12_RESOURCE_DESC td = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-		.Width = (UINT64)w,
-		.Height = (UINT)h,
-		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = fmt,
-		.SampleDesc = { 1, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+	const D3D12_HEAP_PROPERTIES upl  = { .Type = D3D12_HEAP_TYPE_UPLOAD };
+	const D3D12_RESOURCE_DESC td     = {
+			.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+			.Width            = (UINT64)w,
+			.Height           = (UINT)h,
+			.DepthOrArraySize = 1,
+			.MipLevels        = 1,
+			.Format           = fmt,
+			.SampleDesc       = { 1, 0 },
+			.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN,
 	};
 	const D3D12_RESOURCE_DESC bd = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
-		.Width = (UINT64)(pitch * (size_t)h),
-		.Height = 1,
+		.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
+		.Width            = (UINT64)(pitch * (size_t)h),
+		.Height           = 1,
 		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = DXGI_FORMAT_UNKNOWN,
-		.SampleDesc = { 1, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+		.MipLevels        = 1,
+		.Format           = DXGI_FORMAT_UNKNOWN,
+		.SampleDesc       = { 1, 0 },
+		.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
 	};
 	if (FAILED(ID3D12Device_CreateCommittedResource(
 			g->device, &dflt, D3D12_HEAP_FLAG_NONE, &td,
@@ -684,7 +748,7 @@ static bool cover_upload(App *a)
 			D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource,
 			(void **)&up)))
 		goto out;
-	unsigned char *map = NULL;
+	unsigned char *map     = NULL;
 	const D3D12_RANGE none = { 0, 0 };
 	if (FAILED(ID3D12Resource_Map(up, 0, &none, (void **)&map)))
 		goto out;
@@ -693,8 +757,8 @@ static bool cover_upload(App *a)
 	ID3D12Resource_Unmap(up, 0, NULL);
 
 	HRESULT hr = ID3D12Device_CreateCommandAllocator(
-		g->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-		&IID_ID3D12CommandAllocator, (void **)&alloc);
+		g->device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator,
+		(void **)&alloc);
 	if (SUCCEEDED(hr))
 		hr = ID3D12Device_CreateCommandList(
 			g->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL,
@@ -702,8 +766,8 @@ static bool cover_upload(App *a)
 	if (FAILED(hr))
 		goto out;
 	const D3D12_TEXTURE_COPY_LOCATION dst = {
-		.pResource = g->cover_tex,
-		.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+		.pResource        = g->cover_tex,
+		.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
 		.SubresourceIndex = 0,
 	};
 	const D3D12_TEXTURE_COPY_LOCATION src = {
@@ -720,8 +784,7 @@ static bool cover_upload(App *a)
 			},
 		},
 	};
-	ID3D12GraphicsCommandList_CopyTextureRegion(l, &dst, 0, 0, 0, &src,
-												NULL);
+	ID3D12GraphicsCommandList_CopyTextureRegion(l, &dst, 0, 0, 0, &src, NULL);
 	const D3D12_RESOURCE_BARRIER to_read = {
 		.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
 		.Transition = {
@@ -736,10 +799,10 @@ static bool cover_upload(App *a)
 		goto out;
 
 	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
-		.Format = fmt,
-		.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+		.Format                  = fmt,
+		.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D,
 		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-		.Texture2D = { .MipLevels = 1 },
+		.Texture2D               = { .MipLevels = 1 },
 	};
 	ID3D12Device_CreateShaderResourceView(g->device, g->cover_tex, &v,
 										  d3d_srv_cpu(a, SRV_COVER));
@@ -762,10 +825,11 @@ bool d3d_overlay_cover(App *a, float alpha)
 	if (!g->overlay_on || !a->snap_valid || !g->pso_cover)
 		return false;
 	if (g->cover_gen != a->snap_gen) {
-		g->cover_gen = a->snap_gen;
+		g->cover_gen  = a->snap_gen;
 		g->cover_live = cover_upload(a);
 		if (!g->cover_live)
-			fnl_log(FNL_LOG_WARN, "the frame read back before the move "
+			fnl_log(FNL_LOG_WARN,
+					"the frame read back before the move "
 					"would not upload; the move dissolves from black");
 	}
 	if (!g->cover_live || !g->cover_tex)
@@ -801,11 +865,11 @@ FnlResult d3d_text_end(App *a)
 	if (a->text_count == a->text_drawn || !g->overlay_on || !g->pso_text ||
 		!g->font_tex)
 		return FNL_OK;
-	ID3D12GraphicsCommandList *l = g->list;
+	ID3D12GraphicsCommandList *l     = g->list;
 	const D3D12_VERTEX_BUFFER_VIEW v = {
 		.BufferLocation =
 			ID3D12Resource_GetGPUVirtualAddress(g->text_buf[a->text_img]),
-		.SizeInBytes = (UINT)TEXT_ARENA_BYTES,
+		.SizeInBytes   = (UINT)TEXT_ARENA_BYTES,
 		.StrideInBytes = (UINT)sizeof(GlyphInstance),
 	};
 	ID3D12GraphicsCommandList_SetPipelineState(l, g->pso_text);
@@ -826,9 +890,253 @@ FnlResult d3d_text_end(App *a)
 	};
 	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(
 		l, ROOT_PUSH, sizeof push / 4, &push, 0);
-	ID3D12GraphicsCommandList_DrawInstanced(l, 4,
-											a->text_count - a->text_drawn,
+	ID3D12GraphicsCommandList_DrawInstanced(l, 4, a->text_count - a->text_drawn,
 											0, a->text_drawn);
 	a->text_drawn = a->text_count;
 	return FNL_OK;
+}
+
+/* ---- images ---------------------------------------------------------------
+ *
+ * A caller's picture (fnl_image_create()): the library's copy of its pixels
+ * (FnlImage::pixels) and, here, the texture made from them. The upload is
+ * lazy -- the first draw after the image is made, and the first after a
+ * device rebuild -- and runs on the render thread, inside the overlay's own
+ * recording, which is what lets it take no lock (fenestal.h says so where
+ * the calls are declared). The copy is what a rebuild uploads again from.
+ *
+ * The upload's own list is submitted and waited for on the spot, as
+ * cover_upload()'s is: Direct3D 12 keeps nothing alive for a list in
+ * flight, so a texture a frame is about to read may not be filled by one
+ * still going.
+ */
+
+/* The lowest descriptor of the image heap nothing holds, or -1 where every
+ * one is taken -- one image that does not appear, which is the bound
+ * Vulkan's descriptor pool has and for its reason. */
+static int image_slot_take(App *a)
+{
+	struct RendererState *g = D3D(a);
+	for (int i = 0; i < IMAGE_SETS_MAX; i++)
+		if (!(g->image_used & (1ull << i))) {
+			g->image_used |= 1ull << i;
+			return i;
+		}
+	return -1;
+}
+
+static void image_slot_give(App *a, int slot)
+{
+	D3D(a)->image_used &= ~(1ull << (unsigned)slot);
+}
+
+static D3D12_CPU_DESCRIPTOR_HANDLE image_srv_cpu(App *a, int slot)
+{
+	D3D12_CPU_DESCRIPTOR_HANDLE h =
+		ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+			D3D(a)->image_heap);
+	h.ptr += (SIZE_T)slot * D3D(a)->image_inc;
+	return h;
+}
+
+static D3D12_GPU_DESCRIPTOR_HANDLE image_srv_gpu(App *a, int slot)
+{
+	D3D12_GPU_DESCRIPTOR_HANDLE h =
+		ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(
+			D3D(a)->image_heap);
+	h.ptr += (UINT64)slot * D3D(a)->image_inc;
+	return h;
+}
+
+bool d3d_image_supported(const App *a)
+{
+	return a->renderer_state != NULL && D3D(a)->pso_image != NULL;
+}
+
+/* One image's texture, from the copy the library kept, and the view of it in
+ * a descriptor of the image heap. False where anything failed, with
+ * img->gpu left null: the draw is skipped and the caller's picture does not
+ * appear, which is what fnl_image_supported() promised. */
+static bool image_upload(App *a, FnlImage *img)
+{
+	struct RendererState *g = D3D(a);
+	D3dImageObj *o          = calloc(1, sizeof *o);
+	if (!o)
+		return false;
+	const int slot = image_slot_take(a);
+	if (slot < 0) {
+		free(o);
+		return false;
+	}
+
+	/* _SRGB where the window is, as the cover and the atlas: the sampler
+	 * decodes each texel to linear before the blend and the target re-encodes
+	 * on write. Rows on the pitch alignment in the upload buffer. */
+	const DXGI_FORMAT fmt = a->srgb_surface ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+											: DXGI_FORMAT_R8G8B8A8_UNORM;
+	const int w = img->w, h = img->h;
+	const size_t row   = (size_t)w * 4u;
+	const size_t pitch = (row + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+						 ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+
+	bool ok                       = false;
+	ID3D12Resource *up            = NULL;
+	ID3D12CommandAllocator *alloc = NULL;
+	ID3D12GraphicsCommandList *l  = NULL;
+
+	const D3D12_HEAP_PROPERTIES dflt = { .Type = D3D12_HEAP_TYPE_DEFAULT };
+	const D3D12_HEAP_PROPERTIES upl  = { .Type = D3D12_HEAP_TYPE_UPLOAD };
+	const D3D12_RESOURCE_DESC td     = {
+			.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+			.Width            = (UINT64)w,
+			.Height           = (UINT)h,
+			.DepthOrArraySize = 1,
+			.MipLevels        = 1,
+			.Format           = fmt,
+			.SampleDesc       = { 1, 0 },
+			.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+	};
+	const D3D12_RESOURCE_DESC bd = {
+		.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
+		.Width            = (UINT64)(pitch * (size_t)h),
+		.Height           = 1,
+		.DepthOrArraySize = 1,
+		.MipLevels        = 1,
+		.Format           = DXGI_FORMAT_UNKNOWN,
+		.SampleDesc       = { 1, 0 },
+		.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+	};
+	if (FAILED(ID3D12Device_CreateCommittedResource(
+			g->device, &dflt, D3D12_HEAP_FLAG_NONE, &td,
+			D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource,
+			(void **)&o->tex)) ||
+		FAILED(ID3D12Device_CreateCommittedResource(
+			g->device, &upl, D3D12_HEAP_FLAG_NONE, &bd,
+			D3D12_RESOURCE_STATE_GENERIC_READ, NULL, &IID_ID3D12Resource,
+			(void **)&up)))
+		goto out;
+	unsigned char *map     = NULL;
+	const D3D12_RANGE none = { 0, 0 };
+	if (FAILED(ID3D12Resource_Map(up, 0, &none, (void **)&map)))
+		goto out;
+	for (int y = 0; y < h; y++)
+		memcpy(map + (size_t)y * pitch,
+			   (const unsigned char *)img->pixels + (size_t)y * row, row);
+	ID3D12Resource_Unmap(up, 0, NULL);
+
+	HRESULT hr = ID3D12Device_CreateCommandAllocator(
+		g->device, D3D12_COMMAND_LIST_TYPE_DIRECT, &IID_ID3D12CommandAllocator,
+		(void **)&alloc);
+	if (SUCCEEDED(hr))
+		hr = ID3D12Device_CreateCommandList(
+			g->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL,
+			&IID_ID3D12GraphicsCommandList, (void **)&l);
+	if (FAILED(hr))
+		goto out;
+	const D3D12_TEXTURE_COPY_LOCATION dst = {
+		.pResource        = o->tex,
+		.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+		.SubresourceIndex = 0,
+	};
+	const D3D12_TEXTURE_COPY_LOCATION src = {
+		.pResource = up,
+		.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+		.PlacedFootprint = {
+			.Offset = 0,
+			.Footprint = {
+				.Format = fmt,
+				.Width = (UINT)w,
+				.Height = (UINT)h,
+				.Depth = 1,
+				.RowPitch = (UINT)pitch,
+			},
+		},
+	};
+	ID3D12GraphicsCommandList_CopyTextureRegion(l, &dst, 0, 0, 0, &src, NULL);
+	const D3D12_RESOURCE_BARRIER to_read = {
+		.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+		.Transition = {
+			.pResource   = o->tex,
+			.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
+			.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		},
+	};
+	ID3D12GraphicsCommandList_ResourceBarrier(l, 1, &to_read);
+	if (d3d_run_once(a, l) < 0)
+		goto out;
+
+	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
+		.Format                  = fmt,
+		.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D,
+		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		.Texture2D               = { .MipLevels = 1 },
+	};
+	ID3D12Device_CreateShaderResourceView(g->device, o->tex, &v,
+										  image_srv_cpu(a, slot));
+	ok = true;
+out:
+	D3D_RELEASE(l);
+	D3D_RELEASE(alloc);
+	D3D_RELEASE(up);
+	if (!ok) {
+		/* The handles a failed call wrote are undefined, and o was zeroed by
+		 * calloc(): letting go of any prefix is safe. */
+		D3D_RELEASE(o->tex);
+		image_slot_give(a, slot);
+		free(o);
+		return false;
+	}
+	o->slot  = (uint32_t)slot;
+	img->gpu = o;
+	return true;
+}
+
+void d3d_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
+{
+	struct RendererState *g      = D3D(a);
+	ID3D12GraphicsCommandList *l = g->list;
+	if (!g->overlay_on || !l || !g->pso_image)
+		return;
+
+	if (!img->gpu && !image_upload(a, img)) {
+		fnl_log(FNL_LOG_WARN,
+				"the %dx%d image would not upload; it is "
+				"not drawn",
+				img->w, img->h);
+		return;
+	}
+
+	/* What was appended before it is behind it: the core flushed the
+	 * rectangles and strokes before this call, so the image lands between
+	 * them as it did in call order. */
+	ID3D12GraphicsCommandList_SetPipelineState(l, g->pso_image);
+	ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(
+		l, ROOT_SRV, image_srv_gpu(a, (int)((D3dImageObj *)img->gpu)->slot));
+	ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(
+		l, ROOT_SAMPLER, d3d_smp_gpu(a, SMP_LINEAR));
+	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
+		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	const D3dImagePush push = {
+		.rect   = { (float)x, (float)y, (float)w, (float)h },
+		.screen = { (float)a->extent.w, (float)a->extent.h },
+	};
+	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(
+		l, ROOT_PUSH, sizeof push / 4, &push, 0);
+	ID3D12GraphicsCommandList_DrawInstanced(l, 6, 1, 0, 0);
+	/* Back to the strip everything else here is drawn as (d3d_own_state()):
+	 * the image is the one draw of the overlay's that is a list. */
+	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
+		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+}
+
+void d3d_image_free(App *a, FnlImage *img)
+{
+	D3dImageObj *o = img->gpu;
+	if (!o)
+		return;
+	img->gpu = NULL;
+	D3D_RELEASE(o->tex);
+	image_slot_give(a, (int)o->slot);
+	free(o);
 }

@@ -31,61 +31,72 @@
  * scene. */
 enum {
 	RTV_BACK0 = 0,
-	RTV_SCENE = D3D_BUFFERS, RTV_SCENE_MS, RTV_MLAA, RTV_COUNT
+	RTV_SCENE = D3D_BUFFERS,
+	RTV_SCENE_MS,
+	RTV_MLAA,
+	RTV_COUNT
 };
 enum { DSV_WINDOW = 0, DSV_SCENE, DSV_SCENE_MS, DSV_COUNT };
 enum { SRV_ATLAS = 0, SRV_SCENE, SRV_MLAA, SRV_COVER, SRV_COUNT };
 enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_COUNT };
 
+/* Caller images (fnl_image_create()) take a descriptor each from a heap of
+ * their own: the fixed slots above name the library's resources, which an
+ * image coming and going may not disturb. RendererState::image_used is a bit
+ * a slot, so this is a word -- the bound Vulkan's descriptor pool has, and
+ * for its reason. */
+#define IMAGE_SETS_MAX 64
+_Static_assert(IMAGE_SETS_MAX <= 64, "image_used is one word of slots");
+
 /* An image the GPU draws into, with its depth where it has one. Null
  * together when there is none. `state` is the colour image's resource state
  * as the last recording left it, which the next barrier starts from. */
 typedef struct {
-	ID3D12Resource       *color;
-	ID3D12Resource       *depth;
+	ID3D12Resource *color;
+	ID3D12Resource *depth;
 	D3D12_RESOURCE_STATES state;
 } D3dTarget;
 
 struct RendererState {
 	/* ---- the factory, and the adapter the device is on ----------------- */
-	IDXGIFactory4  *factory;
-	IDXGIAdapter1  *adapter;
+	IDXGIFactory4 *factory;
+	IDXGIAdapter1 *adapter;
 	/* DXGI_FEATURE_PRESENT_ALLOW_TEARING: an uncapped present that tears,
 	 * where vsync is off. Asked of the factory once. */
-	bool            tearing;
+	bool tearing;
 	/* WARP or another software adapter: its present waits for the frame. */
-	bool            software;
+	bool software;
 
 	/* ---- the device ---------------------------------------------------- */
-	ID3D12Device       *device;
+	ID3D12Device *device;
 	ID3D12CommandQueue *queue;
 	/* A Debug tree's: what the debug layer said, drained into the log once
 	 * a frame. NULL where the layer is not installed. */
-	ID3D12InfoQueue    *info;
+	ID3D12InfoQueue *info;
 
 	/* One fence for the queue. `fenced` is the last value signalled, and
 	 * slot_value[] what each frame slot's last submission signalled, which
 	 * the slot waits for before its allocator and arenas are reused. */
-	ID3D12Fence    *fence;
-	HANDLE          fence_event;
-	uint64_t        fenced;
-	uint64_t        slot_value[MAX_FRAMES_IN_FLIGHT];
+	ID3D12Fence *fence;
+	HANDLE fence_event;
+	uint64_t fenced;
+	uint64_t slot_value[MAX_FRAMES_IN_FLIGHT];
 
-	ID3D12CommandAllocator    *alloc[MAX_FRAMES_IN_FLIGHT];
+	ID3D12CommandAllocator *alloc[MAX_FRAMES_IN_FLIGHT];
 	/* Two timestamps per slot, at the first and the last command of its
 	 * list, resolved into ts_read at the list's end, for
 	 * fnl_frame_gpu_ms(); ts_freq the queue's ticks a second, ts_unread
 	 * whether a slot's pair has been written since it was read, and
 	 * ts_index the frame that wrote it (app_gpu_timed()). NULL where the
 	 * heap would not be made. */
-	ID3D12QueryHeap           *ts_heap;
-	ID3D12Resource            *ts_read;
-	UINT64                     ts_freq;
-	bool                       ts_unread[MAX_FRAMES_IN_FLIGHT];
-	uint64_t                   ts_index[MAX_FRAMES_IN_FLIGHT];
+	ID3D12QueryHeap *ts_heap;
+	ID3D12Resource *ts_read;
+	UINT64 ts_freq;
+	bool ts_unread[MAX_FRAMES_IN_FLIGHT];
+	uint64_t ts_index[MAX_FRAMES_IN_FLIGHT];
 	ID3D12GraphicsCommandList *list;
 	/* Whether `list` is open for recording. */
-	bool            recording;
+	bool recording;
 
 	/* ---- the swapchain -------------------------------------------------- */
 	IDXGISwapChain3 *swapchain;
@@ -93,17 +104,17 @@ struct RendererState {
 	 * another frame, which is what the frame waits on before it is drawn;
 	 * and how many frames it lets be queued, 1 at rest and 2 while the
 	 * window is being sized (frame.c). */
-	HANDLE           frame_wait;
-	UINT             latency;
+	HANDLE frame_wait;
+	UINT latency;
 	/* The frame-latency object was waited on and no present has released
 	 * it since: a frame that bailed before its present. The next frame
 	 * does not wait again, which would sit out the whole timeout. */
-	bool             frame_waited;
+	bool frame_waited;
 	/* Waits skipped -- on a frame that answered a size, and every frame
 	 * under sync interval 0 (frame.c) -- each a count the object may be
 	 * ahead by; taken back without blocking at the next wait. */
-	int              frame_owed;
-	UINT             sc_flags;
+	int frame_owed;
+	UINT sc_flags;
 	/* The swapchain made from a Direct3D 11 device, the back buffers
 	 * shared with it (present_d3d11.c); NULL for this device's own.
 	 * `via11_on` is which the next swapchain is made from; the window is
@@ -114,68 +125,68 @@ struct RendererState {
 	 * measured again at each size (App::size_at, as `via11_at` was when
 	 * it settled) unless FNL_D3D12_DXGI11 decided it (`via11_forced`). */
 	struct D3dVia11 *via11;
-	bool             via11_on, via11_settled, via11_switch, via11_forced;
-	int              via11_seen, via11_late;
-	double           via11_at;
-	ID3D12Resource  *back[D3D_BUFFERS];
+	bool via11_on, via11_settled, via11_switch, via11_forced;
+	int via11_seen, via11_late;
+	double via11_at;
+	ID3D12Resource *back[D3D_BUFFERS];
 	/* The buffers' size: App::extent, or larger, the window showing their
 	 * corner (d3d_window_images()). */
-	int              buf_w, buf_h;
+	int buf_w, buf_h;
 	/* The window's depth, at the buffers' size, for a scene drawn straight
 	 * in. */
-	ID3D12Resource  *window_depth;
+	ID3D12Resource *window_depth;
 	/* The present interval the swapchain presents with: 1 or 0, mirrored
 	 * into App::present_mode. */
-	int              interval;
+	int interval;
 	/* The last present said the window is covered (DXGI_STATUS_OCCLUDED). */
-	bool             occluded;
+	bool occluded;
 	/* The frame that answers a size waits to be shown (frame.c,
 	 * wait_shown()): set when the swapchain gives no frame statistics, or
 	 * none in DISJOINT_GIVE_UP waits in a row, after which this swapchain
 	 * is not asked again; cleared with a new one. */
-	bool             no_stats;
-	int              stats_unseen;
+	bool no_stats;
+	int stats_unseen;
 	/* Under wine, where IDXGIOutput::WaitForVBlank waits for no vertical
 	 * blank: the wait polls the statistics instead (frame.c). */
-	bool             blank_estimated;
+	bool blank_estimated;
 	/* The shown waiter, which makes that wait on a thread of its own and
 	 * releases the ack (FnlBackendVtbl::ack_release), so the render thread
 	 * goes on drawing. Started at the first frame that acks, its lock
 	 * made then whether or not the thread could be (shown_ready);
 	 * shown_lock guards the count, the output, the two flags after them,
 	 * and no_stats and stats_unseen above. */
-	bool             shown_ready, shown_started;
-	FnlThread        shown_thread;
-	FnlMutex         shown_lock;
-	FnlCond          shown_cond;
-	UINT             shown_want;
-	IDXGIOutput     *shown_out;
-	bool             shown_busy, shown_quit;
+	bool shown_ready, shown_started;
+	FnlThread shown_thread;
+	FnlMutex shown_lock;
+	FnlCond shown_cond;
+	UINT shown_want;
+	IDXGIOutput *shown_out;
+	bool shown_busy, shown_quit;
 
 	/* ---- descriptors ---------------------------------------------------- */
 	ID3D12DescriptorHeap *rtv_heap;
 	ID3D12DescriptorHeap *dsv_heap;
 	ID3D12DescriptorHeap *srv_heap;
 	ID3D12DescriptorHeap *smp_heap;
-	UINT            rtv_inc, dsv_inc, srv_inc, smp_inc;
+	UINT rtv_inc, dsv_inc, srv_inc, smp_inc;
 
 	/* ---- the scene's targets ----------------------------------------------
 	 * As the other renderers': the scene at one resolution, sampled by the
 	 * fetch; the multisampled pair FSAA draws into and resolves from; and
 	 * MLAA's output. A refusal is remembered. */
-	D3dTarget       scene;
-	D3dTarget       scene_ms;
-	bool            scene_ms_refused;
-	D3dTarget       mlaa;
-	bool            mlaa_refused;
-	int             samples;          /* what FSAA multisamples at */
+	D3dTarget scene;
+	D3dTarget scene_ms;
+	bool scene_ms_refused;
+	D3dTarget mlaa;
+	bool mlaa_refused;
+	int samples; /* what FSAA multisamples at */
 
 	/* What on_record draws into, while it runs; null otherwise.
 	 * fnl_d3d12_scene() reads it back. */
-	ID3D12GraphicsCommandList  *scene_list_now;
+	ID3D12GraphicsCommandList *scene_list_now;
 	D3D12_CPU_DESCRIPTOR_HANDLE scene_rtv_now;
 	D3D12_CPU_DESCRIPTOR_HANDLE scene_dsv_now;
-	D3D12_RECT                  scene_rect_now;
+	D3D12_RECT scene_rect_now;
 
 	/* ---- the overlay ---------------------------------------------------- */
 	ID3D12RootSignature *root;
@@ -193,12 +204,12 @@ struct RendererState {
 	 * copies its back buffer into for that snapshot (frame.c), sized for
 	 * the largest extent yet, rows on the pitch alignment. */
 	ID3D12PipelineState *pso_cover;
-	ID3D12Resource      *cover_tex;
-	uint32_t             cover_gen;
-	bool                 cover_live;
-	ID3D12Resource      *snap_read;
-	size_t               snap_read_bytes;
-	size_t               snap_pitch;
+	ID3D12Resource *cover_tex;
+	uint32_t cover_gen;
+	bool cover_live;
+	ID3D12Resource *snap_read;
+	size_t snap_read_bytes;
+	size_t snap_pitch;
 
 	/* Per frame slot: the overlay's arenas, upload-heap buffers mapped for
 	 * good (App::text_map and App::ovl_map point into them). */
@@ -207,9 +218,19 @@ struct RendererState {
 
 	ID3D12Resource *font_tex;
 
+	/* The caller's images (fnl_image_create()): one pipeline state, and the
+	 * descriptor heap their views come from, its slots taken and given as
+	 * the images are made and freed (d3d_overlay_image(), d3d_image_free()).
+	 * `image_inc` is that heap's descriptor stride, `image_used` the slots in
+	 * use, one bit each. */
+	ID3D12PipelineState *pso_image;
+	ID3D12DescriptorHeap *image_heap;
+	UINT image_inc;
+	uint64_t image_used;
+
 	/* Whether the overlay is being drawn: a flush outside it draws
 	 * nothing, as one outside a Vulkan recording does. */
-	bool            overlay_on;
+	bool overlay_on;
 };
 
 #endif /* FNL_D3D12_STATE_H */

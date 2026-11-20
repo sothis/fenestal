@@ -70,22 +70,20 @@ D3D12_GPU_DESCRIPTOR_HANDLE d3d_smp_gpu(App *a, int slot)
 	return h;
 }
 
-static FnlResult make_heap(App *a, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT n,
-						   bool visible, ID3D12DescriptorHeap **out,
-						   UINT *inc)
+FnlResult d3d_make_heap(App *a, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT n,
+						bool visible, ID3D12DescriptorHeap **out, UINT *inc)
 {
 	const D3D12_DESCRIPTOR_HEAP_DESC d = {
-		.Type = type,
+		.Type           = type,
 		.NumDescriptors = n,
-		.Flags = visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE
-						 : D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+		.Flags          = visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE
+								  : D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
 	};
 	const HRESULT hr = ID3D12Device_CreateDescriptorHeap(
 		D3D(a)->device, &d, &IID_ID3D12DescriptorHeap, (void **)out);
 	if (FAILED(hr))
 		return d3d_fail(FNL_ERR_OUT_OF_MEMORY, "CreateDescriptorHeap", hr);
-	*inc = ID3D12Device_GetDescriptorHandleIncrementSize(D3D(a)->device,
-														 type);
+	*inc = ID3D12Device_GetDescriptorHandleIncrementSize(D3D(a)->device, type);
 	return FNL_OK;
 }
 
@@ -95,25 +93,25 @@ static FnlResult make_heap(App *a, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT n,
 FnlResult d3d_make_heaps(App *a)
 {
 	struct RendererState *g = D3D(a);
-	FNL_TRY(make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, RTV_COUNT, false,
-					  &g->rtv_heap, &g->rtv_inc));
-	FNL_TRY(make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, DSV_COUNT, false,
-					  &g->dsv_heap, &g->dsv_inc));
-	FNL_TRY(make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, SRV_COUNT,
-					  true, &g->srv_heap, &g->srv_inc));
-	FNL_TRY(make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, SMP_COUNT, true,
-					  &g->smp_heap, &g->smp_inc));
+	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, RTV_COUNT, false,
+						  &g->rtv_heap, &g->rtv_inc));
+	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, DSV_COUNT, false,
+						  &g->dsv_heap, &g->dsv_inc));
+	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, SRV_COUNT,
+						  true, &g->srv_heap, &g->srv_inc));
+	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, SMP_COUNT,
+						  true, &g->smp_heap, &g->smp_inc));
 	const D3D12_FILTER filters[SMP_COUNT] = {
 		[SMP_NEAREST] = D3D12_FILTER_MIN_MAG_MIP_POINT,
 		[SMP_LINEAR]  = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
 	};
 	for (int i = 0; i < SMP_COUNT; i++) {
 		const D3D12_SAMPLER_DESC s = {
-			.Filter = filters[i],
-			.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
-			.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
-			.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
-			.MaxLOD = D3D12_FLOAT32_MAX,
+			.Filter         = filters[i],
+			.AddressU       = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+			.AddressV       = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+			.AddressW       = D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+			.MaxLOD         = D3D12_FLOAT32_MAX,
 			.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER,
 		};
 		D3D12_CPU_DESCRIPTOR_HANDLE h =
@@ -151,17 +149,17 @@ static ID3D12Resource *make_image(App *a, DXGI_FORMAT fmt, int w, int h,
 								  D3D12_RESOURCE_STATES state)
 {
 	const D3D12_HEAP_PROPERTIES heap = { .Type = D3D12_HEAP_TYPE_DEFAULT };
-	const D3D12_RESOURCE_DESC d = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-		.Width = (UINT64)w,
-		.Height = (UINT)h,
-		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = fmt,
-		.SampleDesc = { (UINT)samples, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
-		.Flags = depth ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
-					   : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+	const D3D12_RESOURCE_DESC d      = {
+			 .Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+			 .Width            = (UINT64)w,
+			 .Height           = (UINT)h,
+			 .DepthOrArraySize = 1,
+			 .MipLevels        = 1,
+			 .Format           = fmt,
+			 .SampleDesc       = { (UINT)samples, 0 },
+			 .Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN,
+			 .Flags            = depth ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
+									   : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
 	};
 	D3D12_CLEAR_VALUE clear = { .Format = fmt };
 	if (depth) {
@@ -181,7 +179,7 @@ static ID3D12Resource *make_image(App *a, DXGI_FORMAT fmt, int w, int h,
 static void depth_view(App *a, ID3D12Resource *r, int slot, int samples)
 {
 	const D3D12_DEPTH_STENCIL_VIEW_DESC v = {
-		.Format = D3D_DEPTH_FORMAT,
+		.Format        = D3D_DEPTH_FORMAT,
 		.ViewDimension = samples > 1 ? D3D12_DSV_DIMENSION_TEXTURE2DMS
 									 : D3D12_DSV_DIMENSION_TEXTURE2D,
 	};
@@ -192,7 +190,7 @@ static void depth_view(App *a, ID3D12Resource *r, int slot, int samples)
 static void color_view(App *a, ID3D12Resource *r, int slot, int samples)
 {
 	const D3D12_RENDER_TARGET_VIEW_DESC v = {
-		.Format = D3D_COLOR_FORMAT,
+		.Format        = D3D_COLOR_FORMAT,
 		.ViewDimension = samples > 1 ? D3D12_RTV_DIMENSION_TEXTURE2DMS
 									 : D3D12_RTV_DIMENSION_TEXTURE2D,
 	};
@@ -203,10 +201,10 @@ static void color_view(App *a, ID3D12Resource *r, int slot, int samples)
 static void sampled_view(App *a, ID3D12Resource *r, int slot)
 {
 	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
-		.Format = D3D_COLOR_FORMAT,
-		.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+		.Format                  = D3D_COLOR_FORMAT,
+		.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D,
 		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-		.Texture2D = { .MipLevels = 1 },
+		.Texture2D               = { .MipLevels = 1 },
 	};
 	ID3D12Device_CreateShaderResourceView(D3D(a)->device, r, &v,
 										  d3d_srv_cpu(a, slot));
@@ -239,26 +237,26 @@ FnlResult d3d_window_images(App *a)
 	struct RendererState *g = D3D(a);
 	fnl_atomic_store_u32(&a->max_extent_w, D3D_MAX_EXTENT);
 	fnl_atomic_store_u32(&a->max_extent_h, D3D_MAX_EXTENT);
-	const Extent e = app_buffer_extent(a, (Extent){ 1, 1 },
-									   (Extent){ D3D_MAX_EXTENT,
-												 D3D_MAX_EXTENT });
-	const bool resized = !g->back[0] ||
+	const Extent e = app_buffer_extent(
+		a, (Extent){ 1, 1 }, (Extent){ D3D_MAX_EXTENT, D3D_MAX_EXTENT });
+	const bool resized =
+		!g->back[0] ||
 		!app_buffer_room_fits(a, e, (Extent){ g->buf_w, g->buf_h });
-	const Extent b = app_buffer_room(a, e, (Extent){ D3D_MAX_EXTENT,
-													 D3D_MAX_EXTENT });
+	const Extent b =
+		app_buffer_room(a, e, (Extent){ D3D_MAX_EXTENT, D3D_MAX_EXTENT });
 	if (resized) {
 		if (!d3d_wait_idle(a))
 			return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost "
-							"before a resize");
+												 "before a resize");
 		d3d_release_window_images(a);
 		d3d_shown_idle(a);
 		const HRESULT hr = IDXGISwapChain3_ResizeBuffers(
-			g->swapchain, D3D_BUFFERS, (UINT)b.w, (UINT)b.h,
-			D3D_BACK_FORMAT, g->sc_flags);
+			g->swapchain, D3D_BUFFERS, (UINT)b.w, (UINT)b.h, D3D_BACK_FORMAT,
+			g->sc_flags);
 		if (FAILED(hr)) {
 			if (d3d_hr_lost(a, hr))
 				return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost "
-								"in ResizeBuffers");
+													 "in ResizeBuffers");
 			/* The buffers are gone already, so as with the parts below:
 			 * the loss is raised and recovery builds it all again. */
 			if (!d3d_device_lost(a))
@@ -284,9 +282,9 @@ FnlResult d3d_window_images(App *a)
 				color_view(a, g->back[i], RTV_BACK0 + i, 1);
 				continue;
 			}
-			const HRESULT gb = IDXGISwapChain3_GetBuffer(
-				g->swapchain, (UINT)i, &IID_ID3D12Resource,
-				(void **)&g->back[i]);
+			const HRESULT gb = IDXGISwapChain3_GetBuffer(g->swapchain, (UINT)i,
+														 &IID_ID3D12Resource,
+														 (void **)&g->back[i]);
 			if (FAILED(gb)) {
 				g->back[i] = NULL;
 				d3d_release_window_images(a);
@@ -303,8 +301,10 @@ FnlResult d3d_window_images(App *a)
 			d3d_release_window_images(a);
 			if (!d3d_device_lost(a))
 				a->device_lost = true;
-			return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "could not make the "
-							"window's %dx%d depth", b.w, b.h);
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"could not make the "
+							"window's %dx%d depth",
+							b.w, b.h);
 		}
 		depth_view(a, g->window_depth, DSV_WINDOW, 1);
 		g->buf_w = b.w;
@@ -312,8 +312,9 @@ FnlResult d3d_window_images(App *a)
 	}
 	a->extent = e;
 	/* Larger than the window, for the loop's settle (app_buffer_room()). */
-	a->buffer = g->buf_w != e.w || g->buf_h != e.h
-		? (Extent){ g->buf_w, g->buf_h } : (Extent){ 0, 0 };
+	a->buffer   = g->buf_w != e.w || g->buf_h != e.h
+					  ? (Extent){ g->buf_w, g->buf_h }
+					  : (Extent){ 0, 0 };
 	g->interval = fnl_atomic_load_bool(&a->vsync) ? 1 : 0;
 	fnl_atomic_store_u32(&a->present_mode, (uint32_t)g->interval);
 	return FNL_OK;
@@ -337,8 +338,7 @@ static bool make_target(App *a, D3dTarget *t, int w, int h, int samples,
 {
 	t->state = srv >= 0 ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
 						: D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
-	t->color = make_image(a, D3D_COLOR_FORMAT, w, h, samples, false,
-						  t->state);
+	t->color = make_image(a, D3D_COLOR_FORMAT, w, h, samples, false, t->state);
 	if (!t->color)
 		return false;
 	color_view(a, t->color, rtv, samples);
@@ -360,8 +360,8 @@ static void destroy_scene_target(App *a)
 	destroy_target(&D3D(a)->scene_ms);
 	destroy_target(&D3D(a)->mlaa);
 	D3D(a)->scene_ms_refused = false;
-	D3D(a)->mlaa_refused = false;
-	a->scene_extent = (Extent){ 0, 0 };
+	D3D(a)->mlaa_refused     = false;
+	a->scene_extent          = (Extent){ 0, 0 };
 }
 
 /* As Vulkan's scene_ensure_aa(): only what a mode asks for, once it does,
@@ -384,7 +384,8 @@ bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			g->scene_ms_refused = true;
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d %dx multisampled scene target; "
-					"FSAA is off at this size", w, h, g->samples);
+					"FSAA is off at this size",
+					w, h, g->samples);
 		}
 	}
 	if (want_mlaa && !g->mlaa.color && !g->mlaa_refused) {
@@ -396,7 +397,8 @@ bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			g->mlaa_refused = true;
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d filtered scene image; "
-					"MLAA is off at this size", w, h);
+					"MLAA is off at this size",
+					w, h);
 		}
 	}
 	return built;
@@ -423,7 +425,8 @@ void d3d_scene_set_size(App *a, int w, int h)
 		destroy_scene_target(a);
 		fnl_log(FNL_LOG_WARN,
 				"no room for a %dx%d scene target; drawing the scene at the "
-				"window's own resolution", w, h);
+				"window's own resolution",
+				w, h);
 		return;
 	}
 	a->scene_extent = (Extent){ w, h };

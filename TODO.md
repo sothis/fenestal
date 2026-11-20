@@ -886,7 +886,7 @@ frame over the whole window for a move. Nothing about it generalizes: it is
 one full-window quad with the scene's own image, and `App::ovl_img` is the
 swapchain image index rather than a picture.
 
-Built, on the two renderers a Linux tree draws with (2026-11-20):
+Built, on all four renderers (2026-11-20):
 
 1. **The object and its pixels.** `fnl_image_create(app, w, h, format,
    pixels)`, `fnl_image_destroy()`, `fnl_image_supported()` and
@@ -900,20 +900,21 @@ Built, on the two renderers a Linux tree draws with (2026-11-20):
    needs neither a vertex buffer nor the overlay's dynamic viewport.
 3. **Lifetime and device loss**: the library keeps the CPU copy, so a device
    rebuild (`on_gpu_created`) uploads it again. Each renderer destroys its
-   images' objects in its own device-gone hook (`vk_images_device_gone()`,
-   `gl_destroy_overlay()`) and leaves `FnlImage::gpu` null; the next draw
-   uploads. What is left at `fnl_shutdown()` is freed there.
-4. **Vulkan and GL pipelines**: `src/renderer/vulkan/overlay.c` (an image,
-   its memory, a view and a set from a freeable pool, one shared sampler) and
-   `src/renderer/gl/overlay.c` (a texture).
+   images' objects in its own device teardown (`vk_images_device_gone()`,
+   `gl_destroy_overlay()`, `d3d_destroy_overlay()`, `mt_destroy_overlay()`)
+   and leaves `FnlImage::gpu` null; the next draw uploads. That is what a
+   swap to another renderer rests on too: the renderer that owned an object
+   is the one that nulls it, so the next renderer's `image_free()` is never
+   handed one that is not its. What is left at `fnl_shutdown()` is freed
+   there.
+4. **The four pipelines**: `src/renderer/vulkan/overlay.c` (an image, its
+   memory, a view and a set from a freeable pool, one shared sampler),
+   `src/renderer/gl/overlay.c` (a texture), `src/renderer/d3d12/overlay.c`
+   (a texture, an upload list and an SRV from a heap of the images' own) and
+   `src/renderer/metal/overlay.m` (a texture, held as an owned `void *`).
 
-Owed:
+Known, not owed:
 
-- **D3D12** (`src/renderer/d3d12/overlay.c`): a PSO and an SRV; **Metal**
-  (`src/renderer/metal/overlay.m`): an encoder state and a texture. Both
-  vtables leave the three image entries NULL, so `fnl_image_supported()`
-  answers false there and `fnl_image_create()` refuses, which is the
-  documented behaviour rather than a gap that draws nothing.
 - The ordering is call order for rects and strokes -- the core flushes both
   before an image -- and text stays one draw at the end of the frame, so a
   glyph appended before an image still lands on top of it, as it already did

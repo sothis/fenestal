@@ -14,8 +14,8 @@ promised: before 1.0, nothing between minor releases.
   (`on_overlay`, `on_gpu_created`, or a `fnl_post()`). One format, RGBA8 and
   not premultiplied, drawn scaled into the rectangle it is given. A renderer
   with no image path refuses the create rather than drawing nothing, and
-  `fnl_image_supported()` answers first; Vulkan and OpenGL have one today,
-  D3D12 and Metal do not. `examples/image.c` is the worked case.
+  `fnl_image_supported()` answers first; all four -- Vulkan, OpenGL,
+  Direct3D 12 and Metal -- have one. `examples/image.c` is the worked case.
 - `fnl_start()`, `fnl_pump()` and `fnl_stop()`: `fnl_run()` in three, for a
   caller that has an event loop of its own -- a toolkit's, an engine's, a
   program that already pumps something. `fnl_pump()` is one turn and its block

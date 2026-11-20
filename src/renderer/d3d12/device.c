@@ -78,7 +78,7 @@ FnlResult d3d_run_once(App *a, ID3D12GraphicsCommandList *l)
 	ID3D12CommandQueue_ExecuteCommandLists(D3D(a)->queue, 1, lists);
 	if (!d3d_wait_idle(a))
 		return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost during "
-						"an upload");
+											 "an upload");
 	return FNL_OK;
 }
 
@@ -99,8 +99,8 @@ void d3d_drain_messages(App *a)
 			break;
 		if (SUCCEEDED(ID3D12InfoQueue_GetMessage(q, i, m, &len)) &&
 			m->Severity <= D3D12_MESSAGE_SEVERITY_WARNING)
-			fnl_log(m->Severity <= D3D12_MESSAGE_SEVERITY_ERROR
-						? FNL_LOG_ERROR : FNL_LOG_WARN,
+			fnl_log(m->Severity <= D3D12_MESSAGE_SEVERITY_ERROR ? FNL_LOG_ERROR
+																: FNL_LOG_WARN,
 					"D3D12: %.*s", (int)m->DescriptionByteLength,
 					m->pDescription);
 		free(m);
@@ -112,8 +112,8 @@ void d3d_drain_messages(App *a)
 
 static void adapter_name(const DXGI_ADAPTER_DESC1 *d, char *out, size_t n)
 {
-	if (!WideCharToMultiByte(CP_UTF8, 0, d->Description, -1, out, (int)n,
-							 NULL, NULL))
+	if (!WideCharToMultiByte(CP_UTF8, 0, d->Description, -1, out, (int)n, NULL,
+							 NULL))
 		snprintf(out, n, "(unnamed)");
 }
 
@@ -133,16 +133,15 @@ static bool high_performance_luid(struct RendererState *g, LUID *out)
 	for (UINT i = 0; !found; i++) {
 		IDXGIAdapter1 *ad = NULL;
 		if (FAILED(IDXGIFactory6_EnumAdapterByGpuPreference(
-				f6, i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
-				&IID_IDXGIAdapter1, (void **)&ad)))
+				f6, i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, &IID_IDXGIAdapter1,
+				(void **)&ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
 		IDXGIAdapter1_GetDesc1(ad, &d);
 		if (!(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
-			SUCCEEDED(D3D12CreateDevice((IUnknown *)ad,
-										D3D_FEATURE_LEVEL_11_0,
+			SUCCEEDED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
 										&IID_ID3D12Device, NULL))) {
-			*out = d.AdapterLuid;
+			*out  = d.AdapterLuid;
 			found = true;
 		}
 		IDXGIAdapter1_Release(ad);
@@ -161,8 +160,8 @@ static bool high_performance_luid(struct RendererState *g, LUID *out)
  * exports wine_get_version there and nowhere else. */
 static bool adapter_draws(IDXGIAdapter1 *ad)
 {
-	const HMODULE nt = GetModuleHandleW(L"ntdll.dll");
-	const bool wine = nt && GetProcAddress(nt, "wine_get_version");
+	const HMODULE nt  = GetModuleHandleW(L"ntdll.dll");
+	const bool wine   = nt && GetProcAddress(nt, "wine_get_version");
 	ID3D12Device *dev = NULL;
 	if (FAILED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
 								 &IID_ID3D12Device,
@@ -192,8 +191,9 @@ static int d3d_list_gpus(App *a, GpuEntry *out, int max)
 		IDXGIAdapter1_GetDesc1(ad, &d);
 		if (adapter_draws(ad)) {
 			adapter_name(&d, out[n].name, sizeof out[n].name);
-			out[n].kind = d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE
-							  ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
+			out[n].kind     = d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE
+								  ? FNL_GPU_KIND_SOFTWARE
+								  : FNL_GPU_KIND_UNKNOWN;
 			out[n].renderer = FNL_RENDERER_D3D12;
 			n++;
 		}
@@ -217,7 +217,7 @@ static FnlResult choose_adapter(App *a)
 	IDXGIAdapter1 *pick = NULL, *first_hw = NULL, *first_sw = NULL;
 	LUID best;
 	const bool ranked = high_performance_luid(g, &best);
-	int n = 0;
+	int n             = 0;
 	/* The same list, for fnl_gpu_count() and the titlebar: entry i is
 	 * gpu_index i + 1. DXGI does not say which hardware is integrated, so
 	 * that is left unknown rather than guessed from the memory it reports.
@@ -240,24 +240,27 @@ static FnlResult choose_adapter(App *a)
 		char name[GPU_NAME_MAX];
 		adapter_name(&d, name, sizeof name);
 		if (!adapter_draws(ad)) {
-			fnl_log(FNL_LOG_INFO, "GPU left out: %s, whose Direct3D 12 "
-					"builds none of the library's pipeline states", name);
+			fnl_log(FNL_LOG_INFO,
+					"GPU left out: %s, whose Direct3D 12 "
+					"builds none of the library's pipeline states",
+					name);
 			left_out++;
 			IDXGIAdapter1_Release(ad);
 			continue;
 		}
 		app_gpu_inventory(a, n++, name, soft ? "software" : "hardware");
-		const bool asked = (a->gpu_want[0] && app_name_has(name, a->gpu_want))
-						|| (a->gpu_index > 0 && a->gpu_index == n);
+		const bool asked =
+			(a->gpu_want[0] && app_name_has(name, a->gpu_want)) ||
+			(a->gpu_index > 0 && a->gpu_index == n);
 		if (n <= GPU_LIST_MAX) {
 			GpuEntry *e = &list[n - 1];
 			snprintf(e->name, sizeof e->name, "%s", name);
-			e->kind = soft ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
+			e->kind     = soft ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
 			e->renderer = FNL_RENDERER_D3D12;
 		}
 		if (asked && !pick) {
 			IDXGIAdapter1_AddRef(ad);
-			pick = ad;
+			pick   = ad;
 			pick_i = n - 1;
 		}
 		/* The ranked adapter replaces the first hardware one wherever it
@@ -269,21 +272,21 @@ static FnlResult choose_adapter(App *a)
 			D3D_RELEASE(first_hw);
 			IDXGIAdapter1_AddRef(ad);
 			first_hw = ad;
-			hw_i = n - 1;
+			hw_i     = n - 1;
 		} else if (soft && !first_sw) {
 			IDXGIAdapter1_AddRef(ad);
 			first_sw = ad;
-			sw_i = n - 1;
+			sw_i     = n - 1;
 		}
 		IDXGIAdapter1_Release(ad);
 	}
 	if (!pick && (a->gpu_want[0] || a->gpu_index > 0))
 		fnl_log(FNL_LOG_WARN, "no adapter is the GPU asked for; the first "
-				"is used");
+							  "is used");
 	/* The candidate's reference handed to pick; an adapter asked for holds
 	 * one of its own, and its candidate's goes below. */
 	if (!pick) {
-		pick = first_hw ? first_hw : first_sw;
+		pick   = first_hw ? first_hw : first_sw;
 		pick_i = first_hw ? hw_i : sw_i;
 		if (pick == first_hw)
 			first_hw = NULL;
@@ -294,17 +297,18 @@ static FnlResult choose_adapter(App *a)
 	D3D_RELEASE(first_sw);
 	if (!pick) {
 		/* WARP, where EnumAdapters1 listed none that would do. */
-		if (FAILED(IDXGIFactory4_EnumWarpAdapter(g->factory,
-												 &IID_IDXGIAdapter1,
+		if (FAILED(IDXGIFactory4_EnumWarpAdapter(g->factory, &IID_IDXGIAdapter1,
 												 (void **)&pick)))
-			return fnl_fail(FNL_ERR_NO_DEVICE, left_out
-							? "no adapter builds the library's Direct3D 12 "
-							  "pipeline states, and there is no WARP"
-							: "no adapter makes a Direct3D 12 device, WARP "
-							  "included");
+			return fnl_fail(FNL_ERR_NO_DEVICE,
+							left_out
+								? "no adapter builds the library's Direct3D 12 "
+								  "pipeline states, and there is no WARP"
+								: "no adapter makes a Direct3D 12 device, WARP "
+								  "included");
 		if (!adapter_draws(pick)) {
 			D3D_RELEASE(pick);
-			return fnl_fail(FNL_ERR_NO_DEVICE, "no adapter builds the "
+			return fnl_fail(FNL_ERR_NO_DEVICE,
+							"no adapter builds the "
 							"library's Direct3D 12 pipeline states, WARP "
 							"included");
 		}
@@ -323,15 +327,17 @@ static void choose_samples(App *a)
 {
 	int best = 1;
 	for (int s = 4; s >= 2 && best == 1; s /= 2) {
-		bool both = true;
+		bool both              = true;
 		const DXGI_FORMAT f[2] = { D3D_COLOR_FORMAT, D3D_DEPTH_FORMAT };
 		for (int i = 0; i < 2; i++) {
 			D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS q = {
-				.Format = f[i], .SampleCount = (UINT)s,
+				.Format      = f[i],
+				.SampleCount = (UINT)s,
 			};
 			if (FAILED(ID3D12Device_CheckFeatureSupport(
 					D3D(a)->device, D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
-					&q, sizeof q)) || q.NumQualityLevels == 0)
+					&q, sizeof q)) ||
+				q.NumQualityLevels == 0)
 				both = false;
 		}
 		if (both)
@@ -350,28 +356,27 @@ static void choose_samples(App *a)
  * said to be unknown, and nothing else changes. */
 static void make_timestamps(App *a)
 {
-	struct RendererState *g = D3D(a);
+	struct RendererState *g        = D3D(a);
 	const D3D12_QUERY_HEAP_DESC qd = {
-		.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP,
+		.Type  = D3D12_QUERY_HEAP_TYPE_TIMESTAMP,
 		.Count = 2 * MAX_FRAMES_IN_FLIGHT,
 	};
 	const D3D12_HEAP_PROPERTIES rb = { .Type = D3D12_HEAP_TYPE_READBACK };
-	const D3D12_RESOURCE_DESC bd = {
-		.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
-		.Width = 2 * MAX_FRAMES_IN_FLIGHT * sizeof(UINT64),
-		.Height = 1,
-		.DepthOrArraySize = 1,
-		.MipLevels = 1,
-		.Format = DXGI_FORMAT_UNKNOWN,
-		.SampleDesc = { 1, 0 },
-		.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+	const D3D12_RESOURCE_DESC bd   = {
+		  .Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER,
+		  .Width            = 2 * MAX_FRAMES_IN_FLIGHT * sizeof(UINT64),
+		  .Height           = 1,
+		  .DepthOrArraySize = 1,
+		  .MipLevels        = 1,
+		  .Format           = DXGI_FORMAT_UNKNOWN,
+		  .SampleDesc       = { 1, 0 },
+		  .Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
 	};
-	if (FAILED(ID3D12CommandQueue_GetTimestampFrequency(g->queue,
-														&g->ts_freq)) ||
+	if (FAILED(
+			ID3D12CommandQueue_GetTimestampFrequency(g->queue, &g->ts_freq)) ||
 		g->ts_freq == 0 ||
-		FAILED(ID3D12Device_CreateQueryHeap(g->device, &qd,
-											&IID_ID3D12QueryHeap,
-											(void **)&g->ts_heap)) ||
+		FAILED(ID3D12Device_CreateQueryHeap(
+			g->device, &qd, &IID_ID3D12QueryHeap, (void **)&g->ts_heap)) ||
 		FAILED(ID3D12Device_CreateCommittedResource(
 			g->device, &rb, D3D12_HEAP_FLAG_NONE, &bd,
 			D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource,
@@ -389,9 +394,9 @@ static FnlResult create_device_objects(App *a)
 {
 	struct RendererState *g = D3D(a);
 	FNL_TRY(choose_adapter(a));
-	HRESULT hr = D3D12CreateDevice((IUnknown *)g->adapter,
-								   D3D_FEATURE_LEVEL_11_0,
-								   &IID_ID3D12Device, (void **)&g->device);
+	HRESULT hr =
+		D3D12CreateDevice((IUnknown *)g->adapter, D3D_FEATURE_LEVEL_11_0,
+						  &IID_ID3D12Device, (void **)&g->device);
 	if (FAILED(hr))
 		return d3d_fail(FNL_ERR_NO_DEVICE, "D3D12CreateDevice", hr);
 
@@ -416,9 +421,8 @@ static FnlResult create_device_objects(App *a)
 	const D3D12_COMMAND_QUEUE_DESC qd = {
 		.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
 	};
-	hr = ID3D12Device_CreateCommandQueue(g->device, &qd,
-										 &IID_ID3D12CommandQueue,
-										 (void **)&g->queue);
+	hr = ID3D12Device_CreateCommandQueue(
+		g->device, &qd, &IID_ID3D12CommandQueue, (void **)&g->queue);
 	if (FAILED(hr))
 		return d3d_fail(FNL_ERR_NO_DEVICE, "CreateCommandQueue", hr);
 	hr = ID3D12Device_CreateFence(g->device, 0, D3D12_FENCE_FLAG_NONE,
@@ -428,24 +432,22 @@ static FnlResult create_device_objects(App *a)
 	g->fenced = 0;
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		g->slot_value[i] = 0;
-		hr = ID3D12Device_CreateCommandAllocator(
-			g->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-			&IID_ID3D12CommandAllocator, (void **)&g->alloc[i]);
+		hr               = ID3D12Device_CreateCommandAllocator(
+            g->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+            &IID_ID3D12CommandAllocator, (void **)&g->alloc[i]);
 		if (FAILED(hr))
 			return d3d_fail(FNL_ERR_NO_DEVICE, "CreateCommandAllocator", hr);
 	}
-	hr = ID3D12Device_CreateCommandList(g->device, 0,
-										D3D12_COMMAND_LIST_TYPE_DIRECT,
-										g->alloc[0], NULL,
-										&IID_ID3D12GraphicsCommandList,
-										(void **)&g->list);
+	hr = ID3D12Device_CreateCommandList(
+		g->device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, g->alloc[0], NULL,
+		&IID_ID3D12GraphicsCommandList, (void **)&g->list);
 	if (FAILED(hr))
 		return d3d_fail(FNL_ERR_NO_DEVICE, "CreateCommandList", hr);
 	ID3D12GraphicsCommandList_Close(g->list);
 	g->recording = false;
 
 	choose_samples(a);
-	a->srgb_surface = true;      /* every colour view is _SRGB */
+	a->srgb_surface = true; /* every colour view is _SRGB */
 	/* The palette is converted for that blend space; until then every entry
 	 * is zero, and the titlebar draws as transparent black. */
 	app_palette_init(a);
@@ -455,9 +457,9 @@ static FnlResult create_device_objects(App *a)
 	/* The device's own swapchain first, measured at rest (frame.c), unless
 	 * FNL_D3D12_DXGI11 decides it. */
 	const int forced = d3d_via11_forced();
-	g->via11_on = forced == 1;
+	g->via11_on      = forced == 1;
 	g->via11_settled = g->via11_forced = forced >= 0;
-	g->via11_switch = false;
+	g->via11_switch                    = false;
 	g->via11_seen = g->via11_late = 0;
 	FNL_TRY(d3d_bridge_swapchain(a));
 	/* Vulkan's "framebuffers" has its twin here: a build that fails with
@@ -564,9 +566,9 @@ static FnlResult d3d_create_instance(App *a)
 	a->renderer_state = calloc(1, sizeof *a->renderer_state);
 	if (!a->renderer_state)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory allocating the "
-						"Direct3D 12 renderer's state");
+											   "Direct3D 12 renderer's state");
 	struct RendererState *g = D3D(a);
-	UINT flags = 0;
+	UINT flags              = 0;
 #ifndef NDEBUG
 	/* Before the device, or it is not layered. Absent where Windows' Graphics
 	 * Tools are not installed, which is said once and is not a failure. */
@@ -579,8 +581,8 @@ static FnlResult d3d_create_instance(App *a)
 		fnl_log(FNL_LOG_WARN, "the Direct3D 12 debug layer is not installed");
 	}
 #endif
-	HRESULT hr = CreateDXGIFactory2(flags, &IID_IDXGIFactory4,
-									(void **)&g->factory);
+	HRESULT hr =
+		CreateDXGIFactory2(flags, &IID_IDXGIFactory4, (void **)&g->factory);
 	if (FAILED(hr) && flags)
 		hr = CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&g->factory);
 	if (FAILED(hr)) {
@@ -593,8 +595,7 @@ static FnlResult d3d_create_instance(App *a)
 											   (void **)&f5))) {
 		BOOL allow = FALSE;
 		if (SUCCEEDED(IDXGIFactory5_CheckFeatureSupport(
-				f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow,
-				sizeof allow)))
+				f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof allow)))
 			g->tearing = allow != FALSE;
 		IDXGIFactory5_Release(f5);
 	}
@@ -675,8 +676,8 @@ static bool d3d_occluded(App *a)
 	struct RendererState *g = D3D(a);
 	if (!g->occluded || !g->swapchain)
 		return false;
-	const HRESULT hr = IDXGISwapChain3_Present(g->swapchain, 0,
-											   DXGI_PRESENT_TEST);
+	const HRESULT hr =
+		IDXGISwapChain3_Present(g->swapchain, 0, DXGI_PRESENT_TEST);
 	g->occluded = hr == DXGI_STATUS_OCCLUDED;
 	return g->occluded;
 }
@@ -694,8 +695,7 @@ static bool d3d_gpu_memory(App *a, double *mib)
 	if (!D3D(a)->adapter)
 		return false;
 	IDXGIAdapter3 *ad3 = NULL;
-	if (FAILED(IDXGIAdapter1_QueryInterface(D3D(a)->adapter,
-											&IID_IDXGIAdapter3,
+	if (FAILED(IDXGIAdapter1_QueryInterface(D3D(a)->adapter, &IID_IDXGIAdapter3,
 											(void **)&ad3)))
 		return false;
 	DXGI_QUERY_VIDEO_MEMORY_INFO info;
@@ -728,45 +728,48 @@ static const char *d3d_present_mode_name(const App *a)
 }
 
 const FnlRendererVtbl fnl_renderer_d3d12 = {
-	.name                  = "Direct3D 12",
-	.api                   = FNL_RENDERER_D3D12,
-	.key                   = "d3d12",
-	.draws_overlay         = true,
-	.offscreen_scene       = true,
-	.create_instance       = d3d_create_instance,
-	.destroy_instance      = d3d_destroy_instance,
-	.create_surface        = d3d_create_surface,
-	.destroy_surface       = d3d_destroy_surface,
-	.list_gpus             = d3d_list_gpus,
+	.name             = "Direct3D 12",
+	.api              = FNL_RENDERER_D3D12,
+	.key              = "d3d12",
+	.draws_overlay    = true,
+	.offscreen_scene  = true,
+	.create_instance  = d3d_create_instance,
+	.destroy_instance = d3d_destroy_instance,
+	.create_surface   = d3d_create_surface,
+	.destroy_surface  = d3d_destroy_surface,
+	.list_gpus        = d3d_list_gpus,
 	/* Any thread may use the device. */
-	.thread_enter          = renderer_noop,
-	.thread_leave          = renderer_noop,
-	.create_device_objects = create_device_objects,
+	.thread_enter           = renderer_noop,
+	.thread_leave           = renderer_noop,
+	.create_device_objects  = create_device_objects,
 	.destroy_device_objects = destroy_device_objects,
-	.recreate_swapchain    = d3d_recreate_swapchain,
-	.present_mode_matches  = d3d_present_mode_matches,
+	.recreate_swapchain     = d3d_recreate_swapchain,
+	.present_mode_matches   = d3d_present_mode_matches,
 	/* Nothing is retired: a resize waits for the queue first (target.c). */
-	.retire_tick           = renderer_noop,
-	.scale_changed         = d3d_text_set_scale,
-	.set_scene_size        = d3d_scene_set_size,
-	.draw_frame            = d3d_draw_frame,
-	.wait_idle             = d3d_seam_wait_idle,
-	.lost                  = d3d_is_lost,
-	.recover               = recover_from_loss,
-	.remake_surface        = d3d_remake_surface,
-	.occluded              = d3d_occluded,
-	.max_samples           = d3d_max_samples,
-	.active_samples        = d3d_active_samples,
-	.gpu_time_poll         = d3d_gpu_time_poll,
-	.device_name           = d3d_device_name,
-	.gpu_memory            = d3d_gpu_memory,
-	.present_mode_name     = d3d_present_mode_name,
-	.overlay_flush_rects   = d3d_overlay_flush_rects,
-	.overlay_flush_shapes  = d3d_overlay_flush_shapes,
-	.overlay_scissor       = d3d_overlay_scissor,
-	.text_end              = d3d_text_end,
-	.overlay_cover         = d3d_overlay_cover,
-	.cover_release         = d3d_cover_release,
+	.retire_tick          = renderer_noop,
+	.scale_changed        = d3d_text_set_scale,
+	.set_scene_size       = d3d_scene_set_size,
+	.draw_frame           = d3d_draw_frame,
+	.wait_idle            = d3d_seam_wait_idle,
+	.lost                 = d3d_is_lost,
+	.recover              = recover_from_loss,
+	.remake_surface       = d3d_remake_surface,
+	.occluded             = d3d_occluded,
+	.max_samples          = d3d_max_samples,
+	.active_samples       = d3d_active_samples,
+	.gpu_time_poll        = d3d_gpu_time_poll,
+	.device_name          = d3d_device_name,
+	.gpu_memory           = d3d_gpu_memory,
+	.present_mode_name    = d3d_present_mode_name,
+	.overlay_flush_rects  = d3d_overlay_flush_rects,
+	.overlay_flush_shapes = d3d_overlay_flush_shapes,
+	.image_supported      = d3d_image_supported,
+	.overlay_image        = d3d_overlay_image,
+	.image_free           = d3d_image_free,
+	.overlay_scissor      = d3d_overlay_scissor,
+	.text_end             = d3d_text_end,
+	.overlay_cover        = d3d_overlay_cover,
+	.cover_release        = d3d_cover_release,
 };
 
 /* ---- the public Direct3D 12 interop ---------------------------------------
@@ -782,18 +785,17 @@ const FnlRendererVtbl fnl_renderer_d3d12 = {
 bool fnl_d3d12_gpu(App *a, FnlD3D12Gpu *out)
 {
 	if (!a || !out || !app_renderer_state_ours(a) ||
-		renderer_any(a) != &fnl_renderer_d3d12 ||
-		!a->renderer_state || !D3D(a)->device)
+		renderer_any(a) != &fnl_renderer_d3d12 || !a->renderer_state ||
+		!D3D(a)->device)
 		return false;
 	*out = (FnlD3D12Gpu){ .device = D3D(a)->device, .queue = D3D(a)->queue };
 	return true;
 }
 
-bool fnl_d3d12_scene_layout(App *a, FnlSceneTarget t,
-							FnlD3D12SceneLayout *out)
+bool fnl_d3d12_scene_layout(App *a, FnlSceneTarget t, FnlD3D12SceneLayout *out)
 {
-	if (!a || !out || renderer_any(a) != &fnl_renderer_d3d12 ||
-		t < 0 || t >= FNL_TARGET_COUNT)
+	if (!a || !out || renderer_any(a) != &fnl_renderer_d3d12 || t < 0 ||
+		t >= FNL_TARGET_COUNT)
 		return false;
 	int samples = 1;
 	if (t == FNL_TARGET_OFFSCREEN_MS) {
@@ -813,8 +815,8 @@ bool fnl_d3d12_scene(App *a, FnlD3D12Scene *out)
 {
 	/* on_record's thread alone, tested first as fnl_vulkan_scene_cmd() is. */
 	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
-		a->renderer != &fnl_renderer_d3d12 ||
-		!a->renderer_state || !D3D(a)->scene_list_now)
+		a->renderer != &fnl_renderer_d3d12 || !a->renderer_state ||
+		!D3D(a)->scene_list_now)
 		return false;
 	*out = (FnlD3D12Scene){
 		.list = D3D(a)->scene_list_now,

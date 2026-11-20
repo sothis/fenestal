@@ -29,6 +29,8 @@
 #include "msl/rect.frag.h"
 #include "msl/shape.vert.h"
 #include "msl/shape.frag.h"
+#include "msl/image.vert.h"
+#include "msl/image.frag.h"
 #include "msl/text.vert.h"
 #include "msl/text_lcd.frag.h"
 #include "msl/fullscreen.vert.h"
@@ -57,6 +59,35 @@ _Static_assert(offsetof(MtTextPush, srgb) == 8,
 			   "MtTextPush layout drifted");
 _Static_assert(offsetof(MtTextPush, texel_u) == 12,
 			   "MtTextPush layout drifted");
+
+/* The image pipeline's `Push` block: the destination rectangle, where the
+ * instanced pipelines' carries the extent alone. The same bytes as the
+ * Vulkan renderer's ImagePush, which is what DESIGN *One shader source*
+ * rests on. */
+typedef struct {
+	float rect[4];
+	float screen[2];
+	float pad[2];       /* the block's size rounds to the vec4's alignment */
+} MtImagePush;
+
+_Static_assert(sizeof(MtImagePush) == 32,
+			   "MtImagePush must match shaders/image.*");
+_Static_assert(offsetof(MtImagePush, screen) == 16,
+			   "MtImagePush layout drifted");
+
+/* Let an image's texture go, which is the whole of FnlImage::gpu here: the
+ * one reference that pointer owns (CFBridgingRetain in image_upload()),
+ * given back. Here and not with the rest of the images because
+ * mt_destroy_overlay(), above them in this file, lets every one of them go.
+ *
+ * Held as an owned `void *` and turned back into an object where it is
+ * drawn, as src/backend/cocoa/cocoa_state.h holds AppKit's, so that C state
+ * may name a Metal object at all. */
+static void image_let_go(FnlImage *img)
+{
+	CFBridgingRelease(img->gpu);
+	img->gpu = NULL;
+}
 
 /* ---- pipeline states ----------------------------------------------------- */
 
@@ -267,11 +298,15 @@ FnlResult mt_create_overlay(App *a)
 	const size_t text[3] = { offsetof(GlyphInstance, rect),
 							 offsetof(GlyphInstance, uv),
 							 offsetof(GlyphInstance, color) };
-	const PsoDesc descs[6] = {
+	const PsoDesc descs[7] = {
 		{ "rectangle", rect_vert_msl, rect_frag_msl, rect, 2,
 		  sizeof(RectInstance), BLEND_NONE },
 		{ "stroke", shape_vert_msl, shape_frag_msl, shape, 3,
 		  sizeof(ShapeInstance), BLEND_ALPHA },
+		/* A caller's picture: one quad at the rectangle the push block names
+		 * and no vertex input at all, so the corner is the vertex index. */
+		{ "image", image_vert_msl, image_frag_msl, NULL, 0, 0,
+		  BLEND_ALPHA },
 		/* The subpixel variant always: dual-source blending is in every
 		 * Mac's Metal, where Vulkan has it as an optional feature. */
 		{ "text", text_vert_msl, text_lcd_frag_msl, text, 3,
@@ -285,11 +320,11 @@ FnlResult mt_create_overlay(App *a)
 		{ "cover", fullscreen_vert_msl, blit_frag_msl, NULL, 0, 0,
 		  BLEND_CONSTANT },
 	};
-	__strong id<MTLRenderPipelineState> *out[6] = {
-		&g->pso_rect, &g->pso_shape, &g->pso_text, &g->pso_blit,
-		&g->pso_mlaa, &g->pso_cover,
+	__strong id<MTLRenderPipelineState> *out[7] = {
+		&g->pso_rect, &g->pso_shape, &g->pso_image, &g->pso_text,
+		&g->pso_blit, &g->pso_mlaa, &g->pso_cover,
 	};
-	for (int i = 0; i < 6; i++) {
+	for (int i = 0; i < 7; i++) {
 		*out[i] = make_pso(a, &descs[i]);
 		if (!*out[i])
 			return fnl_fail(FNL_ERR_SYSTEM,
@@ -320,10 +355,17 @@ FnlResult mt_create_overlay(App *a)
 void mt_destroy_overlay(App *a)
 {
 	struct RendererState *g = MT(a);
+	/* The caller's images first: their textures are this device's. Each is
+	 * left with a null gpu, so a rebuilt device -- and a swap to another
+	 * renderer -- uploads the copy again rather than handing the next
+	 * renderer's image_free() an object that is not its. */
+	for (FnlImage *img = a->images; img; img = img->next)
+		if (img->gpu)
+			image_let_go(img);
 	destroy_atlas(a);
 	destroy_arenas(g->text_buf, (void **)a->text_map);
 	destroy_arenas(g->ovl_buf, (void **)a->ovl_map);
-	g->pso_rect = g->pso_shape = g->pso_text = nil;
+	g->pso_rect = g->pso_shape = g->pso_image = g->pso_text = nil;
 	g->pso_blit = g->pso_mlaa = g->pso_cover = nil;
 	g->cover_tex = nil;
 	g->cover_gen = 0;
@@ -494,4 +536,89 @@ FnlResult mt_text_end(App *a)
 			vertexCount:4 instanceCount:a->text_count - a->text_drawn];
 	a->text_drawn = a->text_count;
 	return FNL_OK;
+}
+
+/* ---- images ---------------------------------------------------------------
+ *
+ * A caller's picture (fnl_image_create()): the library's copy of its pixels
+ * (FnlImage::pixels) and, here, the texture made from them. The upload is
+ * lazy -- the first draw after the image is made, and the first after a
+ * device rebuild -- and runs on the render thread, inside the overlay's own
+ * recording, which is what lets it take no lock (fenestal.h says so where
+ * the calls are declared). The copy is what a rebuild uploads again from.
+ *
+ * Nothing waits for a frame in flight to let the old texture go: a command
+ * buffer retains every object it names until it completes, which is what
+ * makes this renderer the one that needs no drain.
+ */
+
+bool mt_image_supported(const App *a)
+{
+	return a->renderer_state != NULL && MT(a)->pso_image != nil;
+}
+
+/* One image's texture, from the copy the library kept, kept in img->gpu.
+ * False where anything failed: the draw is skipped and the caller's picture
+ * does not appear, which is what fnl_image_supported() promised. */
+static bool image_upload(App *a, FnlImage *img)
+{
+	/* _sRGB where the window is, as the cover and the atlas: the sampler
+	 * decodes each texel to linear before the blend and the drawable
+	 * re-encodes on write. */
+	MTLTextureDescriptor *d = [MTLTextureDescriptor
+		texture2DDescriptorWithPixelFormat:
+			a->srgb_surface ? MTLPixelFormatRGBA8Unorm_sRGB
+							: MTLPixelFormatRGBA8Unorm
+									 width:(NSUInteger)img->w
+									height:(NSUInteger)img->h
+								 mipmapped:NO];
+	/* Managed and not shared, as the atlas is, which an Intel Mac's GPU
+	 * will not sample. */
+	d.storageMode = MTLStorageModeManaged;
+	d.usage = MTLTextureUsageShaderRead;
+	id<MTLTexture> t = [MT(a)->device newTextureWithDescriptor:d];
+	if (!t)
+		return false;
+	[t replaceRegion:MTLRegionMake2D(0, 0, (NSUInteger)img->w,
+									 (NSUInteger)img->h)
+		 mipmapLevel:0
+		   withBytes:img->pixels
+		 bytesPerRow:(NSUInteger)img->w * 4];
+	img->gpu = (void *)CFBridgingRetain(t);
+	return true;
+}
+
+void mt_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
+{
+	struct RendererState *g = MT(a);
+	id<MTLRenderCommandEncoder> enc = g->enc;
+	if (!enc || !g->pso_image)
+		return;
+
+	if (!img->gpu && !image_upload(a, img)) {
+		fnl_log(FNL_LOG_WARN, "the %dx%d image would not upload; it is "
+				"not drawn", img->w, img->h);
+		return;
+	}
+
+	/* What was appended before it is behind it: the core flushed the
+	 * rectangles and strokes before this call, so the image lands between
+	 * them as it did in call order. */
+	[enc setRenderPipelineState:g->pso_image];
+	[enc setFragmentTexture:(__bridge id<MTLTexture>)img->gpu atIndex:0];
+	[enc setFragmentSamplerState:g->smp_linear atIndex:0];
+	const MtImagePush push = {
+		.rect   = { (float)x, (float)y, (float)w, (float)h },
+		.screen = { (float)a->extent.w, (float)a->extent.h },
+	};
+	[enc setVertexBytes:&push length:sizeof push atIndex:MT_BUF_PUSH];
+	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+			vertexCount:6];
+}
+
+void mt_image_free(App *a, FnlImage *img)
+{
+	(void)a;
+	if (img->gpu)
+		image_let_go(img);
 }
