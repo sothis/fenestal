@@ -83,6 +83,7 @@ static const struct {
 	{ "F4 / F6",   "Copy / paste",     { FNL_KEY_UNKNOWN } },
 	{ "F5",        "Toggle metrics",   { FNL_KEY_UNKNOWN } },
 	{ "F7",        "Next output",      { FNL_KEY_UNKNOWN } },
+	{ "I",         "Picture",          { FNL_KEY_UNKNOWN } },
 	{ "F9",        "Release mouse",    { FNL_KEY_UNKNOWN } },
 	{ "F11",       "Fullscreen",       { FNL_KEY_UNKNOWN } },
 	{ "Esc",       "Quit",             { FNL_KEY_UNKNOWN } },
@@ -392,6 +393,65 @@ static void draw_reticle(FnlApp *app)
 	fnl_overlay_clip(app, 0, 0, 0, 0);
 }
 
+/* ---- the picture --------------------------------------------------------- */
+
+/* A caller's image, drawn before everything else this file puts up and under
+ * everything the library draws after on_overlay: its metrics panel, its
+ * drop-down, the veil. It is here because it is the one overlay primitive
+ * whose state outlives its own draw -- a picture left standing makes every
+ * rectangle and stroke flushed later read the picture's rectangle as the
+ * framebuffer's, so a regression shows in the panels -- and because a round
+ * reaches the image path from nothing else: no other program the harness
+ * drives makes one.
+ *
+ * On from the start, so that every environment and every variant draws one. A
+ * renderer with no image path refuses the create, and then this says nothing
+ * again. I destroys it and makes it again, which is the free path a round
+ * cannot otherwise reach: nothing drawn after an exit could show it. */
+#define PICTURE_PX 32
+static FnlImage *g_picture;
+static bool g_picture_on = true;
+
+/* White beside black, which no part of the scene is: the harness reads a row
+ * across it and counts the white, so the picture answers whether it drew and
+ * whether it is still there. Pure 0 and 255 are what a texture and an sRGB
+ * surface leave alone whichever way the surface is written. */
+static void picture_pixels(unsigned char *px)
+{
+	for (int y = 0; y < PICTURE_PX; y++)
+		for (int x = 0; x < PICTURE_PX; x++) {
+			unsigned char *p = px + ((size_t)y * (size_t)PICTURE_PX
+									 + (size_t)x) * 4u;
+			const unsigned char v = ((x / 8) + (y / 8)) & 1 ? 0xFF : 0x00;
+			p[0] = v;
+			p[1] = v;
+			p[2] = v;
+			p[3] = 0xFF;
+		}
+}
+
+/* Centred vertically, since the middle row is the one the harness reads, its
+ * left edge at 60 % of the width, and square: what is beside it is the scene
+ * the row is otherwise about. */
+static void picture_draw(FnlApp *app)
+{
+	if (g_picture_on && !g_picture) {
+		unsigned char px[PICTURE_PX * PICTURE_PX * 4];
+		picture_pixels(px);
+		g_picture = fnl_image_create(app, PICTURE_PX, PICTURE_PX,
+									 FNL_IMAGE_RGBA8, px);
+		if (!g_picture)     /* a renderer that cannot draw a picture */
+			g_picture_on = false;
+	}
+	if (!g_picture)
+		return;
+	int w_pt, h_pt;
+	fnl_window_size_pt(app, &w_pt, &h_pt);
+	const int side = h_pt / 4 > 16 ? h_pt / 4 : 16;
+	fnl_overlay_image(app, w_pt * 6 / 10, (h_pt - side) / 2, side, side,
+					  g_picture);
+}
+
 /* ---- what main.c calls --------------------------------------------------- */
 
 /* The footprint line, at most twice a second (proc.c's own pace). */
@@ -420,6 +480,10 @@ static void footprint_log(FnlApp *app, double now)
 void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 {
 	bool help = false, status = false;
+
+	/* First of all: what is drawn after it is what a push constant left
+	 * standing would reach (see the picture above). */
+	picture_draw(app);
 	if (g_ui.show_help) {
 		/* Two give-ways, in order: the status readout yields to the titlebar,
 		 * and the keybindings yield to whichever of the two is below them. See
@@ -558,6 +622,18 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 			if (n > 0)
 				fnl_request_output(app,
 					fnl_output_name_at(app, (idx + 1) % n));
+		}
+		/* I: the picture off and on, as examples/image.c binds it. The
+		 * destroy is the case a round cannot otherwise reach -- the free path
+		 * mid-run, not at exit -- and making it again is the create path after
+		 * a device that has already uploaded one. */
+		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_I) {
+			g_picture_on = !g_picture_on;
+			if (!g_picture_on && g_picture) {
+				fnl_image_destroy(g_picture);
+				g_picture = NULL;
+			}
+			fnl_invalidate(app);
 		}
 		/* The panel also lights a row while its key is held. The held set is
 		 * in what the library compares, so that needs no invalidate. */

@@ -230,6 +230,23 @@ def caption_x(w=None):
     return min(BAR_TITLE_X, (BAR_GRAB + run_x) // 2)
 
 
+def white_fraction(row, stride):
+    """The share of a row's pixels that are white, or None where there is no
+    row. A row is bytes and `stride` of them a pixel, as its source leaves it:
+    four off an X server's ZPixmap, three out of a picture of a screen.
+
+    The testbed's picture is white beside black, which no part of the scene
+    is, and 0 and 255 are what a texture and an sRGB surface leave alone
+    whichever way round they are written -- so this answers whether a picture
+    drew, whole and at any scale."""
+    if not row or stride < 3 or len(row) < stride:
+        return None
+    pixels = len(row) // stride
+    white = sum(1 for i in range(0, pixels * stride, stride)
+                if row[i] > 235 and row[i + 1] > 235 and row[i + 2] > 235)
+    return white / pixels
+
+
 class Environment:
     """What a round may ask of a window. Every method here is implemented by
     every environment; the ones guarded by CAN raise if asked without it, so
@@ -1493,6 +1510,11 @@ class _XEnvironment(_Placed, _Portal):
         data = img.data
         return data.encode("latin-1") if isinstance(data, str) else data
 
+    def white_share(self, top=40):
+        """The share of the middle row that is white (white_fraction()): four
+        bytes a pixel off this server's ZPixmap."""
+        return white_fraction(self.scene_row(top), 4)
+
 
 class X11(_XEnvironment):
     NAME = "x11-vulkan"
@@ -2595,6 +2617,11 @@ class Win32VM(_Placed, _Portal):
             return None
         return bytes(c for xx in range(max(x, 0), min(x + ww, im.width))
                      for c in im.getpixel((xx, yy)))
+
+    def white_share(self, top=40):
+        """white_fraction() of the same row, three bytes a pixel out of a
+        picture of the machine's screen."""
+        return white_fraction(self.scene_row(top), 3)
 
     def clipboard_missing(self):
         return ""

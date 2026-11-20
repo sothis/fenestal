@@ -968,16 +968,20 @@ Open, each needing a decision or a measurement:
   it is safe only from `win32_open()` on, which is where the driver has
   loaded -- a cache taken at the first call is not.
 
-What verifies any of the pictures is owed, and the Win32 half above is what
-it is owed for: `fnl_image_create()`'s one caller is `examples/image.c`,
-whose `snippet-image` is built into every tree and run by nothing, and the
-round's `read-pixels` evidence is a row for motion and blackness -- neither
-reads the overlay's composition, where the picture's quad and the
-rectangles flushed after it are the difference. So a `win64-d3d12` round
-would say only that nothing else regressed, and so would the Linux halves'
-on this desk. What closes it is a picture in the testbed, bound as the
-snippet binds it to `I`, so that a destroy and a create land mid-round and
-not only at exit, and a check that reads one point with the picture on and
-again with it off. `kms-vulkan-bare` does reach its half -- the LED's bit
-test at open, and `GETCRTC` in the motion the round drives -- and is owed
-beside it.
+What verifies any of the pictures is now in the tree and owes a round.
+`fnl_image_create()` had one caller, `examples/image.c`, whose
+`snippet-image` is built into every tree and run by nothing, and the round's
+`read-pixels` evidence was a row for motion and blackness -- neither reads
+the overlay's composition. So the testbed draws a picture from its first
+frame, white beside black, before its own panels and under the library's:
+the metrics panel, the drop-down and the veil are flushed after `on_overlay`,
+which is where a push constant left standing shows. It is bound to `I`, as
+the snippet binds it, so that a destroy and a create land mid-round and not
+only at exit, and `stress.py`'s picture check reads the middle row through it
+three times -- drawn, destroyed, drawn again.
+
+Owed: a round where that check can read pixels, which is this desk's X11 and
+wine, the guests, the laptops and the Mac; and `kms-vulkan-bare` for the
+commit's other half, the LED's bit test at open and `GETCRTC` in the motion
+the round drives. Until one, the two image fixes and the check are reasoned
+and not measured.

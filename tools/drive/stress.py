@@ -1626,6 +1626,37 @@ def maximize_and_restore(r, st, area0, base, mon, f11):
           "%s -> %s" % (area0, st["area"]))
 
 
+def picture(r):
+    """A picture in the overlay, and the state it leaves: the testbed draws
+    one from its first frame, in white and black, so a row read across it
+    says whether it is there. The one overlay primitive whose state crosses
+    frames -- a picture leaves the image pipeline's push constant in force,
+    and every rectangle and stroke flushed after it reads the picture's
+    rectangle as the framebuffer's, which is the library's own metrics panel,
+    its drop-down and the veil. I destroys it and makes it again, which is
+    the free path an exit never draws a frame after."""
+    b, check = r.b, r.check
+    if not r.can("read-pixels"):
+        r.skip("a picture in the overlay draws", "no picture of the window")
+        return
+    drawn = b.white_share()
+    b.press("I")
+    b.quiet(PAUSE)
+    gone = b.white_share()
+    b.press("I")
+    b.quiet(PAUSE)
+    again = b.white_share()
+    for name, share, want in (
+            ("a picture in the overlay draws", drawn, True),
+            ("I takes it away", gone, False),
+            ("and it is made again after its destroy", again, True)):
+        if share is None:
+            r.skip(name, "no picture of the window")
+        else:
+            check(name, share > 0.03 if want else share < 0.01,
+                  "%.1f%% of the row white" % (100.0 * share))
+
+
 def run(r):
     b, check = r.b, r.check
 
@@ -2053,6 +2084,9 @@ def run(r):
     dy = notches()
     check("and it is counted in notches", abs(dy + 2.0) < 0.01,
           "dy %.2f for two steps" % dy)
+
+    # ---- a picture in the overlay -----------------------------------------
+    picture(r)
 
     # ---- the titlebar's own controls --------------------------------------
     #
