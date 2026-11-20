@@ -28,6 +28,14 @@
 #include "shape.frag.h"
 #include "rect.vert.h"
 #include "rect.frag.h"
+#include "image.vert.h"
+#include "image.frag.h"
+
+/* How many caller images may have a descriptor set live at once: the pool's
+ * maxSets, and so the images that may be drawn at once rather than the images
+ * ever made -- vk_image_free() returns the set to the pool. A pool at its
+ * limit is one image that does not appear, said once. */
+#define IMAGE_SETS_MAX 64
 
 /* The arena layout -- OVERLAY_SHAPE_OFF and the two byte counts -- is in
  * app.h, because src/core/overlay.c appends against the same offsets. */
@@ -89,6 +97,69 @@ FnlResult create_overlay_pipelines(App *a)
 						"the overlay's rectangle and stroke pipelines did not "
 						"build");
 
+	/* The image: one sampler and one rectangle, so its own layout -- its push
+	 * block carries the destination rectangle, where the instanced pipelines'
+	 * carries the extent alone. One sampler for every image, and a set a
+	 * image (vk_image_free()). */
+	VkDescriptorSetLayoutBinding ib = {
+		.binding = 0,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+	};
+	VkDescriptorSetLayoutCreateInfo islci = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1, .pBindings = &ib };
+	VK_TRY(vkCreateDescriptorSetLayout(VK(a)->device, &islci, NULL,
+									   &VK(a)->image_set_layout));
+
+	VkPushConstantRange ipcr = {
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+		.offset = 0, .size = sizeof(ImagePush) };
+	VkPipelineLayoutCreateInfo ilci = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount = 1, .pSetLayouts = &VK(a)->image_set_layout,
+		.pushConstantRangeCount = 1, .pPushConstantRanges = &ipcr };
+	VK_TRY(vkCreatePipelineLayout(VK(a)->device, &ilci, NULL,
+								  &VK(a)->image_layout));
+
+	/* LINEAR and CLAMP_TO_EDGE, as the scene's fetch: an image scaled into a
+	 * rectangle larger than it is filtered, and one smaller does not wrap. */
+	VkSamplerCreateInfo isci = {
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.magFilter = VK_FILTER_LINEAR, .minFilter = VK_FILTER_LINEAR,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK };
+	VK_TRY(vkCreateSampler(VK(a)->device, &isci, NULL,
+						   &VK(a)->image_sampler));
+
+	/* Freeable, because an image may be destroyed while others live. */
+	VkDescriptorPoolSize ips = {
+		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = IMAGE_SETS_MAX };
+	VkDescriptorPoolCreateInfo ipci = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+		.maxSets = IMAGE_SETS_MAX, .poolSizeCount = 1, .pPoolSizes = &ips };
+	VK_TRY(vkCreateDescriptorPool(VK(a)->device, &ipci, NULL,
+								  &VK(a)->image_pool));
+
+	VkShaderModule iv = make_shader(a, image_vert_spv, sizeof image_vert_spv);
+	VkShaderModule ifr = make_shader(a, image_frag_spv,
+									 sizeof image_frag_spv);
+	VK(a)->image_pipeline =
+		make_overlay_pipeline(a, VK(a)->render_pass, iv, ifr,
+							  VK(a)->image_layout, 0, NULL, 0,
+							  OVERLAY_BLEND_ALPHA);
+	vkDestroyShaderModule(VK(a)->device, iv, NULL);
+	vkDestroyShaderModule(VK(a)->device, ifr, NULL);
+	if (VK(a)->image_pipeline == VK_NULL_HANDLE)
+		return fnl_fail(FNL_ERR_SYSTEM,
+						"the overlay's image pipeline did not build");
+
 	FNL_TRY(create_instance_buffers(a, OVERLAY_ARENA_BYTES,
 									VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 0,
 									OVERLAY_MAX_IMAGES, VK(a)->ovl_vb,
@@ -105,10 +176,24 @@ void destroy_overlay_pipelines(App *a)
 	vkDestroyPipeline(VK(a)->device, VK(a)->shape_pipeline, NULL);
 	vkDestroyPipelineLayout(VK(a)->device, VK(a)->overlay_layout, NULL);
 
+	/* The images' own objects are theirs (vk_image_free()), and were let go
+	 * before this ran (device.c's vk_images_device_gone()); the pool takes
+	 * their sets with it. */
+	vkDestroyPipeline(VK(a)->device, VK(a)->image_pipeline, NULL);
+	vkDestroyPipelineLayout(VK(a)->device, VK(a)->image_layout, NULL);
+	vkDestroyDescriptorPool(VK(a)->device, VK(a)->image_pool, NULL);
+	vkDestroyDescriptorSetLayout(VK(a)->device, VK(a)->image_set_layout, NULL);
+	vkDestroySampler(VK(a)->device, VK(a)->image_sampler, NULL);
+
 	/* Every handle is cleared, which is what makes a second call safe. */
-	VK(a)->rect_pipeline  = VK_NULL_HANDLE;
-	VK(a)->shape_pipeline = VK_NULL_HANDLE;
-	VK(a)->overlay_layout = VK_NULL_HANDLE;
+	VK(a)->rect_pipeline   = VK_NULL_HANDLE;
+	VK(a)->shape_pipeline  = VK_NULL_HANDLE;
+	VK(a)->overlay_layout  = VK_NULL_HANDLE;
+	VK(a)->image_pipeline  = VK_NULL_HANDLE;
+	VK(a)->image_layout    = VK_NULL_HANDLE;
+	VK(a)->image_pool      = VK_NULL_HANDLE;
+	VK(a)->image_set_layout = VK_NULL_HANDLE;
+	VK(a)->image_sampler   = VK_NULL_HANDLE;
 }
 
 /* ---- recording ---------------------------------------------------------- */
@@ -163,4 +248,234 @@ void vk_overlay_flush_shapes(App *a)
 {
 	flush(a, VK(a)->shape_pipeline, OVERLAY_SHAPE_OFF,
 		  &a->shape_count, &a->shape_drawn);
+}
+
+/* ---- images ---------------------------------------------------------------
+ *
+ * A caller's picture (fnl_image_create()): the library's copy of its pixels
+ * (FnlImage::pixels) and, here, the device object made from them. The upload
+ * is lazy -- the first draw after the image is made, and the first after a
+ * device rebuild -- and runs on the render thread, inside the overlay's own
+ * recording, which is what lets it take no lock (fenestal.h says so where the
+ * calls are declared). The copy is what a rebuild uploads again from. */
+
+/* The device object behind FnlImage::gpu: what the draw binds, freed by
+ * vk_image_free(). */
+typedef struct {
+	VkImage         image;
+	VkDeviceMemory  mem;
+	VkImageView     view;
+	VkDescriptorSet set;
+} VkImageObj;
+
+bool vk_image_supported(const App *a)
+{
+	return a->renderer_state != NULL &&
+		   VK(a)->image_pipeline != VK_NULL_HANDLE;
+}
+
+/* One image's device object, from the copy the library kept. False where
+ * anything failed, with *out left null: the draw is skipped and the caller's
+ * picture does not appear, which is what fnl_image_supported() promised. */
+static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
+{
+	*out = NULL;
+	VkImageObj *o = calloc(1, sizeof *o);
+	if (!o)
+		return false;
+
+	/* _SRGB where the window is, as the cover: the sampler decodes each texel
+	 * to linear before the blend and the framebuffer re-encodes on write. */
+	const VkFormat fmt = a->srgb_surface ? VK_FORMAT_R8G8B8A8_SRGB
+										 : VK_FORMAT_R8G8B8A8_UNORM;
+	const uint32_t w = (uint32_t)img->w, h = (uint32_t)img->h;
+	const VkDeviceSize bytes = (VkDeviceSize)w * (VkDeviceSize)h * 4u;
+
+	VkImageCreateInfo ici = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = fmt,
+		.extent = { w, h, 1 },
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+	if (VKR(vkCreateImage(VK(a)->device, &ici, NULL, &o->image)) < 0)
+		goto fail;
+
+	VkMemoryRequirements req;
+	vkGetImageMemoryRequirements(VK(a)->device, o->image, &req);
+	uint32_t type;
+	if (find_memory_type(a, req.memoryTypeBits,
+						 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &type) < 0)
+		goto fail;
+	VkMemoryAllocateInfo mai = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize = req.size,
+		.memoryTypeIndex = type,
+	};
+	if (VKR(vkAllocateMemory(VK(a)->device, &mai, NULL, &o->mem)) < 0)
+		goto fail;
+	if (VKR(vkBindImageMemory(VK(a)->device, o->image, o->mem, 0)) < 0)
+		goto fail;
+
+	/* The staging pair through the same helper the arenas use, freed before
+	 * this returns: the upload is once an image, not once a frame. */
+	VkBuffer       stage = VK_NULL_HANDLE;
+	VkDeviceMemory smem  = VK_NULL_HANDLE;
+	void          *smap  = NULL;
+	if (create_instance_buffers(a, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0,
+								1, &stage, &smem, &smap) < 0)
+		goto fail;
+	memcpy(smap, img->pixels, (size_t)bytes);
+
+	VkCommandBuffer cb = begin_oneshot(a);
+	if (cb == VK_NULL_HANDLE) {
+		destroy_instance_buffers(a, 1, &stage, &smem, &smap);
+		goto fail;
+	}
+	VkImageMemoryBarrier to_dst = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = o->image,
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+	};
+	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
+						 &to_dst);
+	VkBufferImageCopy copy = {
+		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+		.imageExtent = { w, h, 1 },
+	};
+	vkCmdCopyBufferToImage(cb, stage, o->image,
+						   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+	VkImageMemoryBarrier to_read = to_dst;
+	to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL,
+						 1, &to_read);
+	const FnlResult rc = end_oneshot(a, cb);   /* frees the command buffer */
+	destroy_instance_buffers(a, 1, &stage, &smem, &smap);
+	if (rc < 0)
+		goto fail;
+
+	if (make_image_view(a, o->image, fmt, VK_IMAGE_ASPECT_COLOR_BIT,
+						&o->view) != VK_SUCCESS)
+		goto fail;
+
+	/* The set the draw reads it through, from the pool the images share. A
+	 * pool at its limit is a picture that does not appear; freeing a set
+	 * (vk_image_free()) is what recycles it. */
+	VkDescriptorSetAllocateInfo dai = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = VK(a)->image_pool,
+		.descriptorSetCount = 1, .pSetLayouts = &VK(a)->image_set_layout,
+	};
+	if (VKR(vkAllocateDescriptorSets(VK(a)->device, &dai, &o->set)) < 0)
+		goto fail;
+	VkDescriptorImageInfo ii = {
+		.sampler = VK(a)->image_sampler,
+		.imageView = o->view,
+		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+	VkWriteDescriptorSet wr = {
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.dstSet = o->set, .dstBinding = 0, .descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.pImageInfo = &ii,
+	};
+	vkUpdateDescriptorSets(VK(a)->device, 1, &wr, 0, NULL);
+
+	*out = o;
+	return true;
+
+fail:
+	/* The handles a failed call wrote are undefined, and every one was nulled
+	 * by calloc(): destroying them is safe on any prefix. */
+	vkDestroyImageView(VK(a)->device, o->view, NULL);
+	vkDestroyImage(VK(a)->device, o->image, NULL);
+	vkFreeMemory(VK(a)->device, o->mem, NULL);
+	free(o);
+	return false;
+}
+
+void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
+{
+	VkCommandBuffer cb = VK(a)->overlay_cb;
+	if (cb == VK_NULL_HANDLE || VK(a)->image_pipeline == VK_NULL_HANDLE)
+		return;
+
+	if (!img->gpu) {
+		VkImageObj *o = NULL;
+		if (!image_upload(a, img, &o)) {
+			fnl_log(FNL_LOG_WARN, "the %dx%d image would not upload; it is "
+					"not drawn", img->w, img->h);
+			return;
+		}
+		img->gpu = o;
+	}
+
+	/* What was appended before it is behind it: the core flushed the
+	 * rectangles and strokes before this call, so the image lands between
+	 * them in the command buffer as it did in call order. */
+	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+					  VK(a)->image_pipeline);
+	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+							VK(a)->image_layout, 0, 1, &((VkImageObj *)img->gpu)->set,
+							0, NULL);
+	const ImagePush push = {
+		.rect = { (float)x, (float)y, (float)w, (float)h },
+		.screen = { (float)a->extent.w, (float)a->extent.h },
+	};
+	vkCmdPushConstants(cb, VK(a)->image_layout, VK_SHADER_STAGE_VERTEX_BIT,
+					   0, sizeof push, &push);
+	vkCmdDraw(cb, 6, 1, 0, 0);
+}
+
+void vk_image_free(App *a, FnlImage *img)
+{
+	VkImageObj *o = img->gpu;
+	if (!o)
+		return;
+	img->gpu = NULL;
+	vkDestroyImageView(VK(a)->device, o->view, NULL);
+	vkDestroyImage(VK(a)->device, o->image, NULL);
+	vkFreeMemory(VK(a)->device, o->mem, NULL);
+	if (o->set)
+		vkFreeDescriptorSets(VK(a)->device, VK(a)->image_pool, 1, &o->set);
+	free(o);
+}
+
+/* Every image's device object let go, before the device it names is destroyed
+ * (device.c's destroy_device_objects()), leaving each FnlImage with a null
+ * gpu -- which is what makes the next device upload its copy again. Destroying
+ * on a lost device is legal, and is what the driver's own bookkeeping for the
+ * image, its memory and its view needs: vkDestroyDevice() is not a substitute,
+ * and leaving them to it leaks those allocations (found by the ASan round).
+ * The descriptor set is not freed: the pool it came from is destroyed right
+ * after (destroy_overlay_pipelines()), which takes every set with it. */
+void vk_images_device_gone(App *a)
+{
+	for (FnlImage *img = a->images; img; img = img->next) {
+		VkImageObj *o = img->gpu;
+		if (!o)
+			continue;
+		img->gpu = NULL;
+		vkDestroyImageView(VK(a)->device, o->view, NULL);
+		vkDestroyImage(VK(a)->device, o->image, NULL);
+		vkFreeMemory(VK(a)->device, o->mem, NULL);
+		free(o);
+	}
 }

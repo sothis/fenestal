@@ -216,6 +216,24 @@ typedef struct FnlRendererVtbl {
 	 * symbol each, so that every renderer a build has can define its own. */
 	void (*overlay_flush_rects)(App *a);
 	void (*overlay_flush_shapes)(App *a);
+
+	/* ---- images (fnl_image_create()) ------------------------------------
+	 *
+	 * Whether this renderer draws a caller's image at all: false refuses
+	 * fnl_image_create(), rather than an image that never appears.
+	 * */
+	bool (*image_supported)(const App *a);
+	/* Draw `img` into this rectangle of the window, in the overlay pass and
+	 * in call order (core flushes what was appended before it). The caller's
+	 * pixels -- App's copy, img->pixels -- are uploaded here where the
+	 * renderer has no object for the device in hand yet, which is the first
+	 * draw after a create and after any rebuild; `img->gpu` is the
+	 * renderer's own to keep and to free. */
+	void (*overlay_image)(App *a, FnlImage *img, int x, int y, int w, int h);
+	/* Let the image's object go (fnl_image_destroy(), and at teardown for
+	 * what is left), before the struct it hangs from is freed. NULL where
+	 * image_supported() is false. */
+	void (*image_free)(App *a, FnlImage *img);
 	void (*overlay_scissor)(App *a, const FnlRect *r);
 	FNL_MUST_USE FnlResult (*text_end)(App *a);
 	/* The cover over the first frames after a move (draw_veil() in

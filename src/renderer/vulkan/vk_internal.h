@@ -238,6 +238,21 @@ _Static_assert(sizeof(TextPush) == 16, "TextPush must match shaders/text.*");
 _Static_assert(offsetof(TextPush, srgb) == 8, "TextPush layout drifted");
 _Static_assert(offsetof(TextPush, texel_u) == 12, "TextPush layout drifted");
 
+/* The image pipeline's push constants: the destination rectangle in pixels
+ * and the extent its shader divides by. Not OverlayPush's: an image is placed
+ * rather than instanced, so the rectangle travels with the draw. std430 puts
+ * the vec4 first at 0 and the vec2 at 16, and rounds the block to 16, which
+ * is what the trailing pad holds -- the same offsets the GL renderer's std140
+ * uniform block gets, which is what lets one shader serve both. */
+typedef struct {
+	float rect[4];      /* x, y, w, h -- pixels */
+	float screen[2];    /* framebuffer size, pixels */
+	float pad[2];       /* the block's size rounds to the vec4's alignment */
+} ImagePush;
+
+_Static_assert(sizeof(ImagePush) == 32, "ImagePush must match shaders/image.*");
+_Static_assert(offsetof(ImagePush, screen) == 16, "ImagePush layout drifted");
+
 /* App::msaa_samples, typed. */
 static inline VkSampleCountFlagBits scene_samples(const App *a)
 {
@@ -398,6 +413,12 @@ void destroy_text_pipeline(App *a);
 FNL_MUST_USE FnlResult text_set_scale(App *a, int s120);
 FNL_MUST_USE FnlResult create_overlay_pipelines(App *a);
 void destroy_overlay_pipelines(App *a);
+/* The seam's image calls (overlay.c), and the device-gone hook device.c runs
+ * before the device it names is destroyed. */
+bool vk_image_supported(const App *a);
+void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
+void vk_image_free(App *a, FnlImage *img);
+void vk_images_device_gone(App *a);
 
 /* ---- frame.c ------------------------------------------------------------- */
 

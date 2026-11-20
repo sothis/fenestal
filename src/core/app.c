@@ -205,6 +205,10 @@ static void app_teardown(App *a)
 	a->snap_px = NULL;
 	a->snap_valid = false;
 
+	/* The caller's images first: their GPU objects are the device's, and the
+	 * call below is what destroys it (FnlRendererVtbl::image_free). */
+	app_images_free(a);
+
 	/* Both seams, renderer first: the surface belongs to the graphics API and
 	 * is built on an object the backend owns, so it has to go before the window
 	 * it was made from. */

@@ -408,6 +408,18 @@ struct RendererState {
 	VkBuffer              ovl_vb[OVERLAY_MAX_IMAGES];
 	VkDeviceMemory        ovl_vb_mem;    /* one block behind every buffer */
 
+	/* The image pipeline (fnl_overlay_image()). Its own layout, because its
+	 * push block carries the destination rectangle as well as the extent;
+	 * the set layout and the sampler are one each, and every image's own
+	 * image, memory, view and set live behind FnlImage::gpu, freed by
+	 * vk_image_free() (and, with the device, by vk_images_device_gone()).
+	 * The pool is for the sets alone, so it is small and freeable. */
+	VkPipelineLayout      image_layout;
+	VkPipeline            image_pipeline;
+	VkDescriptorSetLayout image_set_layout;
+	VkDescriptorPool      image_pool;
+	VkSampler             image_sampler;
+
 	/* Where the scene is being recorded, while on_record runs, and null
 	 * outside it. Stashed because the public callback signature carries no
 	 * graphics type; fnl_vulkan_scene_cmd() reads it back. With it, the

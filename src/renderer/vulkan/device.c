@@ -1357,6 +1357,11 @@ static void destroy_device_objects(App *a, bool save_cache)
 	if (save_cache)
 		save_pipeline_cache(a);
 	vkDestroyPipelineCache(VK(a)->device, VK(a)->pipeline_cache, NULL);
+	/* The caller's images' objects go with the device, and the pool that held
+	 * their sets is destroyed below; only the renderer's own memory is let go
+	 * here, leaving each FnlImage to upload its copy again on the next
+	 * device (vk_images_device_gone()). */
+	vk_images_device_gone(a);
 	destroy_overlay_pipelines(a);
 	destroy_text_pipeline(a);
 	destroy_scene_objects(a);
@@ -1620,6 +1625,9 @@ const FnlRendererVtbl fnl_renderer_vulkan = {
 	.present_mode_name     = vk_current_present_mode,
 	.overlay_flush_rects   = vk_overlay_flush_rects,
 	.overlay_flush_shapes  = vk_overlay_flush_shapes,
+	.image_supported       = vk_image_supported,
+	.overlay_image         = vk_overlay_image,
+	.image_free            = vk_image_free,
 	.overlay_scissor       = vk_overlay_scissor,
 	.text_end              = vk_text_end,
 	.overlay_cover         = vk_overlay_cover,

@@ -24,6 +24,8 @@
 #include "gl/rect.frag.h"
 #include "gl/shape.vert.h"
 #include "gl/shape.frag.h"
+#include "gl/image.vert.h"
+#include "gl/image.frag.h"
 #include "gl/text.vert.h"
 #include "gl/text_lcd.frag.h"
 #include "gl/fullscreen.vert.h"
@@ -33,6 +35,8 @@
 #include "gl41/rect.frag.h"
 #include "gl41/shape.vert.h"
 #include "gl41/shape.frag.h"
+#include "gl41/image.vert.h"
+#include "gl41/image.frag.h"
 #include "gl41/text.vert.h"
 #include "gl41/text_lcd.frag.h"
 #include "gl41/fullscreen.vert.h"
@@ -54,6 +58,14 @@ typedef struct {
 	float    texel_u;
 } GlTextPush;
 
+/* The image pipeline's, as std140 lays it out: the same bytes as the Vulkan
+ * renderer's ImagePush, which is what DESIGN *One shader source* rests on. */
+typedef struct {
+	float rect[4];
+	float screen[2];
+	float pad[2];
+} GlImagePush;
+
 _Static_assert(sizeof(GlOverlayPush) == 8,
 			   "GlOverlayPush must match shaders/*.vert");
 _Static_assert(sizeof(GlTextPush) == 16,
@@ -61,9 +73,20 @@ _Static_assert(sizeof(GlTextPush) == 16,
 _Static_assert(offsetof(GlTextPush, srgb) == 8, "GlTextPush layout drifted");
 _Static_assert(offsetof(GlTextPush, texel_u) == 12,
 			   "GlTextPush layout drifted");
+_Static_assert(sizeof(GlImagePush) == 32,
+			   "GlImagePush must match shaders/image.*");
+_Static_assert(offsetof(GlImagePush, screen) == 16,
+			   "GlImagePush layout drifted");
 
 /* The uniform buffer behind every `Push` block: the largest of them. */
-#define PUSH_BYTES 16
+#define PUSH_BYTES 32
+
+/* The device object behind FnlImage::gpu: this context's texture, made when
+ * the image is first drawn and freed by gl_image_free() (and, with the
+ * context, by gl_destroy_overlay()). */
+typedef struct {
+	unsigned tex;
+} GlImageObj;
 
 /* ---- programs ------------------------------------------------------------ */
 
@@ -297,9 +320,10 @@ FnlResult gl_create_overlay(App *a)
 							   SRC(blit_frag));
 	g->prog_mlaa  = gl_program("MLAA", SRC(fullscreen_vert),
 							   SRC(mlaa_frag));
+	g->prog_image = gl_program("image", SRC(image_vert), SRC(image_frag));
 #undef SRC
 	if (!g->prog_rect || !g->prog_shape || !g->prog_text || !g->prog_blit ||
-		!g->prog_mlaa)
+		!g->prog_mlaa || !g->prog_image)
 		return fnl_fail(FNL_ERR_SYSTEM,
 						"the overlay's programs did not build");
 
@@ -354,9 +378,21 @@ void gl_destroy_overlay(App *a)
 			gl.DeleteSync((GLsync)g->fence[i]);
 		g->fence[i] = NULL;
 	}
-	const unsigned progs[5] = { g->prog_rect, g->prog_shape, g->prog_text,
-								g->prog_blit, g->prog_mlaa };
-	for (int i = 0; i < 5; i++)
+	/* The caller's images first: their textures are the context's, and the
+	 * device below is what takes them (gl_image_free() is the same, one).
+	 * Each is left with a null gpu, so a rebuilt context uploads the copy
+	 * again. */
+	for (FnlImage *img = a->images; img; img = img->next) {
+		GlImageObj *o = img->gpu;
+		if (o) {
+			gl.DeleteTextures(1, &o->tex);
+			free(o);
+			img->gpu = NULL;
+		}
+	}
+	const unsigned progs[6] = { g->prog_rect, g->prog_shape, g->prog_text,
+								g->prog_blit, g->prog_mlaa, g->prog_image };
+	for (int i = 0; i < 6; i++)
 		if (progs[i])
 			gl.DeleteProgram(progs[i]);
 	const unsigned vaos[4] = { g->vao_rect, g->vao_shape, g->vao_text,
@@ -368,7 +404,7 @@ void gl_destroy_overlay(App *a)
 		gl.DeleteBuffers(1, &g->push);
 
 	g->prog_rect = g->prog_shape = g->prog_text = 0;
-	g->prog_blit = g->prog_mlaa = 0;
+	g->prog_blit = g->prog_mlaa = g->prog_image = 0;
 	g->vao_rect = g->vao_shape = g->vao_text = g->vao_empty = 0;
 	g->sampler_nearest = g->sampler_linear = 0;
 	g->push = 0;
@@ -470,6 +506,92 @@ void gl_overlay_scissor(App *a, const FnlRect *r)
 		gl.Scissor(r->x, r->y, r->w, r->h);
 	else
 		gl.Scissor(0, 0, a->extent.w, a->extent.h);
+}
+
+/* ---- images --------------------------------------------------------------- */
+
+bool gl_image_supported(const App *a)
+{
+	return a->renderer_state != NULL && GLS(a)->prog_image != 0;
+}
+
+/* The context's texture from the copy the library kept. False where anything
+ * failed, with *out left null: the draw is skipped and the caller's picture
+ * does not appear, which is what fnl_image_supported() promised. */
+static bool image_upload(App *a, FnlImage *img, GlImageObj **out)
+{
+	*out = NULL;
+	GlImageObj *o = calloc(1, sizeof *o);
+	if (!o)
+		return false;
+
+	/* _SRGB where the window is, as the cover: GL_FRAMEBUFFER_SRGB is on, so
+	 * the sampler decodes each texel to linear before the blend and the
+	 * framebuffer re-encodes on write. */
+	gl_clear_errors();
+	gl.CreateTextures(GL_TEXTURE_2D, 1, &o->tex);
+	gl.TextureStorage2D(o->tex, 1,
+						a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+						img->w, img->h);
+	/* The unpack state is the context's, and on_record may have left any of
+	 * it set. */
+	gl.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	gl.PixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	gl.PixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	gl.TextureSubImage2D(o->tex, 0, 0, 0, img->w, img->h, GL_RGBA,
+						 GL_UNSIGNED_BYTE, img->pixels);
+	if (gl.GetError() != GL_NO_ERROR) {
+		gl.DeleteTextures(1, &o->tex);
+		free(o);
+		return false;
+	}
+	*out = o;
+	return true;
+}
+
+void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
+{
+	struct RendererState *g = GLS(a);
+	if (!g->overlay_on || !g->prog_image)
+		return;
+
+	if (!img->gpu) {
+		GlImageObj *o = NULL;
+		if (!image_upload(a, img, &o)) {
+			fnl_log(FNL_LOG_WARN, "the %dx%d image would not upload; it is "
+					"not drawn", img->w, img->h);
+			return;
+		}
+		img->gpu = o;
+	}
+
+	/* What was appended before it is behind it: the core flushed the
+	 * rectangles and strokes before this call, so the image lands between
+	 * them as it did in call order. */
+	gl.UseProgram(g->prog_image);
+	gl.BindVertexArray(g->vao_empty);
+	gl.BindTextureUnit(0, ((GlImageObj *)img->gpu)->tex);
+	gl.BindSampler(0, g->sampler_linear);
+	set_blend(BLEND_ALPHA);
+	const GlImagePush push = {
+		.rect = { (float)x, (float)y, (float)w, (float)h },
+		.screen = { (float)a->extent.w, (float)a->extent.h },
+	};
+	gl_push(a, &push, sizeof push);
+	gl.DrawArrays(GL_TRIANGLES, 0, 6);
+}
+
+void gl_image_free(App *a, FnlImage *img)
+{
+	(void)a;
+	GlImageObj *o = img->gpu;
+	if (!o)
+		return;
+	img->gpu = NULL;
+	gl.DeleteTextures(1, &o->tex);
+	free(o);
 }
 
 /* ---- the cover ----------------------------------------------------------- */

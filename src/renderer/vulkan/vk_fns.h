@@ -120,6 +120,7 @@
 	X(vkDeviceWaitIdle)                                                       \
 	X(vkEndCommandBuffer)                                                     \
 	X(vkFreeCommandBuffers)                                                   \
+	X(vkFreeDescriptorSets)                                                   \
 	X(vkFreeMemory)                                                           \
 	X(vkGetBufferMemoryRequirements)                                          \
 	X(vkGetDeviceQueue)                                                       \
@@ -234,6 +235,7 @@ VK_INSTANCE_FNS(X_DECLARE)
 #define vkDeviceWaitIdle (*fnl_vkDeviceWaitIdle)
 #define vkEndCommandBuffer (*fnl_vkEndCommandBuffer)
 #define vkFreeCommandBuffers (*fnl_vkFreeCommandBuffers)
+#define vkFreeDescriptorSets (*fnl_vkFreeDescriptorSets)
 #define vkFreeMemory (*fnl_vkFreeMemory)
 #define vkGetBufferMemoryRequirements (*fnl_vkGetBufferMemoryRequirements)
 #define vkGetDeviceQueue (*fnl_vkGetDeviceQueue)

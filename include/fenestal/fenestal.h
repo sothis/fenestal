@@ -1081,6 +1081,45 @@ FNL_API void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz,
 FNL_API void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h,
 							  FnlColor c);                       /* [overlay] */
 
+/* A picture to draw: pixels the library copies, keeps and uploads again
+ * itself. A logo, an icon, cover art -- the overlay draws text, rectangles
+ * and strokes, and nothing else, so an app with a picture had to draw it from
+ * strokes or not at all.
+ *
+ * The copy is the point. `pixels` is read once, in fnl_image_create(), so the
+ * caller may free its own buffer on return; the library keeps what it read
+ * and hands it to the GPU again after a device loss, a move to another GPU or
+ * another renderer (on_gpu_created), which is what makes an image survive
+ * everything a window survives here. What it costs is the memory: w * h * 4
+ * bytes an image, in the process, for as long as it lives.
+ *
+ * The render thread's alone -- [overlay]: inside on_overlay, on_gpu_created,
+ * or a fnl_post() -- and that is what makes it cheap: the renderer uploads on
+ * the first draw after either, with no lock between a worker and the device.
+ * A worker that loaded the pixels posts them (fnl_post()) and creates the
+ * image there.
+ *
+ * fnl_image_destroy() frees the copy and the GPU object; an image not
+ * destroyed is freed at fnl_shutdown(). fnl_image_supported() is whether the
+ * renderer drawing now can: a renderer that cannot refuses, rather than
+ * drawing nothing. */
+typedef struct FnlImage FnlImage;
+
+typedef enum {
+	FNL_IMAGE_RGBA8 = 0,   /* four bytes a pixel, not premultiplied */
+	FNL_IMAGE_FORMAT_COUNT /* a count; grows if a format is added */
+} FnlImageFormat;
+
+FNL_API bool fnl_image_supported(const FnlApp *app);              /* [overlay] */
+FNL_API FnlImage *fnl_image_create(FnlApp *app, int w, int h,
+								   FnlImageFormat fmt,
+								   const void *pixels);            /* [overlay] */
+FNL_API void fnl_image_destroy(FnlImage *img);                     /* [overlay] */
+/* Draw it into this rectangle of the window, scaled to fit it: one image,
+ * whole, however the rectangle differs from its own size. */
+FNL_API void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
+							   const FnlImage *img);               /* [overlay] */
+
 /* A stroke of `width` points, with round caps and analytic antialiasing.
  * Coordinates are floats because a stroke is geometry rather than a cell. */
 FNL_API void fnl_overlay_stroke(FnlApp *app, float x0, float y0,

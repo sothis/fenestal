@@ -1280,6 +1280,10 @@ embed_shader(shape.vert shape_vert_spv)
 embed_shader(shape.frag shape_frag_spv)
 embed_shader(rect.vert rect_vert_spv)
 embed_shader(rect.frag rect_frag_spv)
+# A caller's picture placed at a rectangle, on both renderers this tree
+# draws with. See shaders/image.vert and fnl_overlay_image().
+embed_shader(image.vert image_vert_spv)
+embed_shader(image.frag image_frag_spv)
 # One covering triangle, and the fetch that puts the scene image back on the
 # window. See src/renderer/vulkan/frame.c.
 embed_shader(fullscreen.vert fullscreen_vert_spv)
@@ -1291,6 +1295,7 @@ gl_program(text       text.vert       text.frag)
 gl_program(text_lcd   text.vert       text_lcd.frag)
 gl_program(rect       rect.vert       rect.frag)
 gl_program(shape      shape.vert      shape.frag)
+gl_program(image      image.vert      image.frag)
 gl_program(blit       fullscreen.vert blit.frag)
 gl_program(mlaa       fullscreen.vert mlaa.frag)
 

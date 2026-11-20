@@ -167,6 +167,125 @@ void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz, FnlColor c,
 	text_draw(a, clamp_pt(x), clamp_pt(y), sz, col, utf8);
 }
 
+/* ---- images ----------------------------------------------------------------
+ *
+ * The caller's picture, the library's copy of it, and the renderer's object.
+ * All of it on the render thread -- the thread that runs on_overlay, a post
+ * and on_gpu_created -- which is what lets the copy be read and the device
+ * written without a lock between them: fenestal.h says so where the calls are
+ * declared, and a worker that has pixels posts them (fnl_post()). */
+
+/* Bytes a pixel of this format, or 0 for one there is none of. */
+static unsigned image_pixel_bytes(FnlImageFormat fmt)
+{
+	return fmt == FNL_IMAGE_RGBA8 ? 4u : 0u;
+}
+
+bool fnl_image_supported(const FnlApp *app)
+{
+	App *a = (App *)app;
+	if (!a || !a->renderer || !RENDERER(a)->image_supported)
+		return false;
+	return RENDERER(a)->image_supported(a);
+}
+
+FnlImage *fnl_image_create(FnlApp *app, int w, int h, FnlImageFormat fmt,
+						   const void *pixels)
+{
+	App *a = (App *)app;
+	const unsigned bpp = image_pixel_bytes(fmt);
+
+	if (!a || !pixels)
+		return NULL;
+	if (app_thread() != APP_THREAD_RENDER) {
+		fnl_log(FNL_LOG_ERROR, "fnl_image_create() is the render thread's: "
+				"call it in on_overlay, in a fnl_post(), or in "
+				"on_gpu_created");
+		return NULL;
+	}
+	if (w <= 0 || h <= 0 || bpp == 0) {
+		fnl_log(FNL_LOG_ERROR, "fnl_image_create(): %dx%d, format %d",
+				w, h, (int)fmt);
+		return NULL;
+	}
+	/* The same bound the drawing calls hold their points to, since the pixels
+	 * are the same size as the rectangle they may be drawn into. */
+	if (w > OVERLAY_COORD_MAX || h > OVERLAY_COORD_MAX)
+		return NULL;
+	if (!fnl_image_supported(a)) {
+		fnl_log(FNL_LOG_WARN, "fnl_image_create(): %s cannot draw an image",
+				fnl_renderer_name(a));
+		return NULL;
+	}
+
+	FnlImage *img = calloc(1, sizeof *img);
+	if (!img)
+		return NULL;
+	const size_t n = (size_t)w * (size_t)h * bpp;
+	img->pixels = malloc(n);
+	if (!img->pixels) {
+		free(img);
+		return NULL;
+	}
+	/* The copy: the caller's may be a stack buffer, and a rebuild reads this
+	 * one again. */
+	memcpy(img->pixels, pixels, n);
+	img->app = a;
+	img->w = w;
+	img->h = h;
+	img->fmt = fmt;
+	img->next = a->images;
+	a->images = img;
+	return img;
+}
+
+void fnl_image_destroy(FnlImage *img)
+{
+	if (!img)
+		return;
+	App *a = img->app;
+	if (!a)
+		return;
+	for (FnlImage **pp = &a->images; *pp; pp = &(*pp)->next)
+		if (*pp == img) {
+			*pp = img->next;
+			break;
+		}
+	if (img->gpu && RENDERER(a)->image_free)
+		RENDERER(a)->image_free(a, img);
+	free(img->pixels);
+	free(img);
+}
+
+/* What is left at teardown, after the render thread has been joined and
+ * before the device goes: fnl_image_destroy() on each. */
+void app_images_free(App *a)
+{
+	while (a->images)
+		fnl_image_destroy(a->images);
+}
+
+void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
+					   const FnlImage *img)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a) || !img || !RENDERER(a)->overlay_image)
+		return;
+	/* The rectangle in the framebuffer's pixels, as a rectangle's own is
+	 * (overlay_rect), so a picture and a rectangle at the same coordinates
+	 * land on the same pixels however the scale and the margin are. */
+	FnlRect r;
+	if (!overlay_clip(a, x, y, w, h, &r))
+		return;
+	/* What was appended before it is behind it, as it was drawn before it:
+	 * both streams go out first, so the order is the call order. Not text,
+	 * which is one draw for the frame and goes last (see the note on
+	 * fnl_overlay_flush()). */
+	overlay_flush_rects(a);
+	overlay_flush_shapes(a);
+	RENDERER(a)->overlay_image(a, (FnlImage *)img, r.x, r.y, r.w, r.h);
+}
+
 void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h, FnlColor c)
 {
 	App *a = (App *)app;

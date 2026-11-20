@@ -147,6 +147,9 @@ struct RendererState {
 	unsigned prog_text;
 	unsigned prog_blit;
 	unsigned prog_mlaa;
+	/* The picture placed at a rectangle (fnl_overlay_image()); its texture is
+	 * the caller's, behind FnlImage::gpu. */
+	unsigned prog_image;
 	unsigned push;
 
 	/* The instance layouts, each fed from the frame slot's arena at the

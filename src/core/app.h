@@ -295,6 +295,22 @@ typedef struct { int x, y, w, h; } FnlRect;
 #define OUTPUT_MODES_MAX 64
 #define OUTPUTS_MAX      8
 
+/* An image the caller made (fnl_image_create()): the library's copy of its
+ * pixels and whatever the renderer has made of them. The copy is the point --
+ * a device rebuilt, a move to another GPU or another renderer, uploads it
+ * again from here. The render thread's throughout -- [overlay] in
+ * fenestal.h -- so none of it takes a lock: `gpu` is the renderer's object,
+ * NULL until it has one for the device in hand, and freed by the renderer
+ * (FnlRendererVtbl::image_free). */
+struct FnlImage {
+	struct FnlImage *next;     /* the app's list of them */
+	App             *app;
+	int              w, h;
+	FnlImageFormat   fmt;
+	void            *pixels;   /* the library's copy, w * h * 4 bytes */
+	void            *gpu;      /* the renderer's object, or NULL */
+};
+
 /* One call a caller queued with fnl_post(), and how many are taken at once.
  * File scope rather than nested in App, where a declaration declares a type
  * and no member. */
@@ -1829,6 +1845,10 @@ struct FnlApp {
 	 * the lock because the shim has no atomic add, and a lost bump is a
 	 * stale frame. */
 	uint32_t              want_user_gen;
+	/* The images the caller made, newest first (fnl_image_create()). The
+	 * render thread's list, walked at fnl_shutdown() for what is left. */
+	struct FnlImage *images;
+
 	/* The posts fnl_post() queued: run by app_post_drain() at the top of a
 	 * turn, on the render thread, so a worker's state reaches the callbacks
 	 * without a lock of the caller's. Under App::lock, the caller's threads
@@ -2823,6 +2843,9 @@ void overlay_box(App *a, float x0, float y0, float x1, float y1,
  * first stopped rather than redrawing or rebinding anything. */
 void overlay_flush_rects(App *a);
 void overlay_flush_shapes(App *a);
+/* The images the caller made: created and destroyed on the render thread
+ * (api_overlay.c), freed here at the end. */
+void app_images_free(App *a);
 
 /* Restrict what the *next* flush touches to this rectangle, or to the whole
  * framebuffer when it is NULL. What fnl_overlay_clip() reaches; nothing the

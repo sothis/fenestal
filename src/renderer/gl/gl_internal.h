@@ -336,6 +336,12 @@ void gl_gpu_time_poll(App *a);
 
 /* The overlay's draws, the seam's overlay entries before the cover. */
 void gl_overlay_flush_rects(App *a);
+/* The seam's image calls (overlay.c): whether this context draws a caller's
+ * picture, the draw, and the texture let go (fnl_image_destroy(), and every
+ * one at a context's teardown). */
+bool gl_image_supported(const App *a);
+void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
+void gl_image_free(App *a, FnlImage *img);
 void gl_overlay_flush_shapes(App *a);
 void gl_overlay_scissor(App *a, const FnlRect *r);
 FNL_MUST_USE FnlResult gl_text_end(App *a);
