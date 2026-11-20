@@ -27,7 +27,7 @@
 #endif
 
 typedef struct {
-	int    turns;          /* turns of the caller's loop */
+	int turns; /* turns of the caller's loop */
 	double started;
 } State;
 
@@ -58,8 +58,8 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	int cx, cy, cw, ch;
 
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
-	snprintf(line, sizeof line, "the caller's loop: %d turns, %.1f s",
-			 s->turns, now() - s->started);
+	snprintf(line, sizeof line, "the caller's loop: %d turns, %.1f s", s->turns,
+			 now() - s->started);
 	fnl_overlay_text(app, cx + 16, cy + 16, FNL_TEXT_BODY, ink, line);
 }
 
@@ -67,9 +67,9 @@ int main(void)
 {
 	FnlInitDesc desc;
 	memset(&desc, 0, sizeof desc);
-	desc.size = sizeof desc;
+	desc.size           = sizeof desc;
 	desc.header_version = FNL_VERSION;
-	desc.title = "embed";
+	desc.title          = "embed";
 	/* No scene of its own, so any renderer the build has will do. */
 	desc.renderers = FNL_RENDERERS_ANY;
 
@@ -82,8 +82,8 @@ int main(void)
 	State s = { 0, now() };
 	FnlCallbacks cb;
 	memset(&cb, 0, sizeof cb);
-	cb.size = sizeof cb;
-	cb.ud = &s;
+	cb.size       = sizeof cb;
+	cb.ud         = &s;
 	cb.on_overlay = on_overlay;
 
 	if (fnl_start(app, &cb) < 0) {

@@ -30,13 +30,13 @@
 #endif
 
 typedef struct {
-	double x, y;            /* where the pointer was last seen, in points */
-	int    clicks;
-	double scrolled;        /* in notches: a wheel click is 1.0 */
-	char   output[64];      /* the monitor, since FNL_EVENT_OUTPUT said */
-	char   last[32];        /* the last key, by the name fnl_key_name() gives */
-	FnlKey quit;            /* FNL_QUIT_KEY, by name, or Q */
-	int    ticks;           /* what the worker thread has posted */
+	double x, y; /* where the pointer was last seen, in points */
+	int clicks;
+	double scrolled; /* in notches: a wheel click is 1.0 */
+	char output[64]; /* the monitor, since FNL_EVENT_OUTPUT said */
+	char last[32];   /* the last key, by the name fnl_key_name() gives */
+	FnlKey quit;     /* FNL_QUIT_KEY, by name, or Q */
+	int ticks;       /* what the worker thread has posted */
 } State;
 
 /* A thread of the caller's, reaching the drawing's state through a post: the
@@ -44,7 +44,7 @@ typedef struct {
  * lock of its own. */
 struct Ticker {
 	FnlApp *app;
-	State  *s;
+	State *s;
 	volatile int run;
 };
 
@@ -94,11 +94,9 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			/* A position, not a character: W is forward on AZERTY too, and the
 			 * name is the one a help line prints -- the same table the echo of
 			 * events uses. */
-			snprintf(s->last, sizeof s->last, "%s %s",
-					 fnl_key_name(ev.key.key),
+			snprintf(s->last, sizeof s->last, "%s %s", fnl_key_name(ev.key.key),
 					 ev.key.pressed ? "down" : "up");
-			if (ev.key.pressed && !ev.key.repeat &&
-				ev.key.key == FNL_KEY_F)
+			if (ev.key.pressed && !ev.key.repeat && ev.key.key == FNL_KEY_F)
 				fnl_set_fullscreen(app, !fnl_is_fullscreen(app));
 			/* The quit key read by name, which is what a config file holds. */
 			if (ev.key.pressed && ev.key.key == s->quit)
@@ -108,7 +106,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		case FNL_EVENT_MOTION:
 			s->x = ev.motion.x;
 			s->y = ev.motion.y;
-			fnl_invalidate(app);        /* what we draw moved */
+			fnl_invalidate(app); /* what we draw moved */
 			break;
 		case FNL_EVENT_BUTTON:
 			if (ev.button.pressed && ev.button.button == FNL_BUTTON_LEFT)
@@ -124,21 +122,21 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			break;
 		case FNL_EVENT_OUTPUT:
 			/* Another monitor, or this one resized; the name is asked. */
-			snprintf(s->output, sizeof s->output, "%s",
-					 fnl_output_name(app));
+			snprintf(s->output, sizeof s->output, "%s", fnl_output_name(app));
 			fnl_invalidate(app);
 			break;
-		default:
-			break;                      /* a newer library may add types */
+		default: break; /* a newer library may add types */
 		}
 	}
 
 	const FnlColor ink = { 0.9f, 0.9f, 0.9f, 1.0f };
 	char line[128];
-	snprintf(line, sizeof line, "pointer %.0f,%.0f  clicks %d  scrolled "
-			 "%.1f  %s  %s  %s", s->x, s->y, s->clicks, s->scrolled,
-			 fnl_key_down(app, FNL_KEY_LSHIFT) ? "shift" : "",
-			 s->last, fnl_is_shown(app) ? "shown" : "parked");
+	snprintf(line, sizeof line,
+			 "pointer %.0f,%.0f  clicks %d  scrolled "
+			 "%.1f  %s  %s  %s",
+			 s->x, s->y, s->clicks, s->scrolled,
+			 fnl_key_down(app, FNL_KEY_LSHIFT) ? "shift" : "", s->last,
+			 fnl_is_shown(app) ? "shown" : "parked");
 	{
 		char posted[32];
 		snprintf(posted, sizeof posted, "  posted %d", s->ticks);
@@ -160,9 +158,9 @@ int main(void)
 {
 	FnlInitDesc desc;
 	memset(&desc, 0, sizeof desc);
-	desc.size = sizeof desc;
+	desc.size           = sizeof desc;
 	desc.header_version = FNL_VERSION;
-	desc.title = "events";
+	desc.title          = "events";
 	/* No scene of its own, so any renderer the build has will do. */
 	desc.renderers = FNL_RENDERERS_ANY;
 
@@ -172,11 +170,12 @@ int main(void)
 	/* Its own lines are the output, so the library's INFO ones are dropped. */
 	fnl_set_log_level(FNL_LOG_WARN);
 	const char *want = getenv("FNL_QUIT_KEY");
-	State s = { 0, 0, 0, 0.0, "", "",
-				fnl_key_from_name(want && want[0] ? want : "q"), 0 };
+	State s          = {
+        0, 0, 0, 0.0, "", "", fnl_key_from_name(want && want[0] ? want : "q"), 0
+	};
 	struct Ticker t = { app, &s, 1 };
 #ifdef _WIN32
-	HANDLE th = CreateThread(NULL, 0, ticker_thread, &t, 0, NULL);
+	HANDLE th         = CreateThread(NULL, 0, ticker_thread, &t, 0, NULL);
 	const int started = th != NULL;
 #else
 	pthread_t th;
@@ -185,9 +184,9 @@ int main(void)
 
 	FnlCallbacks cb;
 	memset(&cb, 0, sizeof cb);
-	cb.size = sizeof cb;
-	cb.ud = &s;
-	cb.on_overlay = on_overlay;
+	cb.size            = sizeof cb;
+	cb.ud              = &s;
+	cb.on_overlay      = on_overlay;
 	const FnlResult rc = fnl_run(app, &cb);
 	/* The window is gone, so nothing may post to it: stop the thread before
 	 * the App it names is shut down. */
