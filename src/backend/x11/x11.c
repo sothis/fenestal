@@ -56,12 +56,10 @@ static void intern_atoms(struct BackendState *p)
 	 * in it, and by then everything before it has been answered. */
 	x11_ext_prefetch(p);
 	for (int i = 0; i < FNL_ATOM_COUNT; i++)
-		cookie[i] = xcb_intern_atom(p->conn, 0,
-									(uint16_t)strlen(ATOM_NAMES[i]),
+		cookie[i] = xcb_intern_atom(p->conn, 0, (uint16_t)strlen(ATOM_NAMES[i]),
 									ATOM_NAMES[i]);
 	char cm[32];
-	const int cm_len = snprintf(cm, sizeof cm, "_NET_WM_CM_S%d",
-								p->screen_num);
+	const int cm_len = snprintf(cm, sizeof cm, "_NET_WM_CM_S%d", p->screen_num);
 	const xcb_intern_atom_cookie_t cm_cookie =
 		xcb_intern_atom(p->conn, 0, (uint16_t)cm_len, cm);
 	xcb_prefetch_maximum_request_length(p->conn);
@@ -72,8 +70,8 @@ static void intern_atoms(struct BackendState *p)
 		p->atom[i] = r ? r->atom : XCB_ATOM_NONE;
 		free(r);
 	}
-	xcb_intern_atom_reply_t *r = xcb_intern_atom_reply(p->conn, cm_cookie,
-													   NULL);
+	xcb_intern_atom_reply_t *r =
+		xcb_intern_atom_reply(p->conn, cm_cookie, NULL);
 	p->atom_cm = r ? r->atom : XCB_ATOM_NONE;
 	free(r);
 }
@@ -116,14 +114,13 @@ static int scale_from_resource_manager(struct BackendState *p,
 									   xcb_get_property_cookie_t cookie)
 {
 	/* One string of "name:\tvalue\n" lines: a substring search, not Xrm. */
-	xcb_get_property_reply_t *r =
-		xcb_get_property_reply(p->conn, cookie, NULL);
+	xcb_get_property_reply_t *r = xcb_get_property_reply(p->conn, cookie, NULL);
 	if (!r)
 		return 0;
 
 	const char *db = xcb_get_property_value(r);
-	const int   n  = xcb_get_property_value_length(r);
-	int s120 = 0;
+	const int n    = xcb_get_property_value_length(r);
+	int s120       = 0;
 
 	for (int i = 0; i + 8 <= n; i++) {
 		/* At the start of a line, and the whole name: "Xft.dpi" and not the
@@ -167,8 +164,8 @@ static void x11_publish_output(App *a, bool force)
 {
 	struct BackendState *p = a->backend_state;
 
-	const int idx = x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w,
-										  p->win_h);
+	const int idx =
+		x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w, p->win_h);
 	if (idx < 0)
 		return;
 	if (idx == p->published_monitor && !force)
@@ -187,8 +184,8 @@ static void x11_publish_output(App *a, bool force)
 	 * list comes through forced, and a move onto another monitor through
 	 * the index. */
 	char names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
-	const int n = p->monitor_count < OUTPUTS_MAX ? p->monitor_count
-												 : OUTPUTS_MAX;
+	const int n =
+		p->monitor_count < OUTPUTS_MAX ? p->monitor_count : OUTPUTS_MAX;
 	for (int i = 0; i < n; i++)
 		snprintf(names[i], sizeof names[i], "%s", p->monitors[i].name);
 	app_publish_outputs(a, names, n, idx);
@@ -215,8 +212,7 @@ static void x11_publish_size(App *a)
 	 * and a publish without a serial clears the pending one, which would
 	 * leave the manager waiting out its own timeout on every step of a
 	 * drag. */
-	if (p->sync_asked &&
-		p->sync_lo == fnl_atomic_load_u32(&p->sync_set_lo))
+	if (p->sync_asked && p->sync_lo == fnl_atomic_load_u32(&p->sync_set_lo))
 		p->sync_asked = false;
 	/* Not before the ConfigureNotify the request precedes: published with
 	 * the size the window still has, a frame at rest would answer it, and
@@ -236,8 +232,8 @@ static void x11_publish_size(App *a)
 	 * just moved. The grab itself needs nothing: confine_to names a window
 	 * rather than a rectangle, so it follows the resize on its own. */
 	if (p->captured && !p->grab_suspended) {
-		p->warp_x = p->win_w / 2;
-		p->warp_y = p->win_h / 2;
+		p->warp_x       = p->win_w / 2;
+		p->warp_y       = p->win_h / 2;
 		p->warp_pending = true;
 		xcb_warp_pointer(p->conn, XCB_NONE, p->window, 0, 0, 0, 0,
 						 (int16_t)p->warp_x, (int16_t)p->warp_y);
@@ -254,10 +250,23 @@ static void x11_publish_size(App *a)
 /* What the handlers asked for, spent once a pump turn; see
  * BackendState::publish_pending. */
 static void bring_on_screen(App *a);
+static void set_size_hints(App *a);
 
 static void outputs_flush(App *a)
 {
 	struct BackendState *p = a->backend_state;
+	/* The desktop's density, once for a burst of RESOURCE_MANAGER edits:
+	 * reading it is a round trip through the server, and a theme change or a
+	 * GTK program merging its resources sends several in a row. */
+	if (p->scale_stale) {
+		p->scale_stale = false;
+		const int s    = scale_from_resource_manager(p, resources_ask(p));
+		if (s != p->xft_scale120) {
+			p->xft_scale120 = s;
+			set_size_hints(a); /* the floor is in pixels */
+			p->publish_pending = true;
+		}
+	}
 	/* After a list is read, alone or as part of the re-read below. */
 	if (p->refresh_stale && !p->outputs_stale) {
 		x11_refresh_read(p);
@@ -267,9 +276,9 @@ static void outputs_flush(App *a)
 		return;
 	/* The work area on both paths: a screen that changed moved the shell's
 	 * panels with it. Both asked before either is taken. */
-	const bool         monitors = p->outputs_stale;
-	const unsigned int seq      = monitors ? x11_monitors_ask(p) : 0;
-	const X11WorkAreaAsk area   = x11_work_area_ask(p);
+	const bool monitors       = p->outputs_stale;
+	const unsigned int seq    = monitors ? x11_monitors_ask(p) : 0;
+	const X11WorkAreaAsk area = x11_work_area_ask(p);
 	if (monitors)
 		x11_monitors_take(p, seq);
 	x11_work_area_take(p, area);
@@ -296,23 +305,23 @@ static void publish_flush(App *a)
  * or libxcb-cursor on the link line. The font is what bounds FnlCursor: it has
  * corners and single-axis double arrows, no diagonal one. */
 static const uint16_t CURSOR_GLYPH[X11_CURSOR_COUNT] = {
-	[X11_CURSOR_DEFAULT]     = 68,     /* XC_left_ptr            */
-	[X11_CURSOR_N]           = 138,    /* XC_top_side            */
-	[X11_CURSOR_S]           = 16,     /* XC_bottom_side         */
-	[X11_CURSOR_W]           = 70,     /* XC_left_side           */
-	[X11_CURSOR_E]           = 96,     /* XC_right_side          */
-	[X11_CURSOR_NW]          = 134,    /* XC_top_left_corner     */
-	[X11_CURSOR_NE]          = 136,    /* XC_top_right_corner    */
-	[X11_CURSOR_SW]          = 12,     /* XC_bottom_left_corner  */
-	[X11_CURSOR_SE]          = 14,     /* XC_bottom_right_corner */
-	[X11_CURSOR_TEXT]        = 152,    /* XC_xterm               */
-	[X11_CURSOR_POINTER]     = 60,     /* XC_hand2               */
-	[X11_CURSOR_CROSSHAIR]   = 34,     /* XC_crosshair           */
-	[X11_CURSOR_MOVE]        = 52,     /* XC_fleur               */
-	[X11_CURSOR_EW]          = 108,    /* XC_sb_h_double_arrow   */
-	[X11_CURSOR_NS]          = 116,    /* XC_sb_v_double_arrow   */
-	[X11_CURSOR_NOT_ALLOWED] = 0,      /* XC_X_cursor            */
-	[X11_CURSOR_WAIT]        = 150,    /* XC_watch               */
+	[X11_CURSOR_DEFAULT]     = 68,  /* XC_left_ptr            */
+	[X11_CURSOR_N]           = 138, /* XC_top_side            */
+	[X11_CURSOR_S]           = 16,  /* XC_bottom_side         */
+	[X11_CURSOR_W]           = 70,  /* XC_left_side           */
+	[X11_CURSOR_E]           = 96,  /* XC_right_side          */
+	[X11_CURSOR_NW]          = 134, /* XC_top_left_corner     */
+	[X11_CURSOR_NE]          = 136, /* XC_top_right_corner    */
+	[X11_CURSOR_SW]          = 12,  /* XC_bottom_left_corner  */
+	[X11_CURSOR_SE]          = 14,  /* XC_bottom_right_corner */
+	[X11_CURSOR_TEXT]        = 152, /* XC_xterm               */
+	[X11_CURSOR_POINTER]     = 60,  /* XC_hand2               */
+	[X11_CURSOR_CROSSHAIR]   = 34,  /* XC_crosshair           */
+	[X11_CURSOR_MOVE]        = 52,  /* XC_fleur               */
+	[X11_CURSOR_EW]          = 108, /* XC_sb_h_double_arrow   */
+	[X11_CURSOR_NS]          = 116, /* XC_sb_v_double_arrow   */
+	[X11_CURSOR_NOT_ALLOWED] = 0,   /* XC_X_cursor            */
+	[X11_CURSOR_WAIT]        = 150, /* XC_watch               */
 };
 
 /* fnl_set_cursor()'s shapes, as rows of the table above. */
@@ -328,7 +337,7 @@ static const X11Cursor CALLER_CURSORS[] = {
 	[FNL_CURSOR_WAIT]        = X11_CURSOR_WAIT,
 };
 _Static_assert(sizeof CALLER_CURSORS / sizeof CALLER_CURSORS[0] ==
-			   FNL_CURSOR_WAIT + 1,
+				   FNL_CURSOR_WAIT + 1,
 			   "a FnlCursor was appended without a glyph for it here");
 
 /* No cursor at all: a one-by-one bitmap with nothing set in it, which is the
@@ -338,9 +347,9 @@ static xcb_cursor_t blank_cursor(struct BackendState *p)
 	if (p->blank_cursor)
 		return p->blank_cursor;
 
-	xcb_pixmap_t pix = xcb_generate_id(p->conn);
+	xcb_pixmap_t pix  = xcb_generate_id(p->conn);
 	xcb_gcontext_t gc = xcb_generate_id(p->conn);
-	xcb_cursor_t   cur = xcb_generate_id(p->conn);
+	xcb_cursor_t cur  = xcb_generate_id(p->conn);
 
 	xcb_create_pixmap(p->conn, 1, pix, p->root, 1, 1);
 	/* A new pixmap's contents are undefined, and an undefined bit is a cursor
@@ -375,10 +384,9 @@ static xcb_cursor_t cursor_load(struct BackendState *p, X11Cursor which)
 
 	xcb_cursor_t cur = xcb_generate_id(p->conn);
 	/* The mask glyph is the shape's own plus one: the cursor font's layout. */
-	xcb_create_glyph_cursor(p->conn, cur, p->cursor_font, p->cursor_font,
-							CURSOR_GLYPH[which],
-							(uint16_t)(CURSOR_GLYPH[which] + 1),
-							0, 0, 0, 0xffff, 0xffff, 0xffff);
+	xcb_create_glyph_cursor(
+		p->conn, cur, p->cursor_font, p->cursor_font, CURSOR_GLYPH[which],
+		(uint16_t)(CURSOR_GLYPH[which] + 1), 0, 0, 0, 0xffff, 0xffff, 0xffff);
 	p->cursors[which] = cur;
 	return cur;
 }
@@ -392,8 +400,8 @@ static void set_cursor(App *a, X11Cursor which)
 		return;
 	p->cursor_applied = which;
 
-	const uint32_t cur = which == X11_CURSOR_NONE ? blank_cursor(p)
-												  : cursor_load(p, which);
+	const uint32_t cur =
+		which == X11_CURSOR_NONE ? blank_cursor(p) : cursor_load(p, which);
 	xcb_change_window_attributes(p->conn, p->window, XCB_CW_CURSOR, &cur);
 }
 
@@ -420,19 +428,19 @@ enum {
 /* An edge as both vocabularies spell it, side by side so the cursor cannot say
  * one thing while the drag does another. */
 typedef struct {
-	uint8_t   moveresize;
+	uint8_t moveresize;
 	X11Cursor cursor;
 } EdgeCodes;
 
 static const EdgeCodes EDGE_CODES[EDGE_COUNT] = {
-	{ MOVERESIZE_MOVE,             X11_CURSOR_DEFAULT },  /* 0: not an edge */
-	{ MOVERESIZE_SIZE_TOP,         X11_CURSOR_N  },
-	{ MOVERESIZE_SIZE_BOTTOM,      X11_CURSOR_S  },
-	{ MOVERESIZE_SIZE_LEFT,        X11_CURSOR_W  },
-	{ MOVERESIZE_SIZE_RIGHT,       X11_CURSOR_E  },
-	{ MOVERESIZE_SIZE_TOPLEFT,     X11_CURSOR_NW },
-	{ MOVERESIZE_SIZE_TOPRIGHT,    X11_CURSOR_NE },
-	{ MOVERESIZE_SIZE_BOTTOMLEFT,  X11_CURSOR_SW },
+	{ MOVERESIZE_MOVE, X11_CURSOR_DEFAULT }, /* 0: not an edge */
+	{ MOVERESIZE_SIZE_TOP, X11_CURSOR_N },
+	{ MOVERESIZE_SIZE_BOTTOM, X11_CURSOR_S },
+	{ MOVERESIZE_SIZE_LEFT, X11_CURSOR_W },
+	{ MOVERESIZE_SIZE_RIGHT, X11_CURSOR_E },
+	{ MOVERESIZE_SIZE_TOPLEFT, X11_CURSOR_NW },
+	{ MOVERESIZE_SIZE_TOPRIGHT, X11_CURSOR_NE },
+	{ MOVERESIZE_SIZE_BOTTOMLEFT, X11_CURSOR_SW },
 	{ MOVERESIZE_SIZE_BOTTOMRIGHT, X11_CURSOR_SE },
 };
 
@@ -444,22 +452,22 @@ static void cursor_update(App *a, Zone z, Edge edge)
 {
 	const DecoCursor c = deco_cursor(a, z, edge);
 	set_cursor(a, c.kind == DECO_CURSOR_HIDDEN ? X11_CURSOR_NONE
-				: c.kind == DECO_CURSOR_EDGE   ? EDGE_CODES[c.edge].cursor
+				  : c.kind == DECO_CURSOR_EDGE ? EDGE_CODES[c.edge].cursor
 											   : CALLER_CURSORS[c.shape]);
 }
 
 /* ICCCM's and Motif's figures, for the structures laid out by hand below. */
-#define ICCCM_INPUT_HINT    (1u << 0)
-#define ICCCM_STATE_HINT    (1u << 1)
-#define ICCCM_NORMAL_STATE  1u
-#define ICCCM_ICONIC_STATE  3u
+#define ICCCM_INPUT_HINT (1u << 0)
+#define ICCCM_STATE_HINT (1u << 1)
+#define ICCCM_NORMAL_STATE 1u
+#define ICCCM_ICONIC_STATE 3u
 
-#define ICCCM_P_MIN_SIZE        (1u << 4)
-#define ICCCM_SIZE_HINTS_WORDS  18
-#define ICCCM_SIZE_HINTS_MIN_W  5
-#define ICCCM_SIZE_HINTS_MIN_H  6
+#define ICCCM_P_MIN_SIZE (1u << 4)
+#define ICCCM_SIZE_HINTS_WORDS 18
+#define ICCCM_SIZE_HINTS_MIN_W 5
+#define ICCCM_SIZE_HINTS_MIN_H 6
 
-#define MWM_HINTS_DECORATIONS   (1u << 1)
+#define MWM_HINTS_DECORATIONS (1u << 1)
 
 /* ---- window state ---------------------------------------------------------
  *
@@ -474,21 +482,20 @@ static void root_send(struct BackendState *p,
 {
 	xcb_send_event(p->conn, 0, p->root,
 				   XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
-				   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
+					   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
 				   (const char *)ev);
 }
 
-static void root_message(struct BackendState *p, xcb_atom_t type,
-						 uint32_t d0, uint32_t d1, uint32_t d2, uint32_t d3,
-						 uint32_t d4)
+static void root_message(struct BackendState *p, xcb_atom_t type, uint32_t d0,
+						 uint32_t d1, uint32_t d2, uint32_t d3, uint32_t d4)
 {
 	const xcb_client_message_event_t ev = {
 		.response_type = XCB_CLIENT_MESSAGE,
-		.format = 32,
-		.sequence = 0,
-		.window = p->window,
-		.type = type,
-		.data = { .data32 = { d0, d1, d2, d3, d4 } },
+		.format        = 32,
+		.sequence      = 0,
+		.window        = p->window,
+		.type          = type,
+		.data          = { .data32 = { d0, d1, d2, d3, d4 } },
 	};
 	root_send(p, &ev);
 }
@@ -533,10 +540,14 @@ static void size_apply(struct BackendState *p, uint16_t mask, int x, int y,
 {
 	uint32_t v[4];
 	int n = 0;
-	if (mask & XCB_CONFIG_WINDOW_X)      v[n++] = (uint32_t)x;
-	if (mask & XCB_CONFIG_WINDOW_Y)      v[n++] = (uint32_t)y;
-	if (mask & XCB_CONFIG_WINDOW_WIDTH)  v[n++] = (uint32_t)w;
-	if (mask & XCB_CONFIG_WINDOW_HEIGHT) v[n++] = (uint32_t)h;
+	if (mask & XCB_CONFIG_WINDOW_X)
+		v[n++] = (uint32_t)x;
+	if (mask & XCB_CONFIG_WINDOW_Y)
+		v[n++] = (uint32_t)y;
+	if (mask & XCB_CONFIG_WINDOW_WIDTH)
+		v[n++] = (uint32_t)w;
+	if (mask & XCB_CONFIG_WINDOW_HEIGHT)
+		v[n++] = (uint32_t)h;
 	xcb_configure_window(p->conn, p->window, mask, v);
 	if (mask & XCB_CONFIG_WINDOW_WIDTH)
 		p->given_w = w;
@@ -557,9 +568,8 @@ static void size_give(struct BackendState *p, uint16_t mask, int x, int y,
 		w = p->held ? p->held_w : p->given_w;
 	if (!(mask & XCB_CONFIG_WINDOW_HEIGHT))
 		h = p->held ? p->held_h : p->given_h;
-	const bool resizes = (mask & size) &&
-						 (w != p->given_w || h != p->given_h);
-	const bool wait = !p->ewmh && p->given_w > 0 &&
+	const bool resizes = (mask & size) && (w != p->given_w || h != p->given_h);
+	const bool wait    = !p->ewmh && p->given_w > 0 &&
 					  (p->held || (resizes && !size_shown(p))) &&
 					  now_seconds() - p->given_at < SIZE_HOLD_S;
 	if (!wait) {
@@ -567,21 +577,22 @@ static void size_give(struct BackendState *p, uint16_t mask, int x, int y,
 		return;
 	}
 	p->held_mask = (uint16_t)((p->held ? p->held_mask : 0) | mask | size);
-	if (mask & XCB_CONFIG_WINDOW_X) p->held_x = x;
-	if (mask & XCB_CONFIG_WINDOW_Y) p->held_y = y;
+	if (mask & XCB_CONFIG_WINDOW_X)
+		p->held_x = x;
+	if (mask & XCB_CONFIG_WINDOW_Y)
+		p->held_y = y;
 	p->held_w = w;
 	p->held_h = h;
-	p->held = true;
+	p->held   = true;
 	fnl_atomic_store_bool(&p->held_wake, true);
 }
 
 /* From each pump turn: the size held goes out once its turn has come. */
 static void size_release(struct BackendState *p)
 {
-	if (p->held && (size_shown(p) ||
-					now_seconds() - p->given_at >= SIZE_HOLD_S))
-		size_apply(p, p->held_mask, p->held_x, p->held_y, p->held_w,
-				   p->held_h);
+	if (p->held &&
+		(size_shown(p) || now_seconds() - p->given_at >= SIZE_HOLD_S))
+		size_apply(p, p->held_mask, p->held_x, p->held_y, p->held_w, p->held_h);
 }
 
 /* How long the pump may wait with a size held, or -1 with none. */
@@ -593,11 +604,12 @@ static int size_wait_ms(const struct BackendState *p)
 	return left > 0.0 ? (int)(left * 1e3) + 1 : 0;
 }
 
-static void window_move_resize(struct BackendState *p, int x, int y,
-							   int w, int h)
+static void window_move_resize(struct BackendState *p, int x, int y, int w,
+							   int h)
 {
-	size_give(p, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-				 XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+	size_give(p,
+			  XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+				  XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
 			  x, y, w, h);
 }
 
@@ -605,10 +617,10 @@ static void save_restore_rect(struct BackendState *p)
 {
 	if (p->saved_valid)
 		return;
-	p->saved_x = p->win_x;
-	p->saved_y = p->win_y;
-	p->saved_w = p->win_w;
-	p->saved_h = p->win_h;
+	p->saved_x     = p->win_x;
+	p->saved_y     = p->win_y;
+	p->saved_w     = p->win_w;
+	p->saved_h     = p->win_h;
 	p->saved_valid = true;
 }
 
@@ -626,14 +638,13 @@ static void unmanaged_state_set(App *a, bool *flag, bool on)
 	if (a->is_fullscreen || a->is_maximized) {
 		save_restore_rect(p);
 		int x, y, w, h;
-		const int idx = x11_monitor_index_for(p, p->win_x, p->win_y,
-											  p->win_w, p->win_h);
+		const int idx =
+			x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w, p->win_h);
 		/* Maximized takes the part of the monitor the shell leaves free. */
 		x11_monitor_room(p, idx, !a->is_fullscreen, &x, &y, &w, &h);
 		window_move_resize(p, x, y, w, h);
 	} else if (p->saved_valid) {
-		window_move_resize(p, p->saved_x, p->saved_y, p->saved_w,
-						   p->saved_h);
+		window_move_resize(p, p->saved_x, p->saved_y, p->saved_w, p->saved_h);
 		p->saved_valid = false;
 	}
 	p->publish_pending = true;
@@ -647,13 +658,12 @@ static void unmanaged_state_set(App *a, bool *flag, bool on)
  * than it. Fullscreen and maximized are the monitor's own rectangle again,
  * on the new one; the rectangle saved for leaving them is brought along,
  * or leaving would put the window back where nobody can see it. */
-static bool on_some_monitor(const struct BackendState *p, int x, int y,
-							int w, int h)
+static bool on_some_monitor(const struct BackendState *p, int x, int y, int w,
+							int h)
 {
 	for (int i = 0; i < p->monitor_count; i++) {
 		const X11Monitor *m = &p->monitors[i];
-		if (x < m->x + m->w && m->x < x + w && y < m->y + m->h &&
-			m->y < y + h)
+		if (x < m->x + m->w && m->x < x + w && y < m->y + m->h && m->y < y + h)
 			return true;
 	}
 	return false;
@@ -662,8 +672,10 @@ static bool on_some_monitor(const struct BackendState *p, int x, int y,
 static void fit_into(int rx, int ry, int rw, int rh, int *x, int *y, int *w,
 					 int *h)
 {
-	if (*w > rw) *w = rw;
-	if (*h > rh) *h = rh;
+	if (*w > rw)
+		*w = rw;
+	if (*h > rh)
+		*h = rh;
 	*x = rx + (rw - *w) / 2;
 	*y = ry + (rh - *h) / 2;
 }
@@ -698,10 +710,10 @@ static void bring_on_screen(App *a)
 	/* Taken as done: with nobody to refuse it, the request is the outcome,
 	 * and a second re-read of a RandR burst arriving before the
 	 * ConfigureNotify must not find the window stranded again. */
-	p->win_x = x;
-	p->win_y = y;
-	p->win_w = w;
-	p->win_h = h;
+	p->win_x           = x;
+	p->win_y           = y;
+	p->win_w           = w;
+	p->win_h           = h;
 	p->publish_pending = true;
 	app_mark_urgent(a);
 }
@@ -718,8 +730,8 @@ static void bring_on_screen(App *a)
 static void fit_opening(App *a, int s120)
 {
 	struct BackendState *p = a->backend_state;
-	const int idx = x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w,
-										  p->win_h);
+	const int idx =
+		x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w, p->win_h);
 	int rx, ry, rw, rh;
 	x11_monitor_room(p, idx, true, &rx, &ry, &rw, &rh);
 	int min_w, min_h;
@@ -729,13 +741,16 @@ static void fit_opening(App *a, int s120)
 
 	int w = p->win_w < rw ? p->win_w : rw;
 	int h = p->win_h < rh ? p->win_h : rh;
-	if (w < min_w) w = min_w;
-	if (h < min_h) h = min_h;
+	if (w < min_w)
+		w = min_w;
+	if (h < min_h)
+		h = min_h;
 	int x = p->win_x, y = p->win_y;
-	if (x + w > rx + rw) x = rx + rw - w;
-	if (y + h > ry + rh) y = ry + rh - h;
-	if (x < rx) x = rx;
-	if (y < ry) y = ry;
+	/* Inside the room the placement core already gives a window on a screen:
+	 * the offset kept, then the far edge pulled in, then the near one (the
+	 * one this window is on is its own there). */
+	const FnlRect room = { rx, ry, rw, rh };
+	app_place_on_output(p->win_x, p->win_y, w, h, &room, &room, &x, &y);
 	if (x == p->win_x && y == p->win_y && w == p->win_w && h == p->win_h)
 		return;
 	window_move_resize(p, x, y, w, h);
@@ -792,12 +807,12 @@ static void x11_set_maximized(App *a, bool on)
 static void x11_set_output(App *a, const char *name)
 {
 	struct BackendState *p = a->backend_state;
-	int to = -1;
+	int to                 = -1;
 	for (int i = 0; i < p->monitor_count && to < 0; i++)
 		if (strcmp(p->monitors[i].name, name) == 0)
 			to = i;
-	const int from = x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w,
-										   p->win_h);
+	const int from =
+		x11_monitor_index_for(p, p->win_x, p->win_y, p->win_w, p->win_h);
 	if (to < 0 || to == from || p->win_w <= 0 || p->win_h <= 0)
 		return;
 	FnlRect fr, tr;
@@ -806,19 +821,18 @@ static void x11_set_output(App *a, const char *name)
 
 	if (!p->ewmh) {
 		if (p->saved_valid)
-			app_place_on_output(p->saved_x, p->saved_y, p->saved_w,
-								p->saved_h, &fr, &tr, &p->saved_x,
-								&p->saved_y);
+			app_place_on_output(p->saved_x, p->saved_y, p->saved_w, p->saved_h,
+								&fr, &tr, &p->saved_x, &p->saved_y);
 		int x, y, w = p->win_w, h = p->win_h;
 		if (a->is_fullscreen || a->is_maximized)
 			x11_monitor_room(p, to, !a->is_fullscreen, &x, &y, &w, &h);
 		else
 			app_place_on_output(p->win_x, p->win_y, w, h, &fr, &tr, &x, &y);
 		window_move_resize(p, x, y, w, h);
-		p->win_x = x;
-		p->win_y = y;
-		p->win_w = w;
-		p->win_h = h;
+		p->win_x           = x;
+		p->win_y           = y;
+		p->win_w           = w;
+		p->win_h           = h;
 		p->publish_pending = true;
 		app_mark_urgent(a);
 		return;
@@ -848,10 +862,10 @@ static void x11_set_output(App *a, const char *name)
 		p->norm_y = y;
 	}
 	/* StaticGravity, x and y given, from a pager. */
-	const uint32_t how = (uint32_t)XCB_GRAVITY_STATIC | (1u << 8) |
-						 (1u << 9) | (2u << 12);
-	root_message(p, p->atom[FNL_ATOM_NET_MOVERESIZE_WINDOW], how,
-				 (uint32_t)x, (uint32_t)y, 0u, 0u);
+	const uint32_t how =
+		(uint32_t)XCB_GRAVITY_STATIC | (1u << 8) | (1u << 9) | (2u << 12);
+	root_message(p, p->atom[FNL_ATOM_NET_MOVERESIZE_WINDOW], how, (uint32_t)x,
+				 (uint32_t)y, 0u, 0u);
 
 	if (was_max)
 		wm_state_set(p, mv, mh, true);
@@ -868,8 +882,8 @@ static void x11_minimize(App *a)
 	struct BackendState *p = a->backend_state;
 	if (!p->ewmh)
 		return;
-	root_message(p, p->atom[FNL_ATOM_WM_CHANGE_STATE], ICCCM_ICONIC_STATE,
-				 0u, 0u, 0u, 0u);
+	root_message(p, p->atom[FNL_ATOM_WM_CHANGE_STATE], ICCCM_ICONIC_STATE, 0u,
+				 0u, 0u, 0u);
 }
 
 /* Hand an interactive move or resize to the window manager. The ungrab is
@@ -907,7 +921,7 @@ static uint32_t rgb_pixel(const struct BackendState *p, const uint8_t rgb[3])
 				return p->screen->black_pixel;
 			const uint32_t mask[3] = { v->red_mask, v->green_mask,
 									   v->blue_mask };
-			uint32_t px = 0;
+			uint32_t px            = 0;
 			for (int i = 0; i < 3; i++) {
 				if (!mask[i])
 					continue;
@@ -934,9 +948,10 @@ static uint32_t rgb_pixel(const struct BackendState *p, const uint8_t rgb[3])
 static void background_update(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	const int bar = deco_client(a->is_fullscreen) && !a->deco_custom
-				  ? scale_pt(deco_bar_h(a, a->is_fullscreen), want_s120(a))
-				  : 0;
+	const int bar =
+		deco_client(a->is_fullscreen) && !a->deco_custom
+			? scale_pt(deco_bar_h(a, a->is_fullscreen), want_s120(a))
+			: 0;
 	const bool active = p->focus_in;
 	if (p->bg_h >= p->win_h && bar == p->bg_bar &&
 		(bar == 0 || active == p->bg_active))
@@ -952,7 +967,7 @@ static void background_update(App *a)
 	xcb_create_pixmap(p->conn, p->screen->root_depth, pm, p->window, 1,
 					  (uint16_t)h);
 	const xcb_gcontext_t gc = xcb_generate_id(p->conn);
-	uint32_t fg = p->screen->black_pixel;
+	uint32_t fg             = p->screen->black_pixel;
 	xcb_create_gc(p->conn, gc, pm, XCB_GC_FOREGROUND, &fg);
 	const xcb_rectangle_t all = { 0, 0, 1, (uint16_t)h };
 	xcb_poly_fill_rectangle(p->conn, pm, gc, 1, &all);
@@ -961,8 +976,7 @@ static void background_update(App *a)
 		app_bar_srgb8(active, rgb);
 		fg = rgb_pixel(p, rgb);
 		xcb_change_gc(p->conn, gc, XCB_GC_FOREGROUND, &fg);
-		const xcb_rectangle_t top = { 0, 0, 1,
-									  (uint16_t)(bar < h ? bar : h) };
+		const xcb_rectangle_t top = { 0, 0, 1, (uint16_t)(bar < h ? bar : h) };
 		xcb_poly_fill_rectangle(p->conn, pm, gc, 1, &top);
 	}
 	xcb_free_gc(p->conn, gc);
@@ -1005,27 +1019,39 @@ static void manual_moveresize(App *a, int root_x, int root_y, uint32_t edge)
 
 	int x = p->win_x, y = p->win_y, w = p->win_w, h = p->win_h;
 
-	if (edge == EDGE_NONE) {                       /* a move */
+	if (edge == EDGE_NONE) { /* a move */
 		x = root_x - p->drag_off_x;
 		y = root_y - p->drag_off_y;
 	} else {
-		const bool T = edge == EDGE_T || edge == EDGE_TL || edge == EDGE_TR;
-		const bool B = edge == EDGE_B || edge == EDGE_BL || edge == EDGE_BR;
-		const bool L = edge == EDGE_L || edge == EDGE_TL || edge == EDGE_BL;
-		const bool R = edge == EDGE_R || edge == EDGE_TR || edge == EDGE_BR;
+		const bool T    = edge == EDGE_T || edge == EDGE_TL || edge == EDGE_TR;
+		const bool B    = edge == EDGE_B || edge == EDGE_BL || edge == EDGE_BR;
+		const bool L    = edge == EDGE_L || edge == EDGE_TL || edge == EDGE_BL;
+		const bool R    = edge == EDGE_R || edge == EDGE_TR || edge == EDGE_BR;
 		const int right = p->win_x + p->win_w;
-		if (L) w = manual_width(right - root_x);
-		if (R) w = manual_width(root_x - p->win_x);
-		if (T) { h = p->win_y + p->win_h - root_y; y = root_y; }
-		if (B) { h = root_y - p->win_y; }
+		if (L)
+			w = manual_width(right - root_x);
+		if (R)
+			w = manual_width(root_x - p->win_x);
+		if (T) {
+			h = p->win_y + p->win_h - root_y;
+			y = root_y;
+		}
+		if (B) {
+			h = root_y - p->win_y;
+		}
 		/* The floor, enforced here because there is no manager reading
 		 * WM_NORMAL_HINTS, and kept to the step. Anchored: shrinking past it
 		 * from a top or left edge must not walk the far edge away. */
 		if (w < min_w)
-			w = (min_w + MANUAL_WIDTH_STEP - 1) / MANUAL_WIDTH_STEP
-			  * MANUAL_WIDTH_STEP;
-		if (L) x = right - w;
-		if (h < min_h) { if (T) y -= min_h - h; h = min_h; }
+			w = (min_w + MANUAL_WIDTH_STEP - 1) / MANUAL_WIDTH_STEP *
+				MANUAL_WIDTH_STEP;
+		if (L)
+			x = right - w;
+		if (h < min_h) {
+			if (T)
+				y -= min_h - h;
+			h = min_h;
+		}
 	}
 	window_move_resize(p, x, y, w, h);
 }
@@ -1039,13 +1065,12 @@ static bool grab_confined(struct BackendState *p)
 {
 	xcb_grab_pointer_reply_t *r = xcb_grab_pointer_reply(
 		p->conn,
-		xcb_grab_pointer(p->conn, 1 /* owner_events: we still get them */,
-						 p->window,
-						 XCB_EVENT_MASK_BUTTON_PRESS |
-						 XCB_EVENT_MASK_BUTTON_RELEASE |
-						 XCB_EVENT_MASK_POINTER_MOTION,
-						 XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-						 p->window, blank_cursor(p), XCB_CURRENT_TIME),
+		xcb_grab_pointer(
+			p->conn, 1 /* owner_events: we still get them */, p->window,
+			XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
+				XCB_EVENT_MASK_POINTER_MOTION,
+			XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, p->window,
+			blank_cursor(p), XCB_CURRENT_TIME),
 		NULL);
 	const bool ok = r && r->status == XCB_GRAB_STATUS_SUCCESS;
 	free(r);
@@ -1068,17 +1093,17 @@ static void x11_capture(App *a)
 		return;
 	}
 
-	p->captured = true;
-	p->grab_suspended = false;
+	p->captured         = true;
+	p->grab_suspended   = false;
 	a->pointer_captured = true;
-	p->warp_x = p->win_w / 2;
-	p->warp_y = p->win_h / 2;
+	p->warp_x           = p->win_w / 2;
+	p->warp_y           = p->win_h / 2;
 	/* Where the pointer is *now*, not where the warp below is about to put it:
 	 * the first deltas are measured against this, and any motion event that
 	 * beat the warp to us carries a position in the space the click was in. The
 	 * warp's own event moves last_* to the middle when it arrives. */
-	p->last_x = (int)pt_to_pxf(a->ptr_x, s120);
-	p->last_y = (int)pt_to_pxf(a->ptr_y, s120);
+	p->last_x       = (int)pt_to_pxf(a->ptr_x, s120);
+	p->last_y       = (int)pt_to_pxf(a->ptr_y, s120);
 	p->warp_pending = true;
 	xcb_warp_pointer(p->conn, XCB_NONE, p->window, 0, 0, 0, 0,
 					 (int16_t)p->warp_x, (int16_t)p->warp_y);
@@ -1100,7 +1125,7 @@ static void capture_suspend(App *a)
 		return;
 	xcb_ungrab_pointer(p->conn, XCB_CURRENT_TIME);
 	p->grab_suspended = true;
-	p->warp_pending = false;
+	p->warp_pending   = false;
 	set_cursor(a, X11_CURSOR_DEFAULT);
 }
 
@@ -1121,10 +1146,10 @@ static void capture_resume(App *a)
 	/* Deltas from where the pointer is once grabbed: confine_to has already
 	 * pulled one that was outside into the window, and that pull is no
 	 * movement of the user's. A round trip, once per focus-in. */
-	p->warp_x = p->win_w / 2;
-	p->warp_y = p->win_h / 2;
-	p->last_x = p->warp_x;
-	p->last_y = p->warp_y;
+	p->warp_x                    = p->win_w / 2;
+	p->warp_y                    = p->win_h / 2;
+	p->last_x                    = p->warp_x;
+	p->last_y                    = p->warp_y;
 	xcb_query_pointer_reply_t *q = xcb_query_pointer_reply(
 		p->conn, xcb_query_pointer(p->conn, p->window), NULL);
 	if (q && q->same_screen) {
@@ -1152,12 +1177,12 @@ static void x11_release(App *a)
 	const int x = cx + (int)(a->cur_px + 0.5);
 	const int y = cy + (int)(a->cur_py + 0.5);
 	if (!p->grab_suspended) {
-		xcb_warp_pointer(p->conn, XCB_NONE, p->window, 0, 0, 0, 0,
-						 (int16_t)x, (int16_t)y);
+		xcb_warp_pointer(p->conn, XCB_NONE, p->window, 0, 0, 0, 0, (int16_t)x,
+						 (int16_t)y);
 		xcb_ungrab_pointer(p->conn, XCB_CURRENT_TIME);
 	}
-	p->grab_suspended = false;
-	p->captured = false;
+	p->grab_suspended   = false;
+	p->captured         = false;
 	a->pointer_captured = false;
 	/* The shape follows from the zone under the reticle, not an assumed arrow:
 	 * that is the presentable area, where a caller's shape applies. */
@@ -1183,8 +1208,8 @@ static void x11_release(App *a)
 static void recentre_pointer(App *a, int x, int y)
 {
 	struct BackendState *p = a->backend_state;
-	const int mx = p->win_w / WARP_DEADZONE_DIV;
-	const int my = p->win_h / WARP_DEADZONE_DIV;
+	const int mx           = p->win_w / WARP_DEADZONE_DIV;
+	const int my           = p->win_h / WARP_DEADZONE_DIV;
 	const int rx = x - p->warp_x, ry = y - p->warp_y;
 
 	/* Inside the dead zone clears the flag as well as declining to warp: a
@@ -1221,10 +1246,10 @@ static void set_size_hints(App *a)
 	const int s120 = x11_resolve_scale120(a);
 
 	uint32_t hints[ICCCM_SIZE_HINTS_WORDS] = { 0 };
-	hints[0] = ICCCM_P_MIN_SIZE;
-	hints[ICCCM_SIZE_HINTS_MIN_W] = (uint32_t)scale_pt(min_w, s120);
-	hints[ICCCM_SIZE_HINTS_MIN_H] = (uint32_t)scale_pt(min_h, s120);
-	p->hints_scale120 = s120;
+	hints[0]                               = ICCCM_P_MIN_SIZE;
+	hints[ICCCM_SIZE_HINTS_MIN_W]          = (uint32_t)scale_pt(min_w, s120);
+	hints[ICCCM_SIZE_HINTS_MIN_H]          = (uint32_t)scale_pt(min_h, s120);
+	p->hints_scale120                      = s120;
 
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
 						XCB_ATOM_WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 32,
@@ -1251,8 +1276,8 @@ static void x11_set_title(App *a, const char *utf8)
 	const size_t title_len = strlen(utf8);
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
 						p->atom[FNL_ATOM_NET_WM_NAME],
-						p->atom[FNL_ATOM_UTF8_STRING], 8,
-						(uint32_t)title_len, utf8);
+						p->atom[FNL_ATOM_UTF8_STRING], 8, (uint32_t)title_len,
+						utf8);
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
 						XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
 						(uint32_t)title_len, utf8);
@@ -1292,8 +1317,8 @@ static void set_window_properties(App *a)
 	/* EWMH: the pid is only meaningful beside WM_CLIENT_MACHINE. */
 	const uint32_t pid = (uint32_t)getpid();
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
-						p->atom[FNL_ATOM_NET_WM_PID], XCB_ATOM_CARDINAL, 32,
-						1, &pid);
+						p->atom[FNL_ATOM_NET_WM_PID], XCB_ATOM_CARDINAL, 32, 1,
+						&pid);
 	char host[256];
 	if (gethostname(host, sizeof host) == 0) {
 		host[sizeof host - 1] = '\0';
@@ -1305,19 +1330,18 @@ static void set_window_properties(App *a)
 	/* An ordinary top-level window: taskbar button, alt-tab, snap. */
 	const xcb_atom_t type = p->atom[FNL_ATOM_NET_WM_WINDOW_TYPE_NORMAL];
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
-						p->atom[FNL_ATOM_NET_WM_WINDOW_TYPE], XCB_ATOM_ATOM,
-						32, 1, &type);
+						p->atom[FNL_ATOM_NET_WM_WINDOW_TYPE], XCB_ATOM_ATOM, 32,
+						1, &type);
 
 	/* WM_HINTS: nine CARD32s, of which three are written. Without InputHint a
 	 * manager following ICCCM to the letter may never give this window the
 	 * keyboard. */
 	uint32_t wm_hints[9] = { 0 };
-	wm_hints[0] = ICCCM_INPUT_HINT | ICCCM_STATE_HINT;
-	wm_hints[1] = 1;                           /* input: yes            */
-	wm_hints[2] = ICCCM_NORMAL_STATE;
+	wm_hints[0]          = ICCCM_INPUT_HINT | ICCCM_STATE_HINT;
+	wm_hints[1]          = 1; /* input: yes            */
+	wm_hints[2]          = ICCCM_NORMAL_STATE;
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
-						XCB_ATOM_WM_HINTS, XCB_ATOM_WM_HINTS, 32, 9,
-						wm_hints);
+						XCB_ATOM_WM_HINTS, XCB_ATOM_WM_HINTS, 32, 9, wm_hints);
 
 	set_size_hints(a);
 
@@ -1333,17 +1357,20 @@ static void read_wm_state(App *a)
 
 	bool fs = false, vert = false, horz = false, hidden = false;
 
-	xcb_get_property_reply_t *r =
-		prop_get(p, p->window, p->atom[FNL_ATOM_NET_WM_STATE],
-				 XCB_ATOM_ATOM, 64);
-	const uint32_t n = x11_prop_words(r);
+	xcb_get_property_reply_t *r = prop_get(
+		p, p->window, p->atom[FNL_ATOM_NET_WM_STATE], XCB_ATOM_ATOM, 64);
+	const uint32_t n    = x11_prop_words(r);
 	const xcb_atom_t *v = n ? xcb_get_property_value(r) : NULL;
 	for (uint32_t i = 0; i < n; i++) {
 		const xcb_atom_t at = v[i];
-		if (at == p->atom[FNL_ATOM_NET_WM_STATE_FULLSCREEN])     fs = true;
-		if (at == p->atom[FNL_ATOM_NET_WM_STATE_MAXIMIZED_VERT]) vert = true;
-		if (at == p->atom[FNL_ATOM_NET_WM_STATE_MAXIMIZED_HORZ]) horz = true;
-		if (at == p->atom[FNL_ATOM_NET_WM_STATE_HIDDEN])         hidden = true;
+		if (at == p->atom[FNL_ATOM_NET_WM_STATE_FULLSCREEN])
+			fs = true;
+		if (at == p->atom[FNL_ATOM_NET_WM_STATE_MAXIMIZED_VERT])
+			vert = true;
+		if (at == p->atom[FNL_ATOM_NET_WM_STATE_MAXIMIZED_HORZ])
+			horz = true;
+		if (at == p->atom[FNL_ATOM_NET_WM_STATE_HIDDEN])
+			hidden = true;
 	}
 	free(r);
 
@@ -1369,10 +1396,10 @@ static void note_normal(App *a, struct BackendState *p)
 {
 	if (a->is_fullscreen || a->is_maximized)
 		return;
-	p->norm_x = p->win_x;
-	p->norm_y = p->win_y;
-	p->norm_w = p->win_w;
-	p->norm_h = p->win_h;
+	p->norm_x     = p->win_x;
+	p->norm_y     = p->win_y;
+	p->norm_w     = p->win_w;
+	p->norm_h     = p->win_h;
 	p->norm_valid = true;
 }
 
@@ -1393,8 +1420,8 @@ static void on_configure(App *a, const xcb_configure_notify_event_t *e,
 		} else {
 			p->child_x = e->x;
 			p->child_y = e->y;
-			p->win_x = p->parent_x + e->x;
-			p->win_y = p->parent_y + e->y;
+			p->win_x   = p->parent_x + e->x;
+			p->win_y   = p->parent_y + e->y;
 		}
 		p->win_w = e->width;
 		p->win_h = e->height;
@@ -1407,8 +1434,8 @@ static void on_configure(App *a, const xcb_configure_notify_event_t *e,
 	if (e->window == p->parent && p->parent != p->root) {
 		p->parent_x = e->x;
 		p->parent_y = e->y;
-		p->win_x = e->x + p->child_x;
-		p->win_y = e->y + p->child_y;
+		p->win_x    = e->x + p->child_x;
+		p->win_y    = e->y + p->child_y;
 		note_normal(a, p);
 		/* Only the position moved, so only the output can have changed. Not
 		 * the size, and therefore not the swapchain. */
@@ -1422,10 +1449,10 @@ static void on_reparent(App *a, const xcb_reparent_notify_event_t *e)
 	if (e->window != p->window)
 		return;
 
-	p->parent = e->parent;
+	p->parent   = e->parent;
 	p->parent_x = p->parent_y = 0;
-	p->child_x = e->x;
-	p->child_y = e->y;
+	p->child_x                = e->x;
+	p->child_y                = e->y;
 
 	/* Watch the frame the manager just put around us, so its moves arrive as
 	 * events rather than as a TranslateCoordinates round trip per drag step.
@@ -1460,8 +1487,7 @@ static void on_focus(App *a, const xcb_focus_in_event_t *e, bool in)
 	 * it refused at the focus-in can be had now. */
 	if (in && e->mode == XCB_NOTIFY_MODE_UNGRAB)
 		capture_resume(a);
-	if (e->mode == XCB_NOTIFY_MODE_GRAB ||
-		e->mode == XCB_NOTIFY_MODE_UNGRAB ||
+	if (e->mode == XCB_NOTIFY_MODE_GRAB || e->mode == XCB_NOTIFY_MODE_UNGRAB ||
 		e->detail == XCB_NOTIFY_DETAIL_POINTER)
 		return;
 
@@ -1505,8 +1531,8 @@ static void x11_cursor_changed(App *a)
 static void pointer_at(App *a, int ex, int ey)
 {
 	const int s120 = want_s120(a);
-	a->ptr_x = px_to_ptf(ex, s120);
-	a->ptr_y = px_to_ptf(ey, s120);
+	a->ptr_x       = px_to_ptf(ex, s120);
+	a->ptr_y       = px_to_ptf(ey, s120);
 	app_pointer_motion(a, a->ptr_x, a->ptr_y);
 }
 
@@ -1540,8 +1566,8 @@ static void on_motion(App *a, const xcb_motion_notify_event_t *e)
 		 * care when the warp lands. DESIGN *Pointer capture*. */
 		const int dx = e->event_x - p->last_x;
 		const int dy = e->event_y - p->last_y;
-		p->last_x = e->event_x;
-		p->last_y = e->event_y;
+		p->last_x    = e->event_x;
+		p->last_y    = e->event_y;
 
 		/* The warp's own event coming back: it lands exactly on the middle.
 		 * Dropped, at the cost of a genuine motion that ends there. */
@@ -1601,7 +1627,7 @@ static void on_leave(App *a)
 {
 	if (a->backend_state->captured)
 		return;
-	deco_release(a);                /* the press is someone else's now */
+	deco_release(a); /* the press is someone else's now */
 	app_pointer_presence(a, false, a->ptr_x, a->ptr_y);
 }
 
@@ -1616,7 +1642,7 @@ enum {
 static void on_button(App *a, const xcb_button_press_event_t *e, bool pressed)
 {
 	struct BackendState *p = a->backend_state;
-	const int s120 = want_s120(a);
+	const int s120         = want_s120(a);
 
 	/* Before every early return below, because fnl_begin_move() is answered
 	 * from a press and needs where that press was in root coordinates -- as
@@ -1632,10 +1658,10 @@ static void on_button(App *a, const xcb_button_press_event_t *e, bool pressed)
 			return;
 		double dx = 0.0, dy = 0.0;
 		switch (e->detail) {
-		case WHEEL_UP:   dy = -1.0; break;
-		case WHEEL_DOWN: dy =  1.0; break;
+		case WHEEL_UP: dy = -1.0; break;
+		case WHEEL_DOWN: dy = 1.0; break;
 		case WHEEL_LEFT: dx = -1.0; break;
-		default:         dx =  1.0; break;
+		default: dx = 1.0; break;
 		}
 		app_pointer_scroll(a, a->ptr_x, a->ptr_y, dx, dy);
 		return;
@@ -1645,11 +1671,10 @@ static void on_button(App *a, const xcb_button_press_event_t *e, bool pressed)
 	 * reported as some other button would be a click nobody made. */
 	FnlButton button;
 	switch (e->detail) {
-	case XCB_BUTTON_INDEX_1: button = FNL_BUTTON_LEFT;   break;
+	case XCB_BUTTON_INDEX_1: button = FNL_BUTTON_LEFT; break;
 	case XCB_BUTTON_INDEX_2: button = FNL_BUTTON_MIDDLE; break;
-	case XCB_BUTTON_INDEX_3: button = FNL_BUTTON_RIGHT;  break;
-	default:
-		return;
+	case XCB_BUTTON_INDEX_3: button = FNL_BUTTON_RIGHT; break;
+	default: return;
 	}
 
 	app_pointer_button(a, button, pressed, px_to_ptf(e->event_x, s120),
@@ -1672,7 +1697,7 @@ static void on_map(App *a, const xcb_map_notify_event_t *e)
 	/* The window exists at a size now, whether or not a ConfigureNotify came
 	 * with it -- a manager that grants exactly what was asked for sends none.
 	 * This is what ends the wait in x11_open(). */
-	a->configured = true;
+	a->configured      = true;
 	p->publish_pending = true;
 }
 
@@ -1707,9 +1732,9 @@ static void on_client_message(App *a, const xcb_client_message_event_t *e)
 	if (e->data.data32[0] == p->atom[FNL_ATOM_NET_WM_SYNC_REQUEST]) {
 		p->sync_lo = e->data.data32[2];
 		fnl_atomic_store_u32(&p->sync_hi, e->data.data32[3]);
-		p->sync_asked = true;
+		p->sync_asked      = true;
 		p->sync_configured = false;
-		p->sync_deadline = now_seconds() + SYNC_CONFIGURE_WAIT;
+		p->sync_deadline   = now_seconds() + SYNC_CONFIGURE_WAIT;
 		p->publish_pending = true;
 		return;
 	}
@@ -1718,7 +1743,7 @@ static void on_client_message(App *a, const xcb_client_message_event_t *e)
 		/* Bounced back to the root with our window id left in place, as EWMH
 		 * asks. */
 		xcb_client_message_event_t reply = *e;
-		reply.window = p->root;
+		reply.window                     = p->root;
 		root_send(p, &reply);
 	}
 }
@@ -1738,14 +1763,11 @@ static void on_property(App *a, const xcb_property_notify_event_t *e)
 		return;
 
 	/* The desktop's density changed: everything laid out in points is a
-	 * different number of pixels now. */
+	 * different number of pixels now. Read at the end of the pump, not here:
+	 * it is a round trip, and none of the answer can be used before the
+	 * turn's end anyway. */
 	if (e->atom == XCB_ATOM_RESOURCE_MANAGER) {
-		const int s = scale_from_resource_manager(p, resources_ask(p));
-		if (s != p->xft_scale120) {
-			p->xft_scale120 = s;
-			set_size_hints(a);           /* the floor is in pixels */
-			p->publish_pending = true;
-		}
+		p->scale_stale = true;
 		return;
 	}
 	if (e->atom == p->atom[FNL_ATOM_NET_WORKAREA] ||
@@ -1767,8 +1789,9 @@ static void on_error(App *a, const xcb_generic_error_t *e, const char *which)
 		return;
 	}
 	/* The two connections fail for unrelated reasons. */
-	fnl_log(FNL_LOG_WARN, "X error %u on the %s connection, request %u.%u "
-						  "(resource %u)",
+	fnl_log(FNL_LOG_WARN,
+			"X error %u on the %s connection, request %u.%u "
+			"(resource %u)",
 			(unsigned)e->error_code, which, (unsigned)e->major_code,
 			(unsigned)e->minor_code, (unsigned)e->resource_id);
 }
@@ -1778,15 +1801,13 @@ static void dispatch(App *a, const xcb_generic_event_t *ev)
 	/* Only ICCCM's synthetic ConfigureNotify cares whether it was sent, but the
 	 * bit has to come off the type before any comparison. */
 	const bool synthetic = (ev->response_type & X11_EVENT_SENT) != 0;
-	const uint8_t type = ev->response_type & (uint8_t)X11_EVENT_TYPE_MASK;
+	const uint8_t type   = ev->response_type & (uint8_t)X11_EVENT_TYPE_MASK;
 
 	if (x11_present_event(a, ev) || x11_ext_event(a->backend_state, ev))
 		return;
 
 	switch (type) {
-	case 0:
-		on_error(a, (const xcb_generic_error_t *)ev, "window");
-		break;
+	case 0: on_error(a, (const xcb_generic_error_t *)ev, "window"); break;
 
 	case XCB_CONFIGURE_NOTIFY:
 		on_configure(a, (const xcb_configure_notify_event_t *)ev, synthetic);
@@ -1794,9 +1815,7 @@ static void dispatch(App *a, const xcb_generic_event_t *ev)
 	case XCB_REPARENT_NOTIFY:
 		on_reparent(a, (const xcb_reparent_notify_event_t *)ev);
 		break;
-	case XCB_MAP_NOTIFY:
-		on_map(a, (const xcb_map_notify_event_t *)ev);
-		break;
+	case XCB_MAP_NOTIFY: on_map(a, (const xcb_map_notify_event_t *)ev); break;
 	case XCB_UNMAP_NOTIFY:
 		on_unmap(a, (const xcb_unmap_notify_event_t *)ev);
 		break;
@@ -1835,9 +1854,7 @@ static void dispatch(App *a, const xcb_generic_event_t *ev)
 		loop_input_ms(a, ((const xcb_enter_notify_event_t *)ev)->time);
 		on_enter(a, (const xcb_enter_notify_event_t *)ev);
 		break;
-	case XCB_LEAVE_NOTIFY:
-		on_leave(a);
-		break;
+	case XCB_LEAVE_NOTIFY: on_leave(a); break;
 
 	case XCB_FOCUS_IN:
 		on_focus(a, (const xcb_focus_in_event_t *)ev, true);
@@ -1872,8 +1889,7 @@ static void dispatch(App *a, const xcb_generic_event_t *ev)
 			a->backend_state->keymap_stale = true;
 		break;
 
-	default:
-		break;
+	default: break;
 	}
 }
 
@@ -1971,7 +1987,7 @@ static void x11_pump(App *a, int timeout_ms)
 		 * not come: the publish that answers it is owed then. */
 		if (p->sync_asked && !p->sync_configured) {
 			const int sync_ms = loop_wait_ms(true, p->sync_deadline);
-			ms = ms < 0 || sync_ms < ms ? sync_ms : ms;
+			ms                = ms < 0 || sync_ms < ms ? sync_ms : ms;
 		}
 		/* And by a size's hold, which a frame presented also ends. */
 		const int held_ms = size_wait_ms(p);
@@ -2010,23 +2026,28 @@ static FnlResult x11_check_error(App *a)
 	/* Both: a graphics connection that dropped is as fatal as the window's, and
 	 * is otherwise reported only as whatever the next present returns. */
 	const char *which = "window";
-	int err = xcb_connection_has_error(a->backend_state->conn);
+	int err           = xcb_connection_has_error(a->backend_state->conn);
 	if (!err && a->backend_state->gfx) {
-		err = xcb_connection_has_error(a->backend_state->gfx);
+		err   = xcb_connection_has_error(a->backend_state->gfx);
 		which = "graphics";
 	}
 	if (!err)
 		return FNL_OK;
 
 	static const char *const WHY[] = {
-		"", "socket, pipe or stream error", "an extension is not supported",
-		"out of memory", "request longer than the server accepts",
-		"the display string would not parse", "no such screen",
+		"",
+		"socket, pipe or stream error",
+		"an extension is not supported",
+		"out of memory",
+		"request longer than the server accepts",
+		"the display string would not parse",
+		"no such screen",
 		"file-descriptor passing failed",
 	};
 	return fnl_fail(FNL_ERR_NO_DISPLAY, "the %s X connection failed: %s", which,
 					err > 0 && err < (int)(sizeof WHY / sizeof WHY[0])
-						? WHY[err] : "unknown error");
+						? WHY[err]
+						: "unknown error");
 }
 
 /* ---- the backend seam -----------------------------------------------------
@@ -2051,10 +2072,9 @@ static void x11_ack_configure(App *a, uint32_t serial)
 		a->cfg_pending = false;
 	fnl_mutex_unlock(&a->lock);
 	fnl_mutex_lock(&p->sync_lock);
-	p->sync_release = (uint64_t)fnl_atomic_load_u32(&p->sync_hi) << 32 |
-					  serial;
+	p->sync_release = (uint64_t)fnl_atomic_load_u32(&p->sync_hi) << 32 | serial;
 	p->sync_presents = a->presents;
-	p->sync_due = true;
+	p->sync_due      = true;
 	/* A value kept for an earlier frame is spent: this one goes with its
 	 * own frame, and is the larger. */
 	p->sync_await = false;
@@ -2063,8 +2083,7 @@ static void x11_ack_configure(App *a, uint32_t serial)
 
 /* The counter set to the value owed, if one is; whether it was, which off
  * the pump is a write that owes the pump a wake (BackendState::conn). */
-static bool sync_release_owed(struct BackendState *p)
-	FNL_REQUIRES(p->sync_lock)
+static bool sync_release_owed(struct BackendState *p) FNL_REQUIRES(p->sync_lock)
 {
 	p->sync_await = false;
 	if (!p->sync_due)
@@ -2101,7 +2120,7 @@ static int sync_await_ms(struct BackendState *p)
  * bound. */
 static void sync_await_expire(struct BackendState *p)
 {
-	bool ran_out = false;
+	bool ran_out  = false;
 	uint64_t kept = 0;
 	fnl_mutex_lock(&p->sync_lock);
 	if (p->sync_await && now_seconds() >= p->sync_await_until) {
@@ -2114,19 +2133,21 @@ static void sync_await_expire(struct BackendState *p)
 		return;
 	if (p->present_log) {
 		fnl_mutex_lock(&p->present_lock);
-		const int n = p->present_n;
+		const int n           = p->present_n;
 		const uint64_t oldest = n ? p->present_q[p->present_head] : 0;
 		fnl_mutex_unlock(&p->present_lock);
-		fnl_log(FNL_LOG_INFO, "X11 present: the value kept for frame %llu "
+		fnl_log(FNL_LOG_INFO,
+				"X11 present: the value kept for frame %llu "
 				"ran out, %d queued, the oldest %llu",
 				(unsigned long long)kept, n, (unsigned long long)oldest);
 	}
 	fnl_atomic_store_bool(&p->present_live, false);
 	if (!p->sync_await_said) {
 		p->sync_await_said = true;
-		fnl_log(FNL_LOG_INFO, "X11: a frame that answers a size was not "
-							  "answered by Present within %.0f ms; its "
-							  "sync value went without it",
+		fnl_log(FNL_LOG_INFO,
+				"X11: a frame that answers a size was not "
+				"answered by Present within %.0f ms; its "
+				"sync value went without it",
 				SYNC_SHOWN_WAIT * 1e3);
 	}
 }
@@ -2138,7 +2159,7 @@ static void sync_await_expire(struct BackendState *p)
 static void x11_frame_request(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	p->present_pushed = false;
+	p->present_pushed      = false;
 	if (!p->present_opcode)
 		return;
 	fnl_mutex_lock(&p->present_lock);
@@ -2148,16 +2169,16 @@ static void x11_frame_request(App *a)
 	}
 	if (p->present_chain_seen != a->present_chain) {
 		p->present_chain_seen = a->present_chain;
-		p->present_ord_next = 0;
+		p->present_ord_next   = 0;
 	}
-	const int at = (p->present_head + p->present_n) % X11_PRESENT_Q;
-	p->present_q[at] = a->presents;
-	p->present_at[at] = now_seconds();
+	const int at       = (p->present_head + p->present_n) % X11_PRESENT_Q;
+	p->present_q[at]   = a->presents;
+	p->present_at[at]  = now_seconds();
 	p->present_ord[at] = ++p->present_ord_next;
 	p->present_n++;
 	const int queued = p->present_n;
 	fnl_mutex_unlock(&p->present_lock);
-	p->present_index = a->presents;
+	p->present_index  = a->presents;
 	p->present_pushed = true;
 	if (p->present_log)
 		fnl_log(FNL_LOG_INFO, "X11 present: frame %llu pushed, %d queued",
@@ -2185,7 +2206,8 @@ static void x11_frame_cancel(App *a)
 	if (answered) {
 		a->present_answered_anyway = true;
 		if (p->present_log)
-			fnl_log(FNL_LOG_INFO, "X11 present: frame %llu refused, and "
+			fnl_log(FNL_LOG_INFO,
+					"X11 present: frame %llu refused, and "
 					"answered already: counted as shown",
 					(unsigned long long)p->present_index);
 		return;
@@ -2194,8 +2216,10 @@ static void x11_frame_cancel(App *a)
 	if (p->present_ord_next > 0)
 		p->present_ord_next--;
 	if (p->present_log)
-		fnl_log(FNL_LOG_INFO, "X11 present: frame %llu taken back, %d "
-				"queued", (unsigned long long)p->present_index, queued);
+		fnl_log(FNL_LOG_INFO,
+				"X11 present: frame %llu taken back, %d "
+				"queued",
+				(unsigned long long)p->present_index, queued);
 	/* A value kept for this frame's completion would wait out its bound.
 	 * Queued, not flushed: the pump's turn sends it. */
 	bool sent = false;
@@ -2222,12 +2246,12 @@ static void x11_flush(App *a)
 	 * (present_live). */
 	bool kept = false, sent = false;
 	fnl_mutex_lock(&p->sync_lock);
-	if (a->presents > p->sync_presents &&
-		!fnl_atomic_load_bool(&a->ack_held) && !p->sync_await) {
+	if (a->presents > p->sync_presents && !fnl_atomic_load_bool(&a->ack_held) &&
+		!p->sync_await) {
 		if (p->sync_due && p->present_pushed &&
 			fnl_atomic_load_bool(&p->present_live) &&
 			!FNL_FAULT("x11-sync-at-swap")) {
-			p->sync_await = true;
+			p->sync_await       = true;
 			p->sync_await_index = p->present_index;
 			p->sync_await_until = now_seconds() + SYNC_SHOWN_WAIT;
 			/* Answered already, between the present and here. */
@@ -2239,11 +2263,11 @@ static void x11_flush(App *a)
 			else
 				kept = true;
 			if (p->present_log)
-				fnl_log(FNL_LOG_INFO, "X11 present: frame %llu answers a "
+				fnl_log(FNL_LOG_INFO,
+						"X11 present: frame %llu answers a "
 						"size, its value %s",
 						(unsigned long long)p->present_index,
-						answered ? "sent, the frame answered already"
-								 : "kept");
+						answered ? "sent, the frame answered already" : "kept");
 		} else {
 			sent = sync_release_owed(p);
 		}
@@ -2303,8 +2327,8 @@ static bool x11_window_on_screen(const App *a)
 static void x11_update_scale(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	const int s120 = x11_resolve_scale120(a);
-	const bool moved = app_publish_scale(a, s120);
+	const int s120         = x11_resolve_scale120(a);
+	const bool moved       = app_publish_scale(a, s120);
 
 	/* The floor is held by the manager in pixels, the output reported in
 	 * points. */
@@ -2323,7 +2347,7 @@ static void x11_update_scale(App *a)
 static void x11_request_size(App *a, int w_pt, int h_pt)
 {
 	struct BackendState *p = a->backend_state;
-	const int s120 = want_s120(a);
+	const int s120         = want_s120(a);
 	size_give(p, XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, 0, 0,
 			  scale_pt(w_pt, s120), scale_pt(h_pt, s120));
 }
@@ -2345,8 +2369,8 @@ static void x11_nudge_size(App *a)
 	struct BackendState *p = a->backend_state;
 	if (p->ewmh && (a->is_maximized || a->is_fullscreen))
 		return;
-	xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(p->conn,
-		xcb_get_geometry(p->conn, p->window), NULL);
+	xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(
+		p->conn, xcb_get_geometry(p->conn, p->window), NULL);
 	if (!g)
 		return;
 	const uint32_t w = g->width;
@@ -2370,7 +2394,7 @@ static FNL_MUST_USE FnlResult create_gfx_connection(App *a)
 
 	/* The same display string, so the same screen; the number is not used. */
 	int screen_num = 0;
-	p->gfx = xcb_connect(NULL, &screen_num);
+	p->gfx         = xcb_connect(NULL, &screen_num);
 	if (xcb_connection_has_error(p->gfx))
 		return fnl_fail(FNL_ERR_NO_DISPLAY,
 						"the second X connection, for the presentation "
@@ -2384,8 +2408,7 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 
 	p->conn = xcb_connect(NULL, &p->screen_num);
 	if (xcb_connection_has_error(p->conn))
-		return fnl_fail(FNL_ERR_NO_DISPLAY,
-						"no X display (is DISPLAY set?)");
+		return fnl_fail(FNL_ERR_NO_DISPLAY, "no X display (is DISPLAY set?)");
 
 	/* The screen the display string named, out of the setup. */
 	xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(p->conn));
@@ -2415,14 +2438,13 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	xcb_change_window_attributes(p->conn, p->root, XCB_CW_EVENT_MASK,
 								 &root_mask);
 
-	const X11ExtAsk    ext_ask    = x11_ext_ask(p);
-	const X11KeymapAsk keymap_ask = x11_keymap_ask(p);
-	const xcb_get_property_cookie_t wm_cookie =
-		xcb_get_property(p->conn, 0, p->root,
-						 p->atom[FNL_ATOM_NET_SUPPORTING_WM_CHECK],
-						 XCB_ATOM_WINDOW, 0, 1);
+	const X11ExtAsk ext_ask                   = x11_ext_ask(p);
+	const X11KeymapAsk keymap_ask             = x11_keymap_ask(p);
+	const xcb_get_property_cookie_t wm_cookie = xcb_get_property(
+		p->conn, 0, p->root, p->atom[FNL_ATOM_NET_SUPPORTING_WM_CHECK],
+		XCB_ATOM_WINDOW, 0, 1);
 	const xcb_get_property_cookie_t resources_cookie = resources_ask(p);
-	const X11WorkAreaAsk area_ask = x11_work_area_ask(p);
+	const X11WorkAreaAsk area_ask                    = x11_work_area_ask(p);
 	/* In the same wait: whether a compositor owns the screen's selection. */
 	const xcb_get_selection_owner_cookie_t cm_cookie =
 		xcb_get_selection_owner(p->conn, p->atom_cm);
@@ -2463,16 +2485,16 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 		p->screen->black_pixel,
 		XCB_GRAVITY_NORTH_WEST,
 		XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_KEY_RELEASE |
-		XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
-		XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW |
-		XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_STRUCTURE_NOTIFY |
-		XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_PROPERTY_CHANGE,
+			XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
+			XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW |
+			XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_STRUCTURE_NOTIFY |
+			XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_PROPERTY_CHANGE,
 	};
-	xcb_create_window(p->conn, XCB_COPY_FROM_PARENT, p->window, p->root,
-					  0, 0, (uint16_t)p->win_w, (uint16_t)p->win_h, 0,
-					  XCB_WINDOW_CLASS_INPUT_OUTPUT, p->screen->root_visual,
-					  XCB_CW_BACK_PIXEL | XCB_CW_BIT_GRAVITY |
-					  XCB_CW_EVENT_MASK, values);
+	xcb_create_window(
+		p->conn, XCB_COPY_FROM_PARENT, p->window, p->root, 0, 0,
+		(uint16_t)p->win_w, (uint16_t)p->win_h, 0,
+		XCB_WINDOW_CLASS_INPUT_OUTPUT, p->screen->root_visual,
+		XCB_CW_BACK_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_EVENT_MASK, values);
 
 	/* Before the properties, which advertise it. */
 	x11_sync_open(p);
@@ -2504,7 +2526,7 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 static void wait_for_map(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	const double deadline = now_seconds() + MAP_WAIT_SECONDS;
+	const double deadline  = now_seconds() + MAP_WAIT_SECONDS;
 
 	while (!a->configured && !xcb_connection_has_error(p->conn)) {
 		/* What the handlers queued, sent before the wait, as the pump's
@@ -2522,7 +2544,7 @@ static void wait_for_map(App *a)
 	if (!a->configured) {
 		fnl_log(FNL_LOG_WARN, "the window manager never mapped the window; "
 							  "drawing at the size that was asked for");
-		a->configured = true;
+		a->configured      = true;
 		p->publish_pending = true;
 		/* And drawn: on_screen gates the frame loop, so leaving it false here
 		 * would answer the warning above with a window that never renders. */
@@ -2549,10 +2571,10 @@ static FnlResult x11_open(App *a)
 	if (!a->backend_state)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 						"out of memory for the X11 backend state");
-	a->backend_state->cursor_applied = X11_CURSOR_UNKNOWN;
+	a->backend_state->cursor_applied    = X11_CURSOR_UNKNOWN;
 	a->backend_state->published_monitor = -1;
-	const char *plog = getenv("FNL_X11_PRESENT_LOG");
-	a->backend_state->present_log = plog && strcmp(plog, "1") == 0;
+	const char *plog                    = getenv("FNL_X11_PRESENT_LOG");
+	a->backend_state->present_log       = plog && strcmp(plog, "1") == 0;
 	fnl_mutex_init(&a->backend_state->sync_lock);
 	fnl_mutex_init(&a->backend_state->present_lock);
 	/* Not left at the calloc's zero, which is stdin: x11_close() decides
@@ -2610,8 +2632,10 @@ static void x11_close(App *a)
 	 * still reach them through app_wakeup(): app_teardown() clears
 	 * installed_signals once it has waited every handler out. */
 	if (!a->installed_signals) {
-		if (p->epoll_fd >= 0) close(p->epoll_fd);
-		if (p->wake_fd  >= 0) close(p->wake_fd);
+		if (p->epoll_fd >= 0)
+			close(p->epoll_fd);
+		if (p->wake_fd >= 0)
+			close(p->wake_fd);
 	}
 	p->epoll_fd = p->wake_fd = -1;
 
@@ -2635,8 +2659,8 @@ static void x11_begin_move(App *a)
 					  XCB_BUTTON_INDEX_1);
 	} else {
 		/* Run by this backend, a ConfigureWindow per motion. */
-		p->drag_off_x = p->ptr_root_x - p->win_x;
-		p->drag_off_y = p->ptr_root_y - p->win_y;
+		p->drag_off_x  = p->ptr_root_x - p->win_x;
+		p->drag_off_y  = p->ptr_root_y - p->win_y;
 		p->manual_drag = EDGE_NONE + 1;
 	}
 }
@@ -2667,60 +2691,60 @@ static const char *x11_absent(void)
 }
 
 const FnlBackendVtbl fnl_backend_x11 = {
-	.name               = "X11",
-	.id                 = BACKEND_X11,
-	.key                = "x11",
-	.absent             = x11_absent,
-	.host               = backend_noop_host,
-	.shared_driver      = backend_noop_shared_driver,
-	.gpu_drivers        = backend_noop_gpu_drivers,
-	.gpu_driver_set     = backend_noop_gpu_driver_set,
-	.gpu_driver_held    = backend_noop_gpu_driver_held,
+	.name            = "X11",
+	.id              = BACKEND_X11,
+	.key             = "x11",
+	.absent          = x11_absent,
+	.host            = backend_noop_host,
+	.shared_driver   = backend_noop_shared_driver,
+	.gpu_drivers     = backend_noop_gpu_drivers,
+	.gpu_driver_set  = backend_noop_gpu_driver_set,
+	.gpu_driver_held = backend_noop_gpu_driver_held,
 	/* No ring: an X11 window has no separation between what it presents and
 	 * what the manager positions, so the resize edges are an inner DECO_GRAB
 	 * margin the hit test answers for. */
-	.grab_ring          = 0,
+	.grab_ring = 0,
 	/* No invitation to draw: the present is the throttle. See
 	 * src/core/frame.c for the late-latch signal that replaces it. */
-	.invites            = false,
-	.display_waits      = true,
-	.ack_when_shown     = true,
-	.open               = x11_open,
-	.close              = x11_close,
-	.pump               = x11_pump,
-	.wakeup             = x11_wakeup,
-	.check_error        = x11_check_error,
-	.flush              = x11_flush,
-	.present_pixels = backend_noop_present_pixels,
-	.set_geometry       = backend_noop_set_geometry,
-	.ack_configure      = x11_ack_configure,
-	.ack_release        = x11_ack_release,
-	.frame_request      = x11_frame_request,
-	.frame_cancel       = x11_frame_cancel,
+	.invites              = false,
+	.display_waits        = true,
+	.ack_when_shown       = true,
+	.open                 = x11_open,
+	.close                = x11_close,
+	.pump                 = x11_pump,
+	.wakeup               = x11_wakeup,
+	.check_error          = x11_check_error,
+	.flush                = x11_flush,
+	.present_pixels       = backend_noop_present_pixels,
+	.set_geometry         = backend_noop_set_geometry,
+	.ack_configure        = x11_ack_configure,
+	.ack_release          = x11_ack_release,
+	.frame_request        = x11_frame_request,
+	.frame_cancel         = x11_frame_cancel,
 	.present_window_renew = backend_noop,
 	.present_window_hold  = backend_noop,
-	.frame_wait         = backend_frame_wait_shown,
-	.window_on_screen   = x11_window_on_screen,
-	.apply_scale        = backend_noop_apply_scale,
-	.request_size       = x11_request_size,
-	.nudge_size         = x11_nudge_size,
-	.set_fullscreen     = x11_set_fullscreen,
-	.set_maximized      = x11_set_maximized,
-	.minimize           = x11_minimize,
-	.modes              = backend_noop_modes,
-	.outputs            = backend_published_outputs,
-	.set_mode           = backend_noop_set_mode,
-	.set_output         = x11_set_output,
-	.begin_move         = x11_begin_move,
-	.begin_resize       = x11_begin_resize,
-	.apply_size_bounds  = x11_apply_size_bounds,
-	.buffer_granularity = backend_noop_buffer_granularity,
-	.update_scale       = x11_update_scale,
-	.capture_pointer    = x11_capture,
-	.release_pointer    = x11_release,
-	.cursor_changed     = x11_cursor_changed,
-	.text_input_changed = x11_text_input_changed,
-	.clipboard_set      = x11_clipboard_set,
-	.clipboard_request  = x11_clipboard_request,
-	.set_title          = x11_set_title,
+	.frame_wait           = backend_frame_wait_shown,
+	.window_on_screen     = x11_window_on_screen,
+	.apply_scale          = backend_noop_apply_scale,
+	.request_size         = x11_request_size,
+	.nudge_size           = x11_nudge_size,
+	.set_fullscreen       = x11_set_fullscreen,
+	.set_maximized        = x11_set_maximized,
+	.minimize             = x11_minimize,
+	.modes                = backend_noop_modes,
+	.outputs              = backend_published_outputs,
+	.set_mode             = backend_noop_set_mode,
+	.set_output           = x11_set_output,
+	.begin_move           = x11_begin_move,
+	.begin_resize         = x11_begin_resize,
+	.apply_size_bounds    = x11_apply_size_bounds,
+	.buffer_granularity   = backend_noop_buffer_granularity,
+	.update_scale         = x11_update_scale,
+	.capture_pointer      = x11_capture,
+	.release_pointer      = x11_release,
+	.cursor_changed       = x11_cursor_changed,
+	.text_input_changed   = x11_text_input_changed,
+	.clipboard_set        = x11_clipboard_set,
+	.clipboard_request    = x11_clipboard_request,
+	.set_title            = x11_set_title,
 };

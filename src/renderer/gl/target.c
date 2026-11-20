@@ -36,8 +36,8 @@ static void destroy_target(GlTarget *t)
  * sampled afterwards, a renderbuffer when it is only resolved -- and, when
  * `depth`, a depth renderbuffer. `samples` above one makes both
  * multisampled. False leaves a part-built target for destroy_target(). */
-static bool make_target(GlTarget *t, int w, int h, int samples,
-						bool sampled, bool depth)
+static bool make_target(GlTarget *t, int w, int h, int samples, bool sampled,
+						bool depth)
 {
 	gl_clear_errors();
 	gl.CreateFramebuffers(1, &t->fbo);
@@ -96,39 +96,47 @@ FnlResult gl_window_image(App *a)
 	fnl_atomic_store_u32(&a->max_extent_w, (uint32_t)(maxw > 0 ? maxw : 0));
 	fnl_atomic_store_u32(&a->max_extent_h, (uint32_t)(maxh > 0 ? maxh : 0));
 
-	const Extent e = app_buffer_extent(a, (Extent){ 1, 1 },
-									   (Extent){ maxw, maxh });
+	const Extent e =
+		app_buffer_extent(a, (Extent){ 1, 1 }, (Extent){ maxw, maxh });
 	/* Before extent is overwritten: the room while one is kept, else the
 	 * window the native window was last sized to. */
 	const Extent cur = a->buffer.w > 0 ? a->buffer : a->extent;
-	Extent image = e;
+	Extent image     = e;
 	if (a->buffer_crops && !gl_bridge_surfaceless(a)) {
 		if (cur.w > 0 && cur.h > 0 && app_buffer_room_fits(a, e, cur))
 			image = cur;
 		else
 			image = app_buffer_room(a, e, (Extent){ maxw, maxh });
 	}
-	if (e.w != a->extent.w || e.h != a->extent.h)
+	/* The image is made again only where its size moved: a rebuild is asked
+	 * for a scale, a grab ring and a vsync toggle as well, and a window's
+	 * texture at 4K is tens of megabytes handed back and made again for one
+	 * of those. Metal's mt_window_images() and Direct3D 12's target gate on
+	 * the size the same way. */
+	const bool resized =
+		e.w != a->extent.w || e.h != a->extent.h || !GLS(a)->window.fbo;
+	if (resized)
 		GLS(a)->resized_at = now_seconds();
 	a->extent = e;
-	a->buffer = image.w != e.w || image.h != e.h
-		? image : (Extent){ 0, 0 };
+	a->buffer = image.w != e.w || image.h != e.h ? image : (Extent){ 0, 0 };
 	/* Before the interval, which a surface made again has lost: opaque with
 	 * no grab ring, as Vulkan's composite alpha is (DESIGN *Composite
 	 * alpha*). `image` is the native window: the room while a drag keeps
 	 * one, and the window otherwise. The image below is the window. */
 	FNL_TRY(gl_bridge_resize(a, image.w, image.h, a->draw_margin == 0));
 
-	destroy_target(&GLS(a)->window);
-	if (!make_target(&GLS(a)->window, e.w, e.h, 1, false, true)) {
+	if (resized) {
 		destroy_target(&GLS(a)->window);
-		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"could not make the window's %dx%d image", e.w, e.h);
+		if (!make_target(&GLS(a)->window, e.w, e.h, 1, false, true)) {
+			destroy_target(&GLS(a)->window);
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"could not make the window's %dx%d image", e.w,
+							e.h);
+		}
 	}
 
 	GLS(a)->interval_asked = fnl_atomic_load_bool(&a->vsync) ? 1 : 0;
-	fnl_atomic_store_u32(&a->present_mode,
-						 (uint32_t)GLS(a)->interval_asked);
+	fnl_atomic_store_u32(&a->present_mode, (uint32_t)GLS(a)->interval_asked);
 	return FNL_OK;
 }
 
@@ -140,8 +148,8 @@ static void destroy_scene_target(App *a)
 	destroy_target(&GLS(a)->scene_ms);
 	destroy_target(&GLS(a)->mlaa);
 	GLS(a)->scene_ms_refused = false;
-	GLS(a)->mlaa_refused = false;
-	a->scene_extent = (Extent){ 0, 0 };
+	GLS(a)->mlaa_refused     = false;
+	a->scene_extent          = (Extent){ 0, 0 };
 }
 
 /* As Vulkan's scene_ensure_aa(): only what a mode asks for, once it does,
@@ -153,7 +161,7 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 		return false;
 	const int w = a->scene_extent.w, h = a->scene_extent.h;
 	const int samples = (int)fnl_atomic_load_u32(&a->msaa_samples);
-	bool built = false;
+	bool built        = false;
 
 	if (want_ms && samples > 1 && !GLS(a)->scene_ms.fbo &&
 		!GLS(a)->scene_ms_refused) {
@@ -165,7 +173,8 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			GLS(a)->scene_ms_refused = true;
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d %dx multisampled scene target; "
-					"FSAA is off at this size", w, h, samples);
+					"FSAA is off at this size",
+					w, h, samples);
 		}
 	}
 	if (want_mlaa && !GLS(a)->mlaa.fbo && !GLS(a)->mlaa_refused) {
@@ -177,7 +186,8 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			GLS(a)->mlaa_refused = true;
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d filtered scene image; "
-					"MLAA is off at this size", w, h);
+					"MLAA is off at this size",
+					w, h);
 		}
 	}
 	return built;
@@ -201,7 +211,8 @@ void gl_scene_set_size(App *a, int w, int h)
 		destroy_scene_target(a);
 		fnl_log(FNL_LOG_WARN,
 				"no room for a %dx%d scene target; drawing the scene at the "
-				"window's own resolution", w, h);
+				"window's own resolution",
+				w, h);
 		return;
 	}
 	a->scene_extent = (Extent){ w, h };

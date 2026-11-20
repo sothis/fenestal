@@ -548,13 +548,23 @@ static NSCursor *edge_cursor(Edge e)
 									  : NSCursor.resizeLeftRightCursor;
 }
 
-/* Put up what deco_cursor() says for the zone under the pointer. Hidden is
- * the capture's, whose counter capture_apply() keeps. */
+/* Put up what deco_cursor() says for the zone under the pointer, and keep it
+ * there: -[NSCursor set] is a cursor update the window server answers, and a
+ * pointer crossing the window makes a motion event after another for a shape
+ * that changed once. Hidden is the capture's, whose counter capture_apply()
+ * keeps. */
 static void cursor_apply(App *a, Zone z, Edge edge)
 {
+	struct BackendState *p = a->backend_state;
 	const DecoCursor c = deco_cursor(a, z, edge);
 	if (c.kind == DECO_CURSOR_HIDDEN)
 		return;
+	if (p->cursor_kind == (int)c.kind && p->cursor_shape == (int)c.shape &&
+		p->cursor_edge == (int)c.edge)
+		return;
+	p->cursor_kind  = (int)c.kind;
+	p->cursor_shape = (int)c.shape;
+	p->cursor_edge  = (int)c.edge;
 	[(c.kind == DECO_CURSOR_EDGE ? edge_cursor(c.edge)
 								 : caller_cursor(c.shape)) set];
 }
@@ -682,6 +692,11 @@ static void left_release(App *a, NSPoint pt)
 	if (!app)
 		return;
 	const NSPoint pt = event_pt(app, e);
+	/* The desktop may have put its own cursor up -- a Space switched to, a
+	 * consent prompt answered -- so what is set on screen is not what
+	 * cursor_apply() last sent. Nothing applied is DECO_CURSOR_HIDDEN's
+	 * zero, which it never stores. */
+	app->backend_state->cursor_kind = DECO_CURSOR_HIDDEN;
 	Edge edge;
 	const Zone z = deco_hit(app, pt.x, pt.y, &edge);
 	cursor_apply(app, z, edge);

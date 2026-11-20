@@ -1122,6 +1122,12 @@ void d3d_image_free(App *a, FnlImage *img)
 	if (!o)
 		return;
 	img->gpu = NULL;
+	/* The other frame slot's list may still sample the texture and read its
+	 * descriptor, which the slot gives back below for a later image to write:
+	 * drained first, as d3d_cover_release() drains. On a lost device the
+	 * release goes ahead all the same -- it is legal there, and leaving it
+	 * leaks. */
+	(void)d3d_wait_idle(a);
 	D3D_RELEASE(o->tex);
 	image_slot_give(a, (int)o->slot);
 	free(o);

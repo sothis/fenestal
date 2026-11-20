@@ -46,12 +46,14 @@ FnlResult create_overlay_pipelines(App *a)
 {
 	/* Neither pipeline reads a descriptor and both take the same block, in the
 	 * vertex stage only, so one layout serves them. */
-	VkPushConstantRange pcr = {
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-		.offset = 0, .size = sizeof(OverlayPush) };
+	VkPushConstantRange pcr        = { .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+									   .offset     = 0,
+									   .size       = sizeof(OverlayPush) };
 	VkPipelineLayoutCreateInfo lci = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.pushConstantRangeCount = 1, .pPushConstantRanges = &pcr };
+		.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges    = &pcr
+	};
 	VK_TRY(vkCreatePipelineLayout(VK(a)->device, &lci, NULL,
 								  &VK(a)->overlay_layout));
 
@@ -61,11 +63,9 @@ FnlResult create_overlay_pipelines(App *a)
 		{ 0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RectInstance, rect) },
 		{ 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RectInstance, color) },
 	};
-	VK(a)->rect_pipeline =
-		make_overlay_pipeline(a, VK(a)->render_pass, rv, rf,
-							  VK(a)->overlay_layout,
-							  sizeof(RectInstance), rect_va, 2,
-							  OVERLAY_BLEND_NONE);
+	VK(a)->rect_pipeline = make_overlay_pipeline(
+		a, VK(a)->render_pass, rv, rf, VK(a)->overlay_layout,
+		sizeof(RectInstance), rect_va, 2, OVERLAY_BLEND_NONE);
 	vkDestroyShaderModule(VK(a)->device, rv, NULL);
 	vkDestroyShaderModule(VK(a)->device, rf, NULL);
 
@@ -73,18 +73,13 @@ FnlResult create_overlay_pipelines(App *a)
 	VkShaderModule sf = make_shader(a, shape_frag_spv, sizeof shape_frag_spv);
 	/* Packed as vec4s: fewer attributes is fewer fetches, at no extra cost. */
 	const VkVertexInputAttributeDescription shape_va[3] = {
-		{ 0, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-		  offsetof(ShapeInstance, p0) },
-		{ 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-		  offsetof(ShapeInstance, p2) },
-		{ 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-		  offsetof(ShapeInstance, color) },
+		{ 0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, p0) },
+		{ 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, p2) },
+		{ 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, color) },
 	};
-	VK(a)->shape_pipeline =
-		make_overlay_pipeline(a, VK(a)->render_pass, sv, sf,
-							  VK(a)->overlay_layout,
-							  sizeof(ShapeInstance), shape_va, 3,
-							  OVERLAY_BLEND_ALPHA);
+	VK(a)->shape_pipeline = make_overlay_pipeline(
+		a, VK(a)->render_pass, sv, sf, VK(a)->overlay_layout,
+		sizeof(ShapeInstance), shape_va, 3, OVERLAY_BLEND_ALPHA);
 	vkDestroyShaderModule(VK(a)->device, sv, NULL);
 	vkDestroyShaderModule(VK(a)->device, sf, NULL);
 
@@ -102,58 +97,65 @@ FnlResult create_overlay_pipelines(App *a)
 	 * carries the extent alone. One sampler for every image, and a set a
 	 * image (vk_image_free()). */
 	VkDescriptorSetLayoutBinding ib = {
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.binding         = 0,
+		.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+		.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT,
 	};
 	VkDescriptorSetLayoutCreateInfo islci = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = 1, .pBindings = &ib };
+		.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindings    = &ib
+	};
 	VK_TRY(vkCreateDescriptorSetLayout(VK(a)->device, &islci, NULL,
 									   &VK(a)->image_set_layout));
 
-	VkPushConstantRange ipcr = {
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-		.offset = 0, .size = sizeof(ImagePush) };
+	VkPushConstantRange ipcr = { .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+								 .offset     = 0,
+								 .size       = sizeof(ImagePush) };
 	VkPipelineLayoutCreateInfo ilci = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1, .pSetLayouts = &VK(a)->image_set_layout,
-		.pushConstantRangeCount = 1, .pPushConstantRanges = &ipcr };
+		.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount         = 1,
+		.pSetLayouts            = &VK(a)->image_set_layout,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges    = &ipcr
+	};
 	VK_TRY(vkCreatePipelineLayout(VK(a)->device, &ilci, NULL,
 								  &VK(a)->image_layout));
 
 	/* LINEAR and CLAMP_TO_EDGE, as the scene's fetch: an image scaled into a
 	 * rectangle larger than it is filtered, and one smaller does not wrap. */
 	VkSamplerCreateInfo isci = {
-		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		.magFilter = VK_FILTER_LINEAR, .minFilter = VK_FILTER_LINEAR,
-		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.magFilter    = VK_FILTER_LINEAR,
+		.minFilter    = VK_FILTER_LINEAR,
+		.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
 		.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-		.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK };
-	VK_TRY(vkCreateSampler(VK(a)->device, &isci, NULL,
-						   &VK(a)->image_sampler));
+		.borderColor  = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK
+	};
+	VK_TRY(vkCreateSampler(VK(a)->device, &isci, NULL, &VK(a)->image_sampler));
 
 	/* Freeable, because an image may be destroyed while others live. */
-	VkDescriptorPoolSize ips = {
-		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		.descriptorCount = IMAGE_SETS_MAX };
+	VkDescriptorPoolSize ips        = { .type =
+											VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+										.descriptorCount = IMAGE_SETS_MAX };
 	VkDescriptorPoolCreateInfo ipci = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-		.maxSets = IMAGE_SETS_MAX, .poolSizeCount = 1, .pPoolSizes = &ips };
-	VK_TRY(vkCreateDescriptorPool(VK(a)->device, &ipci, NULL,
-								  &VK(a)->image_pool));
+		.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+		.maxSets       = IMAGE_SETS_MAX,
+		.poolSizeCount = 1,
+		.pPoolSizes    = &ips
+	};
+	VK_TRY(
+		vkCreateDescriptorPool(VK(a)->device, &ipci, NULL, &VK(a)->image_pool));
 
-	VkShaderModule iv = make_shader(a, image_vert_spv, sizeof image_vert_spv);
-	VkShaderModule ifr = make_shader(a, image_frag_spv,
-									 sizeof image_frag_spv);
-	VK(a)->image_pipeline =
-		make_overlay_pipeline(a, VK(a)->render_pass, iv, ifr,
-							  VK(a)->image_layout, 0, NULL, 0,
-							  OVERLAY_BLEND_ALPHA);
+	VkShaderModule iv  = make_shader(a, image_vert_spv, sizeof image_vert_spv);
+	VkShaderModule ifr = make_shader(a, image_frag_spv, sizeof image_frag_spv);
+	VK(a)->image_pipeline = make_overlay_pipeline(a, VK(a)->render_pass, iv,
+												  ifr, VK(a)->image_layout, 0,
+												  NULL, 0, OVERLAY_BLEND_ALPHA);
 	vkDestroyShaderModule(VK(a)->device, iv, NULL);
 	vkDestroyShaderModule(VK(a)->device, ifr, NULL);
 	if (VK(a)->image_pipeline == VK_NULL_HANDLE)
@@ -186,14 +188,14 @@ void destroy_overlay_pipelines(App *a)
 	vkDestroySampler(VK(a)->device, VK(a)->image_sampler, NULL);
 
 	/* Every handle is cleared, which is what makes a second call safe. */
-	VK(a)->rect_pipeline   = VK_NULL_HANDLE;
-	VK(a)->shape_pipeline  = VK_NULL_HANDLE;
-	VK(a)->overlay_layout  = VK_NULL_HANDLE;
-	VK(a)->image_pipeline  = VK_NULL_HANDLE;
-	VK(a)->image_layout    = VK_NULL_HANDLE;
-	VK(a)->image_pool      = VK_NULL_HANDLE;
+	VK(a)->rect_pipeline    = VK_NULL_HANDLE;
+	VK(a)->shape_pipeline   = VK_NULL_HANDLE;
+	VK(a)->overlay_layout   = VK_NULL_HANDLE;
+	VK(a)->image_pipeline   = VK_NULL_HANDLE;
+	VK(a)->image_layout     = VK_NULL_HANDLE;
+	VK(a)->image_pool       = VK_NULL_HANDLE;
 	VK(a)->image_set_layout = VK_NULL_HANDLE;
-	VK(a)->image_sampler   = VK_NULL_HANDLE;
+	VK(a)->image_sampler    = VK_NULL_HANDLE;
 }
 
 /* ---- recording ---------------------------------------------------------- */
@@ -236,18 +238,17 @@ void vk_overlay_scissor(App *a, const FnlRect *r)
 {
 	if (VK(a)->overlay_cb == VK_NULL_HANDLE)
 		return;
-	VkRect2D sc = r ? (VkRect2D){ { r->x, r->y },
-								  { (uint32_t)r->w, (uint32_t)r->h } }
-					: (VkRect2D){ { 0, 0 },
-								  { (uint32_t)a->extent.w,
-									(uint32_t)a->extent.h } };
+	VkRect2D sc =
+		r ? (VkRect2D){ { r->x, r->y }, { (uint32_t)r->w, (uint32_t)r->h } }
+		  : (VkRect2D){ { 0, 0 },
+						{ (uint32_t)a->extent.w, (uint32_t)a->extent.h } };
 	vkCmdSetScissor(VK(a)->overlay_cb, 0, 1, &sc);
 }
 
 void vk_overlay_flush_shapes(App *a)
 {
-	flush(a, VK(a)->shape_pipeline, OVERLAY_SHAPE_OFF,
-		  &a->shape_count, &a->shape_drawn);
+	flush(a, VK(a)->shape_pipeline, OVERLAY_SHAPE_OFF, &a->shape_count,
+		  &a->shape_drawn);
 }
 
 /* ---- images ---------------------------------------------------------------
@@ -262,16 +263,15 @@ void vk_overlay_flush_shapes(App *a)
 /* The device object behind FnlImage::gpu: what the draw binds, freed by
  * vk_image_free(). */
 typedef struct {
-	VkImage         image;
-	VkDeviceMemory  mem;
-	VkImageView     view;
+	VkImage image;
+	VkDeviceMemory mem;
+	VkImageView view;
 	VkDescriptorSet set;
 } VkImageObj;
 
 bool vk_image_supported(const App *a)
 {
-	return a->renderer_state != NULL &&
-		   VK(a)->image_pipeline != VK_NULL_HANDLE;
+	return a->renderer_state != NULL && VK(a)->image_pipeline != VK_NULL_HANDLE;
 }
 
 /* One image's device object, from the copy the library kept. False where
@@ -279,29 +279,29 @@ bool vk_image_supported(const App *a)
  * picture does not appear, which is what fnl_image_supported() promised. */
 static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 {
-	*out = NULL;
+	*out          = NULL;
 	VkImageObj *o = calloc(1, sizeof *o);
 	if (!o)
 		return false;
 
 	/* _SRGB where the window is, as the cover: the sampler decodes each texel
 	 * to linear before the blend and the framebuffer re-encodes on write. */
-	const VkFormat fmt = a->srgb_surface ? VK_FORMAT_R8G8B8A8_SRGB
-										 : VK_FORMAT_R8G8B8A8_UNORM;
+	const VkFormat fmt =
+		a->srgb_surface ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
 	const uint32_t w = (uint32_t)img->w, h = (uint32_t)img->h;
 	const VkDeviceSize bytes = (VkDeviceSize)w * (VkDeviceSize)h * 4u;
 
 	VkImageCreateInfo ici = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-		.imageType = VK_IMAGE_TYPE_2D,
-		.format = fmt,
-		.extent = { w, h, 1 },
-		.mipLevels = 1,
+		.sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType   = VK_IMAGE_TYPE_2D,
+		.format      = fmt,
+		.extent      = { w, h, 1 },
+		.mipLevels   = 1,
 		.arrayLayers = 1,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.samples     = VK_SAMPLE_COUNT_1_BIT,
+		.tiling      = VK_IMAGE_TILING_OPTIMAL,
 		.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	};
 	if (VKR(vkCreateImage(VK(a)->device, &ici, NULL, &o->image)) < 0)
@@ -314,8 +314,8 @@ static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 						 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &type) < 0)
 		goto fail;
 	VkMemoryAllocateInfo mai = {
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.allocationSize = req.size,
+		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize  = req.size,
 		.memoryTypeIndex = type,
 	};
 	if (VKR(vkAllocateMemory(VK(a)->device, &mai, NULL, &o->mem)) < 0)
@@ -325,9 +325,9 @@ static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 
 	/* The staging pair through the same helper the arenas use, freed before
 	 * this returns: the upload is once an image, not once a frame. */
-	VkBuffer       stage = VK_NULL_HANDLE;
-	VkDeviceMemory smem  = VK_NULL_HANDLE;
-	void          *smap  = NULL;
+	VkBuffer stage      = VK_NULL_HANDLE;
+	VkDeviceMemory smem = VK_NULL_HANDLE;
+	void *smap          = NULL;
 	if (create_instance_buffers(a, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0,
 								1, &stage, &smem, &smap) < 0)
 		goto fail;
@@ -339,34 +339,34 @@ static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 		goto fail;
 	}
 	VkImageMemoryBarrier to_dst = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = o->image,
-		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
-		.srcAccessMask = 0,
-		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.image               = o->image,
+		.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+		.srcAccessMask       = 0,
+		.dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
 	};
 	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
 						 &to_dst);
 	VkBufferImageCopy copy = {
 		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-		.imageExtent = { w, h, 1 },
+		.imageExtent      = { w, h, 1 },
 	};
 	vkCmdCopyBufferToImage(cb, stage, o->image,
 						   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 	VkImageMemoryBarrier to_read = to_dst;
-	to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	to_read.oldLayout            = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	to_read.newLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	to_read.srcAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
+	to_read.dstAccessMask        = VK_ACCESS_SHADER_READ_BIT;
 	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL,
-						 1, &to_read);
-	const FnlResult rc = end_oneshot(a, cb);   /* frees the command buffer */
+						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0,
+						 NULL, 1, &to_read);
+	const FnlResult rc = end_oneshot(a, cb); /* frees the command buffer */
 	destroy_instance_buffers(a, 1, &stage, &smem, &smap);
 	if (rc < 0)
 		goto fail;
@@ -379,22 +379,25 @@ static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 	 * pool at its limit is a picture that does not appear; freeing a set
 	 * (vk_image_free()) is what recycles it. */
 	VkDescriptorSetAllocateInfo dai = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.descriptorPool = VK(a)->image_pool,
-		.descriptorSetCount = 1, .pSetLayouts = &VK(a)->image_set_layout,
+		.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool     = VK(a)->image_pool,
+		.descriptorSetCount = 1,
+		.pSetLayouts        = &VK(a)->image_set_layout,
 	};
 	if (VKR(vkAllocateDescriptorSets(VK(a)->device, &dai, &o->set)) < 0)
 		goto fail;
 	VkDescriptorImageInfo ii = {
-		.sampler = VK(a)->image_sampler,
-		.imageView = o->view,
+		.sampler     = VK(a)->image_sampler,
+		.imageView   = o->view,
 		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	};
 	VkWriteDescriptorSet wr = {
-		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		.dstSet = o->set, .dstBinding = 0, .descriptorCount = 1,
-		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		.pImageInfo = &ii,
+		.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.dstSet          = o->set,
+		.dstBinding      = 0,
+		.descriptorCount = 1,
+		.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.pImageInfo      = &ii,
 	};
 	vkUpdateDescriptorSets(VK(a)->device, 1, &wr, 0, NULL);
 
@@ -420,8 +423,10 @@ void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 	if (!img->gpu) {
 		VkImageObj *o = NULL;
 		if (!image_upload(a, img, &o)) {
-			fnl_log(FNL_LOG_WARN, "the %dx%d image would not upload; it is "
-					"not drawn", img->w, img->h);
+			fnl_log(FNL_LOG_WARN,
+					"the %dx%d image would not upload; it is "
+					"not drawn",
+					img->w, img->h);
 			return;
 		}
 		img->gpu = o;
@@ -433,15 +438,20 @@ void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 					  VK(a)->image_pipeline);
 	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-							VK(a)->image_layout, 0, 1, &((VkImageObj *)img->gpu)->set,
-							0, NULL);
+							VK(a)->image_layout, 0, 1,
+							&((VkImageObj *)img->gpu)->set, 0, NULL);
 	const ImagePush push = {
-		.rect = { (float)x, (float)y, (float)w, (float)h },
+		.rect   = { (float)x, (float)y, (float)w, (float)h },
 		.screen = { (float)a->extent.w, (float)a->extent.h },
 	};
-	vkCmdPushConstants(cb, VK(a)->image_layout, VK_SHADER_STAGE_VERTEX_BIT,
-					   0, sizeof push, &push);
+	vkCmdPushConstants(cb, VK(a)->image_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+					   sizeof push, &push);
 	vkCmdDraw(cb, 6, 1, 0, 0);
+	/* image_layout's range is not overlay_layout's, so what flush() pushed is
+	 * undefined from here: the next rect or stroke would read this image's
+	 * rectangle as the framebuffer's extent. text.c and scene_target.c clear
+	 * it for the same reason. */
+	VK(a)->overlay_pushed = false;
 }
 
 void vk_image_free(App *a, FnlImage *img)

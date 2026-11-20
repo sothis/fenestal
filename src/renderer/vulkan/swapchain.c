@@ -24,7 +24,7 @@ static VkFormat choose_depth_format(App *a)
 	static const VkFormat WANT[] = {
 		VK_FORMAT_D32_SFLOAT,
 		VK_FORMAT_X8_D24_UNORM_PACK32,
-		VK_FORMAT_D16_UNORM,          /* mandatory, so the loop always ends */
+		VK_FORMAT_D16_UNORM, /* mandatory, so the loop always ends */
 	};
 	for (size_t i = 0; i < sizeof WANT / sizeof WANT[0]; i++) {
 		VkFormatProperties p;
@@ -44,8 +44,9 @@ FnlResult create_render_pass(App *a)
 		return fnl_fail(FNL_ERR_NO_DEVICE, "no depth format supports being an "
 										   "attachment on this device");
 
-	const PassDesc d = {
-		.samples = VK_SAMPLE_COUNT_1_BIT, .depth = true, .clear = true };
+	const PassDesc d   = { .samples = VK_SAMPLE_COUNT_1_BIT,
+						   .depth   = true,
+						   .clear   = true };
 	VK(a)->render_pass = make_render_pass(a, &d);
 	/* The call that failed is already recorded. */
 	return VK(a)->render_pass != VK_NULL_HANDLE ? FNL_OK : FNL_ERR_SYSTEM;
@@ -67,12 +68,12 @@ static VkExtent2D choose_extent(App *a, const VkSurfaceCapabilitiesKHR *caps)
 
 	/* Capped at INT_MAX: a limit past it is no limit, and the extent is an
 	 * int everywhere else. */
-	const Extent lo = { (int)caps->minImageExtent.width,
-						(int)caps->minImageExtent.height };
+	const Extent lo      = { (int)caps->minImageExtent.width,
+							 (int)caps->minImageExtent.height };
 	const uint32_t max_w = caps->maxImageExtent.width;
 	const uint32_t max_h = caps->maxImageExtent.height;
-	const Extent hi = {
-		max_w > INT_MAX ? INT_MAX : (int)max_w,
+	const Extent hi      = {
+        max_w > INT_MAX ? INT_MAX : (int)max_w,
 		max_h > INT_MAX ? INT_MAX : (int)max_h,
 	};
 	const Extent e = app_buffer_extent(a, lo, hi);
@@ -91,7 +92,7 @@ choose_composite_alpha(const App *a, const VkSurfaceCapabilitiesKHR *caps)
 		return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	return (have & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
 			   ? VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR
-		 : (have & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
+		   : (have & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
 			   ? VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
 			   : VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 }
@@ -108,10 +109,14 @@ choose_composite_alpha(const App *a, const VkSurfaceCapabilitiesKHR *caps)
 static void image_frames_reset(App *a)
 {
 	VkFence seed = VK(a)->in_flight[(a->frame + MAX_FRAMES_IN_FLIGHT - 1) %
-								MAX_FRAMES_IN_FLIGHT];
+									MAX_FRAMES_IN_FLIGHT];
 	for (uint32_t i = 0; i < OVERLAY_MAX_IMAGES; i++) {
 		VK(a)->images_in_flight[i] = seed;
-		VK(a)->img_cmd_gen[i] = 0;
+		VK(a)->img_cmd_gen[i]      = 0;
+		/* A pair the retired swapchain left unread would be read against the
+		 * seed fence, which is signalled, and folded in under the old run's
+		 * index. destroy_device_objects() clears it for the same reason. */
+		VK(a)->ts_unread[i] = false;
 	}
 }
 
@@ -119,9 +124,9 @@ static void image_frames_reset(App *a)
 static FnlResult image_cmds_make(App *a)
 {
 	VkCommandBufferAllocateInfo cai = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.commandPool = VK(a)->cmd_pool,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool        = VK(a)->cmd_pool,
+		.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
 		.commandBufferCount = VK(a)->image_count,
 	};
 	VK_TRY(vkAllocateCommandBuffers(VK(a)->device, &cai, VK(a)->img_cmd));
@@ -143,8 +148,8 @@ static FnlResult create_image_objects(App *a)
 		for (uint32_t i = 0; i < n; i++)
 			images[i] = VK(a)->own[i].image;
 	} else {
-		VK_TRY(vkGetSwapchainImagesKHR(VK(a)->device, VK(a)->swapchain, &n,
-									   NULL));
+		VK_TRY(
+			vkGetSwapchainImagesKHR(VK(a)->device, VK(a)->swapchain, &n, NULL));
 		/* Refused rather than wrapped, and before image_count is set: the
 		 * arrays and the overlay's instance buffers are all sized by this
 		 * ceiling, and two images on one buffer is tearing that only shows
@@ -170,8 +175,8 @@ static FnlResult create_image_objects(App *a)
 
 	/* One render-finished semaphore per *image*, not per frame in flight: the
 	 * present waits on it and we cannot know which frame slot last drew it. */
-	VkSemaphoreCreateInfo sem = {
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	VkSemaphoreCreateInfo sem = { .sType =
+									  VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	for (uint32_t i = 0; i < n; i++)
 		VK_TRY(vkCreateSemaphore(VK(a)->device, &sem, NULL,
 								 &VK(a)->render_done[i]));
@@ -199,8 +204,8 @@ static FnlResult create_framebuffers(App *a)
  * a rebuild nobody sees twice. */
 static FnlResult ensure_readback(App *a)
 {
-	const VkDeviceSize need = (VkDeviceSize)a->extent.w * 4u *
-							  (VkDeviceSize)a->extent.h;
+	const VkDeviceSize need =
+		(VkDeviceSize)a->extent.w * 4u * (VkDeviceSize)a->extent.h;
 	if (!VK(a)->present_copy || need <= VK(a)->readback_bytes)
 		return FNL_OK;
 	if (VK(a)->readback_bytes) {
@@ -239,16 +244,16 @@ bool vk_timing_calibrate(App *a)
 {
 #ifdef VK_EXT_present_timing
 	const VkSwapchainCalibratedTimestampInfoEXT sci = {
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CALIBRATED_TIMESTAMP_INFO_EXT,
+		.sType     = VK_STRUCTURE_TYPE_SWAPCHAIN_CALIBRATED_TIMESTAMP_INFO_EXT,
 		.swapchain = VK(a)->swapchain,
 		.presentStage = VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT,
 		.timeDomainId = VK(a)->timing_domain,
 	};
 	const VkCalibratedTimestampInfoKHR info[2] = {
-		{ .sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR,
-		  .pNext = &sci,
+		{ .sType      = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR,
+		  .pNext      = &sci,
 		  .timeDomain = VK_TIME_DOMAIN_PRESENT_STAGE_LOCAL_EXT },
-		{ .sType = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR,
+		{ .sType      = VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_KHR,
 		  .timeDomain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR },
 	};
 	uint64_t t[2], dev = 0;
@@ -280,7 +285,7 @@ static bool timing_surface(App *a)
 		.pNext = &tc,
 	};
 	const VkPhysicalDeviceSurfaceInfo2KHR si = {
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
+		.sType   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
 		.surface = VK(a)->vk_surface,
 	};
 	return VK(a)->surface_caps2(VK(a)->phys, &si, &c2) == VK_SUCCESS &&
@@ -299,8 +304,8 @@ static bool timing_surface(App *a)
 static bool timing_start(App *a, VkSwapchainKHR sc, char *why, size_t n)
 {
 #ifdef VK_EXT_present_timing
-	const VkResult q = VK(a)->timing_queue_size(VK(a)->device, sc,
-												TIMING_QUEUE);
+	const VkResult q =
+		VK(a)->timing_queue_size(VK(a)->device, sc, TIMING_QUEUE);
 	if (q != VK_SUCCESS) {
 		snprintf(why, n, "the timing queue was refused (%d)", (int)q);
 		return false;
@@ -310,25 +315,25 @@ static bool timing_start(App *a, VkSwapchainKHR sc, char *why, size_t n)
 	VkSwapchainTimeDomainPropertiesEXT tp = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_TIME_DOMAIN_PROPERTIES_EXT,
 		.timeDomainCount = 8,
-		.pTimeDomains = dom,
-		.pTimeDomainIds = ids,
+		.pTimeDomains    = dom,
+		.pTimeDomainIds  = ids,
 	};
 	uint64_t counter = 0;
-	const VkResult r = VK(a)->timing_domains(VK(a)->device, sc, &tp,
-											 &counter);
+	const VkResult r = VK(a)->timing_domains(VK(a)->device, sc, &tp, &counter);
 	if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
 		snprintf(why, n, "its time domains were not said (%d)", (int)r);
 		return false;
 	}
 	/* CLOCK_MONOTONIC as it is, where the swapchain has it; else the
 	 * present stage's own clock, calibrated onto it. */
-	size_t k = (size_t)snprintf(why, n, "none of its time domains is "
-								"CLOCK_MONOTONIC or its own:");
+	size_t k  = (size_t)snprintf(why, n,
+								 "none of its time domains is "
+								  "CLOCK_MONOTONIC or its own:");
 	int local = -1;
 	for (uint32_t i = 0; i < tp.timeDomainCount && i < 8; i++) {
 		if (dom[i] == VK_TIME_DOMAIN_CLOCK_MONOTONIC_KHR) {
-			VK(a)->timing_domain = ids[i];
-			VK(a)->timing_local = false;
+			VK(a)->timing_domain    = ids[i];
+			VK(a)->timing_local     = false;
 			VK(a)->timing_offset_ns = 0;
 			return true;
 		}
@@ -340,15 +345,17 @@ static bool timing_start(App *a, VkSwapchainKHR sc, char *why, size_t n)
 	if (local < 0)
 		return false;
 	VK(a)->timing_domain = ids[local];
-	VK(a)->timing_local = true;
+	VK(a)->timing_local  = true;
 	if (!VK(a)->timing_calibrates || !vk_timing_calibrate(a)) {
-		snprintf(why, n, "its own clock would not be read beside "
+		snprintf(why, n,
+				 "its own clock would not be read beside "
 				 "CLOCK_MONOTONIC");
 		return false;
 	}
 	return true;
 #else
-	(void)a; (void)sc;
+	(void)a;
+	(void)sc;
 	snprintf(why, n, "no VK_EXT_present_timing in these headers");
 	return false;
 #endif
@@ -370,22 +377,22 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 		VK(a)->present_copy ||
 		(caps->supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
 	VkSwapchainCreateInfoKHR ci = {
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.surface = VK(a)->vk_surface,
-		.minImageCount = want,
-		.imageFormat = VK(a)->surf_format.format,
-		.imageColorSpace = VK(a)->surf_format.colorSpace,
-		.imageExtent = e,
+		.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		.surface          = VK(a)->vk_surface,
+		.minImageCount    = want,
+		.imageFormat      = VK(a)->surf_format.format,
+		.imageColorSpace  = VK(a)->surf_format.colorSpace,
+		.imageExtent      = e,
 		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-					  (VK(a)->snap_usage ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-										 : 0u),
+		.imageUsage =
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+			(VK(a)->snap_usage ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0u),
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.preTransform = caps->currentTransform,
-		.compositeAlpha = choose_composite_alpha(a, caps),
-		.presentMode = mode,
-		.clipped = VK_TRUE,
-		.oldSwapchain = old_swapchain,
+		.preTransform     = caps->currentTransform,
+		.compositeAlpha   = choose_composite_alpha(a, caps),
+		.presentMode      = mode,
+		.clipped          = VK_TRUE,
+		.oldSwapchain     = old_swapchain,
 	};
 	/* Nothing else sets pNext. The struct lives until the create returns. */
 	const VkSwapchainPresentScalingCreateInfoKHR scaling = {
@@ -407,7 +414,7 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 	 * handle left in RendererState::swapchain would have the teardown
 	 * destroy what the retired entry still owns. */
 	VkSwapchainKHR sc = VK_NULL_HANDLE;
-	VkResult cr = create_swapchain_serialised(a, &ci, &sc);
+	VkResult cr       = create_swapchain_serialised(a, &ci, &sc);
 	if (VK(a)->swapchain_refusal_lost && cr == VK_SUCCESS &&
 		FNL_FAULT("kms-swapchain-refused")) {
 		vkDestroySwapchainKHR(VK(a)->device, sc, NULL);
@@ -419,7 +426,7 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 	 * kernel will not show is refused here and never reaches a present. */
 	if (VK(a)->swapchain_refusal_lost && cr == VK_ERROR_INITIALIZATION_FAILED) {
 		fnl_log(FNL_LOG_WARN, "the display refused a swapchain on its "
-				"mode; the surface is made again");
+							  "mode; the surface is made again");
 		cr = VK_ERROR_SURFACE_LOST_KHR;
 	}
 	if (vk_lost(a, cr)) {
@@ -441,8 +448,8 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 	} else {
 		VK(a)->timing_on = false;
 	}
-	VK(a)->swap_spent  = false;
-	VK(a)->swap_fresh  = true;
+	VK(a)->swap_spent = false;
+	VK(a)->swap_fresh = true;
 	/* A deliberately larger image is not the surface's extent, so a run
 	 * of those being out of date does not ask for the nudge: that nudge
 	 * is for a swapchain made at the window's own size. */
@@ -450,7 +457,7 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 						 e.height == caps->currentExtent.height;
 	if (scale && !VK(a)->scale_said) {
 		fnl_log(FNL_LOG_INFO, "Vulkan: the swapchain presents one to one "
-				"from its corner, so a resize keeps it");
+							  "from its corner, so a resize keeps it");
 		VK(a)->scale_said = true;
 	}
 	return FNL_OK;
@@ -465,9 +472,9 @@ static FnlResult own_images_make(App *a, VkExtent2D e, uint32_t n)
 {
 	if (VK(a)->dxgi)
 		return VK(a)->bridge->own_images(a, e, n);
-	VK(a)->swapchain = VK_NULL_HANDLE;
-	VK(a)->own_next = 0;
-	VK(a)->snap_usage = true;          /* made with TRANSFER_SRC below */
+	VK(a)->swapchain  = VK_NULL_HANDLE;
+	VK(a)->own_next   = 0;
+	VK(a)->snap_usage = true; /* made with TRANSFER_SRC below */
 	for (uint32_t i = 0; i < n; i++) {
 		TargetImage *t = &VK(a)->own[i];
 		if (!create_target_image(a, e.width, e.height,
@@ -476,10 +483,12 @@ static FnlResult own_images_make(App *a, VkExtent2D e, uint32_t n)
 								 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 									 VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
 								 false, t))
-			return fnl_fail(FNL_ERR_SYSTEM, "could not create the window's "
-							"%ux%u image %u", e.width, e.height, i);
+			return fnl_fail(FNL_ERR_SYSTEM,
+							"could not create the window's "
+							"%ux%u image %u",
+							e.width, e.height, i);
 		VK(a)->views[i] = t->view;
-		t->view = VK_NULL_HANDLE;
+		t->view         = VK_NULL_HANDLE;
 		/* Counted as made, so a teardown after a later one fails frees
 		 * this one's view. */
 		VK(a)->image_count = i + 1;
@@ -497,14 +506,14 @@ static void surfaceless_caps(App *a, VkSurfaceCapabilitiesKHR *caps)
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(VK(a)->phys, &props);
 	const uint32_t max = props.limits.maxImageDimension2D;
-	*caps = (VkSurfaceCapabilitiesKHR){
-		.minImageCount  = 2,
-		.maxImageCount  = 2,
-		.currentExtent  = { UINT32_MAX, UINT32_MAX },
-		.minImageExtent = { 1, 1 },
-		.maxImageExtent = { max, max },
-		.currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-		.supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+	*caps              = (VkSurfaceCapabilitiesKHR){
+					 .minImageCount           = 2,
+					 .maxImageCount           = 2,
+					 .currentExtent           = { UINT32_MAX, UINT32_MAX },
+					 .minImageExtent          = { 1, 1 },
+					 .maxImageExtent          = { max, max },
+					 .currentTransform        = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+					 .supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 	};
 }
 
@@ -530,13 +539,14 @@ static uint32_t depth_side(uint32_t want, uint32_t max)
 static FnlResult depth_ensure(App *a, VkExtent2D e,
 							  const VkSurfaceCapabilitiesKHR *caps)
 {
-	if (VK(a)->depth.image != VK_NULL_HANDLE &&
-		e.width <= VK(a)->depth_w && e.height <= VK(a)->depth_h)
+	if (VK(a)->depth.image != VK_NULL_HANDLE && e.width <= VK(a)->depth_w &&
+		e.height <= VK(a)->depth_h)
 		return FNL_OK;
 
 	if (VK(a)->depth.image != VK_NULL_HANDLE) {
 		RetiredSwapchain *r = VK(a)->retired_count > 0
-			? &VK(a)->retired[VK(a)->retired_count - 1] : NULL;
+								  ? &VK(a)->retired[VK(a)->retired_count - 1]
+								  : NULL;
 		if (r && r->depth.image == VK_NULL_HANDLE) {
 			r->depth = VK(a)->depth;
 		} else {
@@ -554,10 +564,9 @@ static FnlResult depth_ensure(App *a, VkExtent2D e,
 	 * clear after the last frame's depth writes (see make_render_pass). */
 	const uint32_t w = depth_side(e.width, caps->maxImageExtent.width);
 	const uint32_t h = depth_side(e.height, caps->maxImageExtent.height);
-	if (!create_target_image(a, w, h, VK(a)->depth_format,
-							 VK_SAMPLE_COUNT_1_BIT,
-							 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, true,
-							 &VK(a)->depth)) {
+	if (!create_target_image(
+			a, w, h, VK(a)->depth_format, VK_SAMPLE_COUNT_1_BIT,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, true, &VK(a)->depth)) {
 		VK(a)->depth_w = VK(a)->depth_h = 0;
 		return fnl_fail(FNL_ERR_SYSTEM,
 						"could not create the %ux%u depth attachment", w, h);
@@ -578,13 +587,14 @@ static VkExtent2D buffer_extent(App *a, VkExtent2D e,
 	if (!VK(a)->dxgi &&
 		(!a->buffer_crops || VK(a)->surfaceless || VK(a)->present_copy))
 		return e;
-	const Extent max = {
-		caps->maxImageExtent.width > INT_MAX
-			? INT_MAX : (int)caps->maxImageExtent.width,
-		caps->maxImageExtent.height > INT_MAX
-			? INT_MAX : (int)caps->maxImageExtent.height };
-	const Extent r = app_buffer_room(a, (Extent){ (int)e.width,
-												  (int)e.height }, max);
+	const Extent max = { caps->maxImageExtent.width > INT_MAX
+							 ? INT_MAX
+							 : (int)caps->maxImageExtent.width,
+						 caps->maxImageExtent.height > INT_MAX
+							 ? INT_MAX
+							 : (int)caps->maxImageExtent.height };
+	const Extent r =
+		app_buffer_room(a, (Extent){ (int)e.width, (int)e.height }, max);
 	return (VkExtent2D){ (uint32_t)r.w, (uint32_t)r.h };
 }
 
@@ -608,17 +618,16 @@ static bool scale_caps(App *a, VkPresentModeKHR mode,
 					   VkSurfacePresentScalingCapabilitiesKHR *out)
 {
 	VkSurfacePresentModeKHR pm = {
-		.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR,
+		.sType       = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR,
 		.presentMode = mode,
 	};
 	const VkPhysicalDeviceSurfaceInfo2KHR si = {
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
-		.pNext = &pm,
+		.sType   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
+		.pNext   = &pm,
 		.surface = VK(a)->vk_surface,
 	};
 	VkSurfacePresentScalingCapabilitiesKHR sc = {
-		.sType =
-			VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_KHR,
+		.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_KHR,
 	};
 	VkSurfaceCapabilities2KHR c2 = {
 		.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR,
@@ -630,10 +639,9 @@ static bool scale_caps(App *a, VkPresentModeKHR mode,
 	*out = sc;
 	return (sc.supportedPresentScaling &
 			VK_PRESENT_SCALING_ONE_TO_ONE_BIT_KHR) != 0 &&
-		   (sc.supportedPresentGravityX &
-			VK_PRESENT_GRAVITY_MIN_BIT_KHR) != 0 &&
-		   (sc.supportedPresentGravityY &
-			VK_PRESENT_GRAVITY_MIN_BIT_KHR) != 0;
+		   (sc.supportedPresentGravityX & VK_PRESENT_GRAVITY_MIN_BIT_KHR) !=
+			   0 &&
+		   (sc.supportedPresentGravityY & VK_PRESENT_GRAVITY_MIN_BIT_KHR) != 0;
 }
 
 /* `b` is what buffer_extent() chose. Where this mode can present one to
@@ -664,8 +672,8 @@ static VkExtent2D scale_extent(App *a, VkExtent2D e, VkExtent2D b,
 		mx > (uint32_t)INT_MAX ? INT_MAX : (int)mx,
 		my > (uint32_t)INT_MAX ? INT_MAX : (int)my,
 	};
-	const Extent room = app_buffer_room(a, (Extent){ (int)e.width,
-													 (int)e.height }, lim);
+	const Extent room =
+		app_buffer_room(a, (Extent){ (int)e.width, (int)e.height }, lim);
 	const VkExtent2D rb = { (uint32_t)room.w, (uint32_t)room.h };
 	if (extent_scaled(rb, &sc)) {
 		*scale = true;
@@ -687,9 +695,8 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	if (VK(a)->surfaceless)
 		surfaceless_caps(a, &caps);
 	else
-		capr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VK(a)->phys,
-														 VK(a)->vk_surface,
-														 &caps);
+		capr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+			VK(a)->phys, VK(a)->vk_surface, &caps);
 	if (vk_lost(a, capr)) {
 		VK(a)->swapchain   = VK_NULL_HANDLE;
 		VK(a)->image_count = 0;
@@ -704,7 +711,7 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	fnl_atomic_store_u32(&a->max_extent_h, caps.maxImageExtent.height);
 
 	const VkExtent2D e = choose_extent(a, &caps);
-	a->extent = (Extent){ (int)e.width, (int)e.height };
+	a->extent          = (Extent){ (int)e.width, (int)e.height };
 	/* The one place the present mode changes, because this is where a
 	 * swapchain is made with it; the loop only asks whether it matches (see
 	 * vk_present_mode_matches). Read into a local once: a field another thread
@@ -714,24 +721,25 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 		vk_wanted_present_mode(a, fnl_atomic_load_bool(&a->vsync));
 	vk_set_present_mode(a, mode);
 	bool scale = false;
-	const VkExtent2D b = scale_extent(a, e, buffer_extent(a, e, &caps),
-									  &caps, mode, &scale);
+	const VkExtent2D b =
+		scale_extent(a, e, buffer_extent(a, e, &caps), &caps, mode, &scale);
 	VK(a)->sc_extent = b;
-	a->buffer = b.width != e.width || b.height != e.height
-		? (Extent){ (int)b.width, (int)b.height } : (Extent){ 0, 0 };
+	a->buffer        = b.width != e.width || b.height != e.height
+						   ? (Extent){ (int)b.width, (int)b.height }
+						   : (Extent){ 0, 0 };
 
 	uint32_t want = caps.minImageCount;
 	if (mode == VK_PRESENT_MODE_MAILBOX_KHR && want < 3)
 		want = 3;
-	if (want < 2) want = 2;
+	if (want < 2)
+		want = 2;
 	if (caps.maxImageCount > 0 && want > caps.maxImageCount)
 		want = caps.maxImageCount;
 
 	if (VK(a)->surfaceless)
 		FNL_TRY(own_images_make(a, b, want));
 	else
-		FNL_TRY(swapchain_make(a, &caps, b, mode, want, old_swapchain,
-							   scale));
+		FNL_TRY(swapchain_make(a, &caps, b, mode, want, old_swapchain, scale));
 
 	FNL_TRY(create_image_objects(a));
 	FNL_TRY(ensure_readback(a));
@@ -808,7 +816,7 @@ static void *reap_main(void *arg)
 		if (VK(a)->reap_n == 0)
 			break;
 		const VkSwapchainKHR sc = VK(a)->reap_q[--VK(a)->reap_n];
-		VK(a)->reap_busy = true;
+		VK(a)->reap_busy        = true;
 		fnl_mutex_unlock(&VK(a)->reap_lock);
 
 		fnl_mutex_lock(&VK(a)->reap_serial);
@@ -832,7 +840,7 @@ static bool reap_hand_over(App *a, RetiredSwapchain *r)
 		fnl_mutex_init(&VK(a)->reap_lock);
 		fnl_mutex_init(&VK(a)->reap_serial);
 		fnl_cond_init(&VK(a)->reap_cond);
-		VK(a)->reap_n = 0;
+		VK(a)->reap_n    = 0;
 		VK(a)->reap_busy = VK(a)->reap_quit = false;
 		if (!fnl_thread_start(&VK(a)->reap_thread, reap_main, a)) {
 			fnl_cond_destroy(&VK(a)->reap_cond);
@@ -848,7 +856,7 @@ static bool reap_hand_over(App *a, RetiredSwapchain *r)
 	fnl_mutex_lock(&VK(a)->reap_lock);
 	if (VK(a)->reap_n < REAP_MAX) {
 		VK(a)->reap_q[VK(a)->reap_n++] = r->swapchain;
-		taken = true;
+		taken                          = true;
 	}
 	fnl_mutex_unlock(&VK(a)->reap_lock);
 	if (taken) {
@@ -919,7 +927,7 @@ void destroy_swapchain(App *a)
 	if (VK(a)->bridge->scanout_take && VK(a)->swapchain != VK_NULL_HANDLE)
 		VK(a)->bridge->scanout_take(a);
 	swapchain_hand_over(a, &r);
-	a->buffer = (Extent){ 0, 0 };
+	a->buffer        = (Extent){ 0, 0 };
 	VK(a)->sc_extent = (VkExtent2D){ 0, 0 };
 	/* The depth image too, at teardown: the device is idle. */
 	r.depth = VK(a)->depth;
@@ -935,7 +943,7 @@ void free_all_retired(App *a)
 {
 	if (VK(a)->retired_count == 0)
 		return;
-	vkQueueWaitIdle(VK(a)->queue);          /* one drain covers every entry */
+	vkQueueWaitIdle(VK(a)->queue); /* one drain covers every entry */
 	for (int i = 0; i < VK(a)->retired_count; i++)
 		retired_destroy(a, &VK(a)->retired[i], false);
 	VK(a)->retired_count = 0;
@@ -945,7 +953,7 @@ void free_all_retired(App *a)
  * long: a quarter of a second is past any run of rebuilds, and 20 ms is a
  * refresh at 50 Hz. */
 #define SWAP_REST_AFTER 0.25
-#define SWAP_REST       0.020
+#define SWAP_REST 0.020
 
 /* A new size inside the live swapchain's images, where the window shows
  * part of them (App::buffer): the framebuffers and the command buffers
@@ -971,9 +979,8 @@ static int resize_in_place(App *a)
 	VkSurfaceCapabilitiesKHR caps;
 	if (VK(a)->surfaceless)
 		surfaceless_caps(a, &caps);
-	else if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VK(a)->phys,
-													   VK(a)->vk_surface,
-													   &caps) != VK_SUCCESS)
+	else if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+				 VK(a)->phys, VK(a)->vk_surface, &caps) != VK_SUCCESS)
 		return 0;
 	const VkExtent2D e = choose_extent(a, &caps);
 	const VkExtent2D b = VK(a)->sc_extent;
@@ -988,7 +995,7 @@ static int resize_in_place(App *a)
 	memcpy(r->framebuffers, VK(a)->framebuffers, sizeof r->framebuffers);
 	memcpy(r->img_cmd, VK(a)->img_cmd, sizeof r->img_cmd);
 	r->image_count = VK(a)->image_count;
-	r->countdown = MAX_FRAMES_IN_FLIGHT;
+	r->countdown   = MAX_FRAMES_IN_FLIGHT;
 	memset(VK(a)->framebuffers, 0, sizeof VK(a)->framebuffers);
 	memset(VK(a)->img_cmd, 0, sizeof VK(a)->img_cmd);
 
@@ -1049,7 +1056,7 @@ bool vk_present_mode_matches(const App *a, bool vsync)
  * instance buffers* has the measurement. */
 void vk_retire_tick(App *a)
 {
-	bool drained = false;   /* one drain covers every entry, as in
+	bool drained = false; /* one drain covers every entry, as in
 							 * free_all_retired -- not one apiece */
 	for (int i = VK(a)->retired_count - 1; i >= 0; i--)
 		if (--VK(a)->retired[i].countdown == 0) {

@@ -63,8 +63,8 @@
 
 #define GPU_DRIVER_HELPER "/usr/local/sbin/fenestal-gpu-driver"
 #define GPU_DRIVER_SOCKET "/run/fenestal-gpu-driver.sock"
-#define GPU_DRIVER_GROUP  "fenestal-gpu"
-#define PCI_DEVICES       "/sys/bus/pci/devices"
+#define GPU_DRIVER_GROUP "fenestal-gpu"
+#define PCI_DEVICES "/sys/bus/pci/devices"
 /* A move takes 0.5 s each way on a GTX 1050 Ti (1.2 s onto nouveau on a
  * GTX 960M). It is never cut short -- killed between the unload and the
  * load it would leave the GPU with no driver -- so past this it is said
@@ -98,9 +98,9 @@ static const char *socket_path(void)
  * names its holders every few seconds. The socket's `status: <n>` is its
  * last line, the exit status a connection has no other way to give. */
 typedef struct {
-	char   line[512];
+	char line[512];
 	size_t n;
-	int    status;
+	int status;
 } Lines;
 
 static void lines_end(Lines *l)
@@ -109,8 +109,7 @@ static void lines_end(Lines *l)
 	if (strncmp(l->line, "status: ", 8) == 0)
 		l->status = atoi(l->line + 8);
 	else if (l->n)
-		fnl_log(strncmp(l->line, "held:", 5) == 0 ? FNL_LOG_WARN
-												   : FNL_LOG_INFO,
+		fnl_log(strncmp(l->line, "held:", 5) == 0 ? FNL_LOG_WARN : FNL_LOG_INFO,
 				"GPU driver: %s", l->line);
 	l->n = 0;
 }
@@ -129,22 +128,24 @@ static void lines_feed(Lines *l, const char *p, size_t k)
 static void lines_read(int fd, Lines *l, bool to_status)
 {
 	const double deadline = now_seconds() + HELPER_MS / 1e3;
-	bool said = false;
+	bool said             = false;
 	while (!(to_status && l->status >= 0)) {
 		int wait_ms = -1;
 		if (!said) {
 			const double left = deadline - now_seconds();
-			wait_ms = left > 0.0 ? (int)(left * 1e3) + 1 : 0;
+			wait_ms           = left > 0.0 ? (int)(left * 1e3) + 1 : 0;
 		}
 		struct pollfd pf = { .fd = fd, .events = POLLIN };
-		const int r = poll(&pf, 1, wait_ms);
+		const int r      = poll(&pf, 1, wait_ms);
 		if (r < 0 && errno == EINTR)
 			continue;
 		if (r < 0)
 			break;
 		if (r == 0) {
-			fnl_log(FNL_LOG_WARN, "GPU driver: the move has run %d s and "
-					"is waited for", HELPER_MS / 1000);
+			fnl_log(FNL_LOG_WARN,
+					"GPU driver: the move has run %d s and "
+					"is waited for",
+					HELPER_MS / 1000);
 			said = true;
 			continue;
 		}
@@ -168,7 +169,7 @@ static int via_socket(const char *driver, const char *pci, char *why,
 					  size_t why_n)
 {
 	struct sockaddr_un sa = { .sun_family = AF_UNIX };
-	const char *path = socket_path();
+	const char *path      = socket_path();
 	if (strlen(path) >= sizeof sa.sun_path) {
 		snprintf(why, why_n, "%s is too long a socket path", path);
 		return NO_SOCKET;
@@ -183,11 +184,12 @@ static int via_socket(const char *driver, const char *pci, char *why,
 		const int e = errno;
 		close(fd);
 		if (e == EACCES)
-			snprintf(why, why_n, "%s is group %s's, which this account "
-					 "is not in yet (a new login)", path, GPU_DRIVER_GROUP);
+			snprintf(why, why_n,
+					 "%s is group %s's, which this account "
+					 "is not in yet (a new login)",
+					 path, GPU_DRIVER_GROUP);
 		else
-			snprintf(why, why_n, "no service at %s (%s)", path,
-					 strerror(e));
+			snprintf(why, why_n, "no service at %s (%s)", path, strerror(e));
 		return NO_SOCKET;
 	}
 	/* A driver's name and an address, each bounded by its type -- the
@@ -195,8 +197,8 @@ static int via_socket(const char *driver, const char *pci, char *why,
 	char req[GPU_DRIVER_NAME_MAX + GPU_PCI_MAX + 1];
 	const int len = snprintf(req, sizeof req, "%s %s\n", driver, pci);
 	for (int sent = 0; sent < len;) {
-		const ssize_t k = send(fd, req + sent, (size_t)(len - sent),
-							   MSG_NOSIGNAL);
+		const ssize_t k =
+			send(fd, req + sent, (size_t)(len - sent), MSG_NOSIGNAL);
 		if (k < 0 && errno == EINTR)
 			continue;
 		if (k <= 0) {
@@ -227,15 +229,15 @@ static int via_helper(const char *driver, const char *pci, bool sudo)
 	argv[n++] = helper_path();
 	argv[n++] = driver;
 	argv[n++] = pci;
-	argv[n] = NULL;
+	argv[n]   = NULL;
 
 	int fds[2];
 	if (pipe2(fds, O_CLOEXEC) < 0)
 		return -1;
 	posix_spawn_file_actions_t fa;
 	posix_spawn_file_actions_init(&fa);
-	posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null",
-									 O_RDONLY, 0);
+	posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null", O_RDONLY,
+									 0);
 	posix_spawn_file_actions_adddup2(&fa, fds[1], STDOUT_FILENO);
 	posix_spawn_file_actions_adddup2(&fa, fds[1], STDERR_FILENO);
 	/* A process group of its own, so that what is sent to this process's
@@ -292,10 +294,12 @@ static bool read_line(const char *path, char *out, size_t size)
 /* Which of DRIVERS this kernel has a module for: loaded, or listed in its
  * modules.dep -- nouveau as the kernel's own, NVIDIA's as its DKMS built
  * it for this kernel, or not -- by the module's name, the path's last part
- * up to its first dot. Read once a process: what a kernel has does not
- * change while it runs, and the list is made again after every move. */
+ * up to its first dot. Read once a process, through have_once: which drivers
+ * a kernel has does not change while it runs. A move changes what a GPU is
+ * bound to, and gpu_driver_list(), asked again after one, reads the card's
+ * driver afresh each time. */
 static pthread_once_t have_once = PTHREAD_ONCE_INIT;
-static bool           have[DRIVER_COUNT];
+static bool have[DRIVER_COUNT];
 
 static void drivers_here(void)
 {
@@ -320,16 +324,16 @@ static void drivers_here(void)
 	char line[1024];
 	bool start = true;
 	while (left && fgets(line, sizeof line, f)) {
-		const size_t n = strlen(line);
+		const size_t n   = strlen(line);
 		const bool whole = n && line[n - 1] == '\n';
-		char *colon = start ? strchr(line, ':') : NULL;
-		start = whole;
+		char *colon      = start ? strchr(line, ':') : NULL;
+		start            = whole;
 		if (!colon)
 			continue;
-		*colon = '\0';
+		*colon            = '\0';
 		const char *slash = strrchr(line, '/');
-		const char *base = slash ? slash + 1 : line;
-		const size_t len = strcspn(base, ".");
+		const char *base  = slash ? slash + 1 : line;
+		const size_t len  = strcspn(base, ".");
 		for (size_t i = 0; i < DRIVER_COUNT; i++)
 			if (!have[i] && len == strlen(DRIVERS[i]) &&
 				memcmp(base, DRIVERS[i], len) == 0) {
@@ -352,11 +356,12 @@ static bool driver_known(const char *name)
 int gpu_driver_list(const App *a, GpuDriver *out, int max)
 {
 	const struct BackendState *p = a->backend_state;
-	if (access(socket_path(), F_OK) != 0 &&
-		access(helper_path(), X_OK) != 0) {
-		fnl_log(FNL_LOG_WARN, "FNL_GPU_DRIVER: neither %s nor %s, so no "
+	if (access(socket_path(), F_OK) != 0 && access(helper_path(), X_OK) != 0) {
+		fnl_log(FNL_LOG_WARN,
+				"FNL_GPU_DRIVER: neither %s nor %s, so no "
 				"GPU moves to another kernel driver -- bare_driver.py "
-				"--setup installs both", socket_path(), helper_path());
+				"--setup installs both",
+				socket_path(), helper_path());
 		return 0;
 	}
 	pthread_once(&have_once, drivers_here);
@@ -382,7 +387,8 @@ int gpu_driver_list(const App *a, GpuDriver *out, int max)
 		snprintf(path, sizeof path, PCI_DEVICES "/%s/drm/card%d", e->d_name,
 				 p->card_index);
 		if (access(path, F_OK) == 0) {
-			fnl_log(FNL_LOG_INFO, "GPU driver: %s is the display's card, "
+			fnl_log(FNL_LOG_INFO,
+					"GPU driver: %s is the display's card, "
 					"which this program holds, so no GPU here is moved",
 					e->d_name);
 			closedir(d);
@@ -394,10 +400,10 @@ int gpu_driver_list(const App *a, GpuDriver *out, int max)
 		snprintf(path, sizeof path, PCI_DEVICES "/%s/driver", e->d_name);
 		const ssize_t k = readlink(path, link, sizeof link - 1);
 		if (k > 0) {
-			link[k] = '\0';
+			link[k]           = '\0';
 			const char *slash = strrchr(link, '/');
-			snprintf(g.bound, sizeof g.bound, "%.*s",
-					 (int)sizeof g.bound - 1, slash ? slash + 1 : link);
+			snprintf(g.bound, sizeof g.bound, "%.*s", (int)sizeof g.bound - 1,
+					 slash ? slash + 1 : link);
 		}
 		/* Moved from one of the two, or from none: a GPU on a third
 		 * driver -- passed through to a machine, say -- is nobody's to
@@ -429,8 +435,10 @@ bool gpu_driver_bind(const App *a, const GpuDriver *g, const char *driver)
 	/* FNL_GPU_DRIVER's own word, where the GPU is on no driver: the
 	 * helper's check, made here first so that the request is bounded. */
 	if (!driver_known(driver)) {
-		fnl_log(FNL_LOG_WARN, "GPU driver: no driver %s here: one of %s "
-				"and %s", driver, DRIVERS[0], DRIVERS[1]);
+		fnl_log(FNL_LOG_WARN,
+				"GPU driver: no driver %s here: one of %s "
+				"and %s",
+				driver, DRIVERS[0], DRIVERS[1]);
 		return false;
 	}
 	fnl_log(FNL_LOG_INFO, "GPU driver: moving %s from %s to %s", g->pci,
@@ -439,31 +447,39 @@ bool gpu_driver_bind(const App *a, const GpuDriver *g, const char *driver)
 	 * process, where a helper of its own dies with its session. */
 	char why[256];
 	const bool root = geteuid() == 0;
-	int rc = via_socket(driver, g->pci, why, sizeof why);
+	int rc          = via_socket(driver, g->pci, why, sizeof why);
 	if (rc == NO_SOCKET) {
-		fnl_log(FNL_LOG_INFO, "GPU driver: %s, so %s; a move cut off there "
-				"leaves the GPU with no driver", why,
-				root ? "by the helper itself" : "through sudo");
+		fnl_log(FNL_LOG_INFO,
+				"GPU driver: %s, so %s; a move cut off there "
+				"leaves the GPU with no driver",
+				why, root ? "by the helper itself" : "through sudo");
 		rc = via_helper(driver, g->pci, !root);
 		if (rc < 0) {
-			fnl_log(FNL_LOG_WARN, "GPU driver: %s did not run%s",
-					helper_path(), root ? "" : " through sudo -n, which "
-					"wants the rule bare_driver.py --setup writes");
+			fnl_log(FNL_LOG_WARN, "GPU driver: %s did not run%s", helper_path(),
+					root ? ""
+						 : " through sudo -n, which "
+						   "wants the rule bare_driver.py --setup writes");
 			return false;
 		}
 	}
 	if (rc == 0)
 		return true;
 	if (rc == 2)
-		fnl_log(FNL_LOG_WARN, "GPU driver: %s is held open, and stays on "
-				"%s", g->pci, g->bound);
+		fnl_log(FNL_LOG_WARN,
+				"GPU driver: %s is held open, and stays on "
+				"%s",
+				g->pci, g->bound);
 	else if (rc < 0)
-		fnl_log(FNL_LOG_WARN, "GPU driver: the move to %s ended with no "
+		fnl_log(FNL_LOG_WARN,
+				"GPU driver: the move to %s ended with no "
 				"answer -- the service killed, whose rescue binds a "
-				"driver", driver);
+				"driver",
+				driver);
 	else
-		fnl_log(FNL_LOG_WARN, "GPU driver: the move to %s failed "
-				"(status %d)", driver, rc);
+		fnl_log(FNL_LOG_WARN,
+				"GPU driver: the move to %s failed "
+				"(status %d)",
+				driver, rc);
 	return false;
 }
 
@@ -481,10 +497,10 @@ static void nvidia_mapped(char *what, size_t size)
 	size_t used = strlen(what);
 	char line[700];
 	char last[256] = "";
-	bool any = false;
+	bool any       = false;
 	while (fgets(line, sizeof line, f) && used + 1 < size) {
 		line[strcspn(line, "\n")] = '\0';
-		const char *path = strchr(line, '/');
+		const char *path          = strchr(line, '/');
 		if (!path)
 			continue;
 		const char *base = strrchr(path, '/') + 1;
@@ -526,7 +542,7 @@ bool gpu_driver_held(const App *a, const GpuDriver *g, bool every_nvidia,
 	 * nouveau only the GPU's own nodes (the helper's holders()). Any is
 	 * NVIDIA's userspace left loaded, where every one is asked for. */
 	const bool nvidia = every_nvidia || strcmp(g->bound, "nvidia") == 0;
-	d = opendir("/proc/self/fd");
+	d                 = opendir("/proc/self/fd");
 	if (!d)
 		return false;
 	bool held = false;
@@ -540,7 +556,7 @@ bool gpu_driver_held(const App *a, const GpuDriver *g, bool every_nvidia,
 		if (k <= 0)
 			continue;
 		link[k] = '\0';
-		held = nvidia && strncmp(link, "/dev/nvidia", 11) == 0;
+		held    = nvidia && strncmp(link, "/dev/nvidia", 11) == 0;
 		for (int i = 0; i < n_nodes && !held; i++)
 			held = strcmp(link, nodes[i]) == 0;
 		if (held)

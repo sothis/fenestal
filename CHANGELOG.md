@@ -62,7 +62,10 @@ promised: before 1.0, nothing between minor releases.
   and leaving it, with where it crossed. A hover kept from motion alone
   outlives the pointer without them, and a press dragged off the window has no
   end. X11, Wayland, Win32 and Cocoa send both; a bare display has no outside
-  to leave, so KMS sends neither, and a captured pointer neither.
+  to leave, so KMS sends neither, and a captured pointer neither. The position
+  is in window points on every one of them: Wayland posted the surface's, which
+  are the grab ring's six points off, and its ENTER disagreed with the motion
+  posted beside it.
 - `fnl_text_wrap()`: several lines fitted into a width, breaking at a space
   where it can and inside a word where the word is longer than the line, with
   the number of lines answered back. The sibling of `fnl_text_elide()` -- one

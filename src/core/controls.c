@@ -36,13 +36,13 @@
  *
  * No height among these: the run's height is the bar's, so the boxes line up
  * with the buttons beside them. */
-#define CTL_COMBO_PAD        5
-#define CTL_COMBO_ARROW_W    6
-#define CTL_ITEM_H          18
-#define CTL_ITEM_PAD         8
-#define CTL_CHECK_BOX       12     /* the square itself      */
-#define CTL_CHECK_GAP        6     /* square to label        */
-#define CTL_CHECK_PAD        8     /* label to what is right */
+#define CTL_COMBO_PAD 5
+#define CTL_COMBO_ARROW_W 6
+#define CTL_ITEM_H 18
+#define CTL_ITEM_PAD 8
+#define CTL_CHECK_BOX 12 /* the square itself      */
+#define CTL_CHECK_GAP 6  /* square to label        */
+#define CTL_CHECK_PAD 8  /* label to what is right */
 
 /* ---- the sizes on offer -------------------------------------------------- */
 
@@ -55,20 +55,27 @@ _Static_assert(CTL_MAX_ITEMS <= OUTPUT_MODES_MAX,
 			   "the titlebar's list is read through a buffer of that size");
 
 /* A size, and where it is a mode its refresh; 0 for a standard size. */
-typedef struct { int w, h; unsigned int mhz; } CtlRes;
+typedef struct {
+	int w, h;
+	unsigned int mhz;
+} CtlRes;
 
 /* Which drop-down is open: none, the size box, the output box or the GPU
  * box. */
-enum { CTL_SHUT = 0, CTL_OPEN_SIZE = 1, CTL_OPEN_OUTPUT = 2,
-	   CTL_OPEN_GPU = 3 };
+enum { CTL_SHUT = 0, CTL_OPEN_SIZE = 1, CTL_OPEN_OUTPUT = 2, CTL_OPEN_GPU = 3 };
 /* What ctl_hit() answers past the checkboxes: the three boxes. */
-enum { CTL_HIT_SIZE = CTL_CHECK_COUNT, CTL_HIT_OUTPUT = CTL_CHECK_COUNT + 1,
-	   CTL_HIT_GPU = CTL_CHECK_COUNT + 2 };
+enum {
+	CTL_HIT_SIZE   = CTL_CHECK_COUNT,
+	CTL_HIT_OUTPUT = CTL_CHECK_COUNT + 1,
+	CTL_HIT_GPU    = CTL_CHECK_COUNT + 2
+};
 
-static const struct { int w, h; } CTL_RES[] = {
-	{  640,  480 }, {  800,  600 }, { 1024,  768 }, { 1280,  720 },
-	{ 1280,  800 }, { 1366,  768 }, { 1280,  960 }, { 1440,  900 },
-	{ 1600,  900 }, { 1400, 1050 }, { 1680, 1050 }, { 1600, 1200 },
+static const struct {
+	int w, h;
+} CTL_RES[] = {
+	{ 640, 480 },   { 800, 600 },   { 1024, 768 },  { 1280, 720 },
+	{ 1280, 800 },  { 1366, 768 },  { 1280, 960 },  { 1440, 900 },
+	{ 1600, 900 },  { 1400, 1050 }, { 1680, 1050 }, { 1600, 1200 },
 	{ 1920, 1080 }, { 1920, 1200 }, { 2560, 1440 }, { 2560, 1600 },
 	{ 3840, 2160 },
 };
@@ -78,16 +85,24 @@ static const struct { int w, h; } CTL_RES[] = {
  * reduces to 683:384, which everyone calls 16:9. */
 static const char *ctl_aspect(int w, int h)
 {
-	static const struct { int num, den; const char *name; } A[] = {
-		{ 4, 3, "4:3" }, { 16, 10, "16:10" }, { 16, 9, "16:9" },
+	static const struct {
+		int num, den;
+		const char *name;
+	} A[] = {
+		{ 4, 3, "4:3" },
+		{ 16, 10, "16:10" },
+		{ 16, 9, "16:9" },
 	};
 	const char *best = A[0].name;
-	double err = 1e9;
+	double err       = 1e9;
 	for (int i = 0; i < (int)(sizeof A / sizeof A[0]); i++) {
 		const double want = (double)A[i].num / A[i].den;
 		const double got  = (double)w / (h ? h : 1);
-		const double e = got > want ? got - want : want - got;
-		if (e < err) { err = e; best = A[i].name; }
+		const double e    = got > want ? got - want : want - got;
+		if (e < err) {
+			err  = e;
+			best = A[i].name;
+		}
 	}
 	return best;
 }
@@ -96,22 +111,22 @@ static const char *ctl_aspect(int w, int h)
  * the box is sized for, or CTL_MODE_WIDEST where the rows are modes;
  * CTL_SIZE_MAX holds any. An output's name is cut to CTL_OUTPUT_WIDEST's
  * width, which the kernel's names ("HDMI-A-1", "eDP-1") are inside. */
-#define CTL_SIZE_WIDEST   "3840x2160 (16:10)"
-#define CTL_MODE_WIDEST   "7680x4320 @ 119.88 Hz"
+#define CTL_SIZE_WIDEST "2560x1600 (16:10)"
+#define CTL_MODE_WIDEST "7680x4320 @ 119.88 Hz"
 #define CTL_OUTPUT_WIDEST "Virtual-10"
-#define CTL_SIZE_MAX      40
+#define CTL_SIZE_MAX 40
 
 /* The GPU box names the GPU in use by its number, as the startup log and
  * FNL_GPU count them -- a box wide enough for a name would put 112 points
  * more on the floor, past the 640 offered as the smallest area -- and its
  * list names each in full, with its number and its kind, as wide as the
  * widest row, up to CTL_GPU_ROW_MAX bytes. */
-#define CTL_GPU_WIDEST    "GPU 8"
-#define CTL_GPU_ROW_MAX   112
+#define CTL_GPU_WIDEST "GPU 8"
+#define CTL_GPU_ROW_MAX 112
 /* The longest a row's GPU name is drawn: "NVIDIA GeForce GTX 1050 Ti on
  * nouveau" is 37; with the number, the words and the figure, the row is
  * then within CTL_GPU_ROW_MAX whatever an int prints. */
-#define CTL_GPU_NAME_MAX  56
+#define CTL_GPU_NAME_MAX 56
 _Static_assert(GPU_LIST_MAX <= 9, "CTL_GPU_WIDEST holds one digit");
 
 /* A refresh as a person reads it: 60, 59.94, 74.97 -- hundredths, and no
@@ -143,12 +158,11 @@ static void ctl_size_name(char *buf, size_t n, const CtlRes *r)
  * The state is atomic because both threads touch it. The measurements come
  * from the *published* block because both have to filter the size list to
  * the same length, or a row is drawn where it cannot be clicked. */
-#define CTL_CHECKED(a, i)  fnl_atomic_load_bool(&(a)->ctl_check[i])
-#define CTL_OPEN(a)        ((int)fnl_atomic_load_u32(&(a)->ctl_combo_open))
-#define CTL_PIN_W(a)       ((int)fnl_atomic_load_u32(&(a)->ctl_pin_w))
-#define CTL_PIN_H(a)       ((int)fnl_atomic_load_u32(&(a)->ctl_pin_h))
-#define CTL_HOVER(a) \
-	((int)fnl_atomic_load_u32(&(a)->ctl_combo_hover1) - 1)
+#define CTL_CHECKED(a, i) fnl_atomic_load_bool(&(a)->ctl_check[i])
+#define CTL_OPEN(a) ((int)fnl_atomic_load_u32(&(a)->ctl_combo_open))
+#define CTL_PIN_W(a) ((int)fnl_atomic_load_u32(&(a)->ctl_pin_w))
+#define CTL_PIN_H(a) ((int)fnl_atomic_load_u32(&(a)->ctl_pin_h))
+#define CTL_HOVER(a) ((int)fnl_atomic_load_u32(&(a)->ctl_combo_hover1) - 1)
 
 static void ctl_set_hover(App *a, int row)
 {
@@ -168,11 +182,13 @@ static void ctl_set_open(App *a, int which)
  * scale and the output could come from two frames. The floor is read inside
  * it too, because deco_min_window() reads fields deco_apply_custom() writes
  * under this lock from the pump's thread. */
-typedef struct { int s120, out_w, out_h, bar, min_w, min_h; } CtlEnv;
+typedef struct {
+	int s120, out_w, out_h, bar, min_w, min_h;
+} CtlEnv;
 
 static CtlEnv ctl_env(const App *a)
 {
-	App *m = (App *)a;                 /* the lock is not const */
+	App *m = (App *)a; /* the lock is not const */
 	CtlEnv e;
 	fnl_mutex_lock(&m->lock);
 	e.s120  = a->pub_scale120 > 0 ? a->pub_scale120 : 120;
@@ -219,16 +235,16 @@ static int ctl_modes(const App *a, const CtlEnv *e, CtlRes *out, int max,
 {
 	FnlMode modes[OUTPUT_MODES_MAX];
 	int cur;
-	const int got = BACKEND(a)->modes(a, modes, OUTPUT_MODES_MAX, &cur);
-	const int fit = ctl_rows_fit(e) < max ? ctl_rows_fit(e) : max;
+	const int got   = BACKEND(a)->modes(a, modes, OUTPUT_MODES_MAX, &cur);
+	const int fit   = ctl_rows_fit(e) < max ? ctl_rows_fit(e) : max;
 	const int first = ctl_rows_first(got, fit, cur);
-	int n = 0;
-	*now = -1;
+	int n           = 0;
+	*now            = -1;
 	for (int i = first; i < got && n < fit; i++) {
 		if (i == cur)
 			*now = n;
-		out[n].w = modes[i].w_px;
-		out[n].h = modes[i].h_px;
+		out[n].w   = modes[i].w_px;
+		out[n].h   = modes[i].h_px;
 		out[n].mhz = modes[i].refresh_mhz;
 		n++;
 	}
@@ -243,11 +259,11 @@ static int ctl_outputs(const App *a, const CtlEnv *e,
 	char names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
 	int cur;
 	const int got = BACKEND(a)->outputs(a, names, OUTPUTS_MAX, &cur);
-	const int fit = ctl_rows_fit(e) < OUTPUTS_MAX ? ctl_rows_fit(e)
-												  : OUTPUTS_MAX;
+	const int fit =
+		ctl_rows_fit(e) < OUTPUTS_MAX ? ctl_rows_fit(e) : OUTPUTS_MAX;
 	const int first = ctl_rows_first(got, fit, cur);
-	int n = 0;
-	*now = -1;
+	int n           = 0;
+	*now            = -1;
 	for (int i = first; i < got && n < fit; i++) {
 		if (i == cur)
 			*now = n;
@@ -268,21 +284,21 @@ static int ctl_outputs(const App *a, const CtlEnv *e,
  * Read under App::lock in one go, so the rows and `now` are of one list.
  * Rows count from the list's first, so a row is its index. */
 
-static int ctl_gpus(const App *a, const CtlEnv *e,
-					char (*out)[CTL_GPU_ROW_MAX], int *now)
+static int ctl_gpus(const App *a, const CtlEnv *e, char (*out)[CTL_GPU_ROW_MAX],
+					int *now)
 {
-	App *m = (App *)a;                 /* the lock is not const */
+	App *m = (App *)a; /* the lock is not const */
 	GpuEntry list[GPU_LIST_MAX];
 	char moving[GPU_NAME_MAX];
 	fnl_mutex_lock(&m->lock);
 	const int got = a->gpu_list_n;
-	*now = a->gpu_list_cur;
+	*now          = a->gpu_list_cur;
 	memcpy(list, a->gpu_list, sizeof list);
 	memcpy(moving, a->gpu_driver_gpu, sizeof moving);
 	fnl_mutex_unlock(&m->lock);
 
-	const int fit = ctl_rows_fit(e) < GPU_LIST_MAX ? ctl_rows_fit(e)
-												   : GPU_LIST_MAX;
+	const int fit =
+		ctl_rows_fit(e) < GPU_LIST_MAX ? ctl_rows_fit(e) : GPU_LIST_MAX;
 	const int n = got < fit ? got : fit;
 	if (*now >= n)
 		*now = -1;
@@ -296,8 +312,7 @@ static int ctl_gpus(const App *a, const CtlEnv *e,
 		const char *name = app_gpu_short(cut, sizeof cut, list[i].name);
 		if (list[i].driver[0] && moving[0]) {
 			snprintf(named, sizeof named, "%s on %s",
-					 app_gpu_short(cut, sizeof cut, moving),
-					 list[i].driver);
+					 app_gpu_short(cut, sizeof cut, moving), list[i].driver);
 			name = named;
 		}
 		/* A ranked entry says its figure, which is what orders the list
@@ -322,8 +337,8 @@ static int ctl_gpus(const App *a, const CtlEnv *e,
 					 app_gpu_kind_word(list[i].kind), how, fps);
 		else
 			snprintf(out[i], CTL_GPU_ROW_MAX, "%d  %.*s (%.10s)%.12s", i + 1,
-					 CTL_GPU_NAME_MAX, name,
-					 app_gpu_kind_word(list[i].kind), fps);
+					 CTL_GPU_NAME_MAX, name, app_gpu_kind_word(list[i].kind),
+					 fps);
 	}
 	return n;
 }
@@ -343,7 +358,7 @@ static int ctl_gpu_count(const App *a)
  * taken where Direct3D 12 listed nothing). */
 static void ctl_gpu_label(const App *a, char *buf, size_t n)
 {
-	App *m = (App *)a;                 /* the lock is not const */
+	App *m = (App *)a; /* the lock is not const */
 	fnl_mutex_lock(&m->lock);
 	const int cur = a->gpu_list_cur;
 	fnl_mutex_unlock(&m->lock);
@@ -359,7 +374,7 @@ static void ctl_gpu_label(const App *a, char *buf, size_t n)
 static int ctl_options(const App *a, CtlRes *out, int max, int *now)
 {
 	const CtlEnv e = ctl_env(a);
-	*now = -1;
+	*now           = -1;
 	if (BACKEND(a)->is_output)
 		return ctl_modes(a, &e, out, max, now);
 	/* The floor is window geometry; the area's floor is that less the bar. */
@@ -373,8 +388,8 @@ static int ctl_options(const App *a, CtlRes *out, int max, int *now)
 			continue;
 		if (e.out_w > 0 && (aw > e.out_w || ah + e.bar > e.out_h))
 			continue;
-		out[n].w = CTL_RES[i].w;
-		out[n].h = CTL_RES[i].h;
+		out[n].w   = CTL_RES[i].w;
+		out[n].h   = CTL_RES[i].h;
 		out[n].mhz = 0;
 		n++;
 	}
@@ -387,10 +402,14 @@ static int ctl_options(const App *a, CtlRes *out, int max, int *now)
  * is a constant count times the advance. ctl_run_w() is asked on every
  * pointer motion over the bar, through deco_zone_at(). */
 
-#define CTL_LABEL_OF(s) { (s), (int)(sizeof (s) - 1) }
-static const struct { const char *text; int chars; }
-CTL_LABEL[CTL_CHECK_COUNT] = {
-	CTL_LABEL_OF("FSAA"), CTL_LABEL_OF("MLAA"), CTL_LABEL_OF("Fs Upsample"),
+#define CTL_LABEL_OF(s) { (s), (int)(sizeof(s) - 1) }
+static const struct {
+	const char *text;
+	int chars;
+} CTL_LABEL[CTL_CHECK_COUNT] = {
+	CTL_LABEL_OF("FSAA"),
+	CTL_LABEL_OF("MLAA"),
+	CTL_LABEL_OF("Fs Upsample"),
 };
 
 /* Whether a checkbox is in the run. Where the window is the output the size
@@ -412,7 +431,7 @@ static bool ctl_check_shown(const App *a, int i)
 	/* The antialiasing pair is one choice of sampling and one bit; the render
 	 * scale is the other checkbox and has its own. */
 	if (!ctl_wanted(a, i == CTL_CHECK_SCALE ? FNL_TITLEBAR_SCALE
-										: FNL_TITLEBAR_ANTIALIAS))
+											: FNL_TITLEBAR_ANTIALIAS))
 		return false;
 	return i != CTL_CHECK_SCALE || !BACKEND(a)->is_output;
 }
@@ -437,8 +456,8 @@ static int ctl_checks_w(const App *a)
 /* A box wide enough for a label of this many characters. */
 static int ctl_box_w(int chars)
 {
-	return CTL_COMBO_PAD + chars * text_advance(TEXT_BODY) +
-		   CTL_COMBO_PAD + CTL_COMBO_ARROW_W + CTL_COMBO_PAD;
+	return CTL_COMBO_PAD + chars * text_advance(TEXT_BODY) + CTL_COMBO_PAD +
+		   CTL_COMBO_ARROW_W + CTL_COMBO_PAD;
 }
 
 /* The size box: wide enough for the widest label it can hold. */
@@ -446,9 +465,8 @@ static int ctl_combo_w(const App *a)
 {
 	if (!ctl_wanted(a, FNL_TITLEBAR_MODE))
 		return 0;
-	return ctl_box_w(BACKEND(a)->is_output
-						 ? (int)(sizeof CTL_MODE_WIDEST - 1)
-						 : (int)(sizeof CTL_SIZE_WIDEST - 1));
+	return ctl_box_w(BACKEND(a)->is_output ? (int)(sizeof CTL_MODE_WIDEST - 1)
+										   : (int)(sizeof CTL_SIZE_WIDEST - 1));
 }
 
 /* The output box with the gap after it. */
@@ -475,10 +493,8 @@ static int ctl_gpu_gap(const App *a)
  * only where the window is the output. */
 int ctl_run_w(const App *a)
 {
-	return ctl_checks_w(a) +
-		   (BACKEND(a)->is_output ? ctl_output_room() : 0) +
-		   ctl_gpu_w(a) + ctl_gpu_gap(a) +
-		   ctl_combo_w(a);
+	return ctl_checks_w(a) + (BACKEND(a)->is_output ? ctl_output_room() : 0) +
+		   ctl_gpu_w(a) + ctl_gpu_gap(a) + ctl_combo_w(a);
 }
 
 /* Whether the output box is in the run of a window w wide. Where the window
@@ -492,17 +508,15 @@ static bool ctl_output_in(const App *a, int w)
 {
 	if (!ctl_wanted(a, FNL_TITLEBAR_OUTPUT))
 		return false;
-	return BACKEND(a)->is_output ||
-		   w >= DECO_MIN_W + DECO_BTN_GROUP_GAP + ctl_run_w(a) +
-					ctl_output_room();
+	return BACKEND(a)->is_output || w >= DECO_MIN_W + DECO_BTN_GROUP_GAP +
+											 ctl_run_w(a) + ctl_output_room();
 }
 
 /* The output box, and the gap after it; neither where it gave way. */
 static int ctl_output_w(const App *a, int w)
 {
-	return ctl_output_in(a, w)
-			   ? ctl_box_w((int)(sizeof CTL_OUTPUT_WIDEST - 1))
-			   : 0;
+	return ctl_output_in(a, w) ? ctl_box_w((int)(sizeof CTL_OUTPUT_WIDEST - 1))
+							   : 0;
 }
 
 static int ctl_output_gap(const App *a, int w)
@@ -535,10 +549,9 @@ static int ctl_size_x(const App *a, int w, int rx)
 
 int ctl_run_x(const App *a, int w)
 {
-	int  min_x, max_x, full_x, close_x, by;
+	int min_x, max_x, full_x, close_x, by;
 	bool btn_vis;
-	deco_button_rects(a, w, &min_x, &max_x, &full_x, &close_x, &by,
-					  &btn_vis);
+	deco_button_rects(a, w, &min_x, &max_x, &full_x, &close_x, &by, &btn_vis);
 
 	const int x = full_x - DECO_BTN_GROUP_GAP - ctl_run_w_at(a, w);
 	return btn_vis && x > DECO_BTN_MARGIN ? x : -1;
@@ -546,13 +559,11 @@ int ctl_run_x(const App *a, int w)
 
 /* Where the run sits: right-to-left from just left of the window buttons.
  * Its place in the give-way chain is stated at deco_reserved_rect(). */
-static bool ctl_run_rect(const App *a, int w, int *x, int *y, int *rw,
-						 int *rh)
+static bool ctl_run_rect(const App *a, int w, int *x, int *y, int *rw, int *rh)
 {
-	int  min_x, max_x, full_x, close_x, by;
+	int min_x, max_x, full_x, close_x, by;
 	bool btn_vis;
-	deco_button_rects(a, w, &min_x, &max_x, &full_x, &close_x, &by,
-					  &btn_vis);
+	deco_button_rects(a, w, &min_x, &max_x, &full_x, &close_x, &by, &btn_vis);
 
 	*rw = ctl_run_w_at(a, w);
 	*rh = DECO_ITEM_H;
@@ -605,8 +616,8 @@ static bool ctl_check_enabled(const App *a, int i, int n_sizes)
  * The size the scene is held at while the tick is on, and the presentable
  * area's while it is off. The size in force rather than the one picked: a pin
  * larger than the area is refused, and the box must not claim it. */
-static void ctl_combo_label(const App *a, const FnlDrawState *ds,
-							int area_w, int area_h, char *buf, size_t n)
+static void ctl_combo_label(const App *a, const FnlDrawState *ds, int area_w,
+							int area_h, char *buf, size_t n)
 {
 	/* Where the list is of modes, the box names the mode: the scene size is
 	 * the checkbox's to show, and the mode is what the list picks. */
@@ -669,13 +680,13 @@ static bool ctl_ticked(const App *a, const FnlDrawState *ds, int i)
 static void ctl_draw_check(App *a, int i, int x, int y, int h, bool ticked,
 						   bool enabled, bool focused)
 {
-	const bool on   = ticked && enabled;
-	const bool live = enabled && focused;
+	const bool on     = ticked && enabled;
+	const bool live   = enabled && focused;
 	const float *edge = a->pal[live ? COL_LINE_ON : COL_LINE_OFF];
 	const float *ink  = a->pal[live ? COL_ICON_ON : COL_CTL_DIM];
 	/* A tick on an unfocused bar is still a tick, so it keeps its mark and
 	 * takes the same unfocused ink the button icons do. */
-	const float *lit  = a->pal[focused ? COL_CTL_LIVE : COL_ICON_OFF];
+	const float *lit = a->pal[focused ? COL_CTL_LIVE : COL_ICON_OFF];
 
 	const int bx = x;
 	const int by = y + (h - CTL_CHECK_BOX) / 2;
@@ -684,13 +695,13 @@ static void ctl_draw_check(App *a, int i, int x, int y, int h, bool ticked,
 				(float)(by + CTL_CHECK_BOX) - 0.5f, 1.2f, on ? lit : edge);
 
 	if (on)
-		overlay_elbow(a, (float)bx + 2.5f, (float)by + 6.0f,
-					  (float)bx + 5.0f, (float)by + 8.8f,
-					  (float)bx + 9.5f, (float)by + 3.0f, 1.6f, lit);
+		overlay_elbow(a, (float)bx + 2.5f, (float)by + 6.0f, (float)bx + 5.0f,
+					  (float)by + 8.8f, (float)bx + 9.5f, (float)by + 3.0f,
+					  1.6f, lit);
 
 	text_draw(a, bx + CTL_CHECK_BOX + CTL_CHECK_GAP,
-			  y + (h - text_height(TEXT_BODY)) / 2,
-			  TEXT_BODY, on ? lit : ink, CTL_LABEL[i].text);
+			  y + (h - text_height(TEXT_BODY)) / 2, TEXT_BODY, on ? lit : ink,
+			  CTL_LABEL[i].text);
 }
 
 /* A box. What it drops down is ctl_draw_popup() below, and the two are
@@ -706,8 +717,8 @@ static void ctl_draw_combo(App *a, int x, int y, int w, int h,
 	overlay_frame(a, x, y, w, h, line);
 
 	char cut[CTL_SIZE_MAX];
-	const int fits = (w - 3 * CTL_COMBO_PAD - CTL_COMBO_ARROW_W) /
-					 text_advance(TEXT_BODY);
+	const int fits =
+		(w - 3 * CTL_COMBO_PAD - CTL_COMBO_ARROW_W) / text_advance(TEXT_BODY);
 	snprintf(cut, sizeof cut, "%.*s", fits > 0 ? fits : 0, label);
 	text_draw(a, x + CTL_COMBO_PAD, y + (h - text_height(TEXT_BODY)) / 2,
 			  TEXT_BODY, ink, cut);
@@ -722,8 +733,7 @@ static void ctl_draw_combo(App *a, int x, int y, int w, int h,
 
 /* From draw_decorations(), with the bar already painted. Draws nothing when
  * the run was refused, which only a window below its floor can see. */
-void ctl_draw(App *a, const FnlDrawState *ds, int win_w,
-			  int area_w, int area_h)
+void ctl_draw(App *a, const FnlDrawState *ds, int win_w, int area_w, int area_h)
 {
 	int rx, ry, rw, rh;
 	if (!ctl_run_rect(a, win_w, &rx, &ry, &rw, &rh))
@@ -744,8 +754,8 @@ void ctl_draw(App *a, const FnlDrawState *ds, int win_w,
 	if (ctl_output_w(a, win_w) > 0) {
 		char on[OUTPUT_NAME_MAX];
 		ctl_output_label(a, on, sizeof on);
-		ctl_draw_combo(a, ctl_output_x(a, rx), ry, ctl_output_w(a, win_w),
-					   rh, on, ds->is_active && ctl_output_count(a) > 1);
+		ctl_draw_combo(a, ctl_output_x(a, rx), ry, ctl_output_w(a, win_w), rh,
+					   on, ds->is_active && ctl_output_count(a) > 1);
 	}
 	if (ctl_gpu_w(a) > 0) {
 		char gpu[CTL_SIZE_MAX];
@@ -755,22 +765,22 @@ void ctl_draw(App *a, const FnlDrawState *ds, int win_w,
 	}
 	char label[CTL_SIZE_MAX];
 	ctl_combo_label(a, ds, area_w, area_h, label, sizeof label);
-	ctl_draw_combo(a, ctl_size_x(a, win_w, rx), ry, ctl_combo_w(a), rh,
-				   label, ds->is_active && n > 0);
+	ctl_draw_combo(a, ctl_size_x(a, win_w, rx), ry, ctl_combo_w(a), rh, label,
+				   ds->is_active && n > 0);
 }
 
 /* The open list: which box it drops from, where, and its rows as text.
  * One function for the draw and both hit tests, so a row is drawn exactly
  * where it is clicked. False when no list is open or it has no rows. */
 typedef struct {
-	int    which;                   /* CTL_OPEN_SIZE, _OUTPUT or _GPU */
-	int    x, y, w, n, now;         /* `now` the row in force, or -1 */
+	int which;           /* CTL_OPEN_SIZE, _OUTPUT or _GPU */
+	int x, y, w, n, now; /* `now` the row in force, or -1 */
 	CtlRes size[CTL_MAX_ITEMS];
-	char   name[OUTPUTS_MAX][OUTPUT_NAME_MAX];
+	char name[OUTPUTS_MAX][OUTPUT_NAME_MAX];
 	/* The GPU box's rows: gpu_n GPUs, and after them, unnumbered, the
 	 * calibration the ranking offers (app_rank_recalibrates()). */
-	char   gpu[GPU_LIST_MAX + 1][CTL_GPU_ROW_MAX];
-	int    gpu_n;
+	char gpu[GPU_LIST_MAX + 1][CTL_GPU_ROW_MAX];
+	int gpu_n;
 } CtlList;
 
 /* A list as wide as its widest row of `widest` characters where that is
@@ -802,16 +812,15 @@ static bool ctl_list(const App *a, int win_w, CtlList *l)
 		if (ctl_output_w(a, win_w) <= 0)
 			return false;
 		const CtlEnv e = ctl_env(a);
-		l->n = ctl_outputs(a, &e, l->name, &l->now);
-		int widest = 0;
+		l->n           = ctl_outputs(a, &e, l->name, &l->now);
+		int widest     = 0;
 		for (int i = 0; i < l->n; i++) {
 			const int c = (int)strlen(l->name[i]);
-			widest = c > widest ? c : widest;
+			widest      = c > widest ? c : widest;
 		}
-		if (widest > CTL_GPU_ROW_MAX - 1)    /* what a row is drawn from */
+		if (widest > CTL_GPU_ROW_MAX - 1) /* what a row is drawn from */
 			widest = CTL_GPU_ROW_MAX - 1;
-		ctl_list_hang(l, ctl_output_x(a, rx), ctl_output_w(a, win_w),
-					  widest);
+		ctl_list_hang(l, ctl_output_x(a, rx), ctl_output_w(a, win_w), widest);
 	} else if (l->which == CTL_OPEN_GPU) {
 		const CtlEnv e = ctl_env(a);
 		l->n = l->gpu_n = ctl_gpus(a, &e, l->gpu, &l->now);
@@ -819,12 +828,13 @@ static bool ctl_list(const App *a, int win_w, CtlList *l)
 		 * measure: a row of its own after the GPUs, with no number, so a
 		 * GPU's row is its place in the list as before. */
 		if (l->n > 0 && app_rank_recalibrates(a) && l->n < ctl_rows_fit(&e))
-			snprintf(l->gpu[l->n++], CTL_GPU_ROW_MAX, "   Recalibrate: this "
+			snprintf(l->gpu[l->n++], CTL_GPU_ROW_MAX,
+					 "   Recalibrate: this "
 					 "display now, the others when shown");
 		int widest = 0;
 		for (int i = 0; i < l->n; i++) {
 			const int c = (int)strlen(l->gpu[i]);
-			widest = c > widest ? c : widest;
+			widest      = c > widest ? c : widest;
 		}
 		ctl_list_hang(l, ctl_gpu_x(a, win_w, rx), ctl_gpu_w(a), widest);
 	} else {
@@ -862,7 +872,7 @@ FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds, int win_w)
 	if (!CTL_OPEN(a))
 		return FNL_OK;
 
-	static FNL_THREAD_LOCAL CtlList l;   /* 2.6 KiB: not on the stack */
+	static FNL_THREAD_LOCAL CtlList l; /* 2.6 KiB: not on the stack */
 	if (!ctl_list(a, win_w, &l))
 		return FNL_OK;
 
@@ -894,10 +904,9 @@ FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds, int win_w)
 			/* The size already picked, in the live ink: the box above shows
 			 * the *area* while the tick is off, so nothing else marks it.
 			 * Where the rows are modes, the mode in force. */
-			picked = BACKEND(a)->is_output
-						 ? i == l.now
-						 : CTL_PIN_W(a) == l.size[i].w &&
-							   CTL_PIN_H(a) == l.size[i].h;
+			picked = BACKEND(a)->is_output ? i == l.now
+										   : CTL_PIN_W(a) == l.size[i].w &&
+												 CTL_PIN_H(a) == l.size[i].h;
 		}
 		text_draw(a, x + CTL_ITEM_PAD,
 				  iy + (CTL_ITEM_H - text_height(TEXT_BODY)) / 2, TEXT_BODY,
@@ -929,7 +938,7 @@ int ctl_hit(const App *a, int win_w, int x, int y)
 	int cx = rx;
 	for (int i = 0; i < CTL_CHECK_COUNT; i++) {
 		const int cw = ctl_check_w(a, i);
-		if (cw && x >= cx && x < cx + cw - CTL_CHECK_PAD)  /* pad not live */
+		if (cw && x >= cx && x < cx + cw - CTL_CHECK_PAD) /* pad not live */
 			return i;
 		cx += cw;
 	}
@@ -983,8 +992,8 @@ static void ctl_toggle(App *a, int which)
 	 * either unticks the other by the same token. Read off the knob itself,
 	 * as the boxes are drawn from it. */
 	if (which == CTL_CHECK_FSAA || which == CTL_CHECK_MLAA) {
-		const FnlAntialias mode = which == CTL_CHECK_FSAA ? FNL_AA_MSAA
-														  : FNL_AA_MLAA;
+		const FnlAntialias mode =
+			which == CTL_CHECK_FSAA ? FNL_AA_MSAA : FNL_AA_MLAA;
 		fnl_set_antialias(a, fnl_antialias(a) == mode ? FNL_AA_NONE : mode);
 		fnl_invalidate(a);
 		return;
@@ -1072,14 +1081,13 @@ void ctl_press(App *a, int win_w, int x, int y, int row)
 		return;
 	}
 	/* A box opens its list, shuts it, or swaps the other's for its own. */
-	if (what == CTL_HIT_SIZE || what == CTL_HIT_OUTPUT ||
-		what == CTL_HIT_GPU) {
-		const int want = what == CTL_HIT_SIZE   ? CTL_OPEN_SIZE
-					   : what == CTL_HIT_OUTPUT ? CTL_OPEN_OUTPUT
-												: CTL_OPEN_GPU;
-		const bool any = what == CTL_HIT_SIZE   ? ctl_size_count(a) > 0
-					   : what == CTL_HIT_OUTPUT ? ctl_output_count(a) > 1
-												: ctl_gpu_count(a) > 1;
+	if (what == CTL_HIT_SIZE || what == CTL_HIT_OUTPUT || what == CTL_HIT_GPU) {
+		const int want = what == CTL_HIT_SIZE     ? CTL_OPEN_SIZE
+						 : what == CTL_HIT_OUTPUT ? CTL_OPEN_OUTPUT
+												  : CTL_OPEN_GPU;
+		const bool any = what == CTL_HIT_SIZE     ? ctl_size_count(a) > 0
+						 : what == CTL_HIT_OUTPUT ? ctl_output_count(a) > 1
+												  : ctl_gpu_count(a) > 1;
 		if (CTL_OPEN(a) == want)
 			ctl_set_open(a, CTL_SHUT);
 		else if (any)

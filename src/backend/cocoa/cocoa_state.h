@@ -18,6 +18,11 @@
 #ifndef FNL_COCOA_STATE_H
 #define FNL_COCOA_STATE_H
 
+/* For FnlAtomicBool, bool and uint32_t. Every includer includes it first
+ * anyway; naming it here keeps the file readable alone, and the atomics are
+ * core's. */
+#include "core/app.h"
+
 struct BackendState {
 	/* NSWindow, the view that is its content, and the CAMetalLayer that
 	 * backs the view: owned, each one reference. The layer is the one
@@ -39,7 +44,7 @@ struct BackendState {
 	 * the one thing a signal handler may do -- wakes the pump in every
 	 * run-loop mode, the tracking loops of a drag and a resize included.
 	 * The source is owned (CFFileDescriptorRef, CFRunLoopSourceRef). */
-	int   wake_fd[2];
+	int wake_fd[2];
 	void *wake_cf;
 	void *wake_source;
 
@@ -56,6 +61,15 @@ struct BackendState {
 	/* Whether this backend hid the cursor and detached it from the mouse:
 	 * NSCursor's hide is a counter, kept balanced through this. */
 	bool cursor_hidden;
+	/* The shape last handed to AppKit. An -[NSCursor set] is a cursor update
+	 * the window server answers, and a pointer crossing the window makes a
+	 * motion event after another, so only a change is sent. Zero is
+	 * DECO_CURSOR_HIDDEN, which cursor_apply() never stores, so nothing set
+	 * reads as none; cursorUpdate: puts it back, for a cursor the desktop
+	 * changed behind us. */
+	int cursor_kind;
+	int cursor_shape;
+	int cursor_edge;
 	/* Inside fullscreen's animation, from the will to the did or a failure,
 	 * where AppKit ignores a toggle: one asked there goes to fs_owed. Its
 	 * resize is published like any other. Main thread. */
@@ -63,7 +77,7 @@ struct BackendState {
 	/* A fullscreen asked for inside that animation, which AppKit ignores
 	 * there: kept, the last one asked, and asked of AppKit as it ends
 	 * (fs_settle()). 0 none, else 1 on or 2 off. Main thread. */
-	int  fs_owed;
+	int fs_owed;
 	/* Inside the library's own resize loop (cocoa_begin_resize()), which
 	 * reads the pointer itself. */
 	bool resizing;
