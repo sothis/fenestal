@@ -2891,7 +2891,12 @@ void fnl_quit(App *a)
 	app_wakeup(a);
 }
 
-FnlResult fnl_run(App *a, const FnlCallbacks *cb)
+/* fnl_run() in three, which is what it is: fnl_start() takes the callbacks
+ * and starts the render thread, fnl_pump() is one turn of the window server,
+ * and fnl_stop() joins the render thread and lets the device go. A caller
+ * with an event loop of its own -- a toolkit's, an engine's -- runs the three
+ * around it; see fenestal.h. */
+FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 {
 	if (!a)
 		return FNL_ERR_INVALID_ARGUMENT;
@@ -2899,10 +2904,10 @@ FnlResult fnl_run(App *a, const FnlCallbacks *cb)
 	 * attributed to the thread fnl_init() ran on; another thread would pump
 	 * a connection it did not open. */
 	if (app_thread() != APP_THREAD_MAIN)
-		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_run() must be called "
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_start() must be called "
 						"on the thread that called fnl_init()");
 	if (a->in_run)
-		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_run() called from a "
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_start() called from a "
 						"callback of its own");
 
 	/* Copied, not referenced: the render thread reads these every frame, and
@@ -2958,16 +2963,41 @@ FnlResult fnl_run(App *a, const FnlCallbacks *cb)
 	}
 	a->render_thread_started = true;
 
-	FnlResult rc = FNL_OK;
-	while (!fnl_atomic_load_bool(&a->should_close)) {
-		BACKEND(a)->pump(a);
-		/* After the pump rather than before it: a request made from the frame
-		 * that was drawn while the pump blocked should be spent on the turn
-		 * that wakes, not held for the one after. */
-		app_drain_requests(a);
-		if ((rc = BACKEND(a)->check_error(a)) < 0)
-			break;
-	}
+	return FNL_OK;
+}
+
+/* One turn of the pump: exactly what fnl_run()'s loop does, for a caller that
+ * has a loop of its own. FNL_SKIPPED once the window is closing, which is the
+ * cue to call fnl_stop(); a negative result is the backend's, and fnl_run()'s
+ * loop stops on it as this caller's should. */
+FnlResult fnl_pump(App *a)
+{
+	if (!a)
+		return FNL_ERR_INVALID_ARGUMENT;
+	if (app_thread() != APP_THREAD_MAIN)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_pump() must be called "
+						"on the thread that called fnl_init()");
+	if (!a->in_run)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_pump() outside "
+						"fnl_start() and fnl_stop()");
+	if (fnl_atomic_load_bool(&a->should_close))
+		return FNL_SKIPPED;
+	BACKEND(a)->pump(a);
+	/* After the pump rather than before it: a request made from the frame
+	 * that was drawn while the pump blocked should be spent on the turn that
+	 * wakes, not held for the one after. */
+	app_drain_requests(a);
+	return BACKEND(a)->check_error(a);
+}
+
+/* What fnl_run() does after its loop: the render thread joined and the device
+ * let go. Idempotent, since a caller's own loop may end early. */
+FnlResult fnl_stop(App *a)
+{
+	if (!a)
+		return FNL_ERR_INVALID_ARGUMENT;
+	if (!a->in_run)
+		return FNL_OK;
 
 	/* Joined here rather than left to fnl_shutdown, so that a caller which
 	 * runs, inspects and only then shuts down is not reading state a live
@@ -2992,5 +3022,18 @@ FnlResult fnl_run(App *a, const FnlCallbacks *cb)
 	}
 
 	a->in_run = false;
-	return rc;
+	return FNL_OK;
+}
+
+/* The three above, in a loop: what a program without a loop of its own
+ * calls. */
+FnlResult fnl_run(App *a, const FnlCallbacks *cb)
+{
+	FnlResult rc = fnl_start(a, cb);
+	if (rc < 0)
+		return rc;
+	while ((rc = fnl_pump(a)) == FNL_OK)
+		;
+	(void)fnl_stop(a);
+	return rc == FNL_SKIPPED ? FNL_OK : rc;
 }

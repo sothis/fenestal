@@ -18,7 +18,7 @@
 #include "core/compiler.h"    /* also pins _POSIX_C_SOURCE; must precede libc */
 #include "core/thread.h"
 
-#include <errno.h>
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -294,6 +294,12 @@ typedef struct { int x, y, w, h; } FnlRect;
  * read at once; FnlBackendVtbl::modes and ::outputs give at most these. */
 #define OUTPUT_MODES_MAX 64
 #define OUTPUTS_MAX      8
+
+/* One call a caller queued with fnl_post(), and how many are taken at once.
+ * File scope rather than nested in App, where a declaration declares a type
+ * and no member. */
+struct AppPost { void (*fn)(void *ud); void *ud; };
+enum { APP_POST_MAX = 16 };
 
 /* What the [any]-thread knobs have asked the pump to do; see App::req. */
 typedef struct {
@@ -1827,8 +1833,6 @@ struct FnlApp {
 	 * turn, on the render thread, so a worker's state reaches the callbacks
 	 * without a lock of the caller's. Under App::lock, the caller's threads
 	 * writing and the render thread taking the lot. */
-	struct AppPost { void (*fn)(void *ud); void *ud; };
-	enum { APP_POST_MAX = 16 };
 	struct AppPost post[APP_POST_MAX];
 	int                   post_n;
 

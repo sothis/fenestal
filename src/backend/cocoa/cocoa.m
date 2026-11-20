@@ -717,7 +717,9 @@ static void left_release(App *a, NSPoint pt)
 	if (!app || app->pointer_captured)
 		return;
 	/* A caller should hear where: a hover that waits for the pointer to
-	 * move again is stale for one that enters and stops. */
+	 * move again is stale for one that enters and stops. The tracking area
+	 * brings both edges, and app_pointer_presence() is what turns them into
+	 * the caller's FNL_EVENT_ENTER and FNL_EVENT_LEAVE. */
 	pointer_at(app, event_pt(app, e));
 	app_pointer_presence(app, true, app->ptr_x, app->ptr_y);
 }

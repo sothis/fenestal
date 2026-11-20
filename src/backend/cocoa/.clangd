@@ -1,0 +1,19 @@
+# A macOS backend, compiled by clang against Apple's SDK -- which a Linux
+# clangd has to be told about, or it cannot find Cocoa/Cocoa.h and reports the
+# whole file as broken. The path is what `python3 tools/macos_sdk.py --path`
+# answers; the cross build (./build.sh macos) is the authority, and this is so
+# the editor agrees with it. Verified with clang itself, no -x needed (.m is
+# Objective-C to clang already, and clangd refuses -x in a config):
+#
+#   clang -fsyntax-only --target=x86_64-apple-darwin \
+#         -isysroot "$(python3 tools/macos_sdk.py --path)" \
+#         -Iinclude -Isrc -Itools -Ibuild/linux/release/generated \
+#         src/backend/cocoa/cocoa.m
+#
+# The Metal renderer next door needs the same and has its own copy of this.
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-darwin
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -D__APPLE__

@@ -137,11 +137,6 @@ void deco_reserved_rect(const App *a, int w, int want_w, int *x, int *y,
  * What the last frame's on_overlay claimed (fnl_claim(), fnl_titlebar_claim()).
  * The whole scan is under the lock: the list is the render thread's, and the
  * count and the rectangles have to come from the same frame. */
-static bool claim_at(App *a, int x, int y)
-{
-	return deco_claim_at(a, x, y) >= 0;
-}
-
 /* The same scan, answering which claim rather than whether: the index counts
  * from 0 in the order this frame's fnl_claim() and fnl_titlebar_claim() calls
  * were made, so it names the control the caller drew in that order. Under the
@@ -178,7 +173,7 @@ static Zone deco_zone_at(App *a, int w, int x, int y)
 	/* A titlebar the caller drew has only what it claimed last frame; the
 	 * rest of the band is a drag strip. */
 	if (a->deco_custom)
-		return claim_at(a, x, y) ? ZONE_CLIENT_ITEM : ZONE_TITLEBAR;
+		return deco_claim_at(a, x, y) >= 0 ? ZONE_CLIENT_ITEM : ZONE_TITLEBAR;
 
 	int  min_x, max_x, full_x, close_x, by;
 	bool vis;
@@ -241,8 +236,8 @@ Zone deco_hit(App *a, double px, double py, Edge *edge)
 	 * A window that is all interface (FnlInitDesc::content_is_ui) needs
 	 * nothing claimed for the same answer. */
 	if (!deco_client(a->is_fullscreen))
-		return a->content_is_ui || claim_at(a, x, y) ? ZONE_CLIENT_ITEM
-													: ZONE_CONTENT;
+		return a->content_is_ui || deco_claim_at(a, x, y) >= 0
+				   ? ZONE_CLIENT_ITEM : ZONE_CONTENT;
 	if (ctl_modal(a))
 		return ZONE_CONTROL;
 
@@ -267,7 +262,8 @@ Zone deco_hit(App *a, double px, double py, Edge *edge)
 
 	if (y >= 0 && y < deco_bar_h(a, a->is_fullscreen))
 		return deco_zone_at(a, w, x, y);
-	return a->content_is_ui || claim_at(a, x, y) ? ZONE_CLIENT_ITEM : ZONE_CONTENT;
+	return a->content_is_ui || deco_claim_at(a, x, y) >= 0
+		   ? ZONE_CLIENT_ITEM : ZONE_CONTENT;
 }
 
 /* Which of the library's own buttons is lit; any other zone is none. Where
