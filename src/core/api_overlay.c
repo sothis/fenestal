@@ -108,6 +108,17 @@ int fnl_text_height(FnlTextSize sz)
 
 /* Zero for the proportional face rather than an average, which would be wrong
  * in both directions; fnl_text_width() answers for every face. */
+int fnl_text_wrap(char *dst, size_t cap, const char *src, int max_w,
+				  FnlTextSize sz)
+{
+	if (!size_ok(sz)) {
+		if (dst && cap)
+			dst[0] = '\0';
+		return 0;
+	}
+	return text_wrap(dst, cap, src, max_w, (TextSize)sz);
+}
+
 void fnl_text_elide(char *dst, size_t cap, const char *src, int max_w,
 					FnlTextSize sz)
 {

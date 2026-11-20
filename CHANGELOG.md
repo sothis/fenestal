@@ -6,6 +6,11 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_text_wrap()`: several lines fitted into a width, breaking at a space
+  where it can and inside a word where the word is longer than the line, with
+  the number of lines answered back. The sibling of `fnl_text_elide()` -- one
+  line cut to a width, or many wrapped into it -- and `hello.c` draws its
+  greeting with it.
 - `fnl_error_copy()`: the last failure in the caller's own buffer, where
   `fnl_last_error()`'s text is valid only until the next Fenestal call on that
   thread -- one call too few to log it after anything else.

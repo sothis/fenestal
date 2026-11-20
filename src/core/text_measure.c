@@ -345,3 +345,137 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 	dst[lo] = '\0';
 	memcpy(dst + lo, "...", dots_n + 1);    /* the terminator with them */
 }
+
+
+/* The widest prefix of `s` -- at most `n` bytes, cut on a code point boundary
+ * -- that no baked scale draws wider than max_w points. One pass, every scale
+ * advanced together, since the reserve width is the widest of them and a
+ * prefix's is not the sum of the two.
+ *
+ * The measures of a *substring* that no terminator ends, which is what a
+ * wrapper needs and text_width() cannot do. */
+size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
+{
+	if (max_w <= 0)
+		return 0;
+	if (text_is_mono(sz)) {
+		const int adv = text_advance(sz);
+		if (adv <= 0)
+			return 0;
+		size_t i = 0;
+		const size_t most = (size_t)(max_w / adv);
+		while (i < n && s[i] && i < most) {
+			uint32_t cp;
+			const char *q = utf8_next(s + i, &cp);
+			if ((size_t)(q - s) > n)
+				break;
+			i = (size_t)(q - s);
+		}
+		return i;
+	}
+
+	long long px[FONT_SCALE_COUNT] = { 0 };
+	size_t i = 0, last = 0;
+	while (i < n && s[i]) {
+		uint32_t cp;
+		const char *q = utf8_next(s + i, &cp);
+		const size_t len = (size_t)(q - s) - i;
+		if (i + len > n)
+			break;
+		long long worst = 0;
+		for (int si = 0; si < FONT_SCALE_COUNT; si++) {
+			const GlyphCell *row = cell_row(si, sz);
+			const GlyphCell *cl = row ? cell_for(row, cp) : NULL;
+			if (cl)
+				px[si] += cl->adv;
+			const long long pt = (px[si] * 120 + FONT_SCALE[si] - 1)
+								 / FONT_SCALE[si];
+			if (pt > worst)
+				worst = pt;
+		}
+		if (worst > max_w)
+			break;
+		i += len;
+		last = i;
+	}
+	return last;
+}
+
+/* See fnl_text_wrap(). Greedy: the longest prefix that fits, backed up to the
+ * last space or break inside it, and a word longer than the line broken where
+ * it must be. A run of spaces, '\n's or '\r's separates two lines and is not
+ * itself a line, so a trailing one adds none and what comes out has exactly
+ * as many lines as this answers.
+ *
+ * strlen() once a line is the one cost worth naming: what is wrapped is a
+ * panel's text, not a file's. */
+int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
+{
+	size_t w = 0;
+	int lines = 0;
+
+	if (!dst || cap == 0)
+		return 0;
+	dst[0] = '\0';
+	if (!src || !src[0] || max_w <= 0)
+		return 0;
+
+	const char *p = src;
+	while (*p) {
+		while (*p == ' ' || *p == '\n' || *p == '\r')
+			p++;                             /* the run between two lines */
+		if (!*p)
+			break;                           /* a trailing run is no line */
+
+		const size_t avail = strlen(p);
+		size_t fit = text_prefix_fit(p, avail, max_w, sz);
+		if (fit == 0) {
+			/* Not one code point fits: take one anyway, so a width too small
+			 * to draw anything is a clipped line rather than a loop. */
+			uint32_t cp;
+			const char *q = utf8_next(p, &cp);
+			fit = (size_t)(q - p);
+			if (fit > avail)
+				fit = avail;
+		}
+		size_t take = fit;
+		if (fit < avail && p[fit] != ' ' && p[fit] != '\n' && p[fit] != '\r') {
+			/* The break lands inside a word: back up to the last space or
+			 * break within what fits. */
+			size_t at = 0;
+			bool found = false;
+			for (size_t i = 0; i < fit; i++)
+				if (p[i] == ' ' || p[i] == '\n' || p[i] == '\r') {
+					at = i;
+					found = true;
+				}
+			if (found)
+				take = at;
+		}
+		for (size_t i = 0; i < take; i++)
+			if (p[i] == '\n' || p[i] == '\r') {
+				take = i;                /* never cross a break in the source */
+				break;
+			}
+		/* Room for the break before this line, the line itself and the
+		 * terminator after it -- every term of it size_t, since subtracting
+		 * first is how a full buffer wrapped round to a huge room and the
+		 * line went past the end of it. */
+		const size_t fixed = (lines ? 1 : 0) + 1;
+		if (w + fixed + take > cap) {
+			if (cap < w + fixed)
+				break;					   /* no room for a line at all */
+			take = cap - w - fixed;
+			if (take == 0)
+				break;
+		}
+		if (lines)
+			dst[w++] = '\n';
+		memcpy(dst + w, p, take);
+		w += take;
+		dst[w] = '\0';
+		lines++;
+		p += take;
+	}
+	return lines;
+}

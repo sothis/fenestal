@@ -7,7 +7,7 @@
  *
  * Shows: fnl_version fnl_init fnl_run fnl_shutdown fnl_result_str
  *        fnl_last_error fnl_error_copy fnl_overlay_text fnl_overlay_rect
- *        fnl_text_width
+ *        fnl_text_width fnl_text_wrap
  *        fnl_text_line fnl_window_size_pt fnl_font_notice fnl_font_licence
  */
 
@@ -20,19 +20,24 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	(void)ud;
 	(void)frame;
-	const char *msg = "Hello from Fenestal";
+	const char *msg = "Hello from Fenestal, wrapped into the window it is "
+					  "drawn in however narrow that is";
 	const FnlColor panel = { 0.10f, 0.10f, 0.12f, 0.85f };
 	const FnlColor ink   = { 0.95f, 0.95f, 0.90f, 1.00f };
 
-	/* Centred, in logical points: the same layout at every display scale.
+	/* Wrapped, in logical points: the same layout at every display scale.
 	 * The rectangle is a background, as every filled rectangle must be. */
 	int w_pt, h_pt;
 	fnl_window_size_pt(app, &w_pt, &h_pt);
-	const int tw = fnl_text_width(msg, FNL_TEXT_LARGE);
-	const int th = fnl_text_line(FNL_TEXT_LARGE);
-	const int x = (w_pt - tw) / 2, y = (h_pt - th) / 2;
+	const int margin = 24;
+	char text[512];
+	const int lines = fnl_text_wrap(text, sizeof text, msg,
+									w_pt - 2 * margin, FNL_TEXT_LARGE);
+	const int tw = w_pt - 2 * margin;
+	const int th = fnl_text_line(FNL_TEXT_LARGE) * (lines > 0 ? lines : 1);
+	const int x = margin, y = (h_pt - th) / 2;
 	fnl_overlay_rect(app, x - 12, y - 8, tw + 24, th + 16, panel);
-	fnl_overlay_text(app, x, y, FNL_TEXT_LARGE, ink, msg);
+	fnl_overlay_text(app, x, y, FNL_TEXT_LARGE, ink, text);
 }
 
 int main(int argc, char **argv)

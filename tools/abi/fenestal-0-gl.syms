@@ -27,6 +27,7 @@ fnl_text_line
 fnl_text_height
 fnl_text_advance
 fnl_text_elide
+fnl_text_wrap
 fnl_overlay_text
 fnl_overlay_rect
 fnl_overlay_stroke

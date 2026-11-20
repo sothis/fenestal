@@ -991,6 +991,19 @@ FNL_API int fnl_text_advance(FnlTextSize sz);  /* one cell; mono only  [any] */
 FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src,
 							int max_w, FnlTextSize sz);          /* [any] */
 
+/* Wrap `src` into `dst` (cap bytes, terminator included) at `max_w` points,
+ * with '\n' between the lines, and answer how many lines it came to. A break
+ * falls at a space where it can and inside a word where the word is longer
+ * than the line; the spaces a break swallows are dropped, and a '\n' or '\r'
+ * in the source starts a line of its own. Text that does not fit in `dst`
+ * stops there, so a buffer too small is a shorter panel rather than a wrap
+ * that never ends.
+ *
+ * The sibling of fnl_text_elide(): one line cut to a width, or several lines
+ * fitted into it. Both read the same tables and are safe from [any] thread. */
+FNL_API int fnl_text_wrap(char *dst, size_t cap, const char *src,
+						  int max_w, FnlTextSize sz);            /* [any] */
+
 /* `y` is the top of the glyph box, not the baseline, so a line of text and a
  * rectangle behind it take the same y. */
 FNL_API void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz,

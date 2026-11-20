@@ -2682,6 +2682,14 @@ int  text_width(const char *s, TextSize sz);
  * included): unchanged where it fits, else cut on a code point boundary and
  * ended in "...", else "" where not even that fits. See fnl_text_elide(). */
 void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz);
+/* Wrap `src` into `dst` at max_w points, breaking at spaces where it can and
+ * inside a word where it must, and returning the lines written. See
+ * fnl_text_wrap(). */
+int  text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz);
+/* The widest prefix of `s` (at most `n` bytes, on a code point boundary) that
+ * fits max_w points: what a wrapper needs and text_width() cannot do, its
+ * string being terminated. */
+size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz);
 /* Which baked atlas is nearest this surface scale. */
 int  scale_index(int s120);
 /* Decode one UTF-8 code point, returning the next position. utf8_decode()
