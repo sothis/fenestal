@@ -66,11 +66,11 @@ int headercheck(void)
 	FnlMetalGpu mtl_gpu;
 	FnlMetalSceneLayout mtl_layout;
 	FnlMetalScene mtl_scene;
-	FnlApp *app = 0;
-	d.size = sizeof d;
+	FnlApp *app      = 0;
+	d.size           = sizeof d;
 	d.header_version = FNL_VERSION;
-	cb.size = sizeof cb;
-	cb.on_overlay = on_overlay;
+	cb.size          = sizeof cb;
+	cb.on_overlay    = on_overlay;
 #ifdef FNL_CHECK_VULKAN
 	(void)gpu;
 	(void)layout;

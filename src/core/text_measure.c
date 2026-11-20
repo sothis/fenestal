@@ -24,7 +24,7 @@
 /* What an unmapped code point draws. Looked up through the same range table as
  * anything else, per call -- a binary search over 109 ranges, against a path
  * that only runs for a code point the face does not carry. */
-#define TEXT_NOTDEF_CP 0xfffdu     /* REPLACEMENT CHARACTER */
+#define TEXT_NOTDEF_CP 0xfffdu /* REPLACEMENT CHARACTER */
 
 /* One UTF-8 sequence. Returns the byte after it and writes the code point.
  * Anything malformed -- a bad lead byte, a truncated or over-long sequence, a
@@ -36,18 +36,31 @@
 const char *utf8_decode(const char *s, uint32_t *out, bool *ok)
 {
 	const unsigned char *p = (const unsigned char *)s;
-	unsigned char c = p[0];
+	unsigned char c        = p[0];
 
-	int      extra;
+	int extra;
 	uint32_t cp;
 	uint32_t min;
 	*ok  = false;
 	*out = TEXT_NOTDEF_CP;
-	if (c < 0x80)        { *out = c; *ok = true; return s + 1; }
-	else if ((c & 0xe0) == 0xc0) { extra = 1; cp = c & 0x1fu; min = 0x80; }
-	else if ((c & 0xf0) == 0xe0) { extra = 2; cp = c & 0x0fu; min = 0x800; }
-	else if ((c & 0xf8) == 0xf0) { extra = 3; cp = c & 0x07u; min = 0x10000; }
-	else                 return s + 1;
+	if (c < 0x80) {
+		*out = c;
+		*ok  = true;
+		return s + 1;
+	} else if ((c & 0xe0) == 0xc0) {
+		extra = 1;
+		cp    = c & 0x1fu;
+		min   = 0x80;
+	} else if ((c & 0xf0) == 0xe0) {
+		extra = 2;
+		cp    = c & 0x0fu;
+		min   = 0x800;
+	} else if ((c & 0xf8) == 0xf0) {
+		extra = 3;
+		cp    = c & 0x07u;
+		min   = 0x10000;
+	} else
+		return s + 1;
 
 	for (int i = 1; i <= extra; i++) {
 		if ((p[i] & 0xc0) != 0x80)
@@ -83,9 +96,12 @@ static int glyph_index(uint32_t cp)
 	int lo = 0, hi = FONT_RANGE_COUNT - 1;
 	while (lo <= hi) {
 		int mid = (lo + hi) / 2;
-		if (cp < FONT_RANGE[mid].first)     hi = mid - 1;
-		else if (cp > FONT_RANGE[mid].last) lo = mid + 1;
-		else return (int)(FONT_RANGE[mid].base + (cp - FONT_RANGE[mid].first));
+		if (cp < FONT_RANGE[mid].first)
+			hi = mid - 1;
+		else if (cp > FONT_RANGE[mid].last)
+			lo = mid + 1;
+		else
+			return (int)(FONT_RANGE[mid].base + (cp - FONT_RANGE[mid].first));
 	}
 	return -1;
 }
@@ -162,8 +178,8 @@ const GlyphCell *cell_row(int si, TextSize sz)
 							   "was loaded");
 		return NULL;
 	}
-	return cell_table + ((size_t)si * FONT_SIZE_COUNT + (size_t)sz)
-						* FONT_GLYPH_COUNT;
+	return cell_table +
+		   ((size_t)si * FONT_SIZE_COUNT + (size_t)sz) * FONT_GLYPH_COUNT;
 }
 
 /* The cell a code point draws with, or NULL if there is nothing to draw at all.
@@ -194,10 +210,10 @@ const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
 	 * FONT_SIZE_COUNT + size and its fallback's row is in the same scale. */
 	const size_t r  = (size_t)(row - cell_table) / FONT_GLYPH_COUNT;
 	const size_t sz = r % FONT_SIZE_COUNT;
-	const int    fb = FONT_SIZE_FALLBACK[sz];
+	const int fb    = FONT_SIZE_FALLBACK[sz];
 	if (fb >= 0) {
-		const GlyphCell *alt = cell_table +
-							   (r - sz + (size_t)fb) * FONT_GLYPH_COUNT;
+		const GlyphCell *alt =
+			cell_table + (r - sz + (size_t)fb) * FONT_GLYPH_COUNT;
 		if (alt[gi].x != FONT_CELL_ABSENT)
 			return &alt[gi];
 	}
@@ -237,14 +253,14 @@ const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
  * call what it cost before and bounds the memory. Safe while the cells are
  * loaded once, before any thread exists: a reload would want the table
  * cleared with it. */
-#define WIDTH_MEMO      32
-#define WIDTH_MEMO_KEY  32
+#define WIDTH_MEMO 32
+#define WIDTH_MEMO_KEY 32
 
 typedef struct {
-	TextSize      sz;
-	unsigned char len;      /* the key's bytes; the key is empty at 0 */
-	char          key[WIDTH_MEMO_KEY];
-	int           w;
+	TextSize sz;
+	unsigned char len; /* the key's bytes; the key is empty at 0 */
+	char key[WIDTH_MEMO_KEY];
+	int w;
 } WidthMemo;
 
 static FNL_THREAD_LOCAL WidthMemo width_memo[WIDTH_MEMO];
@@ -273,11 +289,11 @@ static int text_width_uncached(const char *s, TextSize sz)
 	for (int si = 0; si < FONT_SCALE_COUNT; si++) {
 		const GlyphCell *row = cell_row(si, sz);
 		if (!row)
-			return 0;       /* nothing decoded yet; cell_for() would fault */
+			return 0; /* nothing decoded yet; cell_for() would fault */
 		long long px = 0;
-		for (const char *p = s; *p; ) {
+		for (const char *p = s; *p;) {
 			uint32_t cp;
-			p = utf8_next(p, &cp);
+			p                   = utf8_next(p, &cp);
 			const GlyphCell *cl = cell_for(row, cp);
 			if (cl)
 				px += cl->adv;
@@ -305,11 +321,11 @@ int text_width(const char *s, TextSize sz)
 	if (m->len == n && m->sz == sz && memcmp(m->key, s, n) == 0)
 		return m->w;
 
-	m->w   = text_width_uncached(s, sz);
+	m->w = text_width_uncached(s, sz);
 	memcpy(m->key, s, n);
 	m->key[n] = '\0';
-	m->len = (unsigned char)n;
-	m->sz  = sz;
+	m->len    = (unsigned char)n;
+	m->sz     = sz;
 	return m->w;
 }
 
@@ -331,8 +347,12 @@ int scale_index(int s120)
 	int best = 0, best_d = -1;
 	for (int i = 0; i < FONT_SCALE_COUNT; i++) {
 		int d = FONT_SCALE[i] - s120;
-		if (d < 0) d = -d;
-		if (best_d < 0 || d < best_d) { best_d = d; best = i; }
+		if (d < 0)
+			d = -d;
+		if (best_d < 0 || d < best_d) {
+			best_d = d;
+			best   = i;
+		}
 	}
 	return best;
 }
@@ -356,8 +376,8 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 	/* The dots and the terminator come out of the same buffer, so a cut leaves
 	 * room for both; a buffer of four bytes or fewer ends without them. */
 	const size_t dots_n = cap > 4 ? 3 : 0;
-	const size_t lim = cap - dots_n - 1;
-	size_t n = 0;
+	const size_t lim    = cap - dots_n - 1;
+	size_t n            = 0;
 	while (src[n] && src[n] != '\n' && src[n] != '\r' && n < lim) {
 		dst[n] = src[n];
 		n++;
@@ -372,9 +392,9 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 	if (text_width(dst, sz) <= max_w)
 		return;
 	if (dots_n == 0)
-		return;              /* truncated, and no room to say it was cut */
+		return; /* truncated, and no room to say it was cut */
 	if (text_width("...", sz) > max_w) {
-		dst[0] = '\0';      /* not even the dots fit */
+		dst[0] = '\0'; /* not even the dots fit */
 		return;
 	}
 
@@ -389,7 +409,7 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 		while (mid > 0 && ((unsigned char)dst[mid] & 0xc0) == 0x80)
 			mid--;
 		if (mid == lo)
-			break;               /* no whole code point left between */
+			break; /* no whole code point left between */
 		char tail[4];
 		memcpy(tail, dst + mid, sizeof tail);
 		memcpy(dst + mid, "...", 4);
@@ -401,9 +421,8 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 			hi = mid - 1;
 	}
 	dst[lo] = '\0';
-	memcpy(dst + lo, "...", dots_n + 1);    /* the terminator with them */
+	memcpy(dst + lo, "...", dots_n + 1); /* the terminator with them */
 }
-
 
 /* The widest prefix of `s` -- at most `n` bytes, cut on a code point boundary
  * -- that no baked scale draws wider than max_w points. One pass, every scale
@@ -420,7 +439,7 @@ size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
 		const int adv = text_advance(sz);
 		if (adv <= 0)
 			return 0;
-		size_t i = 0;
+		size_t i          = 0;
 		const size_t most = (size_t)(max_w / adv);
 		while (i < n && s[i] && i < most) {
 			uint32_t cp;
@@ -436,18 +455,18 @@ size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
 	size_t i = 0, last = 0;
 	while (i < n && s[i]) {
 		uint32_t cp;
-		const char *q = utf8_next(s + i, &cp);
+		const char *q    = utf8_next(s + i, &cp);
 		const size_t len = (size_t)(q - s) - i;
 		if (i + len > n)
 			break;
 		long long worst = 0;
 		for (int si = 0; si < FONT_SCALE_COUNT; si++) {
 			const GlyphCell *row = cell_row(si, sz);
-			const GlyphCell *cl = row ? cell_for(row, cp) : NULL;
+			const GlyphCell *cl  = row ? cell_for(row, cp) : NULL;
 			if (cl)
 				px[si] += cl->adv;
-			const long long pt = (px[si] * 120 + FONT_SCALE[si] - 1)
-								 / FONT_SCALE[si];
+			const long long pt =
+				(px[si] * 120 + FONT_SCALE[si] - 1) / FONT_SCALE[si];
 			if (pt > worst)
 				worst = pt;
 		}
@@ -469,7 +488,7 @@ size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
  * panel's text, not a file's. */
 int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 {
-	size_t w = 0;
+	size_t w  = 0;
 	int lines = 0;
 
 	if (!dst || cap == 0)
@@ -481,18 +500,18 @@ int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 	const char *p = src;
 	while (*p) {
 		while (*p == ' ' || *p == '\n' || *p == '\r')
-			p++;                             /* the run between two lines */
+			p++; /* the run between two lines */
 		if (!*p)
-			break;                           /* a trailing run is no line */
+			break; /* a trailing run is no line */
 
 		const size_t avail = strlen(p);
-		size_t fit = text_prefix_fit(p, avail, max_w, sz);
+		size_t fit         = text_prefix_fit(p, avail, max_w, sz);
 		if (fit == 0) {
 			/* Not one code point fits: take one anyway, so a width too small
 			 * to draw anything is a clipped line rather than a loop. */
 			uint32_t cp;
 			const char *q = utf8_next(p, &cp);
-			fit = (size_t)(q - p);
+			fit           = (size_t)(q - p);
 			if (fit > avail)
 				fit = avail;
 		}
@@ -500,11 +519,11 @@ int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 		if (fit < avail && p[fit] != ' ' && p[fit] != '\n' && p[fit] != '\r') {
 			/* The break lands inside a word: back up to the last space or
 			 * break within what fits. */
-			size_t at = 0;
+			size_t at  = 0;
 			bool found = false;
 			for (size_t i = 0; i < fit; i++)
 				if (p[i] == ' ' || p[i] == '\n' || p[i] == '\r') {
-					at = i;
+					at    = i;
 					found = true;
 				}
 			if (found)
@@ -512,7 +531,7 @@ int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 		}
 		for (size_t i = 0; i < take; i++)
 			if (p[i] == '\n' || p[i] == '\r') {
-				take = i;                /* never cross a break in the source */
+				take = i; /* never cross a break in the source */
 				break;
 			}
 		/* Room for the break before this line, the line itself and the
@@ -522,7 +541,7 @@ int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 		const size_t fixed = (lines ? 1 : 0) + 1;
 		if (w + fixed + take > cap) {
 			if (cap < w + fixed)
-				break;					   /* no room for a line at all */
+				break; /* no room for a line at all */
 			take = cap - w - fixed;
 			if (take == 0)
 				break;

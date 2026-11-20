@@ -34,9 +34,9 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#define S(t)    printf("sizeof %s %zu\n", #t, sizeof(t))
+#define S(t) printf("sizeof %s %zu\n", #t, sizeof(t))
 #define F(t, f) printf("offset %s.%s %zu\n", #t, #f, offsetof(t, f))
-#define E(c)    printf("enum %s %lld\n", #c, (long long)(c))
+#define E(c) printf("enum %s %lld\n", #c, (long long)(c))
 
 int main(void)
 {

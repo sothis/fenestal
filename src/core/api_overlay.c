@@ -422,14 +422,14 @@ void fnl_overlay_counts(const FnlApp *app, FnlOverlayCounts *out)
 	 * asking before anything was appended, and the ceilings are the same
 	 * whenever it asks. */
 	out->rects = out->strokes = out->glyphs = 0;
-	out->rects_max = OVERLAY_MAX_RECTS;
-	out->strokes_max = OVERLAY_MAX_SHAPES;
-	out->glyphs_max = TEXT_MAX_GLYPHS;
+	out->rects_max                          = OVERLAY_MAX_RECTS;
+	out->strokes_max                        = OVERLAY_MAX_SHAPES;
+	out->glyphs_max                         = TEXT_MAX_GLYPHS;
 	if (!overlay_here(a))
 		return;
-	out->rects = (int)a->rect_count;
+	out->rects   = (int)a->rect_count;
 	out->strokes = (int)a->shape_count;
-	out->glyphs = (int)a->text_count;
+	out->glyphs  = (int)a->text_count;
 }
 
 /* ---- controls in the titlebar -------------------------------------------- */
