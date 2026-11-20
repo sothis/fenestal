@@ -20,34 +20,57 @@
 /* sRGB -> the surface's blend space, per call because a caller's colours are
  * not a table that can be converted once. Alpha passes through untouched.
  *
- * Memoised four deep. Drawing arrives in runs of one colour and as often in a
- * pair that alternates -- a label and its value, down every row -- which one
- * entry misses on every call, at three powf() a miss. The oldest is the one
- * replaced.
+ * Memoised by colour. Drawing arrives in runs of one colour and as often in a
+ * pair that alternates -- a label and its value, down every row -- and a
+ * window of panels is a palette of thirty used in an order no small table can
+ * hold: four entries missed on every call, at three powf() a miss, and the
+ * miss is the whole cost of a colour a caller has already used. So the memo is
+ * keyed on the colour and sized for a palette.
+ *
+ * Eight slots are probed from the hash and then the first is overwritten, so a
+ * lookup is bounded however the table fills, and a miss costs what an uncached
+ * conversion would have less the probe.
  *
  * Keyed on the blend space rather than on the App: a device-loss recovery
  * re-resolves the surface format on the same App.
  *
- * Thread-local, so it needs no lock. The zeroed initial state is four
- * *correct* entries: a linear surface converts transparent black to
- * itself. */
-#define COLOR_MEMO 4
+ * Thread-local, so it needs no lock. The zeroed initial state is correct:
+ * a linear surface converts transparent black to itself, and every other
+ * first use misses.
+ */
+#define COLOR_MEMO 64
+#define COLOR_PROBE 8
+
+static unsigned color_hash(FnlColor c)
+{
+	uint32_t h = 2166136261u;
+	for (int i = 0; i < 4; i++) {
+		uint32_t u;
+		memcpy(&u, (const char *)&c + i * sizeof u, sizeof u);
+		h = (h ^ u) * 16777619u;
+	}
+	return h;
+}
+
 static void to_surface(const App *a, FnlColor c, float out[4])
 {
 	static FNL_THREAD_LOCAL struct {
-		bool     srgb;
+		bool srgb;
 		FnlColor in;
-		float    out[4];
+		float out[4];
 	} memo[COLOR_MEMO];
-	static FNL_THREAD_LOCAL unsigned memo_next;
+	const unsigned start = color_hash(c) % COLOR_MEMO;
 
-	for (int i = 0; i < COLOR_MEMO; i++)
-		if (a->srgb_surface == memo[i].srgb &&
-			c.r == memo[i].in.r && c.g == memo[i].in.g &&
-			c.b == memo[i].in.b && c.a == memo[i].in.a) {
+	/* The tag is the whole colour, so a collision is a miss and the probe goes
+	 * on; a slot holding another colour is never returned. */
+	for (unsigned n = 0; n < COLOR_PROBE; n++) {
+		const unsigned i = (start + n) % COLOR_MEMO;
+		if (a->srgb_surface == memo[i].srgb && c.r == memo[i].in.r &&
+			c.g == memo[i].in.g && c.b == memo[i].in.b && c.a == memo[i].in.a) {
 			memcpy(out, memo[i].out, sizeof memo[i].out);
 			return;
 		}
+	}
 
 	const float rgb[3] = { c.r, c.g, c.b };
 	if (a->srgb_surface) {
@@ -59,10 +82,12 @@ static void to_surface(const App *a, FnlColor c, float out[4])
 	}
 	out[3] = c.a;
 
-	const unsigned slot = memo_next++ % COLOR_MEMO;
-	memo[slot].srgb = a->srgb_surface;
-	memo[slot].in   = c;
-	memcpy(memo[slot].out, out, sizeof memo[slot].out);
+	/* The first slot, which the probe has not moved: a table that fills is a
+	 * caller with more colours than slots, and the oldest answer is the cheapest
+	 * one to lose. */
+	memo[start].srgb = a->srgb_surface;
+	memo[start].in   = c;
+	memcpy(memo[start].out, out, sizeof memo[start].out);
 }
 
 /* Bounds-check the size as well as the pointer: a caller reading a size out of
@@ -136,7 +161,6 @@ int fnl_text_advance(FnlTextSize sz)
 	return text_advance(sz);
 }
 
-
 void fnl_window_size_pt(const FnlApp *app, int *w, int *h)
 {
 	App *a = (App *)app;
@@ -150,8 +174,10 @@ void fnl_window_size_pt(const FnlApp *app, int *w, int *h)
 		hh = a->pub_win_h;
 		fnl_mutex_unlock(&a->lock);
 	}
-	if (w) *w = ww;
-	if (h) *h = hh;
+	if (w)
+		*w = ww;
+	if (h)
+		*h = hh;
 }
 
 /* ---- drawing ------------------------------------------------------------- */
@@ -192,20 +218,20 @@ bool fnl_image_supported(const FnlApp *app)
 FnlImage *fnl_image_create(FnlApp *app, int w, int h, FnlImageFormat fmt,
 						   const void *pixels)
 {
-	App *a = (App *)app;
+	App *a             = (App *)app;
 	const unsigned bpp = image_pixel_bytes(fmt);
 
 	if (!a || !pixels)
 		return NULL;
 	if (app_thread() != APP_THREAD_RENDER) {
 		fnl_log(FNL_LOG_ERROR, "fnl_image_create() is the render thread's: "
-				"call it in on_overlay, in a fnl_post(), or in "
-				"on_gpu_created");
+							   "call it in on_overlay, in a fnl_post(), or in "
+							   "on_gpu_created");
 		return NULL;
 	}
 	if (w <= 0 || h <= 0 || bpp == 0) {
-		fnl_log(FNL_LOG_ERROR, "fnl_image_create(): %dx%d, format %d",
-				w, h, (int)fmt);
+		fnl_log(FNL_LOG_ERROR, "fnl_image_create(): %dx%d, format %d", w, h,
+				(int)fmt);
 		return NULL;
 	}
 	/* The same bound the drawing calls hold their points to, since the pixels
@@ -222,7 +248,7 @@ FnlImage *fnl_image_create(FnlApp *app, int w, int h, FnlImageFormat fmt,
 	if (!img)
 		return NULL;
 	const size_t n = (size_t)w * (size_t)h * bpp;
-	img->pixels = malloc(n);
+	img->pixels    = malloc(n);
 	if (!img->pixels) {
 		free(img);
 		return NULL;
@@ -230,10 +256,10 @@ FnlImage *fnl_image_create(FnlApp *app, int w, int h, FnlImageFormat fmt,
 	/* The copy: the caller's may be a stack buffer, and a rebuild reads this
 	 * one again. */
 	memcpy(img->pixels, pixels, n);
-	img->app = a;
-	img->w = w;
-	img->h = h;
-	img->fmt = fmt;
+	img->app  = a;
+	img->w    = w;
+	img->h    = h;
+	img->fmt  = fmt;
 	img->next = a->images;
 	a->images = img;
 	return img;
@@ -389,8 +415,8 @@ void fnl_overlay_clip(FnlApp *app, int x, int y, int w, int h)
 
 /* ---- controls in the titlebar -------------------------------------------- */
 
-bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y,
-						  int *w, int *h)
+bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y, int *w,
+						  int *h)
 {
 	App *a = (App *)app;
 	if (!a)
@@ -415,7 +441,7 @@ bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y,
 	 * because deco_apply_custom() writes it under this lock. The answer
 	 * describes the last frame built. */
 	fnl_mutex_lock(&a->lock);
-	const int  win_w  = a->pub_win_w;
+	const int win_w   = a->pub_win_w;
 	const bool csd    = a->pub_csd;
 	const bool custom = a->deco_custom;
 	fnl_mutex_unlock(&a->lock);
@@ -432,10 +458,14 @@ bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y,
 	if (!vis)
 		return false;
 
-	if (x) *x = rx;
-	if (y) *y = ry;
-	if (w) *w = rw;
-	if (h) *h = rh;
+	if (x)
+		*x = rx;
+	if (y)
+		*y = ry;
+	if (w)
+		*w = rw;
+	if (h)
+		*h = rh;
 	return true;
 }
 
@@ -449,7 +479,7 @@ bool fnl_titlebar_custom(FnlApp *app, int height_pt, int min_width_pt)
 	/* Both bounded (see clamp_pt in app.h). Zero means "the library's own
 	 * bar" for the first and "no width floor" for the second, so a negative
 	 * collapses to it rather than being clamped symmetrically. */
-	height_pt    = height_pt    > 0 ? clamp_pt(height_pt)    : 0;
+	height_pt    = height_pt > 0 ? clamp_pt(height_pt) : 0;
 	min_width_pt = min_width_pt > 0 ? clamp_pt(min_width_pt) : 0;
 
 	/* Recorded, not applied. What follows from it is a size request and a
@@ -468,8 +498,8 @@ bool fnl_titlebar_custom(FnlApp *app, int height_pt, int min_width_pt)
 void deco_apply_custom(App *a, int height_pt, int min_width_pt)
 {
 	const bool custom = height_pt > 0;
-	const int  new_h  = custom ? height_pt : DECO_TITLEBAR_H;
-	const int  old_h  = a->deco_h;
+	const int new_h   = custom ? height_pt : DECO_TITLEBAR_H;
+	const int old_h   = a->deco_h;
 	if (custom == a->deco_custom && new_h == old_h &&
 		min_width_pt == a->deco_min_w)
 		return;
@@ -520,8 +550,8 @@ static bool claim_add(App *a, int x, int y, int w, int h)
 	/* Bounded like everything else a caller passes in points: claim_at()
 	 * tests `x < r->x + r->w`, and a corner that overflows an int is a claim
 	 * that swallows presses nowhere near it. */
-	a->claims[a->claim_count++] = (FnlRect){ clamp_pt(x), clamp_pt(y),
-											 clamp_pt(w), clamp_pt(h) };
+	a->claims[a->claim_count++] =
+		(FnlRect){ clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h) };
 	return true;
 }
 
