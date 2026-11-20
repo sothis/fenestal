@@ -924,20 +924,15 @@ Known, not owed:
 
 Found and fixed: an image's push constants left standing over the overlay's
 (Vulkan); a texture released with the other frame slot's list still naming
-it (Direct3D 12); a timestamp pair surviving a swapchain rebuild; ENTER and
-LEAVE in surface points on Wayland; the LED bit test by bytes on KMS; an
-`NSCursor` set per motion on Cocoa; `GETCRTC` per cursor report on KMS;
-X11's blocking `Xft.dpi` read per notification; GL's window image remade on
-every rebuild.
+it (Direct3D 12), and the same hole on Vulkan's picture, whose view and
+descriptor set now wait as Direct3D 12's drain; a timestamp pair surviving
+a swapchain rebuild; ENTER and LEAVE in surface points on Wayland; the LED
+bit test by bytes on KMS; an `NSCursor` set per motion on Cocoa; `GETCRTC`
+per cursor report on KMS; X11's blocking `Xft.dpi` read per notification;
+GL's window image remade on every rebuild.
 
 Open, each needing a decision or a measurement:
 
-- **`vk_image_free()` against an in-flight list.** `d3d_image_free()` now
-  drains as `d3d_cover_release()` does; Vulkan's frees the image and its
-  descriptor set with nothing, and a caller destroying a picture mid-frame is
-  the documented case (`[overlay]`). A `vkDeviceWaitIdle` per destroy is
-  correct and expensive; a retired-image list drained on the frame slot's
-  fence is the other way, and is what a swapchain rebuild wants as well.
 - **The GPU ranking's per-frame re-derivation**: `app_rank_tick()` calls
   `display_now()` (round trips through `App::lock`, the backend's
   `modes`/`outputs`, two scans of `rank[]`) and `list_hash()` every turn, for
@@ -972,3 +967,17 @@ Open, each needing a decision or a measurement:
   `wine_get_version`, a fact fixed once the display driver is loaded. Caching
   it is safe only from `win32_open()` on, which is where the driver has
   loaded -- a cache taken at the first call is not.
+
+What verifies any of the pictures is owed, and the Win32 half above is what
+it is owed for: `fnl_image_create()`'s one caller is `examples/image.c`,
+whose `snippet-image` is built into every tree and run by nothing, and the
+round's `read-pixels` evidence is a row for motion and blackness -- neither
+reads the overlay's composition, where the picture's quad and the
+rectangles flushed after it are the difference. So a `win64-d3d12` round
+would say only that nothing else regressed, and so would the Linux halves'
+on this desk. What closes it is a picture in the testbed, bound as the
+snippet binds it to `I`, so that a destroy and a create land mid-round and
+not only at exit, and a check that reads one point with the picture on and
+again with it off. `kms-vulkan-bare` does reach its half -- the LED's bit
+test at open, and `GETCRTC` in the motion the round drives -- and is owed
+beside it.
