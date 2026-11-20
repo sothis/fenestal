@@ -1199,6 +1199,19 @@ FNL_API bool fnl_titlebar_claim(FnlApp *app, int x, int y,
  * The pointer's shape over a claim is yours, fnl_set_cursor()'s. */
 FNL_API bool fnl_claim(FnlApp *app, int x, int y, int w, int h); /* [overlay] */
 
+/* Which of the claims the point is in, counting from 0 in the order this
+ * frame's fnl_claim() and fnl_titlebar_claim() calls were made, or -1 for
+ * none -- and -1 before the first frame, when there are none.
+ *
+ * A caller that claims each control as it draws it can key its own hit test
+ * on this, the same list the press routing reads, rather than keeping a
+ * second copy of every rectangle; the index names the control drawn in that
+ * order, and claims are rebuilt every frame, so it moves with them.
+ *
+ * Window points, as the claims are. [any] thread, and the answer is the last
+ * frame's. */
+FNL_API int fnl_claim_at(const FnlApp *app, double x_pt, double y_pt);  /* [any] */
+
 /* The eight resize edges, for fnl_begin_resize(). */
 typedef enum {
 	FNL_EDGE_NONE         = 0,

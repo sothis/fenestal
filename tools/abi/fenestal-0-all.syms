@@ -44,6 +44,7 @@ fnl_titlebar_height
 fnl_titlebar_owned
 fnl_titlebar_claim
 fnl_claim
+fnl_claim_at
 fnl_begin_move
 fnl_begin_resize
 fnl_is_fullscreen

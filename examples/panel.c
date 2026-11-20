@@ -8,7 +8,7 @@
  * event and captures nothing, while a click anywhere else in the scene
  * still takes the pointer.
  *
- * Shows: fnl_claim fnl_is_pointer_captured fnl_text_elide
+ * Shows: fnl_claim fnl_claim_at fnl_is_pointer_captured fnl_text_elide
  */
 
 #include <fenestal/fenestal.h>
@@ -27,13 +27,14 @@ typedef struct {
 
 static const char *const NAMES[ROWS] = { "vsync", "motion", "load" };
 
-/* Which row a window point is on, or -1. The same arithmetic the drawing
- * and the claims use, so a press lands where the row is shown. */
-static int row_at(int px, int py, double x, double y)
+/* Which row a window point is on, or -1: the library's answer about the rows
+ * this program claimed as it drew them (fnl_claim_at()), so there is no
+ * second copy of the arithmetic to keep in step with the first. The claims
+ * are the last frame's, which is the frame the pointer is over. */
+static int row_at(FnlApp *app, double x, double y)
 {
-	if (x < px || x >= px + ROW_W || y < py || y >= py + ROWS * ROW_H)
-		return -1;
-	return ((int)y - py) / ROW_H;
+	const int r = fnl_claim_at(app, x, y);
+	return r >= 0 && r < ROWS ? r : -1;
 }
 
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
@@ -47,7 +48,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
 		if (ev.type == FNL_EVENT_MOTION) {
-			p->hover = row_at(px, py, ev.motion.x, ev.motion.y);
+			p->hover = row_at(app, ev.motion.x, ev.motion.y);
 			fnl_set_cursor(app, p->hover >= 0 ? FNL_CURSOR_POINTER
 											  : FNL_CURSOR_DEFAULT);
 		} else if (ev.type == FNL_EVENT_BUTTON && ev.button.pressed &&
@@ -55,7 +56,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 				   !fnl_is_pointer_captured(app)) {
 			/* A press outside the rows is the scene's, and the library
 			 * has captured the pointer for it by the next frame. */
-			const int r = row_at(px, py, ev.button.x, ev.button.y);
+			const int r = row_at(app, ev.button.x, ev.button.y);
 			if (r >= 0)
 				p->on[r] = !p->on[r];
 		}
@@ -80,10 +81,10 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		fnl_overlay_text(app, px + 8, y + 5, FNL_TEXT_UI, ink, fitted);
 		fnl_overlay_text(app, px + ROW_W - 40, y + 5, FNL_TEXT_UI, ink,
 						 p->on[r] ? "on" : "off");
+		/* Claimed one row at a time, as it is drawn: the index
+		 * fnl_claim_at() answers is this loop's r. */
+		fnl_claim(app, px, y, ROW_W, ROW_H);
 	}
-	/* One rectangle for the whole panel: claims are few and coarse, and
-	 * row_at() tells the rows apart. */
-	fnl_claim(app, px, py, ROW_W, ROWS * ROW_H);
 }
 
 int main(void)

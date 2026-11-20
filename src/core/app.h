@@ -2620,6 +2620,9 @@ void app_present_number_shown(App *a, uint32_t number, double mono,
 void app_frame_answered(App *a, uint64_t index);
 
 Zone deco_hit(App *a, double px, double py, Edge *edge);
+/* Which of the last frame's claims holds this window point, counting from 0
+ * in the order they were made, or -1. See fnl_claim_at(). */
+int deco_claim_at(const App *a, int x, int y);
 /* The pointer is at this point: deco_hit(), plus the hover and the open
  * list's row. deco_publish_hover() alone is for a pointer that has left. */
 Zone deco_pointer_at(App *a, double px, double py, Edge *edge);

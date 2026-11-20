@@ -139,13 +139,26 @@ void deco_reserved_rect(const App *a, int w, int want_w, int *x, int *y,
  * count and the rectangles have to come from the same frame. */
 static bool claim_at(App *a, int x, int y)
 {
-	bool hit = false;
+	return deco_claim_at(a, x, y) >= 0;
+}
+
+/* The same scan, answering which claim rather than whether: the index counts
+ * from 0 in the order this frame's fnl_claim() and fnl_titlebar_claim() calls
+ * were made, so it names the control the caller drew in that order. Under the
+ * lock, as the list is the render thread's and a half-rebuilt one would
+ * answer a rectangle that was never drawn. */
+int deco_claim_at(const App *app, int x, int y)
+{
+	App *a = (App *)app;
+	int hit = -1;
+	if (!a)
+		return -1;
 	fnl_mutex_lock(&a->lock);
 	for (int i = 0; i < a->pub_claim_count; i++) {
 		const FnlRect *r = &a->pub_claims[i];
 		if (x >= r->x && x < r->x + r->w &&
 			y >= r->y && y < r->y + r->h) {
-			hit = true;
+			hit = i;
 			break;
 		}
 	}

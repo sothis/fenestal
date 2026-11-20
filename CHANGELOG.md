@@ -6,6 +6,12 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_claim_at()`: which of this frame's claims a window point is in, counted
+  from 0 in the order they were made, or -1. A caller that claims each control
+  as it draws it can key its own hit test on the same list the press routing
+  reads, instead of keeping a second copy of every rectangle -- `panel.c`
+  claims its rows one at a time now and asks the library which one the pointer
+  is over.
 - `fnl_set_vsync()` and `fnl_vsync()`: whether the window's presents wait
   for the display, at run time rather than only through `FNL_VSYNC=0` in the
   environment. A change lands at the next frame, which builds the swapchain
