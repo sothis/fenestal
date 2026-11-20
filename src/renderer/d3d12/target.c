@@ -97,8 +97,13 @@ FnlResult d3d_make_heaps(App *a)
 						  &g->rtv_heap, &g->rtv_inc));
 	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, DSV_COUNT, false,
 						  &g->dsv_heap, &g->dsv_inc));
-	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, SRV_COUNT,
-						  true, &g->srv_heap, &g->srv_inc));
+	/* The caller's images take a descriptor each after the library's own
+	 * (d3d12_state.h, IMAGE_SETS_MAX), so the one CBV_SRV_UAV heap is wider
+	 * than the fixed slots: a second heap of that type may not be bound
+	 * beside it. */
+	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+						  SRV_COUNT + IMAGE_SETS_MAX, true, &g->srv_heap,
+						  &g->srv_inc));
 	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, SMP_COUNT,
 						  true, &g->smp_heap, &g->smp_inc));
 	const D3D12_FILTER filters[SMP_COUNT] = {

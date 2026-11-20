@@ -553,10 +553,9 @@ FnlResult d3d_create_overlay(App *a)
 							"the overlay's pipeline states did not build");
 	}
 
-	/* The caller's images' views: a heap of their own, so that an image
-	 * coming and going leaves the fixed slots (d3d12_state.h) alone. */
-	FNL_TRY(d3d_make_heap(a, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-						  IMAGE_SETS_MAX, true, &g->image_heap, &g->image_inc));
+	/* The caller's images' views take the srv heap's slots after the library's
+	 * own (d3d12_state.h, IMAGE_SETS_MAX): a second CBV_SRV_UAV heap may not be
+	 * bound beside the first. */
 
 	FNL_TRY(
 		make_arenas(a, g->text_buf, TEXT_ARENA_BYTES, (void **)a->text_map));
@@ -586,7 +585,6 @@ void d3d_destroy_overlay(App *a)
 		D3D_RELEASE(o->tex);
 		free(o);
 	}
-	D3D_RELEASE(g->image_heap);
 	g->image_used = 0;
 	destroy_atlas(a);
 	destroy_arenas(g->text_buf, (void **)a->text_map);
@@ -610,14 +608,10 @@ void d3d_destroy_overlay(App *a)
 
 void d3d_own_state(App *a)
 {
-	struct RendererState *g      = D3D(a);
-	ID3D12GraphicsCommandList *l = g->list;
-	/* The images' heap as well: their views are read through a table of
-	 * their own (image_srv_gpu()), and a table must point into a heap the
-	 * list has bound. */
-	ID3D12DescriptorHeap *heaps[3] = { g->srv_heap, g->smp_heap,
-									   g->image_heap };
-	ID3D12GraphicsCommandList_SetDescriptorHeaps(l, 3, heaps);
+	struct RendererState *g        = D3D(a);
+	ID3D12GraphicsCommandList *l   = g->list;
+	ID3D12DescriptorHeap *heaps[2] = { g->srv_heap, g->smp_heap };
+	ID3D12GraphicsCommandList_SetDescriptorHeaps(l, 2, heaps);
 	ID3D12GraphicsCommandList_SetGraphicsRootSignature(l, g->root);
 	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -932,20 +926,12 @@ static void image_slot_give(App *a, int slot)
 
 static D3D12_CPU_DESCRIPTOR_HANDLE image_srv_cpu(App *a, int slot)
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-			D3D(a)->image_heap);
-	h.ptr += (SIZE_T)slot * D3D(a)->image_inc;
-	return h;
+	return d3d_srv_cpu(a, SRV_COUNT + slot);
 }
 
 static D3D12_GPU_DESCRIPTOR_HANDLE image_srv_gpu(App *a, int slot)
 {
-	D3D12_GPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(
-			D3D(a)->image_heap);
-	h.ptr += (UINT64)slot * D3D(a)->image_inc;
-	return h;
+	return d3d_srv_gpu(a, SRV_COUNT + slot);
 }
 
 bool d3d_image_supported(const App *a)

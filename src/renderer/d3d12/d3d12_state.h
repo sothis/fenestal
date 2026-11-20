@@ -40,11 +40,16 @@ enum { DSV_WINDOW = 0, DSV_SCENE, DSV_SCENE_MS, DSV_COUNT };
 enum { SRV_ATLAS = 0, SRV_SCENE, SRV_MLAA, SRV_COVER, SRV_COUNT };
 enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_COUNT };
 
-/* Caller images (fnl_image_create()) take a descriptor each from a heap of
- * their own: the fixed slots above name the library's resources, which an
- * image coming and going may not disturb. RendererState::image_used is a bit
- * a slot, so this is a word -- the bound Vulkan's descriptor pool has, and
- * for its reason. */
+/* Caller images (fnl_image_create()) take a descriptor each from the srv
+ * heap, after the fixed slots above, which name the library's resources and
+ * are never handed on: the srv heap is SRV_COUNT + IMAGE_SETS_MAX wide.
+ * RendererState::image_used is a bit a slot, so this is a word -- the bound
+ * Vulkan's descriptor pool has, and for its reason.
+ *
+ * One heap and not a second one: a list binds at most one heap of each type,
+ * and two CBV_SRV_UAV heaps in one SetDescriptorHeaps() make every Close()
+ * of the frame's list fail with E_INVALIDARG on a real driver -- vkd3d-proton
+ * takes it, which is what hid this in the wine rounds. */
 #define IMAGE_SETS_MAX 64
 _Static_assert(IMAGE_SETS_MAX <= 64, "image_used is one word of slots");
 
@@ -219,13 +224,10 @@ struct RendererState {
 	ID3D12Resource *font_tex;
 
 	/* The caller's images (fnl_image_create()): one pipeline state, and the
-	 * descriptor heap their views come from, its slots taken and given as
-	 * the images are made and freed (d3d_overlay_image(), d3d_image_free()).
-	 * `image_inc` is that heap's descriptor stride, `image_used` the slots in
-	 * use, one bit each. */
+	 * slots of the srv heap their views take (SRV_COUNT on), taken and given
+	 * as the images are made and freed (d3d_overlay_image(),
+	 * d3d_image_free()). `image_used` has a bit a slot. */
 	ID3D12PipelineState *pso_image;
-	ID3D12DescriptorHeap *image_heap;
-	UINT image_inc;
 	uint64_t image_used;
 
 	/* Whether the overlay is being drawn: a flush outside it draws
