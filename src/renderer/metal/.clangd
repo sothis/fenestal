@@ -1,0 +1,13 @@
+# A macOS renderer, compiled by clang against Apple's SDK -- which a Linux
+# clangd has to be told about, or it cannot find Metal/Metal.h and reports the
+# whole file as broken. The path is what `python3 tools/macos_sdk.py --path`
+# answers; the cross build (./build.sh macos) is the authority, and this is so
+# the editor agrees with it. The flags are src/backend/cocoa/.clangd's, which
+# has the same problem, and no -x: clangd refuses it in a config (.m is
+# Objective-C to clang already).
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-darwin
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -D__APPLE__

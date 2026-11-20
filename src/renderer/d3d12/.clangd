@@ -1,0 +1,18 @@
+# This directory is a Windows renderer compiled by mingw, which is what a
+# Linux clangd needs told: without a target and mingw's headers it cannot find
+# d3d12.h and reports the whole file as broken. The cross build is the
+# authority (./build.sh win64); this is so the editor agrees with it. The
+# flags are src/backend/win32/.clangd's, which has the same problem.
+#
+# The generated dir is this target's and not src/renderer/.clangd's, which
+# names the Linux tree's: dxil/ is only made where d3d12 is a renderer of the
+# build, and the headers under it are what overlay.c includes.
+CompileFlags:
+  Add:
+    - --target=x86_64-pc-windows-gnu
+    - -isystem
+    - /usr/x86_64-w64-mingw32/include
+    - -D_WIN32_WINNT=0x0A00
+    - -DWINVER=0x0A00
+    - -D__USE_MINGW_ANSI_STDIO=1
+    - -I/home/json/ws/fenestal/build/win64/release/generated
