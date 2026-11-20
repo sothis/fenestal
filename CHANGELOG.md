@@ -6,6 +6,17 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_overlay_counts()`: what the frame being recorded has appended, against
+  each kind's ceiling -- `FnlOverlayCounts` carries rectangles, strokes and
+  glyphs with the maximum each will take. An append past its ceiling draws
+  nothing and says nothing, so a caller spending one rectangle a cell can find
+  out from here that the frame has stopped taking them rather than from a panel
+  that is missing. The counts are the frame's, so the call is the overlay's.
+- `fnl_text_width()` keeps its answer for a string it has measured: a UI measures
+  the same labels every frame, and the cost was the whole string re-walked at
+  every baked scale. Keyed on the bytes and not the pointer, so a changed
+  string in a reused buffer misses; a string too long for the key is measured
+  every time. Same answers, same meaning.
 - `fnl_image_create()`, `fnl_image_destroy()`, `fnl_image_supported()` and
   `fnl_overlay_image()`: a picture in the overlay, which drew text, rectangles,
   strokes and boxes and no image. The library copies the caller's pixels once,

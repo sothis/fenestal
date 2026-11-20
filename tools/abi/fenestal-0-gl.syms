@@ -42,6 +42,7 @@ fnl_overlay_elbow
 fnl_overlay_box
 fnl_overlay_flush
 fnl_overlay_clip
+fnl_overlay_counts
 fnl_window_size_pt
 fnl_invalidate
 fnl_post

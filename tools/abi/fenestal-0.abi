@@ -80,6 +80,13 @@ offset FnlColor.r 0
 offset FnlColor.g 4
 offset FnlColor.b 8
 offset FnlColor.a 12
+sizeof FnlOverlayCounts 24
+offset FnlOverlayCounts.rects 0
+offset FnlOverlayCounts.rects_max 4
+offset FnlOverlayCounts.strokes 8
+offset FnlOverlayCounts.strokes_max 12
+offset FnlOverlayCounts.glyphs 16
+offset FnlOverlayCounts.glyphs_max 20
 sizeof FnlEvent 48
 offset FnlEvent.type 0
 offset FnlEvent.time 8

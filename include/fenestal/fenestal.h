@@ -1206,6 +1206,23 @@ FNL_API void fnl_overlay_flush(FnlApp *app); /* [overlay] */
 FNL_API void fnl_overlay_clip(FnlApp *app, int x, int y, int w,
 							  int h); /* [overlay] */
 
+/* What the frame being recorded has appended so far, against the ceiling each
+ * kind has. An append past its ceiling draws nothing and says nothing, so a
+ * caller spending one rectangle a cell can find out from here that the frame
+ * has stopped taking them, rather than from a panel that is missing.
+ *
+ * The counts are this frame's, so they are [overlay]'s: inside on_overlay
+ * they answer for what has been appended up to the call; anywhere else they
+ * are all zero. */
+typedef struct {
+	int rects, rects_max;     /* filled rectangles, and OVERLAY_MAX_RECTS  */
+	int strokes, strokes_max; /* strokes and elbows, and OVERLAY_MAX_SHAPES */
+	int glyphs, glyphs_max;   /* glyphs, and TEXT_MAX_GLYPHS                */
+} FnlOverlayCounts;
+
+FNL_API void fnl_overlay_counts(const FnlApp *app,
+								FnlOverlayCounts *out); /* [overlay] */
+
 /* The window's size in logical points, titlebar included -- the coordinate
  * space every fnl_overlay_* call above is in. Not an [overlay] call: safe
  * from [any] thread, and it answers with the size as of the last frame that

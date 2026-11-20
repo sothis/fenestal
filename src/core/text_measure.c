@@ -223,7 +223,43 @@ const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
  * convert this width for a monospaced size rather than summing the cells:
  * the pen rounds each point position on its own (see text_draw), which at the
  * 4/3 and 5/3 rungs is not the sum of the cells' advances. */
-int text_width(const char *s, TextSize sz)
+/* ---- measuring, memoised --------------------------------------------------
+ *
+ * A UI measures the same strings every frame -- a label's width for the
+ * rectangle behind it, a row's for the column it sits in -- and the cost is
+ * the whole string re-walked: every baked scale of the face, every character,
+ * each a UTF-8 decode and a glyph lookup. The answer depends on the string and
+ * the face alone, so it is kept.
+ *
+ * Keyed on the bytes rather than the pointer, because a caller's buffer is
+ * reused: a changed string must miss, and a pointer would not tell. A string
+ * too long for the key is never held and always measured, which costs that
+ * call what it cost before and bounds the memory. Safe while the cells are
+ * loaded once, before any thread exists: a reload would want the table
+ * cleared with it. */
+#define WIDTH_MEMO      32
+#define WIDTH_MEMO_KEY  32
+
+typedef struct {
+	TextSize      sz;
+	unsigned char len;      /* the key's bytes; the key is empty at 0 */
+	char          key[WIDTH_MEMO_KEY];
+	int           w;
+} WidthMemo;
+
+static FNL_THREAD_LOCAL WidthMemo width_memo[WIDTH_MEMO];
+
+static unsigned width_hash(const char *s, size_t n)
+{
+	uint32_t h = 2166136261u;
+	for (size_t i = 0; i < n; i++) {
+		h ^= (unsigned char)s[i];
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static int text_width_uncached(const char *s, TextSize sz)
 {
 	/* Summed wide and held inside OVERLAY_COORD_MAX: a caller's string
 	 * (fnl_text_width()) has no bound on its length, and past the clamp
@@ -253,6 +289,28 @@ int text_width(const char *s, TextSize sz)
 			worst = pt;
 	}
 	return worst > OVERLAY_COORD_MAX ? OVERLAY_COORD_MAX : (int)worst;
+}
+
+int text_width(const char *s, TextSize sz)
+{
+	const size_t n = strnlen(s, WIDTH_MEMO_KEY);
+	WidthMemo *m;
+	if (n == WIDTH_MEMO_KEY)
+		return text_width_uncached(s, sz);
+
+	/* One slot, hash-tagged and compared in full: a collision is a miss, so a
+	 * wrong answer is never returned, and the table is bounded however many
+	 * strings a caller measures. */
+	m = &width_memo[width_hash(s, n) % WIDTH_MEMO];
+	if (m->len == n && m->sz == sz && memcmp(m->key, s, n) == 0)
+		return m->w;
+
+	m->w   = text_width_uncached(s, sz);
+	memcpy(m->key, s, n);
+	m->key[n] = '\0';
+	m->len = (unsigned char)n;
+	m->sz  = sz;
+	return m->w;
 }
 
 /* Whether the surface's scale is past either end of the baked ladder. Inside

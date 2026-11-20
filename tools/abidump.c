@@ -124,6 +124,13 @@ int main(void)
 	F(FnlColor, g);
 	F(FnlColor, b);
 	F(FnlColor, a);
+	S(FnlOverlayCounts);
+	F(FnlOverlayCounts, rects);
+	F(FnlOverlayCounts, rects_max);
+	F(FnlOverlayCounts, strokes);
+	F(FnlOverlayCounts, strokes_max);
+	F(FnlOverlayCounts, glyphs);
+	F(FnlOverlayCounts, glyphs_max);
 	S(FnlEvent);
 	F(FnlEvent, type);
 	F(FnlEvent, time);

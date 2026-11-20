@@ -36,11 +36,15 @@ FNL_STATIC_ASSERT(sizeof(FnlEvent) >= sizeof(double) * 2,
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	FnlEvent ev;
+	FnlOverlayCounts counts;
 	const FnlColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
 	(void)ud;
 	while (fnl_poll_event(app, &ev))
-		if (ev.type == FNL_EVENT_KEY && ev.key.pressed)
+		if (ev.type == FNL_EVENT_KEY && ev.key.pressed) {
 			fnl_overlay_rect(app, 0, 0, frame->area_w_px, 1, white);
+			fnl_overlay_counts(app, &counts);
+			(void)counts;
+		}
 }
 
 int headercheck(void);
