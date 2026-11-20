@@ -1,0 +1,17 @@
+# Each renderer's state header (vk_state.h, gl_state.h) is the second half of
+# a translation unit whose first half is core/app.h: it names App, GPU_NAME_MAX
+# and the Fnl* types app.h declares and includes nothing back, so a parser that
+# starts at one of them sees nothing it can name and calls the file broken. A
+# .c here never does that -- it names "core/app.h" first, as every file in the
+# tree does. -include app.h gives the editor the same context, and the -I flags
+# repeat the tree's, since a .clangd takes the place of compile_flags.txt for
+# the files below it rather than adding to it.
+CompileFlags:
+  Add:
+    - -include
+    - /home/json/ws/fenestal/src/core/app.h
+    - -I/home/json/ws/fenestal/include
+    - -I/home/json/ws/fenestal/src
+    - -I/home/json/ws/fenestal/tools
+    - -I/home/json/ws/fenestal/build/linux/release/generated
+    - -D_DEFAULT_SOURCE

@@ -1,0 +1,17 @@
+# The internal headers here are one unit: app.h declares App and includes the
+# two vtable headers (backend.h, renderer.h), which name App, FnlResult and
+# FnlRenderer without declaring them -- so a parser that starts at one of them
+# sees nothing it can name and calls the file broken. A translation unit never
+# does that; -include app.h first is what every .c here does anyway.
+#
+# The -I flags repeat the tree's, since a .clangd takes the place of
+# compile_flags.txt for the files below it rather than adding to it.
+CompileFlags:
+  Add:
+    - -include
+    - /home/json/ws/fenestal/src/core/app.h
+    - -I/home/json/ws/fenestal/include
+    - -I/home/json/ws/fenestal/src
+    - -I/home/json/ws/fenestal/tools
+    - -I/home/json/ws/fenestal/build/linux/release/generated
+    - -D_DEFAULT_SOURCE
