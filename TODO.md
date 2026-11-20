@@ -886,29 +886,35 @@ frame over the whole window for a move. Nothing about it generalizes: it is
 one full-window quad with the scene's own image, and `App::ovl_img` is the
 swapchain image index rather than a picture.
 
-Owed, in the order the pieces depend on each other:
+Built, on the two renderers a Linux tree draws with (2026-11-20):
 
 1. **The object and its pixels.** `fnl_image_create(app, w, h, format,
-   pixels)`, `fnl_image_destroy()`, and `fnl_overlay_image(app, x, y, w, h,
-   img)` among the drawing calls. One format to start -- RGBA8, not
+   pixels)`, `fnl_image_destroy()`, `fnl_image_supported()` and
+   `fnl_overlay_image(app, x, y, w, h, img)`. One format -- RGBA8, not
    premultiplied, which is what the glyph atlas and the cover already use --
    and the enum appended to as more are wanted. The caller's pixels are
    copied, so it may free them on return.
 2. **A shader pair**: `shaders/image.vert` and `shaders/image.frag` beside
-   rect/shape/text, translated by spirv-cross at build time as those are
-   (the shader list in CMakeLists.txt, `tools/embed_text.cmake`).
-3. **A pipeline per renderer**, in each overlay's own file: Vulkan
-   (`src/renderer/vulkan/overlay.c`) wants a descriptor set per image and a
-   sampler; GL (`src/renderer/gl/overlay.c`) a texture and a uniform; D3D12
-   (`src/renderer/d3d12/overlay.c`) a PSO and an SRV; Metal
-   (`src/renderer/metal/overlay.m`) an encoder state and a texture. The quad
-   is one more instance kind in the pass the rects and strokes already fill,
-   so the ordering invariant (*Recording*) is kept by appending it there.
-4. **Lifetime and device loss.** The image is the caller's; the GPU object is
-   the renderer's, and a device rebuild (`on_gpu_lost`/`on_gpu_created`) has
-   to produce it again. Which is the decision to make *before* any of this,
-   because it is what the API means: either the library keeps a CPU copy of
-   every image (memory, and a rebuild is free), or it asks the caller for the
-   pixels again at `on_gpu_created` (no copy, and every caller keeps its own
-   alive). The scene's own targets already answer this question for
-   themselves; an image should answer it the same way.
+   rect/shape/text, translated by spirv-cross at build time as those are.
+   The vertex stage places the quad itself, from a push constant, so an image
+   needs neither a vertex buffer nor the overlay's dynamic viewport.
+3. **Lifetime and device loss**: the library keeps the CPU copy, so a device
+   rebuild (`on_gpu_created`) uploads it again. Each renderer destroys its
+   images' objects in its own device-gone hook (`vk_images_device_gone()`,
+   `gl_destroy_overlay()`) and leaves `FnlImage::gpu` null; the next draw
+   uploads. What is left at `fnl_shutdown()` is freed there.
+4. **Vulkan and GL pipelines**: `src/renderer/vulkan/overlay.c` (an image,
+   its memory, a view and a set from a freeable pool, one shared sampler) and
+   `src/renderer/gl/overlay.c` (a texture).
+
+Owed:
+
+- **D3D12** (`src/renderer/d3d12/overlay.c`): a PSO and an SRV; **Metal**
+  (`src/renderer/metal/overlay.m`): an encoder state and a texture. Both
+  vtables leave the three image entries NULL, so `fnl_image_supported()`
+  answers false there and `fnl_image_create()` refuses, which is the
+  documented behaviour rather than a gap that draws nothing.
+- The ordering is call order for rects and strokes -- the core flushes both
+  before an image -- and text stays one draw at the end of the frame, so a
+  glyph appended before an image still lands on top of it, as it already did
+  for a rectangle.
