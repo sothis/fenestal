@@ -919,3 +919,56 @@ Known, not owed:
   before an image -- and text stays one draw at the end of the frame, so a
   glyph appended before an image still lands on top of it, as it already did
   for a rectangle.
+
+## The review of 2026-11-20, what it left
+
+Found and fixed: an image's push constants left standing over the overlay's
+(Vulkan); a texture released with the other frame slot's list still naming
+it (Direct3D 12); a timestamp pair surviving a swapchain rebuild; ENTER and
+LEAVE in surface points on Wayland; the LED bit test by bytes on KMS; an
+`NSCursor` set per motion on Cocoa; `GETCRTC` per cursor report on KMS;
+X11's blocking `Xft.dpi` read per notification; GL's window image remade on
+every rebuild.
+
+Open, each needing a decision or a measurement:
+
+- **`vk_image_free()` against an in-flight list.** `d3d_image_free()` now
+  drains as `d3d_cover_release()` does; Vulkan's frees the image and its
+  descriptor set with nothing, and a caller destroying a picture mid-frame is
+  the documented case (`[overlay]`). A `vkDeviceWaitIdle` per destroy is
+  correct and expensive; a retired-image list drained on the frame slot's
+  fence is the other way, and is what a swapchain rebuild wants as well.
+- **The GPU ranking's per-frame re-derivation**: `app_rank_tick()` calls
+  `display_now()` (round trips through `App::lock`, the backend's
+  `modes`/`outputs`, two scans of `rank[]`) and `list_hash()` every turn, for
+  an answer that moves on a configure or an output event. Gating it on the
+  published fields alone is the staleness the file warns of --
+  `events_post_state()` does not diff the refresh rate, so a mode switch that
+  keeps the size would keep the old name. Owed: a stamp plus the hook that
+  clears it wherever `app_publish_*()` runs.
+- **Wayland's held-key guard** (`kb_key()`): X11 has one and Wayland has
+  not, which is latent only while no compositor repeats a press of its own.
+  Settling it needs a compositor that does, or a focus regain that resends
+  one; the stress round's held-key check says mutter does not.
+- **Win32's clipboard `Sleep()`** (`clipboard_open()`): up to 50 ms on the
+  window thread dispatching nothing, which the rule on that thread forbids.
+  The pumping idiom `size_await()` uses is the candidate and needs a judgment
+  on the re-entry it allows, with `WM_SIZE` mid-clipboard.
+- **The GL overlay push block**, written three to five times a frame into
+  the region the frame's own draws read. One buffer per slot is not the
+  answer: a UBO range's start must be `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT`
+  aligned, so it wants a bound range per kind or a second binding point, and
+  both change the shaders.
+- **Per-frame figures that move slowly**: the calibration panel re-measures
+  every entry each frame (`pw` is frozen once `plan()` sets the ids); the
+  controls ask the backend for its outputs twice a frame and recompute
+  `ctl_run_w()` ten times; the metrics panel formats eight figures a frame
+  for values latched at `METRICS_WINDOW`. Each is a cache, and each wants the
+  hit test to read what the draw read.
+- **Startup, not frame**: Vulkan enumerates the device's extensions about
+  ten times per device creation, and Metal compiles fourteen libraries for
+  eleven stages. Both are once per device, so neither is measured as a cost.
+- **`win32_host()` per `WM_MOVE`** takes the loader lock and scans ntdll for
+  `wine_get_version`, a fact fixed once the display driver is loaded. Caching
+  it is safe only from `win32_open()` on, which is where the driver has
+  loaded -- a cache taken at the first call is not.
