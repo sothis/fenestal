@@ -1823,6 +1823,15 @@ struct FnlApp {
 	 * the lock because the shim has no atomic add, and a lost bump is a
 	 * stale frame. */
 	uint32_t              want_user_gen;
+	/* The posts fnl_post() queued: run by app_post_drain() at the top of a
+	 * turn, on the render thread, so a worker's state reaches the callbacks
+	 * without a lock of the caller's. Under App::lock, the caller's threads
+	 * writing and the render thread taking the lot. */
+	struct AppPost { void (*fn)(void *ud); void *ud; };
+	enum { APP_POST_MAX = 16 };
+	struct AppPost post[APP_POST_MAX];
+	int                   post_n;
+
 	/* fnl_invalidate_in(): when the next frame may be drawn even though
 	 * nothing moved, in now_seconds()'s base, or 0 for none. Under the lock
 	 * with the counter it spends -- the render thread takes it at the top of a
@@ -2403,6 +2412,10 @@ void app_pointer_motion(App *a, double x_pt, double y_pt);
  * backend that has an outside calls it; KMS, whose window is the display,
  * never does. */
 void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt);
+/* Queue a call for the render thread (fnl_post()), and run the queued ones:
+ * app.c, the second called once a turn from src/core/frame.c. */
+bool app_post(App *a, void (*fn)(void *ud), void *ud);
+void app_post_drain(App *a);
 /* How far a captured pointer moved, in window points. The event only: the
  * reticle is the backend's to move, in its own units (app_reticle_move()). */
 void app_pointer_relative(App *a, double dx_pt, double dy_pt);

@@ -6,6 +6,12 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_post()`: run a callback on the render thread at the start of the next
+  frame, before `on_record` and `on_overlay`. A worker's state -- a pool's, a
+  decoder's, a service's reply -- reaches what the callbacks read without a
+  lock of the caller's own. Sixteen are taken at a time and a full queue is a
+  false rather than a silent drop. `events.c` runs a thread that posts a tick,
+  and the overlay draws the count.
 - `FnlInitDesc::no_titlebar_controls`: which of the library's own titlebar
   controls to leave out, as `FNL_TITLEBAR_*` bits (antialiasing, the render
   scale, the output box, the GPU box, the size or mode drop-down). A program

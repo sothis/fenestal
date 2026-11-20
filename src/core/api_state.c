@@ -279,6 +279,11 @@ void fnl_invalidate_in(FnlApp *app, int ms)
  * block be [any], which it has to be -- an application answers its events in
  * on_overlay, on the render thread. */
 
+bool fnl_post(FnlApp *app, void (*fn)(void *ud), void *ud)
+{
+	return app_post((App *)app, fn, ud);
+}
+
 /* The swapchain the frame builds next is the other kind, and the pacing
  * changes with it; nothing else is needed, since the turn compares the mode
  * it was built for with the one asked for (swapchain_stale()). */

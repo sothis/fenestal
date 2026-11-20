@@ -1877,6 +1877,9 @@ void *render_loop(void *arg)
 		app_gpu_hotplug_poll(a);
 		app_rank_tick(a);
 		gpu_switch_owed(a);
+		/* Before the frame's own state is taken, so what a post changed is
+		 * drawn by this turn. */
+		app_post_drain(a);
 
 		/* Here rather than where it was noticed: the frame that hit it has
 		 * unwound, and the quit check above means a GPU stuck in a reset loop

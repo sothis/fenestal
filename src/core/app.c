@@ -1711,6 +1711,42 @@ void app_pointer_motion(App *a, double x_pt, double y_pt)
  * no position to leave or arrive at, and a calibration holds input back as it
  * does for motion; the hover the bar keeps is dropped on the way out, or a
  * button stays lit over a window the pointer has left. */
+/* See fnl_post(). The queue is a fixed ring under App::lock: a caller's
+ * thread pushes, the render thread takes the lot and runs it outside the
+ * lock, since a post may lock the App itself. Full is a false rather than a
+ * drop, so the caller knows to try again. */
+bool app_post(App *a, void (*fn)(void *ud), void *ud)
+{
+	bool ok = false;
+	if (!a || !fn)
+		return false;
+	fnl_mutex_lock(&a->lock);
+	if (a->post_n < APP_POST_MAX) {
+		a->post[a->post_n].fn = fn;
+		a->post[a->post_n].ud = ud;
+		a->post_n++;
+		ok = true;
+	}
+	fnl_mutex_unlock(&a->lock);
+	if (ok)
+		fnl_invalidate(a);      /* a post is a reason to draw */
+	return ok;
+}
+
+void app_post_drain(App *a)
+{
+	struct AppPost run[APP_POST_MAX];
+	int n;
+	fnl_mutex_lock(&a->lock);
+	n = a->post_n;
+	if (n)
+		memcpy(run, a->post, (size_t)n * sizeof run[0]);
+	a->post_n = 0;
+	fnl_mutex_unlock(&a->lock);
+	for (int i = 0; i < n; i++)
+		run[i].fn(run[i].ud);
+}
+
 void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt)
 {
 	if (a->pointer_captured || app_rank_holds_input(a))

@@ -1105,6 +1105,21 @@ FNL_API void fnl_window_size_pt(const FnlApp *app,
  * after this one differs from this one". */
 FNL_API void fnl_invalidate(FnlApp *app);                           /* [any] */
 
+/* Run `fn(ud)` on the render thread at the start of the next frame, before
+ * on_record and on_overlay, and draw that frame.
+ *
+ * The way for a worker thread to reach what the callbacks read: the state
+ * they touch is the render thread's, and a post is how the other threads hand
+ * it over without a lock of the caller's own -- a pool, a decoder, a
+ * service's reply. A post made while a frame is being drawn runs on the next
+ * one.
+ *
+ * False when the queue is full (sixteen at a time): nothing is dropped
+ * silently, and the caller posts again later. Safe from [any] thread; `fn`
+ * runs on the render thread and may call anything a callback may, its own
+ * fnl_post() included. */
+FNL_API bool fnl_post(FnlApp *app, void (*fn)(void *ud), void *ud);  /* [any] */
+
 /* The same frame, but drawn no sooner than `ms` milliseconds from now.
  *
  * For what changes on its own -- a progress bar, a meter, a countdown -- where

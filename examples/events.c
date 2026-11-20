@@ -9,14 +9,16 @@
  * Shows: fnl_poll_event fnl_key_down fnl_invalidate fnl_quit fnl_text_line
  *        fnl_set_fullscreen fnl_is_fullscreen fnl_overlay_flush
  *        fnl_output_name fnl_key_name fnl_key_from_name fnl_is_shown
- *        fnl_set_log_level
+ *        fnl_set_log_level fnl_post
  */
 
 #include <fenestal/fenestal.h>
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 typedef struct {
 	double x, y;            /* where the pointer was last seen, in points */
@@ -25,7 +27,33 @@ typedef struct {
 	char   output[64];      /* the monitor, since FNL_EVENT_OUTPUT said */
 	char   last[32];        /* the last key, by the name fnl_key_name() gives */
 	FnlKey quit;            /* FNL_QUIT_KEY, by name, or Q */
+	int    ticks;           /* what the worker thread has posted */
 } State;
+
+/* A thread of the caller's, reaching the drawing's state through a post: the
+ * count is written on the render thread, in tick(), and nothing here needs a
+ * lock of its own. */
+struct Ticker {
+	FnlApp *app;
+	State  *s;
+	volatile int run;
+};
+
+static void tick(void *ud)
+{
+	((State *)ud)->ticks++;
+}
+
+static void *ticker_thread(void *ud)
+{
+	struct Ticker *t = ud;
+	const struct timespec half = { 0, 500000000 };
+	while (t->run) {
+		nanosleep(&half, NULL);
+		fnl_post(t->app, tick, t->s);
+	}
+	return NULL;
+}
 
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
@@ -84,6 +112,11 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			 "%.1f  %s  %s  %s", s->x, s->y, s->clicks, s->scrolled,
 			 fnl_key_down(app, FNL_KEY_LSHIFT) ? "shift" : "",
 			 s->last, fnl_is_shown(app) ? "shown" : "parked");
+	{
+		char posted[32];
+		snprintf(posted, sizeof posted, "  posted %d", s->ticks);
+		strncat(line, posted, sizeof line - strlen(line) - 1);
+	}
 	fnl_overlay_text(app, 16, 48, FNL_TEXT_BODY, ink, line);
 	if (s->output[0])
 		fnl_overlay_text(app, 16, 48 + fnl_text_line(FNL_TEXT_BODY),
@@ -113,13 +146,22 @@ int main(void)
 	fnl_set_log_level(FNL_LOG_WARN);
 	const char *want = getenv("FNL_QUIT_KEY");
 	State s = { 0, 0, 0, 0.0, "", "",
-				fnl_key_from_name(want && want[0] ? want : "q") };
+				fnl_key_from_name(want && want[0] ? want : "q"), 0 };
+	struct Ticker t = { app, &s, 1 };
+	pthread_t th;
+	const int started = pthread_create(&th, NULL, ticker_thread, &t) == 0;
+
 	FnlCallbacks cb;
 	memset(&cb, 0, sizeof cb);
 	cb.size = sizeof cb;
 	cb.ud = &s;
 	cb.on_overlay = on_overlay;
 	const FnlResult rc = fnl_run(app, &cb);
+	/* The window is gone, so nothing may post to it: stop the thread before
+	 * the App it names is shut down. */
+	t.run = 0;
+	if (started)
+		pthread_join(th, NULL);
 	fnl_shutdown(app);
 	return rc < 0;
 }

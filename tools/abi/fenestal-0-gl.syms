@@ -37,6 +37,7 @@ fnl_overlay_flush
 fnl_overlay_clip
 fnl_window_size_pt
 fnl_invalidate
+fnl_post
 fnl_invalidate_in
 fnl_titlebar_reserve
 fnl_titlebar_custom
