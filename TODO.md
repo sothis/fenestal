@@ -875,3 +875,40 @@ every system (DESIGN *Benchmarking*). Owed:
   the fit has one point (2026-11-05). Owed: a second monitor on one of
   them, or a machine whose output lists more, so the copy path and the
   display path are fittable there as the Pi's KMS is.
+
+## An overlay image
+
+The overlay draws text, rectangles, strokes and boxes, and no picture. An app
+with a logo, an icon or cover art draws it from strokes -- the first program
+built on this library drew its whole titlebar that way -- and the only image
+path in the tree is `FnlRendererVtbl::overlay_cover`, which blits the last
+frame over the whole window for a move. Nothing about it generalizes: it is
+one full-window quad with the scene's own image, and `App::ovl_img` is the
+swapchain image index rather than a picture.
+
+Owed, in the order the pieces depend on each other:
+
+1. **The object and its pixels.** `fnl_image_create(app, w, h, format,
+   pixels)`, `fnl_image_destroy()`, and `fnl_overlay_image(app, x, y, w, h,
+   img)` among the drawing calls. One format to start -- RGBA8, not
+   premultiplied, which is what the glyph atlas and the cover already use --
+   and the enum appended to as more are wanted. The caller's pixels are
+   copied, so it may free them on return.
+2. **A shader pair**: `shaders/image.vert` and `shaders/image.frag` beside
+   rect/shape/text, translated by spirv-cross at build time as those are
+   (the shader list in CMakeLists.txt, `tools/embed_text.cmake`).
+3. **A pipeline per renderer**, in each overlay's own file: Vulkan
+   (`src/renderer/vulkan/overlay.c`) wants a descriptor set per image and a
+   sampler; GL (`src/renderer/gl/overlay.c`) a texture and a uniform; D3D12
+   (`src/renderer/d3d12/overlay.c`) a PSO and an SRV; Metal
+   (`src/renderer/metal/overlay.m`) an encoder state and a texture. The quad
+   is one more instance kind in the pass the rects and strokes already fill,
+   so the ordering invariant (*Recording*) is kept by appending it there.
+4. **Lifetime and device loss.** The image is the caller's; the GPU object is
+   the renderer's, and a device rebuild (`on_gpu_lost`/`on_gpu_created`) has
+   to produce it again. Which is the decision to make *before* any of this,
+   because it is what the API means: either the library keeps a CPU copy of
+   every image (memory, and a rebuild is free), or it asks the caller for the
+   pixels again at `on_gpu_created` (no copy, and every caller keeps its own
+   alive). The scene's own targets already answer this question for
+   themselves; an image should answer it the same way.
