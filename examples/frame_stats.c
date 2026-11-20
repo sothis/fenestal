@@ -8,6 +8,7 @@
  * per frame. F2 still switches the motion, which this turns on at start.
  *
  * Shows: fnl_set_frame_stats fnl_frame_stats fnl_set_scene_motion
+ *        fnl_set_vsync fnl_vsync
  *        fnl_scene_motion fnl_output_refresh_mhz
  */
 
@@ -31,6 +32,11 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	Watch *w = ud;
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
+		/* V tears: the figures below are what the pacing costs, and the
+		 * difference between the two modes is what they are for. */
+		if (ev.type == FNL_EVENT_KEY && ev.key.pressed &&
+			!ev.key.repeat && ev.key.key == FNL_KEY_V)
+			fnl_set_vsync(app, !fnl_vsync(app));
 	}
 	/* Asked for every frame, so the loop never rests while it is watched;
 	 * a still scene would otherwise draw nothing to count. */

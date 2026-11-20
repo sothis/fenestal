@@ -1587,6 +1587,14 @@ FNL_API void fnl_set_scene_size_px(FnlApp *app, int w_px, int h_px); /* [any] */
 FNL_API const char *fnl_output_name(const FnlApp *app);             /* [any] */
 FNL_API const char *fnl_present_mode(const FnlApp *app);            /* [any] */
 
+/* Whether the window's presents wait for the display, on unless asked off --
+ * by FNL_VSYNC=0 in the environment, or by this. A change lands at the next
+ * frame, which builds the swapchain again: a tearing mode's is not the
+ * vsynced one's. fnl_present_mode() says what the renderer resolved to, and
+ * fnl_frame_samples() what the pacing then cost. */
+FNL_API void fnl_set_vsync(FnlApp *app, bool on);                   /* [any] */
+FNL_API bool fnl_vsync(const FnlApp *app);                          /* [any] */
+
 /* Which backend and which renderer this program is running on -- together,
  * its platform. The backend is "Wayland", "X11", "Win32", "Cocoa" or "KMS"
  * -- a bare display, no window server -- and the renderer is the name of

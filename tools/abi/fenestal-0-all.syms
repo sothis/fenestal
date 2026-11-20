@@ -84,6 +84,8 @@ fnl_release_pointer
 fnl_set_scene_size_px
 fnl_output_name
 fnl_present_mode
+fnl_set_vsync
+fnl_vsync
 fnl_backend_name
 fnl_window_host
 fnl_renderer_name

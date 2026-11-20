@@ -279,6 +279,24 @@ void fnl_invalidate_in(FnlApp *app, int ms)
  * block be [any], which it has to be -- an application answers its events in
  * on_overlay, on the render thread. */
 
+/* The swapchain the frame builds next is the other kind, and the pacing
+ * changes with it; nothing else is needed, since the turn compares the mode
+ * it was built for with the one asked for (swapchain_stale()). */
+void fnl_set_vsync(FnlApp *app, bool on)
+{
+	App *a = (App *)app;
+	if (!a)
+		return;
+	fnl_atomic_store_bool(&a->vsync, on);
+	fnl_invalidate(a);
+}
+
+bool fnl_vsync(const FnlApp *app)
+{
+	App *a = (App *)app;
+	return a ? fnl_atomic_load_bool(&a->vsync) : false;
+}
+
 void fnl_set_fullscreen(FnlApp *app, bool on)
 {
 	App *a = (App *)app;
