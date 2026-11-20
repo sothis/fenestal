@@ -14,11 +14,20 @@
 
 #include <fenestal/fenestal.h>
 
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* A thread of the caller's own, which the library has no API for: pthreads
+ * on POSIX, CreateThread on Windows. Neither is a library a consumer of this
+ * one links -- core/thread.h says why the library carries no pthread -- so
+ * the two are spelled out rather than reached through one. */
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 typedef struct {
 	double x, y;            /* where the pointer was last seen, in points */
@@ -44,16 +53,34 @@ static void tick(void *ud)
 	((State *)ud)->ticks++;
 }
 
-static void *ticker_thread(void *ud)
+/* What the thread does, written once: only the entry point's signature is
+ * each platform's own. */
+static void ticker_run(struct Ticker *t)
 {
-	struct Ticker *t = ud;
-	const struct timespec half = { 0, 500000000 };
 	while (t->run) {
+#ifdef _WIN32
+		Sleep(500);
+#else
+		const struct timespec half = { 0, 500000000 };
 		nanosleep(&half, NULL);
+#endif
 		fnl_post(t->app, tick, t->s);
 	}
+}
+
+#ifdef _WIN32
+static DWORD WINAPI ticker_thread(LPVOID ud)
+{
+	ticker_run(ud);
+	return 0;
+}
+#else
+static void *ticker_thread(void *ud)
+{
+	ticker_run(ud);
 	return NULL;
 }
+#endif
 
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
@@ -148,8 +175,13 @@ int main(void)
 	State s = { 0, 0, 0, 0.0, "", "",
 				fnl_key_from_name(want && want[0] ? want : "q"), 0 };
 	struct Ticker t = { app, &s, 1 };
+#ifdef _WIN32
+	HANDLE th = CreateThread(NULL, 0, ticker_thread, &t, 0, NULL);
+	const int started = th != NULL;
+#else
 	pthread_t th;
 	const int started = pthread_create(&th, NULL, ticker_thread, &t) == 0;
+#endif
 
 	FnlCallbacks cb;
 	memset(&cb, 0, sizeof cb);
@@ -160,8 +192,14 @@ int main(void)
 	/* The window is gone, so nothing may post to it: stop the thread before
 	 * the App it names is shut down. */
 	t.run = 0;
-	if (started)
+	if (started) {
+#ifdef _WIN32
+		WaitForSingleObject(th, INFINITE);
+		CloseHandle(th);
+#else
 		pthread_join(th, NULL);
+#endif
+	}
 	fnl_shutdown(app);
 	return rc < 0;
 }

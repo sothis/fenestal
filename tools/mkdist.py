@@ -583,6 +583,14 @@ def wanted(path, manifest):
                for m in manifest)
 
 
+def named(path, manifest):
+    """Whether the manifest names this path itself, and not a subtree that
+    happens to contain it: the exact entries and the top-level globs."""
+    return any(path == m or ('*' in m and '/' not in path
+                             and fnmatch.fnmatch(path, m))
+               for m in manifest)
+
+
 def verify(paths):
     """The archive's promises, checked against the selected set: NEEDED is
     written by hand, and hand-written lists drift."""
@@ -651,6 +659,16 @@ def collect(manifest, worktree=False):
         candidates = index_files()
 
     chosen = {p: m for p, m in candidates.items() if wanted(p, manifest)}
+
+    # A hidden file a subtree row drags in -- an editor's .clangd, tracked so
+    # a clone's editor agrees with the build -- is left out with a line, as
+    # worktree_files() leaves an untracked one: verify() is for a hidden path
+    # the manifest names itself, and a subtree is not a name.
+    for p in sorted(chosen):
+        if not named(p, manifest) and any(part.startswith('.')
+                                          for part in p.split('/')):
+            print(f'mkdist: {p}: hidden, left out', file=sys.stderr)
+            del chosen[p]
 
     # A stale entry is an archive short of something the tree promises.
     for m in manifest:

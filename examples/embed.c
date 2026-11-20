@@ -22,16 +22,31 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 typedef struct {
 	int    turns;          /* turns of the caller's loop */
 	double started;
 } State;
 
+/* A clock that does not go backwards, which is what the loop below measures
+ * against. Windows has no clock_gettime, and no library a consumer of this
+ * one links for it -- core/thread.h says why the library carries no pthread
+ * either -- so its own high-resolution counter is used there. */
 static double now(void)
 {
+#ifdef _WIN32
+	LARGE_INTEGER freq, count;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&count);
+	return (double)count.QuadPart / (double)freq.QuadPart;
+#else
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
 }
 
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
