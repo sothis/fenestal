@@ -423,7 +423,7 @@ int fnl_claim_at(const FnlApp *app, double x_pt, double y_pt)
 {
 	/* Floored, not truncated, as deco_hit() is: half a point outside the left
 	 * edge is outside it. */
-	return deco_claim_at((const App *)app, (int)floor(x_pt), (int)floor(y_pt));
+	return deco_claim_at((App *)app, (int)floor(x_pt), (int)floor(y_pt));
 }
 
 bool fnl_claim(FnlApp *app, int x, int y, int w, int h)

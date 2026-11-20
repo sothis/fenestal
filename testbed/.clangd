@@ -1,0 +1,8 @@
+# The testbed's scenes are compiled per renderer, and the build tells this
+# file which ones it has (SCENE_HAS_<API>); without them it is an #error and
+# nothing else in the file is read. A Linux tree draws with Vulkan and OpenGL,
+# which is what an editor here should see.
+CompileFlags:
+  Add:
+    - -DSCENE_HAS_VULKAN
+    - -DSCENE_HAS_GL

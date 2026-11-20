@@ -219,6 +219,8 @@ static void usage(FILE *f, const char *prog)
 		"                     FNL_GPU_RANK in the environment is the same.\n"
 		"\n"
 		"  --custom-titlebar  draw the titlebar in this program instead of\n"
+		"                     the library's, buttons included\n"
+		"  --bare-titlebar    the library's bar with none of its controls\n"
 		"                     in the library: a taller bar with its own four\n"
 		"                     buttons, claimed with fnl_titlebar_claim() so\n"
 		"                     a press on one reaches this program while the\n"
@@ -352,6 +354,12 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--custom-titlebar")) {
 			testbed_titlebar_custom_enable();
+			continue;
+		}
+		if (!strcmp(arg, "--bare-titlebar")) {
+			/* The library's bar with none of its own controls in it: the
+			 * buttons, the drag and the edges are still the window's. */
+			d->no_titlebar_controls = FNL_TITLEBAR_ALL;
 			continue;
 		}
 		if (!strcmp(arg, "--echo-events")) {

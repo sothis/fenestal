@@ -147,9 +147,8 @@ static bool claim_at(App *a, int x, int y)
  * were made, so it names the control the caller drew in that order. Under the
  * lock, as the list is the render thread's and a half-rebuilt one would
  * answer a rectangle that was never drawn. */
-int deco_claim_at(const App *app, int x, int y)
+int deco_claim_at(App *a, int x, int y)
 {
-	App *a = (App *)app;
 	int hit = -1;
 	if (!a)
 		return -1;

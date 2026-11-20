@@ -1,5 +1,5 @@
 major 0
-sizeof FnlInitDesc 104
+sizeof FnlInitDesc 112
 offset FnlInitDesc.size 0
 offset FnlInitDesc.header_version 8
 offset FnlInitDesc.log 16

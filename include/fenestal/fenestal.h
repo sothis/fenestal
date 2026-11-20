@@ -136,6 +136,16 @@ typedef enum {
 	FNL_LOG_ERROR = 0, FNL_LOG_WARN = 1, FNL_LOG_INFO = 2, FNL_LOG_DEBUG = 3
 } FnlLogLevel;
 
+/* One of the library's own titlebar controls, for
+ * FnlInitDesc::no_titlebar_controls. The antialiasing pair counts as one:
+ * they are two names for the same choice of how the scene is sampled. */
+#define FNL_TITLEBAR_ANTIALIAS (1u << 0)  /* the FSAA and MLAA checkboxes */
+#define FNL_TITLEBAR_SCALE     (1u << 1)  /* the render-scale checkbox  */
+#define FNL_TITLEBAR_OUTPUT    (1u << 2)  /* the output box             */
+#define FNL_TITLEBAR_GPU       (1u << 3)  /* the GPU box                */
+#define FNL_TITLEBAR_MODE      (1u << 4)  /* the size or mode drop-down */
+#define FNL_TITLEBAR_ALL       (0xffffffffu)
+
 FNL_API const char *fnl_result_str(FnlResult r);                 /* [any] */
 /* The last failure on this thread, in full. Thread-local, and valid until the
  * next Fenestal call on the same thread. */
@@ -319,6 +329,17 @@ typedef struct {
 	 * The library's own titlebar, a bar of the caller's and the resize edges
 	 * are unchanged -- those presses are decided before this is read. */
 	bool content_is_ui;
+
+	/* Controls of the library's own titlebar to leave out, as
+	 * FNL_TITLEBAR_* bits; 0, the default, draws them all. A program with
+	 * settings of its own has no use for an FSAA checkbox in its titlebar,
+	 * and one that replaced the bar (fnl_titlebar_custom()) has none of
+	 * them whatever this says -- but its own bar is not this bar's.
+	 *
+	 * Nothing else changes: the buttons, the drag strip and the resize
+	 * edges are the window's and stay. A control left out is left out of
+	 * the floor the library asks for, too. */
+	uint32_t no_titlebar_controls;
 
 	/* Read no GPU ranking and measure none, wherever FNL_GPU_RANK is unset:
 	 * the window then opens at once on the automatic pick instead of

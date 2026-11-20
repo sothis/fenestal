@@ -398,8 +398,22 @@ CTL_LABEL[CTL_CHECK_COUNT] = {
  * would have nothing to hold the scene at but the size already in force:
  * it is left out, and fnl_set_scene_size_px() is how a program pins one
  * there. */
+/* Whether a control the caller may leave out was asked for: the descriptor's
+ * mask, one bit each (FNL_TITLEBAR_*). Every control is gated here, at the
+ * width the layout is built from, so drawing, hit-testing and the floor all
+ * agree on which ones are there. */
+static bool ctl_wanted(const App *a, uint32_t bit)
+{
+	return (a->no_titlebar_controls & bit) == 0;
+}
+
 static bool ctl_check_shown(const App *a, int i)
 {
+	/* The antialiasing pair is one choice of sampling and one bit; the render
+	 * scale is the other checkbox and has its own. */
+	if (!ctl_wanted(a, i == CTL_CHECK_SCALE ? FNL_TITLEBAR_SCALE
+										: FNL_TITLEBAR_ANTIALIAS))
+		return false;
 	return i != CTL_CHECK_SCALE || !BACKEND(a)->is_output;
 }
 
@@ -430,6 +444,8 @@ static int ctl_box_w(int chars)
 /* The size box: wide enough for the widest label it can hold. */
 static int ctl_combo_w(const App *a)
 {
+	if (!ctl_wanted(a, FNL_TITLEBAR_MODE))
+		return 0;
 	return ctl_box_w(BACKEND(a)->is_output
 						 ? (int)(sizeof CTL_MODE_WIDEST - 1)
 						 : (int)(sizeof CTL_SIZE_WIDEST - 1));
@@ -445,7 +461,7 @@ static int ctl_output_room(void)
  * its GPUs. */
 static int ctl_gpu_w(const App *a)
 {
-	return ctl_gpu_count(a) > 0
+	return ctl_wanted(a, FNL_TITLEBAR_GPU) && ctl_gpu_count(a) > 0
 			   ? ctl_box_w((int)(sizeof CTL_GPU_WIDEST - 1))
 			   : 0;
 }
@@ -474,6 +490,8 @@ int ctl_run_w(const App *a)
  * without it. */
 static bool ctl_output_in(const App *a, int w)
 {
+	if (!ctl_wanted(a, FNL_TITLEBAR_OUTPUT))
+		return false;
 	return BACKEND(a)->is_output ||
 		   w >= DECO_MIN_W + DECO_BTN_GROUP_GAP + ctl_run_w(a) +
 					ctl_output_room();

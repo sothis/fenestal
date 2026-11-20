@@ -6,6 +6,13 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `FnlInitDesc::no_titlebar_controls`: which of the library's own titlebar
+  controls to leave out, as `FNL_TITLEBAR_*` bits (antialiasing, the render
+  scale, the output box, the GPU box, the size or mode drop-down). A program
+  with settings of its own was replacing the whole bar -- and losing the
+  buttons with it -- to be rid of an FSAA checkbox. The buttons, the drag
+  strip and the resize edges stay whatever it says, and the floor follows what
+  is left. `testbed --bare-titlebar` is the worked case.
 - `fnl_claim_at()`: which of this frame's claims a window point is in, counted
   from 0 in the order they were made, or -1. A caller that claims each control
   as it draws it can key its own hit test on the same list the press routing

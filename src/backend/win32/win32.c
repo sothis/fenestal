@@ -1521,8 +1521,9 @@ static void on_motion(App *a, HWND hwnd, LPARAM lp)
 	a->ptr_y = px_to_ptf(GET_Y_LPARAM(lp), s120);
 
 	/* Asked for once per entry, and re-armed by the leave itself. Win32 sends
-	 * nothing to say the pointer has gone unless asked, and a titlebar button
-	 * would stay lit. */
+	 * nothing to say the pointer has gone unless asked, so a titlebar button
+	 * would stay lit and a caller would never hear the pointer arrive or
+	 * leave -- TME_LEAVE is what brings the WM_MOUSELEAVE that says both. */
 	if (!a->backend_state->tracking_leave) {
 		TRACKMOUSEEVENT tme = { .cbSize = sizeof tme,
 								.dwFlags = TME_LEAVE,
