@@ -1102,7 +1102,7 @@ and averages to `Get-Process`'s.
 | `--gpu=<name>` | the same by any part of the device's name, letter case aside (`--gpu=intel`); `FNL_GPU` in the environment is read the same way by every program of the library's |
 | `--layout=<spec>` | on KMS, type through this layout instead of the console's: `de(nodeadkeys)`, `de,us` for two groups, the XKB options after a space; `FNL_KMS_LAYOUT` in the environment is the same, and is KMS's alone — see *KMS: no window server* |
 | `--gpu-driver=<d>` | on KMS, offer a move of an NVIDIA GPU between nouveau and NVIDIA's driver with the window open, an entry in the GPU box for each renderer; `nouveau` or `nvidia` binds that one before the first frame, `switch` leaves it as it is; `FNL_GPU_DRIVER` in the environment is the same — see *Another kernel driver, with the window open* |
-| `--gpu-rank=<r>` | the GPU box ranked by each entry's measured frame rate, kept in the user's cache, best first, every start opened on the first, and measured for an entry and display not measured before; `calibrate` measures every entry on this display again, `keep` uses it and never measures, `order` orders the box by it and starts as without, `off` uses none; `FNL_GPU_RANK` in the environment is the same — see *Ranked by measured frame rate* |
+| `--gpu-rank=<r>` | the GPU box ranked by each entry's measured frame rate, kept in the user's cache, best first, every start opened on the first, and measured for an entry and display not measured before where `calibrate` asks for it and nowhere else; `calibrate` measures every entry on this display again, `keep` uses it and never measures, `order` orders the box by it and starts as without, `off` uses none; `FNL_GPU_RANK` in the environment is the same — see *Ranked by measured frame rate* |
 | `--transition=<ms>` | how long the first frames after a move to another GPU, renderer or kernel driver dissolve from the last frame before it; the library's own is 250, and 0 is a cut — see *The veil, and what the screen shows across a move* |
 | `--custom-titlebar` | draw the titlebar in the testbed instead of the library — see *Replacing the titlebar* |
 | `--frame-times` | where each frame's wall clock went, a line each half second on stderr |
@@ -5880,13 +5880,21 @@ Ti under NVIDIA's driver against the same GPU under NVK at its boot clocks, and
 OpenGL against Vulkan on each. The kind a driver gives (discrete, integrated)
 orders GPUs and says nothing of the rest; and a display's size and rate are part
 of what a frame costs. So the list's order is measured (`src/core/rank.c`),
-entry by entry and display by display, and only what is not known: once the list
-is whole -- every renderer listed since the last move to another kernel driver,
-nothing moving -- and again whenever the window is on another display or the
-list has an entry it had not, the entries with no figure kept for the display
-the window is on. A display new to the program measures every entry on it, the
-first time the window is there -- the window is never moved to another display
-to be measured; a GPU new to it measures that GPU's entries. A GPU or a display
+entry by entry and display by display -- and only where the caller asks for it:
+`FNL_GPU_RANK=calibrate`, the testbed's `--gpu-rank=calibrate`, or the GPU box's
+last row. A program that only opens a window measures nothing: a display with no
+figures kept for it is ordered by each entry's best on any other, and the window
+opens on the automatic pick. Measuring as soon as the window was up was a
+benchmark's trade rather than a program's -- some four seconds an entry, the
+window saying so and taking no input meanwhile -- and the first program built on
+this library turned it off before it had a line of its own. Asked for, the
+calibration takes the entries with no figure kept for the display the window is
+on, once the list is whole -- every renderer listed since the last move to
+another kernel driver, nothing moving -- and again whenever the window is on
+another display or the list has an entry it had not; a display new to the
+program measures every entry on it, the first time the window is there -- the
+window is never moved to another display to be measured; a GPU new to it
+measures that GPU's entries. A GPU or a display
 taken away keeps its figures, so nothing is measured when it comes back; an
 entry that would not draw is kept at 0, or it would be tried at every start. The
 window taken to another display while it is measured -- its own unplugged, which
