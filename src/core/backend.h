@@ -167,8 +167,11 @@ typedef struct FnlBackendVtbl {
 
 	/* ---- the event loop ------------------------------------------------ */
 
-	/* One turn: block until something arrives, then dispatch it. */
-	void (*pump)(App *a);
+	/* One turn: block until something arrives, then dispatch it. `timeout_ms`
+	 * bounds the block -- -1 for as long as it takes, 0 to not wait at all --
+	 * and is min'd into whatever the backend's own deadlines already ask for,
+	 * so a caller's own loop (fnl_pump()) keeps its cadence. */
+	void (*pump)(App *a, int timeout_ms);
 	/* Break a blocked pump() from another thread. */
 	void (*wakeup)(App *a);
 	/* Non-zero once the connection has failed, with the reason recorded. The

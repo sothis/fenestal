@@ -6,6 +6,13 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_start()`, `fnl_pump()` and `fnl_stop()`: `fnl_run()` in three, for a
+  caller that has an event loop of its own -- a toolkit's, an engine's, a
+  program that already pumps something. `fnl_pump()` is one turn and its block
+  is bounded by a timeout, so a caller's own timers keep their cadence; it
+  answers `FNL_SKIPPED` once the window is closing. `examples/embed.c` is the
+  worked case: 603 turns of its own loop in five seconds, and no CPU burnt
+  while nothing happened.
 - `fnl_post()`: run a callback on the render thread at the start of the next
   frame, before `on_record` and `on_overlay`. A worker's state -- a pool's, a
   decoder's, a service's reply -- reaches what the callbacks read without a

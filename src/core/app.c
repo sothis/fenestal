@@ -2970,7 +2970,7 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
  * has a loop of its own. FNL_SKIPPED once the window is closing, which is the
  * cue to call fnl_stop(); a negative result is the backend's, and fnl_run()'s
  * loop stops on it as this caller's should. */
-FnlResult fnl_pump(App *a)
+FnlResult fnl_pump(App *a, int timeout_ms)
 {
 	if (!a)
 		return FNL_ERR_INVALID_ARGUMENT;
@@ -2982,7 +2982,7 @@ FnlResult fnl_pump(App *a)
 						"fnl_start() and fnl_stop()");
 	if (fnl_atomic_load_bool(&a->should_close))
 		return FNL_SKIPPED;
-	BACKEND(a)->pump(a);
+	BACKEND(a)->pump(a, timeout_ms);
 	/* After the pump rather than before it: a request made from the frame
 	 * that was drawn while the pump blocked should be spent on the turn that
 	 * wakes, not held for the one after. */
@@ -3032,7 +3032,7 @@ FnlResult fnl_run(App *a, const FnlCallbacks *cb)
 	FnlResult rc = fnl_start(a, cb);
 	if (rc < 0)
 		return rc;
-	while ((rc = fnl_pump(a)) == FNL_OK)
+	while ((rc = fnl_pump(a, -1)) == FNL_OK)
 		;
 	(void)fnl_stop(a);
 	return rc == FNL_SKIPPED ? FNL_OK : rc;

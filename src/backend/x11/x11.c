@@ -1951,7 +1951,7 @@ static void wait_fds(App *a, int timeout_ms)
 static int sync_await_ms(struct BackendState *p);
 static void sync_await_expire(struct BackendState *p);
 
-static void x11_pump(App *a)
+static void x11_pump(App *a, int timeout_ms)
 {
 	struct BackendState *p = a->backend_state;
 
@@ -1981,6 +1981,10 @@ static void x11_pump(App *a)
 		const int await_ms = sync_await_ms(p);
 		if (await_ms >= 0)
 			ms = ms < 0 || await_ms < ms ? await_ms : ms;
+		/* And by the caller's own bound, for a loop that is not
+		 * fnl_run()'s (fnl_pump()). */
+		if (timeout_ms >= 0 && (ms < 0 || timeout_ms < ms))
+			ms = timeout_ms;
 		wait_fds(a, ms);
 		dispatch_read(a);
 	}

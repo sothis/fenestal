@@ -2315,7 +2315,7 @@ static void display_watch_out(struct BackendState *p, bool on)
 
 /* prepare_read/read_events is the form that lets the render thread call
  * wl_display_flush concurrently without losing a wakeup. */
-static void wl_pump(App *a)
+static void wl_pump(App *a, int timeout_ms)
 {
 	struct BackendState *p = a->backend_state;
 	struct wl_display *d = p->display;
@@ -2328,8 +2328,11 @@ static void wl_pump(App *a)
 			return;
 	display_watch_out(p, wl_display_flush(d) < 0 && errno == EAGAIN);
 
-	/* For ever, unless a paste's owner owes its next piece. */
-	const int wait_ms = loop_wait_ms(p->clip_fd >= 0, p->clip.deadline);
+	/* For ever, unless a paste's owner owes its next piece or the caller's
+	 * own loop asked to be back sooner (fnl_pump()). */
+	int wait_ms = loop_wait_ms(p->clip_fd >= 0, p->clip.deadline);
+	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
+		wait_ms = timeout_ms;
 	struct epoll_event evs[4];
 	int n = epoll_wait(p->epoll_fd, evs, 4, wait_ms);
 

@@ -2720,7 +2720,7 @@ static void kms_present_window_renew(App *a)
 	events_drain(p);
 }
 
-static void kms_pump(App *a)
+static void kms_pump(App *a, int timeout_ms)
 {
 	struct BackendState *p = a->backend_state;
 	struct epoll_event evs[16];
@@ -2733,6 +2733,10 @@ static void kms_pump(App *a)
 		if (wait_ms < 0 || ms < wait_ms)
 			wait_ms = ms;
 	}
+	/* And by the caller's own bound, for a loop that is not fnl_run()'s
+	 * (fnl_pump()). */
+	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
+		wait_ms = timeout_ms;
 	const int n = epoll_wait(p->epoll_fd, evs, 16, wait_ms);
 	if (p->cursor_recheck > 0)
 		cursor_recheck(a);

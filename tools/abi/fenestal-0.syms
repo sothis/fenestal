@@ -6,6 +6,9 @@ fnl_set_log_level
 fnl_init
 fnl_shutdown
 fnl_run
+fnl_start
+fnl_pump
+fnl_stop
 fnl_quit
 fnl_poll_event
 fnl_gpu_name

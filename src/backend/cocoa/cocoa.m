@@ -1594,12 +1594,17 @@ static bool cocoa_media_key(App *a, NSEvent *e)
 /* One turn: wait for an event, then dispatch it and whatever else is queued
  * rather than going back to sleep between each. The wakeup's own event ends
  * the wait and is dispatched to nobody. */
-static void cocoa_pump(App *a)
+static void cocoa_pump(App *a, int timeout_ms)
 {
 	@autoreleasepool {
+		/* The caller's own bound where it has one (fnl_pump()), and for ever
+		 * otherwise: a run loop waits. */
+		NSDate *until = timeout_ms >= 0
+			? [NSDate dateWithTimeIntervalSinceNow:(double)timeout_ms / 1000.0]
+			: NSDate.distantFuture;
 		pump_waiting = true;
 		NSEvent *e = [NSApp nextEventMatchingMask:NSEventMaskAny
-										untilDate:NSDate.distantFuture
+										untilDate:until
 										   inMode:NSDefaultRunLoopMode
 										  dequeue:YES];
 		pump_waiting = false;

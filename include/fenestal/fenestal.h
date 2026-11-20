@@ -819,6 +819,40 @@ FNL_API void      fnl_shutdown(FnlApp *app);                        /* [main] */
  * should be the thread that entered main(), and on macOS it has to be:
  * AppKit is the main thread's, and fnl_init() refuses any other there. */
 FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb);     /* [main] */
+
+/* fnl_run() in three, for a caller that has an event loop of its own -- a
+ * toolkit's, an engine's, a program that already pumps something:
+ *
+ *     if (fnl_start(app, &cb) < 0) ...
+ *     while (my_loop_runs() && fnl_pump(app) == FNL_OK)
+ *         ;
+ *     fnl_stop(app);
+ *
+ * is what fnl_run() does, and the three are its three phases.
+ *
+ * fnl_start() takes the callbacks and starts the render thread, so frames may
+ * be drawn while the caller's loop is still setting itself up. fnl_pump() is
+ * one turn of the window server -- it blocks until the backend has something
+ * to hand over -- and answers FNL_SKIPPED once the window is closing, which
+ * is the cue to stop. fnl_stop() joins the render thread and lets the device
+ * go; it is idempotent, so a loop that ended early may still call it.
+ *
+ * A negative result from fnl_pump() is the backend's, and fnl_run()'s own
+ * loop stops on it as a caller's should. What a caller must not do is leave
+ * its loop without pumping for long: the window server's events are delivered
+ * by fnl_pump() and nothing else reads them.
+ *
+ * All three are [main] -- the thread that called fnl_init() -- and none may
+ * be called from a callback. */
+FNL_API FnlResult fnl_start(FnlApp *app, const FnlCallbacks *cb);   /* [main] */
+/* One turn, and the block it takes is bounded by `timeout_ms`: -1 waits for
+ * as long as the window server takes, 0 does not wait at all. A caller with
+ * timers of its own passes theirs, so its loop keeps its cadence; the
+ * backend's own deadlines still cut the wait short, and a wakeup from another
+ * thread (fnl_quit(), a knob) ends it at once. */
+FNL_API FnlResult fnl_pump(FnlApp *app, int timeout_ms);            /* [main] */
+FNL_API FnlResult fnl_stop(FnlApp *app);                            /* [main] */
+
 FNL_API void      fnl_quit(FnlApp *app);                            /* [any]  */
 
 /* ---- the event queue ------------------------------------------------------

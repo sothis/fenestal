@@ -2415,10 +2415,22 @@ static void win32_close(App *a)
  *
  * GetMessageW answers 0 for WM_QUIT and -1 for an error, and PeekMessageW
  * hands WM_QUIT over as a message; all three end the loop. */
-static void win32_pump(App *a)
+static void win32_pump(App *a, int timeout_ms)
 {
 	MSG  msg;
-	BOOL got = GetMessageW(&msg, NULL, 0, 0);
+	BOOL got;
+	if (timeout_ms >= 0) {
+		/* A bound of the caller's own, for a loop that is not fnl_run()'s
+		 * (fnl_pump()): wait for the queue or the time, then take what
+		 * there is. No handles, so the wait is on the queue alone. */
+		MsgWaitForMultipleObjects(0, NULL, FALSE, (DWORD)timeout_ms,
+								  QS_ALLINPUT);
+		if (!PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+			return;                  /* nothing within the bound */
+		got = TRUE;
+	} else {
+		got = GetMessageW(&msg, NULL, 0, 0);
+	}
 
 	while (got > 0 && msg.message != WM_QUIT) {
 		TranslateMessage(&msg);
