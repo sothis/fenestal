@@ -8,12 +8,14 @@
  *
  * Shows: fnl_poll_event fnl_key_down fnl_invalidate fnl_quit fnl_text_line
  *        fnl_set_fullscreen fnl_is_fullscreen fnl_overlay_flush
- *        fnl_output_name
+ *        fnl_output_name fnl_key_name fnl_key_from_name fnl_is_shown
+ *        fnl_set_log_level
  */
 
 #include <fenestal/fenestal.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -21,6 +23,8 @@ typedef struct {
 	int    clicks;
 	double scrolled;        /* in notches: a wheel click is 1.0 */
 	char   output[64];      /* the monitor, since FNL_EVENT_OUTPUT said */
+	char   last[32];        /* the last key, by the name fnl_key_name() gives */
+	FnlKey quit;            /* FNL_QUIT_KEY, by name, or Q */
 } State;
 
 static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
@@ -32,12 +36,19 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	while (fnl_poll_event(app, &ev)) {
 		switch (ev.type) {
 		case FNL_EVENT_KEY:
-			/* A position, not a character: W is forward on AZERTY too. */
+			/* A position, not a character: W is forward on AZERTY too, and the
+			 * name is the one a help line prints -- the same table the echo of
+			 * events uses. */
+			snprintf(s->last, sizeof s->last, "%s %s",
+					 fnl_key_name(ev.key.key),
+					 ev.key.pressed ? "down" : "up");
 			if (ev.key.pressed && !ev.key.repeat &&
 				ev.key.key == FNL_KEY_F)
 				fnl_set_fullscreen(app, !fnl_is_fullscreen(app));
-			if (ev.key.pressed && ev.key.key == FNL_KEY_Q)
+			/* The quit key read by name, which is what a config file holds. */
+			if (ev.key.pressed && ev.key.key == s->quit)
 				fnl_quit(app);
+			fnl_invalidate(app);
 			break;
 		case FNL_EVENT_MOTION:
 			s->x = ev.motion.x;
@@ -70,8 +81,9 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	const FnlColor ink = { 0.9f, 0.9f, 0.9f, 1.0f };
 	char line[128];
 	snprintf(line, sizeof line, "pointer %.0f,%.0f  clicks %d  scrolled "
-			 "%.1f  %s", s->x, s->y, s->clicks, s->scrolled,
-			 fnl_key_down(app, FNL_KEY_LSHIFT) ? "shift" : "");
+			 "%.1f  %s  %s  %s", s->x, s->y, s->clicks, s->scrolled,
+			 fnl_key_down(app, FNL_KEY_LSHIFT) ? "shift" : "",
+			 s->last, fnl_is_shown(app) ? "shown" : "parked");
 	fnl_overlay_text(app, 16, 48, FNL_TEXT_BODY, ink, line);
 	if (s->output[0])
 		fnl_overlay_text(app, 16, 48 + fnl_text_line(FNL_TEXT_BODY),
@@ -97,7 +109,11 @@ int main(void)
 	FnlApp *app;
 	if (fnl_init(&desc, &app) < 0)
 		return 1;
-	State s = { 0, 0, 0, 0.0, "" };
+	/* Its own lines are the output, so the library's INFO ones are dropped. */
+	fnl_set_log_level(FNL_LOG_WARN);
+	const char *want = getenv("FNL_QUIT_KEY");
+	State s = { 0, 0, 0, 0.0, "", "",
+				fnl_key_from_name(want && want[0] ? want : "q") };
 	FnlCallbacks cb;
 	memset(&cb, 0, sizeof cb);
 	cb.size = sizeof cb;

@@ -154,6 +154,37 @@ static const char *key_name(FnlKey k)
 	return echo_key_known(k) ? KEY_NAMES[k] : "unknown";
 }
 
+/* See fenestal.h: the same table the diagnostics print, both ways round.
+ * "unknown" rather than NULL out, so a caller printing a binding needs no
+ * special case, and the two round-trip: it parses back to FNL_KEY_UNKNOWN. */
+const char *fnl_key_name(FnlKey k)
+{
+	return key_name(k);
+}
+
+static char lower(char c)
+{
+	return c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c;
+}
+
+FnlKey fnl_key_from_name(const char *name)
+{
+	if (!name || !name[0])
+		return FNL_KEY_UNKNOWN;
+	const size_t n = sizeof KEY_NAMES / sizeof KEY_NAMES[0];
+	for (size_t i = 0; i < n; i++) {
+		const char *have = KEY_NAMES[i];
+		size_t j = 0;
+		if (!have)
+			continue;
+		while (have[j] && lower(have[j]) == lower(name[j]))
+			j++;
+		if (!have[j] && !name[j])
+			return (FnlKey)i;
+	}
+	return FNL_KEY_UNKNOWN;
+}
+
 static const char *button_name(FnlButton b)
 {
 	switch (b) {

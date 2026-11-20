@@ -1854,6 +1854,11 @@ struct FnlApp {
 	 *
 	 * Points, except the two named _px. */
 	int                   pub_win_w, pub_win_h;
+	/* Whether the window is on screen -- shown, and neither covered nor
+	 * minimized -- as of the frame the rest of these describe. The render
+	 * thread parks a covered window and draws nothing, so a caller cannot
+	 * tell that from frames that stop: fnl_is_shown() reads this. */
+	FnlAtomicBool         pub_shown;
 	int                   pub_cx, pub_cy, pub_cw, pub_ch;
 	int                   pub_area_w_px, pub_area_h_px;
 	int                   pub_scene_w, pub_scene_h;

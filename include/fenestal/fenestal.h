@@ -140,10 +140,22 @@ FNL_API const char *fnl_result_str(FnlResult r);                 /* [any] */
 /* The last failure on this thread, in full. Thread-local, and valid until the
  * next Fenestal call on the same thread. */
 FNL_API const char *fnl_last_error(void);                        /* [any] */
+/* The same text, copied into your own buffer, where the one above is valid
+ * only until the next Fenestal call on this thread -- one call too few to log
+ * it after anything else. Returns the bytes written, terminator not counted,
+ * as snprintf does; a `cap` of 0 writes nothing and returns the length. */
+FNL_API size_t fnl_error_copy(char *dst, size_t cap);            /* [any] */
 
 /* One line, no trailing newline, no ownership. Called from any thread the
  * library owns, the render thread included. */
 typedef void (*FnlLogFn)(void *ud, FnlLogLevel lvl, const char *msg);
+
+/* Drop lines below this before they reach the sink: FNL_LOG_WARN silences the
+ * INFO lines a release build does not want, without every caller filtering
+ * them. FNL_LOG_DEBUG, the default, is everything; FNL_LOG_ERROR alone is
+ * what went wrong. The diagnostics -- echo_events, --frame-times, the GPU
+ * list -- print at INFO, so a caller that wants them wants FNL_LOG_DEBUG. */
+FNL_API void fnl_set_log_level(FnlLogLevel lvl);                 /* [any] */
 
 /* Which renderer draws: Vulkan, OpenGL (4.5 core on Linux, 4.1 on macOS),
  * Direct3D 12 (Windows) or Metal (macOS). A build has one or several --
@@ -955,6 +967,13 @@ typedef enum {
  * fnl_text_advance() is a per-face cell step and so answers 0 for the
  * proportional size, which has an advance per glyph instead. */
 FNL_API int fnl_text_width(const char *utf8, FnlTextSize sz);       /* [any] */
+
+/* The name of a key as the diagnostics print it -- "F5", "VolumeUp",
+ * "KPEnter" -- for a help line or a binding a caller reads back, and the
+ * reverse for a config file: case is ignored, and "unknown" is what an
+ * unrecognised name parses to, so the two round-trip. Static storage, [any]. */
+FNL_API const char *fnl_key_name(FnlKey key);                       /* [any] */
+FNL_API FnlKey fnl_key_from_name(const char *name);                 /* [any] */
 FNL_API int fnl_text_line(FnlTextSize sz);     /* baseline to baseline [any] */
 FNL_API int fnl_text_height(FnlTextSize sz);   /* cap height           [any] */
 FNL_API int fnl_text_advance(FnlTextSize sz);  /* one cell; mono only  [any] */
@@ -1199,6 +1218,11 @@ FNL_API bool fnl_begin_resize(FnlApp *app, FnlEdge edge);            /* [any] */
 FNL_API bool fnl_is_fullscreen(const FnlApp *app);                  /* [any] */
 /* Whether the window has the keyboard focus. */
 FNL_API bool fnl_is_active(const FnlApp *app);                      /* [any] */
+/* Whether the window is on screen: shown, and not covered or minimized. The
+ * library parks a covered window (draws nothing, waits for it to come back)
+ * and this is how a caller hears it, rather than inferring it from frames
+ * that stop. As of the last frame that was built. */
+FNL_API bool fnl_is_shown(const FnlApp *app);                       /* [any] */
 FNL_API bool fnl_is_maximized(const FnlApp *app);                   /* [any] */
 FNL_API bool fnl_is_pointer_captured(const FnlApp *app);            /* [any] */
 /* The best sample count FSAA can use on this device, or 1 when it offers none

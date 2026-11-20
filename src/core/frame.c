@@ -2032,6 +2032,10 @@ void *render_loop(void *arg)
 		 * what reaches this on the others. */
 		on_screen = BACKEND(a)->window_on_screen(a) &&
 					!renderer_covered(a, forced_cover);
+		/* Published for fnl_is_shown(), which is how a caller hears that the
+		 * library has parked a covered window rather than inferring it from
+		 * frames that stop. */
+		fnl_atomic_store_bool(&a->pub_shown, on_screen);
 		if (!invited && (cb_at > 0.0 || !on_screen) &&
 			!rebuild && !scene_rebuild &&
 			!l.cfg_pending &&

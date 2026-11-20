@@ -6,7 +6,8 @@
  * A window with a line of text in it, and every failure reported.
  *
  * Shows: fnl_version fnl_init fnl_run fnl_shutdown fnl_result_str
- *        fnl_last_error fnl_overlay_text fnl_overlay_rect fnl_text_width
+ *        fnl_last_error fnl_error_copy fnl_overlay_text fnl_overlay_rect
+ *        fnl_text_width
  *        fnl_text_line fnl_window_size_pt fnl_font_notice fnl_font_licence
  */
 
@@ -64,8 +65,12 @@ int main(int argc, char **argv)
 	FnlApp *app;
 	FnlResult rc = fnl_init(&desc, &app);
 	if (rc < 0) {
-		fprintf(stderr, "fnl_init: %s: %s\n", fnl_result_str(rc),
-				fnl_last_error());
+		/* Copied: fnl_last_error()'s text is valid only until the next
+		 * Fenestal call on this thread, and a log line goes somewhere
+		 * that may outlive it. */
+		char why[256];
+		fnl_error_copy(why, sizeof why);
+		fprintf(stderr, "fnl_init: %s: %s\n", fnl_result_str(rc), why);
 		return 1;
 	}
 

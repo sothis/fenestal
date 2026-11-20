@@ -55,6 +55,14 @@ bool fnl_is_active(const FnlApp *app)
 	return v;
 }
 
+/* Published by the render thread once a turn, off the same answer that
+ * decides whether the window is parked; see App::pub_shown. */
+bool fnl_is_shown(const FnlApp *app)
+{
+	App *a = (App *)app;
+	return a ? fnl_atomic_load_bool(&a->pub_shown) : false;
+}
+
 bool fnl_is_maximized(const FnlApp *app)
 {
 	App *a = (App *)app;

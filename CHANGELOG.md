@@ -6,6 +6,17 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_error_copy()`: the last failure in the caller's own buffer, where
+  `fnl_last_error()`'s text is valid only until the next Fenestal call on that
+  thread -- one call too few to log it after anything else.
+- `fnl_set_log_level()`: drop lines below a level before they reach the sink,
+  so a release build is quiet without every caller filtering its own lines.
+- `fnl_is_shown()`: whether the window is on screen. The library parks a
+  covered or minimized window and draws nothing; this is how a caller hears
+  that rather than inferring it from frames that stop.
+- `fnl_key_name()` and `fnl_key_from_name()`: the names the diagnostics print,
+  both ways round, so a help line can name a binding and a config file can hold
+  one. `events.c` reads its quit key by name.
 - A first start on a display with no kept figures opens at once on the
   automatic pick, instead of measuring every GPU entry first (some 4 s an
   entry, with the window taking no input meanwhile). The ranking is read

@@ -38,6 +38,10 @@ static FNL_THREAD_LOCAL char err_buf[ERR_MAX];
  * path. */
 static FnlAtomicPtr log_fn;
 static FnlAtomicPtr log_ud;
+/* The lowest level that reaches the sink: FNL_LOG_DEBUG, everything, until
+ * fnl_set_log_level() says otherwise. An int in an atomic u32 because a line
+ * logged while it is set must not tear. */
+static FnlAtomicU32 log_level = { FNL_LOG_DEBUG };
 
 /* The sink is a function pointer kept in an object-pointer slot, which C does
  * not guarantee round-trips -- and every system this targets does, because
@@ -80,6 +84,25 @@ const char *fnl_last_error(void)
 	return err_buf[0] ? err_buf : "no error";
 }
 
+size_t fnl_error_copy(char *dst, size_t cap)
+{
+	const char *s = fnl_last_error();
+	const size_t n = strlen(s);
+	if (dst && cap) {
+		size_t w = n < cap - 1 ? n : cap - 1;
+		memcpy(dst, s, w);
+		dst[w] = '\0';
+	}
+	return n;
+}
+
+void fnl_set_log_level(FnlLogLevel lvl)
+{
+	if (lvl < FNL_LOG_ERROR || lvl > FNL_LOG_DEBUG)
+		lvl = FNL_LOG_DEBUG;
+	fnl_atomic_store_u32(&log_level, (uint32_t)lvl);
+}
+
 void fnl_set_log_fn(FnlLogFn fn, void *ud)
 {
 	fnl_atomic_store_ptr(&log_ud, ud);
@@ -90,6 +113,8 @@ void fnl_set_log_fn(FnlLogFn fn, void *ud)
  * stderr. */
 static void emit(FnlLogLevel lvl, const char *msg)
 {
+	if ((uint32_t)lvl > fnl_atomic_load_u32(&log_level))
+		return;
 	FnlLogFn fn = log_fn_load();
 	if (fn) {
 		fn(fnl_atomic_load_ptr(&log_ud), lvl, msg);

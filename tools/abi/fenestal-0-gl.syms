@@ -1,6 +1,8 @@
 fnl_version
 fnl_result_str
 fnl_last_error
+fnl_error_copy
+fnl_set_log_level
 fnl_init
 fnl_shutdown
 fnl_run
@@ -19,6 +21,8 @@ fnl_request_gpu
 fnl_font_notice
 fnl_font_licence
 fnl_text_width
+fnl_key_name
+fnl_key_from_name
 fnl_text_line
 fnl_text_height
 fnl_text_advance
@@ -43,6 +47,7 @@ fnl_begin_move
 fnl_begin_resize
 fnl_is_fullscreen
 fnl_is_active
+fnl_is_shown
 fnl_is_maximized
 fnl_is_pointer_captured
 fnl_max_samples
