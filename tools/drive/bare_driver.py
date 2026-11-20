@@ -142,9 +142,11 @@ GPU_DRIVERS = ("nouveau", "nvidia")
 # Bare.nvidia_userspace().
 NVIDIA_USERSPACE = "/usr/local/bin/fenestal-nvidia-userspace"
 NVIDIA_STASH = "/var/lib/fenestal/nvidia-off"
-NVIDIA_FILES = ("/usr/share/vulkan/icd.d/nvidia_icd.json",
-                "/usr/share/vulkan/implicit_layer.d/nvidia_layers.json",
-                "/usr/share/glvnd/egl_vendor.d/10_nvidia.json")
+NVIDIA_FILES = (
+    "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "/usr/share/vulkan/implicit_layer.d/nvidia_layers.json",
+    "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+)
 # How lately a hand may have been at the machine's console, in seconds, for
 # a round to leave it alone: a round takes the panel to its own VT.
 # FNL_DRIVE_BARE_BUSY=0 is "it is mine, go on".
@@ -163,6 +165,11 @@ CAGE_SOCKET_FILE = "cage-socket"
 # The outputs had unplugged for cage (cage_up()), one a line, in DRIVE_DIR:
 # what cage_down() plugs back, whichever connection started it.
 CAGE_FORCED_FILE = "cage-forced"
+# The VT that was in front before a round switched the panel to its own (VT),
+# one line, in DRIVE_DIR: what vt_back() gives back. weston and cage are put
+# on the round's VT and neither gives it up, and a console VT nothing has
+# written to is black -- so a machine left on it has a black panel.
+VT_SAVED_FILE = "vt-saved"
 # The wine prefix there, by the account's uid; WINE_PREFIX's paragraph above
 # says why /tmp. Its parent must be the account's own for wine to make it,
 # which /tmp is not, so the directory is made first.
@@ -191,15 +198,28 @@ DRIVE_DIR = "fenestal-drive"
 # fetches the drivers' and layers' debug info (DEBUGINFO_WHY).
 DISTROS = {
     "debian": {
-        "packages": ("xserver-xorg-core", "xauth", "x11-xserver-utils",
-                     "libvulkan1", "mesa-vulkan-drivers", "vulkan-tools",
-                     "vulkan-validationlayers", "xclip", "weston",
-                     "xkb-data", "python3", "wine", "wine64",
-                     "libxcomposite1", "cage", "grim"),
+        "packages": (
+            "xserver-xorg-core",
+            "xauth",
+            "x11-xserver-utils",
+            "libvulkan1",
+            "mesa-vulkan-drivers",
+            "vulkan-tools",
+            "vulkan-validationlayers",
+            "xclip",
+            "weston",
+            "xkb-data",
+            "python3",
+            "wine",
+            "wine64",
+            "libxcomposite1",
+            "cage",
+            "grim",
+        ),
         "install": "DEBIAN_FRONTEND=noninteractive apt-get install -y "
-                   "--no-install-recommends %s",
+        "--no-install-recommends %s",
         "has": "dpkg-query -W -f '${Status}' \"$1\" 2>/dev/null | "
-               "grep -q 'ok installed'",
+        "grep -q 'ok installed'",
         "version": "dpkg-query -W -f '${Version}' \"$1\" 2>/dev/null",
         "versions": ("xserver-xorg-core", "weston", "mesa-vulkan-drivers"),
         "xorg": "/usr/lib/xorg/Xorg",
@@ -211,17 +231,30 @@ DISTROS = {
         "debuginfod": "https://debuginfod.debian.net",
     },
     "arch": {
-        "packages": ("xorg-server", "xorg-xauth", "xorg-xrandr",
-                     "xorg-setxkbmap", "xorg-xkbcomp", "vulkan-icd-loader",
-                     "vulkan-swrast", "vulkan-tools",
-                     "vulkan-validation-layers", "xclip", "weston",
-                     "xkeyboard-config", "python", "wine", "libxcomposite",
-                     "cage", "grim"),
+        "packages": (
+            "xorg-server",
+            "xorg-xauth",
+            "xorg-xrandr",
+            "xorg-setxkbmap",
+            "xorg-xkbcomp",
+            "vulkan-icd-loader",
+            "vulkan-swrast",
+            "vulkan-tools",
+            "vulkan-validation-layers",
+            "xclip",
+            "weston",
+            "xkeyboard-config",
+            "python",
+            "wine",
+            "libxcomposite",
+            "cage",
+            "grim",
+        ),
         # -y: a live key has no sync database until it fetches one. Only
         # what is missing is asked for (INSTALL), which on the key is
         # nothing.
         "install": "pacman -Sy --needed --noconfirm %s",
-        "has": "pacman -Q \"$1\" >/dev/null 2>&1",
+        "has": 'pacman -Q "$1" >/dev/null 2>&1',
         "version": "pacman -Q \"$1\" 2>/dev/null | cut -d' ' -f2",
         "versions": ("xorg-server", "weston", "mesa"),
         "xorg": "/usr/lib/Xorg",
@@ -246,12 +279,11 @@ SANITIZER_RUNTIME = r"lib(?:asan|tsan|ubsan|lsan)\.so\.\d+"
 # Packages DISTROS lists that a processor's distribution does not offer,
 # or that only wine wants where there is none, left out of what --setup
 # installs and --status asks after.
-NOT_OFFERED = {"aarch64": ("wine", "wine64", "libxcomposite",
-                           "libxcomposite1")}
-HANDS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "uinput_hands.py")
-GRAB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                    "kms_grab.py")
+NOT_OFFERED = {"aarch64": ("wine", "wine64", "libxcomposite", "libxcomposite1")}
+HANDS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "uinput_hands.py"
+)
+GRAB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kms_grab.py")
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]
 # The names testbed.WINDOW_NAMES gives the programs, for pkill there.
 PROGRAMS = ("fenestal-testbe", "fenestal-dev", "fenestal-dev.ex")
@@ -376,10 +408,12 @@ def listed():
         for entry in text.split(","):
             words = entry.split()
             if words:
-                dest = words[1] if len(words) > 1 and "=" not in words[1] \
-                    else None
-                found.setdefault(words[0], dest or (known or {}).get(
-                    words[0], words[0]))
+                dest = (
+                    words[1] if len(words) > 1 and "=" not in words[1] else None
+                )
+                found.setdefault(
+                    words[0], dest or (known or {}).get(words[0], words[0])
+                )
         return found
 
     filed = parse(written)
@@ -398,8 +432,9 @@ def drivers(name):
     whatever the machine has bound."""
     asked = os.environ.get("FNL_DRIVE_BARE_DRIVER")
     if asked is not None:
-        return tuple(w for w in asked.replace(",", " ").split()
-                     if w in GPU_DRIVERS)
+        return tuple(
+            w for w in asked.replace(",", " ").split() if w in GPU_DRIVERS
+        )
     for ln in _lines(HOSTS_FILE):
         words = ln.split("#")[0].split()
         if words and words[0] == name:
@@ -417,8 +452,11 @@ def machine_env(name):
     for ln in _lines(HOSTS_FILE):
         words = ln.split("#")[0].split()
         if words and words[0] == name:
-            return dict(w.split("=", 1) for w in words[1:]
-                        if "=" in w and not w.startswith("="))
+            return dict(
+                w.split("=", 1)
+                for w in words[1:]
+                if "=" in w and not w.startswith("=")
+            )
     return {}
 
 
@@ -428,12 +466,14 @@ def as_root(dest):
 
 
 def _ssh(dest, command, timeout=60, ctl=None, data=None):
-    argv = ["ssh"] + (["-S", ctl] if ctl else []) + SSH_OPTS + [dest,
-                                                                 command]
-    return subprocess.run(argv, input=data, capture_output=True,
-                          timeout=timeout,
-                          stdin=None if data is not None
-                          else subprocess.DEVNULL)
+    argv = ["ssh"] + (["-S", ctl] if ctl else []) + SSH_OPTS + [dest, command]
+    return subprocess.run(
+        argv,
+        input=data,
+        capture_output=True,
+        timeout=timeout,
+        stdin=None if data is not None else subprocess.DEVNULL,
+    )
 
 
 def _text(res):
@@ -444,6 +484,7 @@ def _free_display():
     """A display number whose TCP port nothing here holds: 6000 + n is the
     port python-xlib connects to for 127.0.0.1:n."""
     import socket
+
     for n in range(50, 100):
         s = socket.socket()
         try:
@@ -458,8 +499,9 @@ def _free_display():
 
 def packages(distro, arch):
     """DISTROS' packages less what `arch`'s distribution has not got."""
-    return tuple(p for p in distro["packages"]
-                 if p not in NOT_OFFERED.get(arch, ()))
+    return tuple(
+        p for p in distro["packages"] if p not in NOT_OFFERED.get(arch, ())
+    )
 
 
 def _elf_machine(path):
@@ -559,29 +601,43 @@ class Bare:
             fwd = []
             if self.x:
                 self.dno = _free_display()
-                fwd = ["-L", "127.0.0.1:%d:/tmp/.X11-unix/X%d"
-                       % (6000 + self.dno, DISPLAY_NO)]
+                fwd = [
+                    "-L",
+                    "127.0.0.1:%d:/tmp/.X11-unix/X%d"
+                    % (6000 + self.dno, DISPLAY_NO),
+                ]
             if os.path.exists(self.ctl):
                 os.unlink(self.ctl)
             with open(said, "w") as err:
                 self.link = subprocess.Popen(
-                    ["ssh", "-M", "-S", self.ctl, "-N"] + SSH_OPTS
-                    + ["-o", "ExitOnForwardFailure=yes",
-                       "-o", "ServerAliveInterval=15"] + fwd + [self.dest],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                    stderr=err)
+                    ["ssh", "-M", "-S", self.ctl, "-N"]
+                    + SSH_OPTS
+                    + [
+                        "-o",
+                        "ExitOnForwardFailure=yes",
+                        "-o",
+                        "ServerAliveInterval=15",
+                    ]
+                    + fwd
+                    + [self.dest],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=err,
+                )
             end = time.time() + 15.0
             why = None
             while time.time() < end:
                 if self.link.poll() is not None:
                     with open(said) as f:
-                        why = f.read().strip().splitlines() or \
-                            ["it said nothing"]
+                        why = f.read().strip().splitlines() or [
+                            "it said nothing"
+                        ]
                     break
                 if os.path.exists(self.ctl) and ssh_control(
-                        self.ctl, "check", self.dest):
+                    self.ctl, "check", self.dest
+                ):
                     break
-                time.sleep(0.05)    # poll: the handshake is a round trip
+                time.sleep(0.05)  # poll: the handshake is a round trip
             else:
                 raise Unreachable("ssh to %s did not come up" % self.dest)
             if why is None:
@@ -594,15 +650,20 @@ class Bare:
         # rather than read as a home, a name and a uid.
         system = self.sh("uname -s", check=False).strip()
         if system != "Linux":
-            raise Unreachable("%s is not running Linux (uname -s: %s) -- "
-                              "tools/drive/power.py boot %s stick"
-                              % (self.name, system.splitlines()[-1][:60]
-                                 if system else "nothing", self.name))
-        home, self.user, self.uid = self.sh(
-            "echo $HOME; id -un; id -u").split()
+            raise Unreachable(
+                "%s is not running Linux (uname -s: %s) -- "
+                "tools/drive/power.py boot %s stick"
+                % (
+                    self.name,
+                    system.splitlines()[-1][:60] if system else "nothing",
+                    self.name,
+                )
+            )
+        home, self.user, self.uid = self.sh("echo $HOME; id -un; id -u").split()
         self.there = "%s/%s" % (home, DRIVE_DIR)
-        self.distro = DISTROS[distro_of(
-            self.sh("cat /etc/os-release", check=False))]
+        self.distro = DISTROS[
+            distro_of(self.sh("cat /etc/os-release", check=False))
+        ]
         self.arch = self.sh("uname -m").strip()
 
     def tree(self, tree):
@@ -611,20 +672,25 @@ class Bare:
         processor."""
         got = TREES.get(self.arch, {}).get(tree)
         if not got:
-            raise Unreachable("%s is %s, and no %s tree is built for it"
-                              % (self.name, self.arch, tree))
+            raise Unreachable(
+                "%s is %s, and no %s tree is built for it"
+                % (self.name, self.arch, tree)
+            )
         return got
 
     def sh(self, command, timeout=60, data=None, check=True):
         """A shell command as the account, over the held connection; its
         stdout as text."""
-        res = _ssh(self.dest, command, timeout=timeout, ctl=self.ctl,
-                   data=data)
+        res = _ssh(self.dest, command, timeout=timeout, ctl=self.ctl, data=data)
         if check and res.returncode != 0:
-            raise Unreachable("%s on %s: %s"
-                              % (command.split()[0], self.name,
-                                 res.stderr.decode("utf-8",
-                                                   "replace").strip()))
+            raise Unreachable(
+                "%s on %s: %s"
+                % (
+                    command.split()[0],
+                    self.name,
+                    res.stderr.decode("utf-8", "replace").strip(),
+                )
+            )
         return _text(res)
 
     def close(self):
@@ -659,19 +725,33 @@ class Bare:
                 continue
             # The idle time follows the login's HH:MM, after a date that is
             # one field or three by the locale there.
-            at = next((i for i in range(2, len(f) - 1)
-                       if re.fullmatch(r"\d{1,2}:\d\d", f[i])), None)
+            at = next(
+                (
+                    i
+                    for i in range(2, len(f) - 1)
+                    if re.fullmatch(r"\d{1,2}:\d\d", f[i])
+                ),
+                None,
+            )
             if at is None:
                 continue
             idle = f[at + 1]
-            secs = (0 if idle == "." else float("inf") if idle == "old"
-                    else sum(int(v) * k for v, k in
-                             zip(idle.split(":"), (3600, 60), strict=False)))
+            secs = (
+                0
+                if idle == "."
+                else float("inf")
+                if idle == "old"
+                else sum(
+                    int(v) * k
+                    for v, k in zip(idle.split(":"), (3600, 60), strict=False)
+                )
+            )
             if secs < BUSY:
-                return ("%s is logged in on %s and was at it %s -- "
-                        "FNL_DRIVE_BARE_BUSY=0 to drive it anyway"
-                        % (f[0], f[1], "just now" if idle == "."
-                           else idle + " ago"))
+                return (
+                    "%s is logged in on %s and was at it %s -- "
+                    "FNL_DRIVE_BARE_BUSY=0 to drive it anyway"
+                    % (f[0], f[1], "just now" if idle == "." else idle + " ago")
+                )
         return ""
 
     def gpu_driver(self, driver, userspace=True):
@@ -684,17 +764,29 @@ class Bare:
         connection, is a skipped environment, named; any other refusal is
         DriverMoveFailed."""
         with open(GPU_DRIVER, "rb") as f:
-            res = _ssh(as_root(self.dest), "sh -s %s" % shlex.quote(driver),
-                       timeout=90, data=f.read())
+            res = _ssh(
+                as_root(self.dest),
+                "sh -s %s" % shlex.quote(driver),
+                timeout=90,
+                data=f.read(),
+            )
         said = (_text(res) + res.stderr.decode("utf-8", "replace")).strip()
         if res.returncode == 0:
-            print("  " + said.splitlines()[-1].replace(
-                "fenestal-gpu-driver: ", "kernel driver: "), flush=True)
+            print(
+                "  "
+                + said.splitlines()[-1].replace(
+                    "fenestal-gpu-driver: ", "kernel driver: "
+                ),
+                flush=True,
+            )
             if userspace:
                 self.nvidia_userspace(True)
             return
-        why = ("the GPU on %s did not move to %s: %s"
-               % (self.name, driver, " ".join(said.split())))
+        why = "the GPU on %s did not move to %s: %s" % (
+            self.name,
+            driver,
+            " ".join(said.split()),
+        )
         if res.returncode in (2, 255):
             raise Unreachable(why)
         raise DriverMoveFailed(why)
@@ -711,14 +803,19 @@ class Bare:
         nothing bound: tools/gpu-driver.sh's list, sent as gpu_driver()
         sends it. {} on a machine with none."""
         with open(GPU_DRIVER, "rb") as f:
-            res = _ssh(as_root(self.dest), "sh -s list", timeout=30,
-                       data=f.read())
+            res = _ssh(
+                as_root(self.dest), "sh -s list", timeout=30, data=f.read()
+            )
         if res.returncode != 0:
-            raise Unreachable("the NVIDIA GPUs on %s were not listed: %s"
-                              % (self.name, res.stderr.decode(
-                                  "utf-8", "replace").strip()))
-        return dict(ln.split()[:2] for ln in _text(res).splitlines()
-                    if len(ln.split()) >= 2)
+            raise Unreachable(
+                "the NVIDIA GPUs on %s were not listed: %s"
+                % (self.name, res.stderr.decode("utf-8", "replace").strip())
+            )
+        return dict(
+            ln.split()[:2]
+            for ln in _text(res).splitlines()
+            if len(ln.split()) >= 2
+        )
 
     def as_booted(self):
         """The NVIDIA GPU back on the driver this boot gave it, and its
@@ -742,14 +839,19 @@ class Bare:
         it (ThreadSanitizer's, Environment.driver_bind()). as_booted()
         puts it back where the boot has it, for the round after."""
         files = " ".join(NVIDIA_FILES)
-        res = _ssh(as_root(self.dest),
-                   "for f in %s; do if [ -e $f ]; then mkdir -p %s$(dirname "
-                   "$f) && mv $f %s$f || exit 1; fi; done"
-                   % (files, NVIDIA_STASH, NVIDIA_STASH), timeout=30)
+        res = _ssh(
+            as_root(self.dest),
+            "for f in %s; do if [ -e $f ]; then mkdir -p %s$(dirname "
+            "$f) && mv $f %s$f || exit 1; fi; done"
+            % (files, NVIDIA_STASH, NVIDIA_STASH),
+            timeout=30,
+        )
         if res.returncode != 0:
-            raise Unreachable("NVIDIA's userspace on %s was not put aside: "
-                              "%s" % (self.name, res.stderr.decode(
-                                  "utf-8", "replace").strip()))
+            raise Unreachable(
+                "NVIDIA's userspace on %s was not put aside: "
+                "%s"
+                % (self.name, res.stderr.decode("utf-8", "replace").strip())
+            )
         print("  NVIDIA's userspace: aside for the round", flush=True)
 
     def nvidia_userspace(self, wanted):
@@ -764,29 +866,48 @@ class Bare:
         puts it aside, so there it is put back either way: only
         nvidia_userspace_aside() moved it."""
         files = " ".join(NVIDIA_FILES)
-        back = ("for f in %s; do if [ -e %s$f ] && [ ! -e $f ]; then "
-                "mv %s$f $f; fi; done" % (files, NVIDIA_STASH, NVIDIA_STASH))
-        count = "n=0; for f in %s; do [ -e $f ] && n=$((n+1)); done; " \
-                "echo $n" % files
-        res = _ssh(as_root(self.dest),
-                   "%s; if [ -x %s ]; then %s; else %s; fi; %s"
-                   % (count, NVIDIA_USERSPACE,
-                      back if wanted else NVIDIA_USERSPACE, back, count),
-                   timeout=30)
+        back = (
+            "for f in %s; do if [ -e %s$f ] && [ ! -e $f ]; then "
+            "mv %s$f $f; fi; done" % (files, NVIDIA_STASH, NVIDIA_STASH)
+        )
+        count = (
+            "n=0; for f in %s; do [ -e $f ] && n=$((n+1)); done; "
+            "echo $n" % files
+        )
+        res = _ssh(
+            as_root(self.dest),
+            "%s; if [ -x %s ]; then %s; else %s; fi; %s"
+            % (
+                count,
+                NVIDIA_USERSPACE,
+                back if wanted else NVIDIA_USERSPACE,
+                back,
+                count,
+            ),
+            timeout=30,
+        )
         said = _text(res).split()
         if res.returncode != 0 or len(said) != 2:
-            raise Unreachable("NVIDIA's userspace on %s was not %s: %s"
-                              % (self.name, "put back" if wanted
-                                 else "put where the boot has it",
-                                 res.stderr.decode("utf-8",
-                                                   "replace").strip()))
+            raise Unreachable(
+                "NVIDIA's userspace on %s was not %s: %s"
+                % (
+                    self.name,
+                    "put back" if wanted else "put where the boot has it",
+                    res.stderr.decode("utf-8", "replace").strip(),
+                )
+            )
         before, after = int(said[0]), int(said[1])
         if after > before:
-            print("  NVIDIA's userspace: back from %s for the round"
-                  % NVIDIA_STASH, flush=True)
+            print(
+                "  NVIDIA's userspace: back from %s for the round"
+                % NVIDIA_STASH,
+                flush=True,
+            )
         elif after < before:
-            print("  NVIDIA's userspace: aside again, as this boot has it",
-                  flush=True)
+            print(
+                "  NVIDIA's userspace: aside again, as this boot has it",
+                flush=True,
+            )
 
     def discrete_sleeps(self):
         """Whether a GPU here other than the one the firmware booted on is
@@ -795,22 +916,35 @@ class Bare:
         driver says for itself whether it powers the GPU off ("Runtime D3
         status" in /proc/driver/nvidia/gpus/<address>/power), since it
         reads "auto" there on a GPU it never suspends: one before Turing."""
-        out = self.sh("for d in /sys/bus/pci/devices/*; do "
-                      "case $(cat $d/class) in 0x03*) ;; *) continue;; esac; "
-                      "[ \"$(cat $d/boot_vga 2>/dev/null)\" = 1 ] && continue; "
-                      "nv=/proc/driver/nvidia/gpus/${d##*/}/power; "
-                      "if [ -r $nv ]; then "
-                      "grep -q 'Runtime D3 status: *Enabled' $nv && "
-                      "echo auto; "
-                      "else cat $d/power/control; fi; done", check=False)
+        out = self.sh(
+            "for d in /sys/bus/pci/devices/*; do "
+            "case $(cat $d/class) in 0x03*) ;; *) continue;; esac; "
+            '[ "$(cat $d/boot_vga 2>/dev/null)" = 1 ] && continue; '
+            "nv=/proc/driver/nvidia/gpus/${d##*/}/power; "
+            "if [ -r $nv ]; then "
+            "grep -q 'Runtime D3 status: *Enabled' $nv && "
+            "echo auto; "
+            "else cat $d/power/control; fi; done",
+            check=False,
+        )
         return "auto" in out.split()
 
     def facts(self):
         d = self.distro
         xorg, weston, mesa = d["versions"]
-        return [ln for ln in self.sh(FACTS % {
-            "version": d["version"], "xorg": xorg, "weston": weston,
-            "mesa": mesa}).splitlines() if ln.strip()]
+        return [
+            ln
+            for ln in self.sh(
+                FACTS
+                % {
+                    "version": d["version"],
+                    "xorg": xorg,
+                    "weston": weston,
+                    "mesa": mesa,
+                }
+            ).splitlines()
+            if ln.strip()
+        ]
 
     # ---- the X server ------------------------------------------------------
 
@@ -819,22 +953,30 @@ class Bare:
         DRIVE_DIR, where the server reads it at start and the program
         through XAUTHORITY."""
         auth = shlex.quote(self.there + "/xauth")
-        got = self.sh("mkdir -p %s && umask 077 && touch %s && "
-                      "xauth -f %s list" % (shlex.quote(self.there), auth,
-                                            auth))
+        got = self.sh(
+            "mkdir -p %s && umask 077 && touch %s && "
+            "xauth -f %s list" % (shlex.quote(self.there), auth, auth)
+        )
         m = re.search(r"MIT-MAGIC-COOKIE-1\s+([0-9a-f]{32})", got)
         if m:
             return m.group(1)
         cookie = secrets.token_hex(16)
-        self.sh("xauth -f %s add :%d MIT-MAGIC-COOKIE-1 %s"
-                % (auth, DISPLAY_NO, cookie))
+        self.sh(
+            "xauth -f %s add :%d MIT-MAGIC-COOKIE-1 %s"
+            % (auth, DISPLAY_NO, cookie)
+        )
         return cookie
 
     def x_running(self):
         # The unit as well as the socket, as weston_running() asks.
-        return self.sh("systemctl is-active -q %s && "
-                       "test -S /tmp/.X11-unix/X%d && echo up"
-                       % (UNIT, DISPLAY_NO), check=False).strip() == "up"
+        return (
+            self.sh(
+                "systemctl is-active -q %s && "
+                "test -S /tmp/.X11-unix/X%d && echo up" % (UNIT, DISPLAY_NO),
+                check=False,
+            ).strip()
+            == "up"
+        )
 
     def x_up(self, timeout=20.0):
         """The X server running, started if it is not. Raises Unreachable
@@ -843,42 +985,75 @@ class Bare:
         if not self.x_running():
             self.weston_down()
             self.cage_down()
-            argv = ["systemd-run", "--unit=" + UNIT, "--collect", "--quiet",
-                    self.distro["xorg"], ":%d" % DISPLAY_NO, "vt%d" % VT,
-                    "-nolisten", "tcp", "-noreset", "-auth",
-                    self.there + "/xauth",
-                    # No blanking: a round that pauses long enough would read
-                    # the pixels of a screen saver.
-                    "-s", "0", "-dpms"]
+            argv = [
+                "systemd-run",
+                "--unit=" + UNIT,
+                "--collect",
+                "--quiet",
+                self.distro["xorg"],
+                ":%d" % DISPLAY_NO,
+                "vt%d" % VT,
+                "-nolisten",
+                "tcp",
+                "-noreset",
+                "-auth",
+                self.there + "/xauth",
+                # No blanking: a round that pauses long enough would read
+                # the pixels of a screen saver.
+                "-s",
+                "0",
+                "-dpms",
+            ]
             res = _ssh(as_root(self.dest), " ".join(map(shlex.quote, argv)))
             if res.returncode != 0:
-                raise Unreachable("Xorg would not start on %s: %s"
-                                  % (self.name, res.stderr.decode(
-                                      "utf-8", "replace").strip()))
+                raise Unreachable(
+                    "Xorg would not start on %s: %s"
+                    % (self.name, res.stderr.decode("utf-8", "replace").strip())
+                )
             end = time.time() + timeout
             while not self.x_running():
                 if time.time() > end:
-                    log = _text(_ssh(as_root(self.dest),
-                                     "journalctl -u %s -n 5 -o cat" % UNIT))
-                    raise Unreachable("Xorg on %s opened no socket: %s"
-                                      % (self.name, log.strip()))
-                time.sleep(0.2)     # poll: nothing tells us it is up
+                    log = _text(
+                        _ssh(
+                            as_root(self.dest),
+                            "journalctl -u %s -n 5 -o cat" % UNIT,
+                        )
+                    )
+                    raise Unreachable(
+                        "Xorg on %s opened no socket: %s"
+                        % (self.name, log.strip())
+                    )
+                time.sleep(0.2)  # poll: nothing tells us it is up
         self.arrange()
         # The local file names the forwarded display by the loopback
         # address, which both libxcb and python-xlib then look up as the
         # host's own name; so does xauth when it writes it.
         if os.path.exists(self.xauth):
             os.remove(self.xauth)
-        subprocess.run(["xauth", "-q", "-f", self.xauth, "add",
-                        "127.0.0.1:%d" % self.dno, "MIT-MAGIC-COOKIE-1",
-                        cookie], check=True, capture_output=True)
+        subprocess.run(
+            [
+                "xauth",
+                "-q",
+                "-f",
+                self.xauth,
+                "add",
+                "127.0.0.1:%d" % self.dno,
+                "MIT-MAGIC-COOKIE-1",
+                cookie,
+            ],
+            check=True,
+            capture_output=True,
+        )
         self.display_env = self.xenv()
 
     def _xrandr(self, *args):
-        env = " ".join("%s=%s" % (k, shlex.quote(v))
-                       for k, v in self.xenv().items())
-        return self.sh("env %s xrandr %s" % (env, " ".join(
-            map(shlex.quote, args))), check=False)
+        env = " ".join(
+            "%s=%s" % (k, shlex.quote(v)) for k, v in self.xenv().items()
+        )
+        return self.sh(
+            "env %s xrandr %s" % (env, " ".join(map(shlex.quote, args))),
+            check=False,
+        )
 
     def arrange(self):
         """Every connected output on, left to right from the primary, and
@@ -918,6 +1093,35 @@ class Bare:
     def x_down(self):
         _ssh(as_root(self.dest), "systemctl stop %s" % UNIT)
 
+    def _vt_take(self):
+        """The panel put on the round's VT (VT), and the VT that was in
+        front kept for vt_back(), as a shell fragment: weston and cage are
+        started on VT and neither gives it up.
+
+        The save is skipped where one was made already, so the VT kept is
+        the one the sweep's first bring-up found, however many rounds
+        follow it. Run before the chvt, or what is read back is the round's
+        own VT. A save that fails is not the round's to fail: the exit
+        status is the chvt's, as it was before there was anything to keep."""
+        f = shlex.quote("%s/%s" % (self.there, VT_SAVED_FILE))
+        return (
+            "{ [ -e %s ] || cat /sys/class/tty/tty0/active > %s; } "
+            "2>/dev/null; chvt %d" % (f, f, VT)
+        )
+
+    def vt_back(self):
+        """The VT in front before the first bring-up given back, for a
+        machine being left (`--down`): a round's VT is a console nothing has
+        written to, so a panel left on it is black. A no-op where no round
+        took one, and the record is cleared either way -- a machine left
+        alone is not asked twice."""
+        f = shlex.quote("%s/%s" % (self.there, VT_SAVED_FILE))
+        _ssh(
+            as_root(self.dest),
+            "v=$(cat %s 2>/dev/null); rm -f %s; "
+            'case $v in tty[0-9]*) chvt "${v#tty}" ;; esac' % (f, f),
+        )
+
     # ---- weston ------------------------------------------------------------
 
     def _weston_ini(self):
@@ -936,16 +1140,32 @@ class Bare:
         Every connected output on, laid out by weston and read back by
         weston_layout()."""
         kb = self.console_keyboard()
-        lines = ["[core]", "idle-time=0", "require-input=false",
-                 "repaint-window=10", "",
-                 "[shell]", "panel-position=none", "locking=false",
-                 "animation=none", "close-animation=none",
-                 "startup-animation=none", "",
-                 "[libinput]", "accel-profile=flat", ""]
-        keys = [(k, kb.get(v)) for k, v in
-                (("keymap_model", "XKBMODEL"), ("keymap_layout", "XKBLAYOUT"),
-                 ("keymap_variant", "XKBVARIANT"),
-                 ("keymap_options", "XKBOPTIONS"))]
+        lines = [
+            "[core]",
+            "idle-time=0",
+            "require-input=false",
+            "repaint-window=10",
+            "",
+            "[shell]",
+            "panel-position=none",
+            "locking=false",
+            "animation=none",
+            "close-animation=none",
+            "startup-animation=none",
+            "",
+            "[libinput]",
+            "accel-profile=flat",
+            "",
+        ]
+        keys = [
+            (k, kb.get(v))
+            for k, v in (
+                ("keymap_model", "XKBMODEL"),
+                ("keymap_layout", "XKBLAYOUT"),
+                ("keymap_variant", "XKBVARIANT"),
+                ("keymap_options", "XKBOPTIONS"),
+            )
+        ]
         keys = ["%s=%s" % (k, v) for k, v in keys if v]
         if keys:
             lines += ["[keyboard]"] + keys + [""]
@@ -957,8 +1177,11 @@ class Bare:
         what the KMS backend reads for itself. Read where keymap_rules.c
         reads them, Debian's /etc/default/keyboard and else systemd's
         /etc/vconsole.conf, which is Arch's."""
-        conf = self.sh("cat /etc/default/keyboard 2>/dev/null || "
-                       "cat /etc/vconsole.conf 2>/dev/null", check=False)
+        conf = self.sh(
+            "cat /etc/default/keyboard 2>/dev/null || "
+            "cat /etc/vconsole.conf 2>/dev/null",
+            check=False,
+        )
         return dict(re.findall(r'^(XKB\w+)="?([^"\n]*)"?', conf, re.M))
 
     def _wsock(self):
@@ -967,9 +1190,14 @@ class Bare:
     def weston_running(self):
         # The unit as well as the socket: a weston that crashed leaves its
         # socket behind, and the next round would be refused by nobody.
-        return self.sh("systemctl is-active -q %s && test -S %s && echo up"
-                       % (WESTON_UNIT, shlex.quote(self._wsock())),
-                       check=False).strip() == "up"
+        return (
+            self.sh(
+                "systemctl is-active -q %s && test -S %s && echo up"
+                % (WESTON_UNIT, shlex.quote(self._wsock())),
+                check=False,
+            ).strip()
+            == "up"
+        )
 
     def weston_up(self, timeout=30.0):
         """weston running on VT, started if it is not, as a login session of
@@ -986,43 +1214,76 @@ class Bare:
         ini = self.there + "/weston.ini"
         was = self.sh("cat %s 2>/dev/null" % shlex.quote(ini), check=False)
         if was != text:
-            self.sh("mkdir -p %s && cat > %s" % (shlex.quote(self.there),
-                                                 shlex.quote(ini)),
-                    data=text.encode())
+            self.sh(
+                "mkdir -p %s && cat > %s"
+                % (shlex.quote(self.there), shlex.quote(ini)),
+                data=text.encode(),
+            )
             if self.weston_running():
                 self.weston_down()
         if not self.weston_running():
             self.x_down()
             self.cage_down()
-            argv = ["systemd-run", "--unit=" + WESTON_UNIT, "--collect",
-                    "--quiet", "-p", "PAMName=login", "-p", "User=" + self.user,
-                    "-p", "TTYPath=/dev/tty%d" % VT, "-p", "TTYReset=yes",
-                    "-p", "TTYVHangup=yes", "-p", "StandardInput=tty-fail",
-                    "-p", "StandardOutput=journal",
-                    "-p", "StandardError=journal",
-                    "-p", "WorkingDirectory=" + self.there,
-                    "-E", "XDG_SESSION_TYPE=wayland",
-                    "/usr/bin/weston", "--backend=drm",
-                    "--socket=" + WAYLAND_SOCKET, "--idle-time=0", "--debug",
-                    "--config=" + ini]
+            argv = [
+                "systemd-run",
+                "--unit=" + WESTON_UNIT,
+                "--collect",
+                "--quiet",
+                "-p",
+                "PAMName=login",
+                "-p",
+                "User=" + self.user,
+                "-p",
+                "TTYPath=/dev/tty%d" % VT,
+                "-p",
+                "TTYReset=yes",
+                "-p",
+                "TTYVHangup=yes",
+                "-p",
+                "StandardInput=tty-fail",
+                "-p",
+                "StandardOutput=journal",
+                "-p",
+                "StandardError=journal",
+                "-p",
+                "WorkingDirectory=" + self.there,
+                "-E",
+                "XDG_SESSION_TYPE=wayland",
+                "/usr/bin/weston",
+                "--backend=drm",
+                "--socket=" + WAYLAND_SOCKET,
+                "--idle-time=0",
+                "--debug",
+                "--config=" + ini,
+            ]
             # A socket a crashed weston left would read as this one's up
             # before it has bound its own.
-            res = _ssh(as_root(self.dest), "rm -f %s; " % shlex.quote(
-                self._wsock()) + " ".join(map(shlex.quote, argv))
-                       + " && chvt %d" % VT)
+            res = _ssh(
+                as_root(self.dest),
+                "rm -f %s; " % shlex.quote(self._wsock())
+                + " ".join(map(shlex.quote, argv))
+                + " && "
+                + self._vt_take(),
+            )
             if res.returncode != 0:
-                raise Unreachable("weston would not start on %s: %s"
-                                  % (self.name, res.stderr.decode(
-                                      "utf-8", "replace").strip()))
+                raise Unreachable(
+                    "weston would not start on %s: %s"
+                    % (self.name, res.stderr.decode("utf-8", "replace").strip())
+                )
             end = time.time() + timeout
             while not self.weston_running():
                 if time.time() > end:
-                    log = _text(_ssh(as_root(self.dest),
-                                     "journalctl -u %s -n 8 -o cat"
-                                     % WESTON_UNIT))
-                    raise Unreachable("weston on %s opened no socket: %s"
-                                      % (self.name, log.strip()))
-                time.sleep(0.2)     # poll: nothing tells us it is up
+                    log = _text(
+                        _ssh(
+                            as_root(self.dest),
+                            "journalctl -u %s -n 8 -o cat" % WESTON_UNIT,
+                        )
+                    )
+                    raise Unreachable(
+                        "weston on %s opened no socket: %s"
+                        % (self.name, log.strip())
+                    )
+                time.sleep(0.2)  # poll: nothing tells us it is up
         self.display_env = self.wenv()
 
     def weston_layout(self):
@@ -1031,26 +1292,37 @@ class Bare:
         it prints under --debug. Asked and not assumed: weston places each
         right of the last in the order it enabled them, which is the
         kernel's connector order and not necessarily outputs()'s."""
-        env = " ".join("%s=%s" % (k, shlex.quote(v))
-                       for k, v in self.wenv().items())
-        text = self.sh("env %s timeout 3 weston-debug scene-graph 2>&1"
-                       % env, check=False)
-        got = re.findall(r"^Output \d+ \(([^)]+)\):\n\s*position: "
-                         r"\((-?\d+), (-?\d+)\) -> \((-?\d+), (-?\d+)\)",
-                         text, re.M)
+        env = " ".join(
+            "%s=%s" % (k, shlex.quote(v)) for k, v in self.wenv().items()
+        )
+        text = self.sh(
+            "env %s timeout 3 weston-debug scene-graph 2>&1" % env, check=False
+        )
+        got = re.findall(
+            r"^Output \d+ \(([^)]+)\):\n\s*position: "
+            r"\((-?\d+), (-?\d+)\) -> \((-?\d+), (-?\d+)\)",
+            text,
+            re.M,
+        )
         if not got:
-            raise Unreachable("weston on %s printed no outputs: %s"
-                              % (self.name, text.strip()[:200]))
-        return [(n, False, int(x), int(y), int(x2) - int(x), int(y2) - int(y))
-                for n, x, y, x2, y2 in got]
+            raise Unreachable(
+                "weston on %s printed no outputs: %s"
+                % (self.name, text.strip()[:200])
+            )
+        return [
+            (n, False, int(x), int(y), int(x2) - int(x), int(y2) - int(y))
+            for n, x, y, x2, y2 in got
+        ]
 
     def weston_down(self):
         _ssh(as_root(self.dest), "systemctl stop %s" % WESTON_UNIT)
 
     def wenv(self):
         """What a Wayland client there needs to reach weston."""
-        return {"WAYLAND_DISPLAY": WAYLAND_SOCKET,
-                "XDG_RUNTIME_DIR": "/run/user/%s" % self.uid}
+        return {
+            "WAYLAND_DISPLAY": WAYLAND_SOCKET,
+            "XDG_RUNTIME_DIR": "/run/user/%s" % self.uid,
+        }
 
     def bare_display(self):
         """No server: the panel is the next program's that opens the DRM
@@ -1059,8 +1331,10 @@ class Bare:
         One unit a command: systemd 262 (Arch's) refuses a stop naming a
         unit that is not loaded -- a server already down, its unit
         collected -- and then stops neither."""
-        _ssh(as_root(self.dest), "systemctl stop %s; systemctl stop %s"
-             % (UNIT, WESTON_UNIT))
+        _ssh(
+            as_root(self.dest),
+            "systemctl stop %s; systemctl stop %s" % (UNIT, WESTON_UNIT),
+        )
         self.cage_down()
         self.display_env = {}
 
@@ -1072,17 +1346,21 @@ class Bare:
         round is on, so that a cage started for another is started
         again."""
         kb = self.console_keyboard()
-        lines = ["XKB_DEFAULT_%s=%s" % (k[3:], kb[k]) for k in
-                 ("XKBMODEL", "XKBLAYOUT", "XKBVARIANT", "XKBOPTIONS")
-                 if kb.get(k)]
+        lines = [
+            "XKB_DEFAULT_%s=%s" % (k[3:], kb[k])
+            for k in ("XKBMODEL", "XKBLAYOUT", "XKBVARIANT", "XKBOPTIONS")
+            if kb.get(k)
+        ]
         return "\n".join(lines + ["FNL_CAGE_OUTPUT=%s" % (output or "")])
 
     def cage_socket(self):
         """The socket cage made, when it is up; "" when it is not."""
         f = shlex.quote("%s/%s" % (self.there, CAGE_SOCKET_FILE))
-        return self.sh("systemctl is-active -q %s && s=$(cat %s) && "
-                       "test -S /run/user/%s/\"$s\" && echo \"$s\""
-                       % (CAGE_UNIT, f, self.uid), check=False).strip()
+        return self.sh(
+            "systemctl is-active -q %s && s=$(cat %s) && "
+            'test -S /run/user/%s/"$s" && echo "$s"' % (CAGE_UNIT, f, self.uid),
+            check=False,
+        ).strip()
 
     def cage_up(self, output=None, timeout=30.0):
         """cage running on VT with no program of its own, started if it is
@@ -1099,47 +1377,85 @@ class Bare:
             self.x_down()
             self.weston_down()
             self.cage_down()
-            self.sh("mkdir -p %s && cat > %s && rm -f %s/%s"
-                    % (shlex.quote(self.there), shlex.quote(conf),
-                       shlex.quote(self.there), CAGE_SOCKET_FILE),
-                    data=text.encode())
-            others = [m[0] for m in self.outputs() if output
-                      and m[0] != output]
+            self.sh(
+                "mkdir -p %s && cat > %s && rm -f %s/%s"
+                % (
+                    shlex.quote(self.there),
+                    shlex.quote(conf),
+                    shlex.quote(self.there),
+                    CAGE_SOCKET_FILE,
+                ),
+                data=text.encode(),
+            )
+            others = [m[0] for m in self.outputs() if output and m[0] != output]
             if others:
-                self.sh("printf '%%s\\n' %s > %s/%s"
-                        % (" ".join(map(shlex.quote, others)),
-                           shlex.quote(self.there), CAGE_FORCED_FILE))
+                self.sh(
+                    "printf '%%s\\n' %s > %s/%s"
+                    % (
+                        " ".join(map(shlex.quote, others)),
+                        shlex.quote(self.there),
+                        CAGE_FORCED_FILE,
+                    )
+                )
                 for name in others:
                     self.force_output(name, "off")
-            hold = ('echo "$WAYLAND_DISPLAY" > %s/%s; exec sleep infinity'
-                    % (shlex.quote(self.there), CAGE_SOCKET_FILE))
-            argv = ["systemd-run", "--unit=" + CAGE_UNIT, "--collect",
-                    "--quiet", "-p", "PAMName=login", "-p", "User=" + self.user,
-                    "-p", "TTYPath=/dev/tty%d" % VT, "-p", "TTYReset=yes",
-                    "-p", "TTYVHangup=yes", "-p", "StandardInput=tty-fail",
-                    "-p", "StandardOutput=journal",
-                    "-p", "StandardError=journal",
-                    "-p", "WorkingDirectory=" + self.there,
-                    "-E", "XDG_SESSION_TYPE=wayland"]
+            hold = 'echo "$WAYLAND_DISPLAY" > %s/%s; exec sleep infinity' % (
+                shlex.quote(self.there),
+                CAGE_SOCKET_FILE,
+            )
+            argv = [
+                "systemd-run",
+                "--unit=" + CAGE_UNIT,
+                "--collect",
+                "--quiet",
+                "-p",
+                "PAMName=login",
+                "-p",
+                "User=" + self.user,
+                "-p",
+                "TTYPath=/dev/tty%d" % VT,
+                "-p",
+                "TTYReset=yes",
+                "-p",
+                "TTYVHangup=yes",
+                "-p",
+                "StandardInput=tty-fail",
+                "-p",
+                "StandardOutput=journal",
+                "-p",
+                "StandardError=journal",
+                "-p",
+                "WorkingDirectory=" + self.there,
+                "-E",
+                "XDG_SESSION_TYPE=wayland",
+            ]
             for ln in text.splitlines():
                 if ln.startswith("XKB_"):
                     argv += ["-E", ln]
             argv += ["/usr/bin/cage", "--", "/bin/sh", "-c", hold]
-            res = _ssh(as_root(self.dest), " ".join(map(shlex.quote, argv))
-                       + " && chvt %d" % VT)
+            res = _ssh(
+                as_root(self.dest),
+                " ".join(map(shlex.quote, argv)) + " && " + self._vt_take(),
+            )
             if res.returncode != 0:
-                raise Unreachable("cage would not start on %s: %s"
-                                  % (self.name, res.stderr.decode(
-                                      "utf-8", "replace").strip()))
+                raise Unreachable(
+                    "cage would not start on %s: %s"
+                    % (self.name, res.stderr.decode("utf-8", "replace").strip())
+                )
             end = time.time() + timeout
             while not self.cage_socket():
                 if time.time() > end:
-                    log = _text(_ssh(as_root(self.dest),
-                                     "journalctl -u %s -n 8 -o cat"
-                                     % CAGE_UNIT))
-                    raise Unreachable("cage on %s opened no socket: %s"
-                                      % (self.name, log.strip()))
-                time.sleep(0.2)     # poll: nothing tells us it is up
+                    log = _text(
+                        _ssh(
+                            as_root(self.dest),
+                            "journalctl -u %s -n 8 -o cat" % CAGE_UNIT,
+                        )
+                    )
+                    raise Unreachable(
+                        "cage on %s opened no socket: %s"
+                        % (self.name, log.strip())
+                    )
+                time.sleep(0.2)  # poll: nothing tells us it is up
         self.display_env = self.cenv()
 
     def cage_down(self):
@@ -1156,21 +1472,25 @@ class Bare:
                 failed.append(name)
                 why.append(str(e))
         if failed:
-            self.sh("printf '%%s\\n' %s > %s"
-                    % (" ".join(map(shlex.quote, failed)), f), check=False)
+            self.sh(
+                "printf '%%s\\n' %s > %s"
+                % (" ".join(map(shlex.quote, failed)), f),
+                check=False,
+            )
             raise Unreachable("; ".join(why))
         self.sh("rm -f %s" % f, check=False)
 
     def cenv(self):
         """What a Wayland client there needs to reach cage."""
-        return {"WAYLAND_DISPLAY": self.cage_socket(),
-                "XDG_RUNTIME_DIR": "/run/user/%s" % self.uid}
+        return {
+            "WAYLAND_DISPLAY": self.cage_socket(),
+            "XDG_RUNTIME_DIR": "/run/user/%s" % self.uid,
+        }
 
     def cage_capture(self, path):
         """cage's own picture of the screen (grim, through the screencopy
         protocol cage offers), made there and brought here."""
-        return self._fetch_picture(self.cenv(), "grim shot.png", "grim",
-                                   path)
+        return self._fetch_picture(self.cenv(), "grim shot.png", "grim", path)
 
     def outputs(self):
         """The connected outputs, as environment.parse_monitors() gives a
@@ -1178,11 +1498,14 @@ class Bare:
         needs no server: each at its preferred mode, the panel first and
         the rest to its right, which is where arrange() puts them for Xorg.
         weston places its own; weston_layout() reads where."""
-        out = self.sh(r"""
+        out = self.sh(
+            r"""
 for c in /sys/class/drm/card*-*; do
     [ "$(cat "$c/status" 2>/dev/null)" = connected ] || continue
     echo "${c##*/} $(head -n1 "$c/modes")"
-done""", check=False)
+done""",
+            check=False,
+        )
         found = []
         for ln in out.splitlines():
             m = re.match(r"^card\d+-(\S+) (\d+)x(\d+)", ln)
@@ -1198,33 +1521,41 @@ done""", check=False)
     def weston_capture(self, path):
         """weston's own picture of the screen, made there and brought here:
         what the compositor did with the frame."""
-        return self._fetch_picture(self.wenv(), "weston-screenshooter",
-                                   "weston-screenshooter", path)
+        return self._fetch_picture(
+            self.wenv(), "weston-screenshooter", "weston-screenshooter", path
+        )
 
     def _fetch_picture(self, wenv, command, tool, path):
         """`command` run there in a directory of its own, with `wenv`, and
         the PNG it left brought here to `path`."""
-        env = " ".join("%s=%s" % (k, shlex.quote(v))
-                       for k, v in wenv.items())
+        env = " ".join("%s=%s" % (k, shlex.quote(v)) for k, v in wenv.items())
         # The directory goes with the picture once it is brought, and at
         # once where there is none.
-        got = self.sh('d=$(mktemp -d) || exit 1; cd "$d" && env %s '
-                      '%s >/dev/null 2>&1; '
-                      'p=$(ls "$d"/*.png 2>/dev/null | head -n1); '
-                      'if [ -n "$p" ]; then echo "$p"; '
-                      'elif [ -n "$d" ]; then rm -rf "$d"; fi'
-                      % (env, command), check=False).strip()
+        got = self.sh(
+            'd=$(mktemp -d) || exit 1; cd "$d" && env %s '
+            "%s >/dev/null 2>&1; "
+            'p=$(ls "$d"/*.png 2>/dev/null | head -n1); '
+            'if [ -n "$p" ]; then echo "$p"; '
+            'elif [ -n "$d" ]; then rm -rf "$d"; fi' % (env, command),
+            check=False,
+        ).strip()
         if not got:
             raise Unreachable("%s made no picture on %s" % (tool, self.name))
         res = subprocess.run(
-            ["scp", "-q", "-o", "ControlPath=" + self.ctl] + SSH_OPTS
+            ["scp", "-q", "-o", "ControlPath=" + self.ctl]
+            + SSH_OPTS
             + ["%s:%s" % (self.dest, got), path],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=60)
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         self.sh("rm -rf %s" % shlex.quote(os.path.dirname(got)), check=False)
         if res.returncode != 0:
-            raise Unreachable("bringing the picture back from %s: %s"
-                              % (self.name, res.stderr.strip()))
+            raise Unreachable(
+                "bringing the picture back from %s: %s"
+                % (self.name, res.stderr.strip())
+            )
         return path
 
     def force_output(self, name, state):
@@ -1237,13 +1568,21 @@ done""", check=False)
         # driver since it was forced -- has nothing to put back: skipped,
         # or one stale record would fail every bring-up after it.
         skip = '[ -e "$f" ] || continue; ' if state == "detect" else ""
-        cmd = ("for f in /sys/class/drm/card*-%s/status; do %secho %s > $f; "
-               "done" % (self._connector(name), skip, shlex.quote(state)))
+        cmd = (
+            "for f in /sys/class/drm/card*-%s/status; do %secho %s > $f; "
+            "done" % (self._connector(name), skip, shlex.quote(state))
+        )
         res = _ssh(as_root(self.dest), cmd, timeout=30)
         if res.returncode != 0:
-            raise Unreachable("forcing %s %s on %s: %s"
-                              % (name, state, self.name, res.stderr.decode(
-                                  "utf-8", "replace").strip()))
+            raise Unreachable(
+                "forcing %s %s on %s: %s"
+                % (
+                    name,
+                    state,
+                    self.name,
+                    res.stderr.decode("utf-8", "replace").strip(),
+                )
+            )
 
     def _connector(self, name):
         """`name`, checked to be a connector's as the kernel spells them
@@ -1263,17 +1602,25 @@ done""", check=False)
         is told nothing, and a round's unplug checks would read a window
         that never moved."""
         tmp = "/tmp/fenestal-uevent.$$"
-        cmd = ("timeout %g udevadm monitor -k -s drm > %s 2>&1 & m=$!; "
-               "sleep 0.5; for f in /sys/class/drm/card*-%s/status; do "
-               "echo %s > $f; done; wait $m; grep -c '^KERNEL\\[' %s; "
-               "rm -f %s" % (wait, tmp, self._connector(name),
-                             shlex.quote(state), tmp, tmp))
+        cmd = (
+            "timeout %g udevadm monitor -k -s drm > %s 2>&1 & m=$!; "
+            "sleep 0.5; for f in /sys/class/drm/card*-%s/status; do "
+            "echo %s > $f; done; wait $m; grep -c '^KERNEL\\[' %s; "
+            "rm -f %s"
+            % (wait, tmp, self._connector(name), shlex.quote(state), tmp, tmp)
+        )
         res = _ssh(as_root(self.dest), cmd, timeout=wait + 30)
         said = _text(res).strip().splitlines()
         if not said or not said[-1].isdigit():
-            raise Unreachable("forcing %s %s on %s: %s"
-                              % (name, state, self.name, res.stderr.decode(
-                                  "utf-8", "replace").strip()))
+            raise Unreachable(
+                "forcing %s %s on %s: %s"
+                % (
+                    name,
+                    state,
+                    self.name,
+                    res.stderr.decode("utf-8", "replace").strip(),
+                )
+            )
         return int(said[-1]) > 0
 
     def kms_capture(self, path, output=None):
@@ -1282,22 +1629,35 @@ done""", check=False)
         else to ask for a picture. `output` names the connector to picture;
         without it, the first CRTC lit."""
         from PIL import Image
+
         res = subprocess.run(
-            ["scp", "-q", "-o", "ControlPath=" + self.ctl] + SSH_OPTS
+            ["scp", "-q", "-o", "ControlPath=" + self.ctl]
+            + SSH_OPTS
             + [GRAB, "%s:%s/" % (self.dest, self.there)],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=60)
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         if res.returncode != 0:
-            raise Unreachable("copying the grab to %s: %s"
-                              % (self.name, res.stderr.strip()))
-        res = _ssh(as_root(self.dest), "python3 %s/%s%s" % (
-            shlex.quote(self.there), os.path.basename(GRAB),
-            " --output " + shlex.quote(output) if output else ""),
-            timeout=60)
+            raise Unreachable(
+                "copying the grab to %s: %s" % (self.name, res.stderr.strip())
+            )
+        res = _ssh(
+            as_root(self.dest),
+            "python3 %s/%s%s"
+            % (
+                shlex.quote(self.there),
+                os.path.basename(GRAB),
+                " --output " + shlex.quote(output) if output else "",
+            ),
+            timeout=60,
+        )
         if res.returncode != 0 or not res.stdout.startswith(b"P6"):
-            raise Unreachable("no picture of %s's display: %s"
-                              % (self.name, res.stderr.decode(
-                                  "utf-8", "replace").strip()))
+            raise Unreachable(
+                "no picture of %s's display: %s"
+                % (self.name, res.stderr.decode("utf-8", "replace").strip())
+            )
         ppm = path + ".ppm"
         with open(ppm, "wb") as f:
             f.write(res.stdout)
@@ -1311,16 +1671,24 @@ done""", check=False)
         open /dev/uinput. `absolute`, a screen's (width, height), makes the
         mouse an absolute pointer over it (AbsUinputHands)."""
         res = subprocess.run(
-            ["scp", "-q", "-o", "ControlPath=" + self.ctl] + SSH_OPTS
+            ["scp", "-q", "-o", "ControlPath=" + self.ctl]
+            + SSH_OPTS
             + [HANDS, "%s:%s/" % (self.dest, self.there)],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=60)
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         if res.returncode != 0:
-            raise Unreachable("copying the hands to %s: %s"
-                              % (self.name, res.stderr.strip()))
+            raise Unreachable(
+                "copying the hands to %s: %s" % (self.name, res.stderr.strip())
+            )
         script = "%s/%s" % (self.there, os.path.basename(HANDS))
-        self.hands_ = (AbsUinputHands(self, script, absolute) if absolute
-                       else UinputHands(self, script))
+        self.hands_ = (
+            AbsUinputHands(self, script, absolute)
+            if absolute
+            else UinputHands(self, script)
+        )
         return self.hands_
 
     @contextlib.contextmanager
@@ -1351,6 +1719,7 @@ done""", check=False)
         from Xlib import error
         from Xlib.protocol import display as xproto
         from Xlib.protocol import event
+
         self.x_up()
         spec = importlib.util.find_spec("x11_driver")
         mod = importlib.util.module_from_spec(spec)
@@ -1360,9 +1729,11 @@ done""", check=False)
         # on that server, and opening it beside this desktop's raised a
         # TypeError. So the connection is made with tables of its own, which
         # are then its instance's, and the class keeps this desktop's.
-        fresh = {"extension_major_opcodes": {},
-                 "error_classes": error.xerror_class.copy(),
-                 "event_classes": event.event_class.copy()}
+        fresh = {
+            "extension_major_opcodes": {},
+            "error_classes": error.xerror_class.copy(),
+            "event_classes": event.event_class.copy(),
+        }
         was = {k: getattr(xproto.Display, k) for k in fresh}
         for k, v in fresh.items():
             setattr(xproto.Display, k, v)
@@ -1372,8 +1743,9 @@ done""", check=False)
             for k, v in fresh.items():
                 setattr(mod.d.display, k, v)
         except Exception as e:
-            raise Unreachable("no X connection to %s through the "
-                              "forward: %s" % (self.name, e))
+            raise Unreachable(
+                "no X connection to %s through the forward: %s" % (self.name, e)
+            )
         finally:
             for k, v in was.items():
                 setattr(xproto.Display, k, v)
@@ -1392,47 +1764,65 @@ done""", check=False)
         so a program running then is shown the change by XKB's own events
         (keymap_stale in x11_keys.c)."""
         from Xlib.ext import xinput
+
         devs = d.xinput_query_device(xinput.AllDevices).devices
-        ids = [v.deviceid for v in devs
-               if v.name == "Virtual core XTEST keyboard"]
+        ids = [
+            v.deviceid for v in devs if v.name == "Virtual core XTEST keyboard"
+        ]
         if not ids:
-            raise Unreachable("no XTEST keyboard on %s's X server"
-                              % self.name)
+            raise Unreachable("no XTEST keyboard on %s's X server" % self.name)
         kb = self.console_keyboard()
         args = ["setxkbmap", "-device", str(ids[0])]
-        for flag, key in (("-model", "XKBMODEL"), ("-layout", "XKBLAYOUT"),
-                          ("-variant", "XKBVARIANT")):
+        for flag, key in (
+            ("-model", "XKBMODEL"),
+            ("-layout", "XKBLAYOUT"),
+            ("-variant", "XKBVARIANT"),
+        ):
             args += [flag, kb.get(key, "")]
         # An empty -option first: -option on its own adds to what is set.
         args += ["-option", ""]
         if kb.get("XKBOPTIONS"):
             args += ["-option", kb["XKBOPTIONS"]]
-        env = " ".join("%s=%s" % (k, shlex.quote(v))
-                       for k, v in self.xenv().items())
+        env = " ".join(
+            "%s=%s" % (k, shlex.quote(v)) for k, v in self.xenv().items()
+        )
         # And the core keyboard's, which is what a program reads at start:
         # it takes XTEST's keymap only once XTEST has typed, and a program
         # started on a fresh server before that read the server's default.
         # The X11 backend reloads at the switch (keymap_stale); wine reads
         # the layout once, and had no AltGr all round.
-        core = args[:1] + args[3:]          # without "-device", the id
-        out = self.sh("env %s %s 2>&1 && env %s %s 2>&1; echo rc=$?" % (
-            env, " ".join(map(shlex.quote, args)),
-            env, " ".join(map(shlex.quote, core))), check=False)
+        core = args[:1] + args[3:]  # without "-device", the id
+        out = self.sh(
+            "env %s %s 2>&1 && env %s %s 2>&1; echo rc=$?"
+            % (
+                env,
+                " ".join(map(shlex.quote, args)),
+                env,
+                " ".join(map(shlex.quote, core)),
+            ),
+            check=False,
+        )
         if "rc=0" not in out:
-            raise Unreachable("setxkbmap on %s: %s" % (self.name,
-                                                       out.strip()))
+            raise Unreachable("setxkbmap on %s: %s" % (self.name, out.strip()))
 
     def capture(self, win, path):
         with self._as_display():
             env = dict(os.environ)
-        subprocess.run(["import", "-window", hex(win.id), path], check=True,
-                       stderr=subprocess.DEVNULL, env=env, timeout=30)
+        subprocess.run(
+            ["import", "-window", hex(win.id), path],
+            check=True,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            timeout=30,
+        )
         return path
 
     def xenv(self):
         """What a program there needs to reach the server."""
-        return {"DISPLAY": ":%d" % DISPLAY_NO,
-                "XAUTHORITY": self.there + "/xauth"}
+        return {
+            "DISPLAY": ":%d" % DISPLAY_NO,
+            "XAUTHORITY": self.there + "/xauth",
+        }
 
     def monitors(self):
         """xrandr --listmonitors there, as environment.parse_monitors reads
@@ -1469,15 +1859,21 @@ done""", check=False)
         want, got = ELF_MACHINES.get(self.arch), _elf_machine(exe)
         if want and got is not None and got != want:
             built = [a for a, m in ELF_MACHINES.items() if m == got]
-            raise Unreachable("%s is built for %s and %s is %s: it takes "
-                              "the %s tree's" % (os.path.relpath(exe, ROOT),
-                                          built[0] if built else
-                                          "machine %#x" % got, self.name,
-                                          self.arch,
-                                          TREES.get(self.arch, {}).get(
-                                              "linux", "?")))
-        dst = "%s/%s" % (self.there,
-                         "%s-%s" % (tree, variant) if tree else variant)
+            raise Unreachable(
+                "%s is built for %s and %s is %s: it takes "
+                "the %s tree's"
+                % (
+                    os.path.relpath(exe, ROOT),
+                    built[0] if built else "machine %#x" % got,
+                    self.name,
+                    self.arch,
+                    TREES.get(self.arch, {}).get("linux", "?"),
+                )
+            )
+        dst = "%s/%s" % (
+            self.there,
+            "%s-%s" % (tree, variant) if tree else variant,
+        )
         self.sh("mkdir -p %s" % shlex.quote(dst))
         runtimes = self._runtimes(exe)
         # Sent, and needed: the second is the first where the program is
@@ -1486,45 +1882,71 @@ done""", check=False)
         nv = shlex.quote(self.distro["nvidia"])
         amd = shlex.quote(self.distro["radeon"])
         if self.moves_driver:
-            nvidia = "test -e %s && { %s; }" % (nv, "; ".join(
-                "test -e %s && echo %s" % (q, q) for q in
-                (shlex.quote(self.distro[k]) for k in ("dbus", "egl_mesa"))))
+            nvidia = "test -e %s && { %s; }" % (
+                nv,
+                "; ".join(
+                    "test -e %s && echo %s" % (q, q)
+                    for q in (
+                        shlex.quote(self.distro[k])
+                        for k in ("dbus", "egl_mesa")
+                    )
+                ),
+            )
         else:
-            nvidia = ("test -e /proc/driver/nvidia/version && test -e %s && "
-                      "echo %s" % (nv, nv))
+            nvidia = (
+                "test -e /proc/driver/nvidia/version && test -e %s && "
+                "echo %s" % (nv, nv)
+            )
         self.pinned = [self.distro["lavapipe"]] + self.sh(
-            nvidia + "".join("; test -e %s && echo %s" % (q, q) for q in
-                             map(shlex.quote, ALSO_PINNED))
+            nvidia
+            + "".join(
+                "; test -e %s && echo %s" % (q, q)
+                for q in map(shlex.quote, ALSO_PINNED)
+            )
             + "; grep -qs 0x1002 /sys/bus/pci/devices/*/vendor && "
             "test -e %s && echo %s" % (amd, amd),
-            check=False).split()
+            check=False,
+        ).split()
         libdir = os.path.dirname(self.distro["lavapipe"])
         self.tsan_preloaded = self.sh(
-            "ls -1 %s 2>/dev/null" % " ".join(
-                shlex.quote(libdir) + "/" + g for g in TSAN_PRELOADED),
-            check=False).split()
-        files = [exe, self._suppressions(),
-                 os.path.join(ROOT, "lsan.supp")] + runtimes
+            "ls -1 %s 2>/dev/null"
+            % " ".join(shlex.quote(libdir) + "/" + g for g in TSAN_PRELOADED),
+            check=False,
+        ).split()
+        files = [
+            exe,
+            self._suppressions(),
+            os.path.join(ROOT, "lsan.supp"),
+        ] + runtimes
         res = subprocess.run(
-            ["scp", "-q", "-o", "ControlPath=" + self.ctl] + SSH_OPTS
+            ["scp", "-q", "-o", "ControlPath=" + self.ctl]
+            + SSH_OPTS
             + [f for f in files if os.path.exists(f)]
             + ["%s:%s/" % (self.dest, dst)],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=120)
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         if res.returncode != 0:
-            raise Unreachable("copying to %s: %s" % (self.name,
-                                                     res.stderr.strip()))
+            raise Unreachable(
+                "copying to %s: %s" % (self.name, res.stderr.strip())
+            )
         there = "%s/%s" % (dst, os.path.basename(exe))
         # Asked as the program will be run, the shipped runtimes first.
-        lib = ("LD_LIBRARY_PATH=%s " % shlex.quote(dst)
-               if self.runtimes else "")
-        missing = [ln.split()[0] for ln in
-                   self.sh("%sldd %s" % (lib, shlex.quote(there)),
-                           check=False).splitlines() if "not found" in ln]
+        lib = "LD_LIBRARY_PATH=%s " % shlex.quote(dst) if self.runtimes else ""
+        missing = [
+            ln.split()[0]
+            for ln in self.sh(
+                "%sldd %s" % (lib, shlex.quote(there)), check=False
+            ).splitlines()
+            if "not found" in ln
+        ]
         if missing:
-            raise Unreachable("%s has not got %s, which the %s tree's "
-                              "program links" % (self.name,
-                                                 ", ".join(missing), variant))
+            raise Unreachable(
+                "%s has not got %s, which the %s tree's "
+                "program links" % (self.name, ", ".join(missing), variant)
+            )
         return there
 
     def wine_prefix(self):
@@ -1537,30 +1959,45 @@ done""", check=False)
         .dll files are cleared before the copy all the same -- and
         the prefix made if this boot has not got one (WINE_PREFIX_UP)."""
         if not self.has("wine"):
-            raise Unreachable("no wine on %s -- bare_driver.py --setup "
-                              "installs it" % self.name)
+            raise Unreachable(
+                "no wine on %s -- bare_driver.py --setup "
+                "installs it" % self.name
+            )
         dst = "%s/%s" % (self.there, name)
         here = os.path.dirname(exe)
-        files = [exe] + [os.path.join(here, f) for f in sorted(os.listdir(here))
-                         if f.endswith(".dll")]
-        self.sh("mkdir -p %s && rm -f %s/*.dll" % (shlex.quote(dst),
-                                                   shlex.quote(dst)))
+        files = [exe] + [
+            os.path.join(here, f)
+            for f in sorted(os.listdir(here))
+            if f.endswith(".dll")
+        ]
+        self.sh(
+            "mkdir -p %s && rm -f %s/*.dll"
+            % (shlex.quote(dst), shlex.quote(dst))
+        )
         res = subprocess.run(
-            ["scp", "-q", "-o", "ControlPath=" + self.ctl] + SSH_OPTS
-            + files + ["%s:%s/" % (self.dest, dst)],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=120)
+            ["scp", "-q", "-o", "ControlPath=" + self.ctl]
+            + SSH_OPTS
+            + files
+            + ["%s:%s/" % (self.dest, dst)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         if res.returncode != 0:
-            raise Unreachable("copying to %s: %s" % (self.name,
-                                                     res.stderr.strip()))
+            raise Unreachable(
+                "copying to %s: %s" % (self.name, res.stderr.strip())
+            )
         pfx = shlex.quote(self.wine_prefix())
-        out = self.sh(WINE_PREFIX_UP % {"pfx": pfx}, timeout=300,
-                      check=False).strip()
+        out = self.sh(
+            WINE_PREFIX_UP % {"pfx": pfx}, timeout=300, check=False
+        ).strip()
         if out == "made":
             print("  made the wine prefix %s" % self.wine_prefix(), flush=True)
         elif out != "there":
-            raise Unreachable("wineboot made no prefix on %s: %s"
-                              % (self.name, out))
+            raise Unreachable(
+                "wineboot made no prefix on %s: %s" % (self.name, out)
+            )
         self.runtimes = self.sanitizers = []
         return "%s/%s" % (dst, os.path.basename(exe))
 
@@ -1588,17 +2025,20 @@ done""", check=False)
         there says when the machine has not got one."""
         machine = _elf_machine(exe)
         if machine is not None and machine != ELF_MACHINES.get(
-                os.uname().machine):
-            out = subprocess.run(["readelf", "-d", exe], capture_output=True,
-                                 text=True).stdout
+            os.uname().machine
+        ):
+            out = subprocess.run(
+                ["readelf", "-d", exe], capture_output=True, text=True
+            ).stdout
             self.sanitizers = re.findall(
-                r"\(NEEDED\)\s+Shared library: \[(%s)\]"
-                % SANITIZER_RUNTIME, out)
+                r"\(NEEDED\)\s+Shared library: \[(%s)\]" % SANITIZER_RUNTIME,
+                out,
+            )
             return []
-        out = subprocess.run(["ldd", exe], capture_output=True,
-                             text=True).stdout
-        found = re.findall(r"^\s*(%s) => (\S+)" % SANITIZER_RUNTIME, out,
-                           re.M)
+        out = subprocess.run(
+            ["ldd", exe], capture_output=True, text=True
+        ).stdout
+        found = re.findall(r"^\s*(%s) => (\S+)" % SANITIZER_RUNTIME, out, re.M)
         self.sanitizers = [soname for soname, _ in found]
         staged = []
         for soname, path in found:
@@ -1619,8 +2059,11 @@ done""", check=False)
         shipped = getattr(self, "runtimes", [])
         if shipped:
             here["LD_LIBRARY_PATH"] = os.path.dirname(exe)
-        tsan = [r for r in getattr(self, "sanitizers", [])
-                if r.startswith("libtsan")]
+        tsan = [
+            r
+            for r in getattr(self, "sanitizers", [])
+            if r.startswith("libtsan")
+        ]
         if tsan:
             # No gallium threaded context: its driver thread hands each
             # batch over through a futex TSan does not see, and every
@@ -1629,40 +2072,62 @@ done""", check=False)
             here.setdefault("GALLIUM_THREAD", "0")
             # TSAN_PRELOADED says why; TSan's runtime first, as ASan's is.
             here["LD_PRELOAD"] = ":".join(
-                ["%s/%s" % (os.path.dirname(exe), tsan[0])
-                 if tsan[0] in shipped else tsan[0]]
-                + getattr(self, "tsan_preloaded", []))
-        asan = [r for r in getattr(self, "sanitizers", [])
-                if r.startswith("libasan")]
+                [
+                    "%s/%s" % (os.path.dirname(exe), tsan[0])
+                    if tsan[0] in shipped
+                    else tsan[0]
+                ]
+                + getattr(self, "tsan_preloaded", [])
+            )
+        asan = [
+            r
+            for r in getattr(self, "sanitizers", [])
+            if r.startswith("libasan")
+        ]
         if asan:
             # ASan's runtime first, or it refuses to start: the copy sent,
             # or by soname the machine's own.
             here["LD_PRELOAD"] = ":".join(
-                ["%s/%s" % (os.path.dirname(exe), asan[0])
-                 if asan[0] in shipped else asan[0]] + self.pinned)
+                [
+                    "%s/%s" % (os.path.dirname(exe), asan[0])
+                    if asan[0] in shipped
+                    else asan[0]
+                ]
+                + self.pinned
+            )
             # NVIDIA's leaks are made inside libxcb, where the fast
             # unwinder stops short of the driver that lsan.supp keys on;
             # where the GPU moves, NVIDIA's driver is not kept and the
             # leaks it leaves are named by their deeper frames or not at
             # all.
-            if self.distro["nvidia"] in self.pinned or \
-                    self.distro["dbus"] in self.pinned:
+            if (
+                self.distro["nvidia"] in self.pinned
+                or self.distro["dbus"] in self.pinned
+            ):
                 here["ASAN_OPTIONS"] = ":".join(
-                    x for x in (here.get("ASAN_OPTIONS"),
-                                "fast_unwind_on_malloc=0") if x)
+                    x
+                    for x in (
+                        here.get("ASAN_OPTIONS"),
+                        "fast_unwind_on_malloc=0",
+                    )
+                    if x
+                )
             if self.moves_driver == "nvidia":
                 here["ASAN_OPTIONS"] = ":".join(
-                    x for x in (here.get("ASAN_OPTIONS"),
-                                "detect_leaks=0") if x)
-        here = {k: v.replace(ROOT, os.path.dirname(exe)) for k, v in
-                here.items()}
+                    x for x in (here.get("ASAN_OPTIONS"), "detect_leaks=0") if x
+                )
+        here = {
+            k: v.replace(ROOT, os.path.dirname(exe)) for k, v in here.items()
+        }
         wine = getattr(self, "wine", False)
         if wine:
             here["WINEPREFIX"] = self.wine_prefix()
         command = "env %s %s%s %s" % (
             " ".join("%s=%s" % (k, shlex.quote(v)) for k, v in here.items()),
-            "wine " if wine else "", shlex.quote(exe),
-            " ".join(map(shlex.quote, args)))
+            "wine " if wine else "",
+            shlex.quote(exe),
+            " ".join(map(shlex.quote, args)),
+        )
         if wine:
             # Waited for and not exec'd. The wine server and the helpers the
             # program starts (services.exe, explorer.exe and the rest) are
@@ -1674,11 +2139,17 @@ done""", check=False)
             # program, pid and all -- its loader execs the preloader, which
             # loads the .exe -- so $! is the program's.
             line = "%s & p=$!; echo %s$p >&2; wait $p; echo %s$? >&2" % (
-                command, PID_TAG, EXIT_TAG)
+                command,
+                PID_TAG,
+                EXIT_TAG,
+            )
         else:
             line = "echo %s$$ >&2; exec %s" % (PID_TAG, command)
-        return ["ssh", "-n", "-S", self.ctl] + SSH_OPTS + [
-            self.dest, "sh -c %s" % shlex.quote(line)]
+        return (
+            ["ssh", "-n", "-S", self.ctl]
+            + SSH_OPTS
+            + [self.dest, "sh -c %s" % shlex.quote(line)]
+        )
 
     def pid_of(self, testbed, timeout=10.0):
         """The program's pid there, as its shell said it."""
@@ -1687,12 +2158,13 @@ done""", check=False)
             with testbed.lock:
                 for line in testbed.lines:
                     if line.startswith(PID_TAG):
-                        return int(line[len(PID_TAG):])
+                        return int(line[len(PID_TAG) :])
             if not testbed.alive():
                 break
-            time.sleep(0.01)        # poll: the first line is a round trip
-        raise Unreachable("the program on %s never started: %r"
-                          % (self.name, testbed.dump(3)))
+            time.sleep(0.01)  # poll: the first line is a round trip
+        raise Unreachable(
+            "the program on %s never started: %r" % (self.name, testbed.dump(3))
+        )
 
     @staticmethod
     def exit_said(testbed):
@@ -1703,7 +2175,7 @@ done""", check=False)
             tail = testbed.lines[-20:]
         for line in reversed(tail):
             if line.startswith(EXIT_TAG):
-                return int(line[len(EXIT_TAG):])
+                return int(line[len(EXIT_TAG) :])
         return None
 
     def signal(self, pid, sig=15):
@@ -1716,27 +2188,31 @@ done""", check=False)
         for, which would otherwise hand the next program its display."""
         names = "|".join(PROGRAMS)
         pfx = shlex.quote(self.wine_prefix())
-        self.sh("pkill -x '%s'; for i in 1 2 3 4 5 6 7 8 9 10; do "
-                "pgrep -x '%s' >/dev/null && { sleep 0.3; continue; }; break; "
-                "done; pkill -9 -x '%s'; "
-                "if test -d %s && command -v wineserver >/dev/null; then "
-                "WINEPREFIX=%s wineserver -k 2>/dev/null; "
-                "WINEPREFIX=%s timeout 10 wineserver -w; fi; true"
-                % (names, names, names, pfx, pfx, pfx), check=False)
+        self.sh(
+            "pkill -x '%s'; for i in 1 2 3 4 5 6 7 8 9 10; do "
+            "pgrep -x '%s' >/dev/null && { sleep 0.3; continue; }; break; "
+            "done; pkill -9 -x '%s'; "
+            "if test -d %s && command -v wineserver >/dev/null; then "
+            "WINEPREFIX=%s wineserver -k 2>/dev/null; "
+            "WINEPREFIX=%s timeout 10 wineserver -w; fi; true"
+            % (names, names, names, pfx, pfx, pfx),
+            check=False,
+        )
 
     def cpu_seconds(self, pid):
         raw = self.sh("cat /proc/%d/stat" % pid, check=False)
         if ")" not in raw:
             raise RuntimeError("the process under test has gone")
-        fields = raw[raw.rindex(")") + 2:].split()
+        fields = raw[raw.rindex(")") + 2 :].split()
         hz = int(self.sh("getconf CLK_TCK").strip() or 100)
         return (int(fields[11]) + int(fields[12])) / hz
 
     def has_mapped(self, pid, name):
         """Whether the process there has `name` in its mappings: the way to
         tell a validation layer asked for from one loaded."""
-        return self.sh("grep -c %s /proc/%d/maps" % (shlex.quote(name), pid),
-                       check=False).strip() not in ("", "0")
+        return self.sh(
+            "grep -c %s /proc/%d/maps" % (shlex.quote(name), pid), check=False
+        ).strip() not in ("", "0")
 
     # ---- the clipboard's other program -------------------------------------
 
@@ -1744,15 +2220,19 @@ done""", check=False)
         return bool(self.sh("command -v %s" % tool, check=False).strip())
 
     def _xclip(self, *args):
-        env = " ".join("%s=%s" % (k, shlex.quote(v))
-                       for k, v in self.xenv().items())
+        env = " ".join(
+            "%s=%s" % (k, shlex.quote(v)) for k, v in self.xenv().items()
+        )
         return "env %s xclip %s" % (env, " ".join(args))
 
     def clipboard_get(self):
         try:
-            return _ssh(self.dest, self._xclip("-o", "-selection",
-                                               "clipboard"),
-                        timeout=5, ctl=self.ctl).stdout
+            return _ssh(
+                self.dest,
+                self._xclip("-o", "-selection", "clipboard"),
+                timeout=5,
+                ctl=self.ctl,
+            ).stdout
         except subprocess.TimeoutExpired:
             return b"(xclip timed out)"
 
@@ -1763,9 +2243,11 @@ done""", check=False)
         # already open when it is unlinked: a background job's stdin is not
         # the ssh channel's, and nor may its descriptors be, or ssh waits
         # for the xclip that stays behind to serve the selection.
-        cmd = ('f=$(mktemp) && cat >"$f" && exec 3<"$f" && rm -f "$f" && '
-               '{ %s <&3 >/dev/null 2>&1 3<&- & } && echo $!'
-               % self._xclip("-quiet", "-i", "-selection", "clipboard"))
+        cmd = (
+            'f=$(mktemp) && cat >"$f" && exec 3<"$f" && rm -f "$f" && '
+            "{ %s <&3 >/dev/null 2>&1 3<&- & } && echo $!"
+            % self._xclip("-quiet", "-i", "-selection", "clipboard")
+        )
         res = _ssh(self.dest, cmd, timeout=10, ctl=self.ctl, data=data)
         pid = _text(res).strip()
         if pid.isdigit():
@@ -1776,9 +2258,12 @@ done""", check=False)
         # that lost the selection to a later offer has exited, and its pid
         # may since be another program's.
         if self.xclips:
-            self.sh("for p in %s; do [ \"$(cat /proc/$p/comm 2>/dev/null)\""
-                    " = xclip ] && kill $p; done; true"
-                    % " ".join(str(p) for p in self.xclips), check=False)
+            self.sh(
+                'for p in %s; do [ "$(cat /proc/$p/comm 2>/dev/null)"'
+                " = xclip ] && kill $p; done; true"
+                % " ".join(str(p) for p in self.xclips),
+                check=False,
+            )
             self.xclips = []
 
 
@@ -1797,6 +2282,7 @@ class Hands:
     def __init__(self, xmod):
         from Xlib import X
         from Xlib.ext import xtest
+
         self.X = X
         self.xtest = xtest
         self.x = xmod
@@ -1811,9 +2297,12 @@ class Hands:
 
     def warp(self, x, y):
         w, h = self.size
-        self.xtest.fake_input(self.d, self.X.MotionNotify,
-                              x=max(0, min(w - 1, int(x))),
-                              y=max(0, min(h - 1, int(y))))
+        self.xtest.fake_input(
+            self.d,
+            self.X.MotionNotify,
+            x=max(0, min(w - 1, int(x))),
+            y=max(0, min(h - 1, int(y))),
+        )
         self.d.sync()
 
     def rel(self, dx, dy):
@@ -1827,27 +2316,33 @@ class Hands:
 
     def button(self, btn=0x110, pressed=True):
         n = self.BUTTONS[btn]
-        self.xtest.fake_input(self.d, self.X.ButtonPress if pressed
-                              else self.X.ButtonRelease, detail=n)
+        self.xtest.fake_input(
+            self.d,
+            self.X.ButtonPress if pressed else self.X.ButtonRelease,
+            detail=n,
+        )
         self.d.sync()
-        (self.held_buttons.add if pressed else
-         self.held_buttons.discard)(btn)
+        (self.held_buttons.add if pressed else self.held_buttons.discard)(btn)
 
     def key(self, name, pressed=True):
         from wayland_driver import KEY
+
         self.keycode(KEY[name], pressed)
 
     def keycode(self, code, pressed=True):
         """By evdev code, as the portal takes one: the X keycode is that
         plus 8 on every evdev server, which Xorg with libinput is."""
-        self.xtest.fake_input(self.d, self.X.KeyPress if pressed
-                              else self.X.KeyRelease, detail=code + 8)
+        self.xtest.fake_input(
+            self.d,
+            self.X.KeyPress if pressed else self.X.KeyRelease,
+            detail=code + 8,
+        )
         self.d.sync()
         (self.held_keys.add if pressed else self.held_keys.discard)(code)
 
     def tap(self, name, hold=0.05):
         self.key(name, True)
-        time.sleep(hold)            # the press itself
+        time.sleep(hold)  # the press itself
         self.key(name, False)
 
     def scroll(self, steps):
@@ -1890,23 +2385,33 @@ class UinputHands:
         self.held_keys = set()
         self.held_buttons = set()
         self.proc = subprocess.Popen(
-            ["ssh"] + SSH_OPTS + [as_root(box.dest),
-                                  "python3 -u %s %s"
-                                  % (shlex.quote(script), args)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, bufsize=1)
+            ["ssh"]
+            + SSH_OPTS
+            + [
+                as_root(box.dest),
+                "python3 -u %s %s" % (shlex.quote(script), args),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
         if not self._answer(timeout).startswith("ready"):
             said = ""
             if self.proc.poll() is not None:
                 said = self.proc.stderr.read().strip().splitlines()
                 said = said[-1] if said else ""
             self.close()
-            raise Unreachable("no uinput devices on %s%s -- bare_driver.py "
-                              "--setup loads the module"
-                              % (box.name, ": " + said if said else ""))
+            raise Unreachable(
+                "no uinput devices on %s%s -- bare_driver.py "
+                "--setup loads the module"
+                % (box.name, ": " + said if said else "")
+            )
 
     def _answer(self, timeout=5.0):
         import select
+
         ready, _w, _x = select.select([self.proc.stdout], [], [], timeout)
         return self.proc.stdout.readline().strip() if ready else ""
 
@@ -1923,8 +2428,9 @@ class UinputHands:
             self.proc.kill()
             self.proc.wait()
         if said != "ok":
-            raise Unreachable("the hands on %s did not answer %r"
-                              % (self.box.name, line))
+            raise Unreachable(
+                "the hands on %s did not answer %r" % (self.box.name, line)
+            )
 
     def rel(self, dx, dy):
         self.rest[0] += dx
@@ -1937,11 +2443,11 @@ class UinputHands:
 
     def button(self, btn=0x110, pressed=True):
         self._say("btn %d %d" % (btn, 1 if pressed else 0))
-        (self.held_buttons.add if pressed else
-         self.held_buttons.discard)(btn)
+        (self.held_buttons.add if pressed else self.held_buttons.discard)(btn)
 
     def key(self, name, pressed=True):
         from wayland_driver import KEY
+
         self.keycode(KEY[name], pressed)
 
     def keycode(self, code, pressed=True):
@@ -1950,7 +2456,7 @@ class UinputHands:
 
     def tap(self, name, hold=0.05):
         self.key(name, True)
-        time.sleep(hold)            # the press itself
+        time.sleep(hold)  # the press itself
         self.key(name, False)
 
     def scroll(self, steps):
@@ -1990,8 +2496,7 @@ class AbsUinputHands(UinputHands):
     def __init__(self, box, script, size, timeout=15.0):
         self.size = size
         self.at = [size[0] // 2, size[1] // 2]
-        super().__init__(box, script, timeout,
-                         args="--absolute %d %d" % size)
+        super().__init__(box, script, timeout, args="--absolute %d %d" % size)
         try:
             self._put()
         except Exception:
@@ -2002,8 +2507,10 @@ class AbsUinputHands(UinputHands):
         self._say("abs %d %d" % tuple(self.at))
 
     def warp(self, x, y):
-        self.at = [max(0, min(self.size[0] - 1, int(x))),
-                   max(0, min(self.size[1] - 1, int(y)))]
+        self.at = [
+            max(0, min(self.size[0] - 1, int(x))),
+            max(0, min(self.size[1] - 1, int(y))),
+        ]
         self.rest = [0.0, 0.0]
         self._put()
 
@@ -2298,10 +2805,15 @@ fi
 
 
 def _main(argv):
-    if len(argv) not in (2, 3) or argv[0] not in ("--status", "--setup",
-                                                  "--up", "--weston",
-                                                  "--cage", "--down",
-                                                  "--driver"):
+    if len(argv) not in (2, 3) or argv[0] not in (
+        "--status",
+        "--setup",
+        "--up",
+        "--weston",
+        "--cage",
+        "--down",
+        "--driver",
+    ):
         sys.exit(__doc__)
     what, name = argv[0], argv[1]
     if what == "--driver":
@@ -2320,36 +2832,65 @@ def _main(argv):
     if what == "--setup":
         d = DISTROS[distro_of(_text(_ssh(dest, "cat /etc/os-release")))]
         arch = _text(_ssh(dest, "uname -m")).strip()
-        res = _ssh(as_root(dest), INSTALL % {
-            "has": d["has"], "packages": " ".join(packages(d, arch)),
-            "install": d["install"] % "$missing"}, timeout=900)
+        res = _ssh(
+            as_root(dest),
+            INSTALL
+            % {
+                "has": d["has"],
+                "packages": " ".join(packages(d, arch)),
+                "install": d["install"] % "$missing",
+            },
+            timeout=900,
+        )
         said = _text(res).strip().splitlines()
         if said:
             print(said[-1])
         if res.returncode != 0:
-            sys.exit("installing there: %s"
-                     % res.stderr.decode("utf-8", "replace").strip())
-        user = dest.rsplit("@", 1)[0] if "@" in dest else _text(
-            _ssh(dest, "id -un")).strip()
+            sys.exit(
+                "installing there: %s"
+                % res.stderr.decode("utf-8", "replace").strip()
+            )
+        user = (
+            dest.rsplit("@", 1)[0]
+            if "@" in dest
+            else _text(_ssh(dest, "id -un")).strip()
+        )
         res = _ssh(as_root(dest), SETUP_ROOT % {"user": shlex.quote(user)})
         if res.returncode != 0:
-            sys.exit("setting up input there: %s"
-                     % res.stderr.decode("utf-8", "replace").strip())
+            sys.exit(
+                "setting up input there: %s"
+                % res.stderr.decode("utf-8", "replace").strip()
+            )
         with open(GPU_DRIVER, "rb") as f:
-            res = _ssh(as_root(dest), SETUP_GPU_DRIVER % {
-                "there": GPU_DRIVER_THERE, "user": shlex.quote(user),
-                "sock": GPU_DRIVER_SOCKET, "group": GPU_DRIVER_GROUP},
-                data=f.read())
-        print(_text(res).strip() or res.stderr.decode("utf-8",
-                                                      "replace").strip())
+            res = _ssh(
+                as_root(dest),
+                SETUP_GPU_DRIVER
+                % {
+                    "there": GPU_DRIVER_THERE,
+                    "user": shlex.quote(user),
+                    "sock": GPU_DRIVER_SOCKET,
+                    "group": GPU_DRIVER_GROUP,
+                },
+                data=f.read(),
+            )
+        print(
+            _text(res).strip() or res.stderr.decode("utf-8", "replace").strip()
+        )
         if res.returncode != 0:
             sys.exit("installing %s there failed" % GPU_DRIVER_THERE)
-        res = _ssh(as_root(dest), "python3 - fetch %s" % d["debuginfod"],
-                   timeout=1800, data=DEBUGINFO.encode())
+        res = _ssh(
+            as_root(dest),
+            "python3 - fetch %s" % d["debuginfod"],
+            timeout=1800,
+            data=DEBUGINFO.encode(),
+        )
         for line in _text(res).strip().splitlines():
             print(line)
-        if name not in [ln.split("#")[0].split()[0] for ln in
-                        _lines(HOSTS_FILE) if ln.split("#")[0].strip()]:
+        if name not in [
+            ln.split("#")[0].split()[0]
+            for ln in _lines(HOSTS_FILE)
+            if ln.split("#")[0].strip()
+        ]:
             os.makedirs(STATE_DIR, exist_ok=True)
             with open(HOSTS_FILE, "a") as f:
                 f.write("%s %s\n" % (name, dest))
@@ -2370,22 +2911,43 @@ def _main(argv):
             box.x_down()
             box.weston_down()
             box.cage_down()
-        for line in box.facts() + box.sh(STATUS % {
-                "has": box.distro["has"],
-                "packages": " ".join(packages(box.distro, box.arch)),
-                "dno": DISPLAY_NO, "wsock": WAYLAND_SOCKET, "vt": VT,
-                "cunit": CAGE_UNIT, "wpfx": box.wine_prefix(),
-                "wine": "false" if "wine" in NOT_OFFERED.get(box.arch, ())
-                        else "true",
-                "gpudrv": GPU_DRIVER_THERE, "gpusock": GPU_DRIVER_SOCKET,
-                "gpugroup": GPU_DRIVER_GROUP},
-                check=False).splitlines() + box.sh(
+            box.vt_back()
+        for line in (
+            box.facts()
+            + box.sh(
+                STATUS
+                % {
+                    "has": box.distro["has"],
+                    "packages": " ".join(packages(box.distro, box.arch)),
+                    "dno": DISPLAY_NO,
+                    "wsock": WAYLAND_SOCKET,
+                    "vt": VT,
+                    "cunit": CAGE_UNIT,
+                    "wpfx": box.wine_prefix(),
+                    "wine": "false"
+                    if "wine" in NOT_OFFERED.get(box.arch, ())
+                    else "true",
+                    "gpudrv": GPU_DRIVER_THERE,
+                    "gpusock": GPU_DRIVER_SOCKET,
+                    "gpugroup": GPU_DRIVER_GROUP,
+                },
+                check=False,
+            ).splitlines()
+            + box.sh(
                 "python3 - check %s" % box.distro["debuginfod"],
-                data=DEBUGINFO.encode(), check=False).splitlines():
+                data=DEBUGINFO.encode(),
+                check=False,
+            ).splitlines()
+        ):
             print("  " + line)
-        print("  a round drives it without being told: %s"
-              % ("yes" if name in hosts() else
-                 "no -- --setup writes it into %s" % HOSTS_FILE))
+        print(
+            "  a round drives it without being told: %s"
+            % (
+                "yes"
+                if name in hosts()
+                else "no -- --setup writes it into %s" % HOSTS_FILE
+            )
+        )
     except Unreachable as e:
         sys.exit(str(e))
     finally:

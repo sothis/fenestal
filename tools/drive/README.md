@@ -750,7 +750,9 @@ setting that keeps that machine from resetting).
 `bare_driver.py --setup <name> [user@address]` installs what a minimal
 Debian or Arch with Xorg lacks -- the Vulkan loader and Mesa's drivers,
 `vulkan-tools`, the validation layers, `xclip` -- and writes the name down;
-`--status`, `--up` and `--down` are the rest. The two distributions are told
+`--status`, `--up` and `--down` are the rest; `--down` gives the panel's
+VT back with the servers, since a round's VT is a console nothing has
+written to and a panel left on it is black. The two distributions are told
 apart by `/etc/os-release`, and `DISTROS` holds all that differs between
 them; a machine booted from its stick is Arch. The tree a machine is sent
 is its `uname -m`'s (`TREES`): `linux-arm64` on the Raspberry Pi 4 (`pi4`),
