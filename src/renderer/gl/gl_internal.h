@@ -65,6 +65,7 @@
 	X(PFNGLUNMAPBUFFERPROC,                   UnmapBuffer)                    \
 	X(PFNGLDELETEBUFFERSPROC,                 DeleteBuffers)                  \
 	X(PFNGLBINDBUFFERBASEPROC,                BindBufferBase)                 \
+	X(PFNGLBINDBUFFERRANGEPROC,               BindBufferRange)                \
 	X(PFNGLBINDBUFFERPROC,                    BindBuffer)                     \
 	X(PFNGLPOLYGONMODEPROC,                   PolygonMode)                    \
 	X(PFNGLGENVERTEXARRAYSPROC,               GenVertexArrays)                \

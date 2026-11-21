@@ -150,7 +150,15 @@ struct RendererState {
 	/* The picture placed at a rectangle (fnl_overlay_image()); its texture is
 	 * the caller's, behind FnlImage::gpu. */
 	unsigned prog_image;
+	/* The uniform buffer behind every `Push` block, in PUSH_SLOTS slots of
+	 * GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT bytes: gl_push() writes the next
+	 * slot and binds its range, so a write never lands in the bytes a draw
+	 * still reading the buffer is about to fetch. `push_slot` walks them and
+	 * is reset at the top of each recording; `push_align` is the alignment
+	 * the context reports, queried once. */
 	unsigned push;
+	int      push_align;
+	int      push_slot;
 
 	/* The instance layouts, each fed from the frame slot's arena at the
 	 * offset a flush reads from; and one with nothing in it, which a core

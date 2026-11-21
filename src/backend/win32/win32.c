@@ -2646,12 +2646,34 @@ static void win32_apply_size_bounds(App *a)
 #define CLIP_OPEN_TRIES   5
 #define CLIP_OPEN_WAIT_MS 10
 
+/* Wait `ms`, dispatching the messages other windows have *sent* this one and
+ * taking nothing off its queue -- size_await()'s idiom, and for its reason: a
+ * wait on this thread that dispatched nothing would be a window that stopped
+ * answering for the length of it, and one that dispatched posted messages
+ * would take a drag's release away from the loop holding it. WM_SIZE is
+ * posted, so QS_SENDMESSAGE is what keeps it out: the case the review left
+ * open is not reachable from here.
+ *
+ * Nothing of ours is held across it. clipboard_open() waits before the
+ * clipboard is open, so a handler that runs is not re-entering a half-taken
+ * lock, and no lock of the library's is held: a handler may take any. */
+static void pump_sent(DWORD ms)
+{
+	if (MsgWaitForMultipleObjectsEx(0, NULL, ms, QS_SENDMESSAGE, 0) ==
+		WAIT_OBJECT_0) {
+		/* Asking is what dispatches them; PM_NOREMOVE takes none off the
+		 * queue. */
+		MSG m;
+		PeekMessageW(&m, NULL, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE);
+	}
+}
+
 static bool clipboard_open(HWND hwnd)
 {
 	for (int i = 0; i < CLIP_OPEN_TRIES; i++) {
 		if (OpenClipboard(hwnd))
 			return true;
-		Sleep(CLIP_OPEN_WAIT_MS);
+		pump_sent(CLIP_OPEN_WAIT_MS);
 	}
 	fnl_log(FNL_LOG_WARN, "the clipboard is held by another program");
 	return false;
