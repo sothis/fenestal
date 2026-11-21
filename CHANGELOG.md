@@ -19,8 +19,9 @@ promised: before 1.0, nothing between minor releases.
   wants a soft panel under a border draws both and the border still lands on
   top. `examples/events.c` shows the wash under a line of text.
 - `fnl_overlay_text_in()`: one line of text placed against a rectangle's right
-  edge or its centre, rather than by its left end. A column of figures that has
-  to line up, or a caption centred on a card, was a subtraction at every call
+  edge or its centre, rather than by its left end, through the new
+  `FnlTextAlign`. A column of figures that has to line up, or a caption
+  centred on a card, was a subtraction at every call
   site -- and the subtraction is wrong the moment the string changes. Placement
   only: the glyphs are one draw for the frame and are not clipped, so a line
   wider than `w` runs past it (`fnl_text_elide()` is what fits one to a width).

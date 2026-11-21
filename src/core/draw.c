@@ -440,11 +440,13 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 	/* The claim list is rebuilt from nothing every frame, so a control that
 	 * stopped being drawn stops being hit-testable in the same frame. Cleared
 	 * even with no callback, which is what publishes the empty list a caller
-	 * that stopped drawing its bar should get. The focus is rebuilt with it:
-	 * a focus on a claim that stopped being drawn is the caller's to redraw
-	 * or drop, and the index it names is meaningless once the list moves. */
+	 * that stopped drawing its bar should get. The focus flags go with it, or a
+	 * claim that asked for the keyboard last frame would still be reachable
+	 * this one. The focus itself is the pump's (App::focus_claim) and is not
+	 * reset here: the event already told the caller where it went, and a focus
+	 * on a claim that stopped being drawn is the caller's to drop. */
 	a->claim_count = 0;
-	a->focus_claim = -1;
+	memset(a->claim_focus, 0, sizeof a->claim_focus);
 
 	/* The caller's, on top of the library's and into the same three streams,
 	 * so the flushes below cover both. Here rather than in on_record because
@@ -496,6 +498,8 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 	fnl_mutex_lock(&a->lock);
 	memcpy(a->pub_claims, a->claims,
 		   (size_t)a->claim_count * sizeof a->claims[0]);
+	memcpy(a->pub_claim_focus, a->claim_focus,
+		   (size_t)a->claim_count * sizeof a->claim_focus[0]);
 	a->pub_claim_count = a->claim_count;
 	fnl_mutex_unlock(&a->lock);
 

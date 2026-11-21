@@ -143,22 +143,10 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
 - **`fnl_d3d12.h` compiled alone** (`FNL_CHECK_D3D12` in
   `tools/headercheck.c`): the win64 tree's first build, as C11 with
   `COBJMACROS` and as C++11 to C++20, against mingw's `<d3d12.h>`.
-- **X11's sync value kept for its frame, run out at a drag's first press**
+- ~~**X11's sync value kept for its frame, run out at a drag's first press**~~
   (`SYNC_SHOWN_WAIT`, `x11_present_event()`): `x11-vulkan`'s stress round
   says so once in release and in `gc`, `pace.py --border` never (DESIGN *X11:
-  xcb, not Xlib*). **Closed (2026-11-21)** by measurement rather than by a
-  theory. The wait was two periods at 60 Hz -- 34 ms, Vulkan's bound for the
-  same wait -- and `FNL_X11_PRESENT_LOG=1` over 145 completions on this desk
-  puts the latency at 16.4 ms median, 17.5 at p90 and **49.6 at its worst**,
-  with 2.8% past 34 ms. One value that runs out logs the line the round calls
-  a failure and turns the shown-wait off until the next answer, so a round
-  long enough to present a few hundred frames was near-certain to trip it.
-  `SYNC_SHOWN_WAIT` is 0.100 now: above every completion measured, and still
-  a bound on what the manager waits for. `x11-vulkan` and `x11-gl` both pass
-  their rounds, 111 checks each.
-
-  Note that it recurs in logs from 2026-11-02 through 11-06 after the serial
-  matching above: that fix was real, and the bound was the other half. Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
+  xcb, not Xlib*). Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
   about five frames behind once swapchains have been made again, frames
   queued that are never answered -- Mesa's, presented to a swapchain retired
   before it sent them. Matched by serial now (DESIGN): `x11-vulkan` and
@@ -175,6 +163,18 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   Wayland's take-back answers the same where the compositor has spoken
   first (DESIGN); its rounds clean (2026-11-02: `wayland-vulkan-bare` on
   aspire, 66 checks; `wayland-vulkan` here, 74).
+  It recurs in logs from 2026-11-02 through 11-06 after the serial matching
+  above: that fix was real, and the bound was the other half.
+
+  **Closed (2026-11-21)** by measurement rather than by a theory. The wait was
+  two periods at 60 Hz -- 34 ms, Vulkan's bound for the same wait -- and
+  `FNL_X11_PRESENT_LOG=1` over 145 completions on this desk puts the latency at
+  16.4 ms median, 17.5 at p90 and **49.6 at its worst**, with 2.8% past 34 ms.
+  One value that runs out logs the line the round calls a failure and turns the
+  shown-wait off until the next answer, so a round long enough to present a few
+  hundred frames was near-certain to trip it. `SYNC_SHOWN_WAIT` is 0.100 now:
+  above every completion measured, and still a bound on what the manager waits
+  for. `x11-vulkan` and `x11-gl` both pass their rounds, 111 checks each.
 - **Input held for `bench.py --hands` and pace's border row**, which
   drive input as a round does without the round's hold
   (`input_hold.py`).
@@ -1021,6 +1021,19 @@ wine, the guests, the laptops and the Mac; and `kms-vulkan-bare` for the
 commit's other half, the LED's bit test at open and `GETCRTC` in the motion
 the round drives. Until one, the two image fixes and the check are reasoned
 and not measured.
+
+**The wine environments fail it, and no diagnosis is owed a guess.** Measured
+(2026-11-21, commit `1deaf19`, nine runs between them: six on
+`win64-vulkan`, three on `win64-d3d12`): both fail `a picture in the overlay
+draws` and `and it is made again after its destroy`, while `I takes it away`
+passes on a picture that was never drawn; the log has no image line at all,
+so the renderer answered `fnl_image_supported()` true and
+`fnl_image_create()` made the image, and what is missing is the draw. The same
+check passes on this desk's `x11-vulkan` and `x11-gl` (OpenGL's run at
+`4bf939c` failed while the overlay push block was in; the block was reverted
+and the run after it was clean), and the guests, the laptops and the Mac have
+not run since. Owed: a wine round with the picture drawn by hand, and the
+`vkCmdDraw` that carries it read against the native tree's.
 
 ## Three shapes a UI is made of
 

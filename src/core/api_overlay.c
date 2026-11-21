@@ -188,6 +188,11 @@ void fnl_overlay_text_in(FnlApp *app, int x, int y, int w, FnlTextAlign align,
 	App *a = (App *)app;
 	if (!overlay_here(a) || !utf8 || !size_ok(sz))
 		return;
+	/* Bounded before they meet: the sum below is two caller figures, and a
+	 * pair of extremes wraps an int before the clamp on the answer reaches
+	 * it. clamp_pt() is the bound every other overlay coordinate takes. */
+	x = clamp_pt(x);
+	w = clamp_pt(w);
 	/* The end the rectangle's edge lands on, measured before the string is
 	 * drawn: the width is fnl_text_width()'s, so a string measured once a
 	 * frame is free, and a string the memo holds costs a compare. */

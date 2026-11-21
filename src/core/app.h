@@ -884,15 +884,20 @@ _Static_assert(offsetof(RectInstance, color) == 16,
 /* One stroke: a capsule from p0 to p1, or two meeting at p1 and ending at p2.
  * The fragment shader takes the nearer of the two (see shaders/shape.frag).
  * The kind picks what p0..p1 mean beyond the stroke: a filled box, a rounded
- * box, a disc, or a gradient -- one primitive each, all in the one stream. */
+ * box, or a gradient -- one primitive each, all in the one stream. A disc is
+ * the rounded box at a corner radius of half its side. */
 typedef struct {
 	float p0[2], p1[2]; /* spine, physical pixels                          */
 	float p2[2];        /* second arm's end; == p1 for a plain line        */
 	float half_w;       /* half the stroke width, or the corner radius      */
 	float feather;      /* coverage ramp half-width, pixels                */
 	float color[4];
-	float color2[4];  /* the gradient's second colour, or color's copy     */
-	float shape_kind; /* ShapeKind: 0 stroke, 1 fill, 2 round, 3 disc, 4 grad */
+	float color2[4]; /* the gradient's second colour, or color's copy     */
+	/* The kind is one float the shader reads through a vec4 (shape.vert binds
+	 * it that way, so the run below is what keeps that fetch inside the
+	 * instance and not past its end). Never read: the padding is the stride. */
+	float shape_kind; /* ShapeKind                                        */
+	float pad[3];
 } ShapeInstance;
 
 /* What ShapeInstance::shape_kind says an instance is. Appended to, never
@@ -900,17 +905,21 @@ typedef struct {
 typedef enum {
 	SHAPE_STROKE   = 0, /* the capsule, elbow and box the titlebar is made of */
 	SHAPE_FILL     = 1, /* a filled box, blended (fnl_overlay_rect_blend)    */
-	SHAPE_ROUND    = 2, /* a filled box with rounded corners                  */
+	SHAPE_ROUND    = 2, /* a filled box with rounded corners, or a disc      */
 	SHAPE_GRADIENT = 3  /* a two-colour linear gradient                      */
 } ShapeKind;
 
-_Static_assert(sizeof(ShapeInstance) == 68,
+/* 80, not 68: the kind is bound as a vec4 (four floats from its offset), so
+ * the last instance would otherwise be fetched twelve bytes past the arena. */
+_Static_assert(sizeof(ShapeInstance) == 80,
 			   "ShapeInstance must match shape.vert");
 _Static_assert(offsetof(ShapeInstance, p2) == 16,
 			   "ShapeInstance layout drifted");
 _Static_assert(offsetof(ShapeInstance, color) == 32,
 			   "ShapeInstance layout drifted");
 _Static_assert(offsetof(ShapeInstance, color2) == 48,
+			   "ShapeInstance layout drifted");
+_Static_assert(offsetof(ShapeInstance, shape_kind) == 64,
 			   "ShapeInstance layout drifted");
 
 typedef struct {
@@ -1128,6 +1137,12 @@ struct FnlApp {
 		int run;
 		double x, y;
 	} click[3];
+	/* The claim that has the keyboard focus, by the index of the last
+	 * published list (fnl_claim_focus()), or -1 for none. The pump thread's
+	 * alone: Tab and Shift+Tab move it against the published list
+	 * (claim_focus_step()), and the render thread neither writes nor reads
+	 * it. */
+	int focus_claim;
 
 	/* A press on the titlebar that has not yet travelled DECO_DRAG_SLOP, so
 	 * it is still either a click or the start of a move. */
@@ -1759,13 +1774,12 @@ struct FnlApp {
 	FnlRect claims[CLAIMS_MAX];
 	/* Which of those claims asked for the keyboard (fnl_claim_focus()), by
 	 * the same index. A claim that did not is never the focus, and the focus
-	 * that lands on one is the library's to move and the caller's to draw. */
+	 * that lands on one is the library's to move and the caller's to draw.
+	 * Cleared with the list, or a claim that asked last frame would still be
+	 * reachable this one. */
 	bool claim_focus[CLAIMS_MAX];
 	int claim_count;
 	bool claim_overflow_warned;
-	/* The claim that has the keyboard focus, by this frame's claim index, or
-	 * -1 for none. The render thread's, like the claim list it indexes. */
-	int focus_claim;
 
 	/* Whether on_gpu_created has been delivered and not yet answered by
 	 * on_gpu_lost. It keeps the two strictly alternating when a recovery
@@ -1911,10 +1925,11 @@ struct FnlApp {
 	/* Bumped by every publish that can change the display the window is on:
 	 * a size, a mode, an output, or a refresh rate. What app_rank_tick() reads
 	 * instead of re-deriving the display through the backend every turn, so a
-	 * mode switch that keeps the size moves it too. Render thread's own: the
-	 * publishes are the pump's or the backend's, and only the ranking's tick
-	 * reads it back, on the render thread. */
-	uint32_t display_gen;
+	 * mode switch that keeps the size moves it too. Atomic and not under the
+	 * lock: the publishes are the pump's and the backend's, the tick is the
+	 * render thread's, and app_publish_refresh() takes no lock to sit in
+	 * (display_gen_bump()). */
+	FnlAtomicU32 display_gen;
 	/* The images the caller made, newest first (fnl_image_create()). The
 	 * render thread's list, walked at fnl_shutdown() for what is left. */
 	struct FnlImage *images;
@@ -1985,6 +2000,10 @@ struct FnlApp {
 	 * on_overlay declared, so a control is hit-testable exactly where the
 	 * frame that declared it drew it. */
 	FnlRect pub_claims[CLAIMS_MAX];
+	/* Which of the published claims asked for the keyboard, and the count
+	 * they were published with: the pump's Tab walk (claim_focus_step())
+	 * tests these against the list the render thread published last frame. */
+	bool pub_claim_focus[CLAIMS_MAX];
 	int pub_claim_count;
 
 	/* ---- what the pump has been asked to do ------------------------------
@@ -2273,6 +2292,16 @@ static inline int clamp_scale120(int s120)
 	if (s120 > SCALE120_MAX)
 		return SCALE120_MAX;
 	return s120;
+}
+
+/* The display stamp moved on: a publish changed the size, the mode, the
+ * output, the refresh rate or the outputs' list, so app_rank_tick() derives
+ * the display again on its next turn instead of keeping the one it has. Atomic
+ * because the two sides are on different threads -- see App::display_gen. */
+static inline void display_gen_bump(App *a)
+{
+	fnl_atomic_store_u32(&a->display_gen,
+						 fnl_atomic_load_u32(&a->display_gen) + 1u);
 }
 
 /* The window a presentable area of this many pixels needs, in logical points.

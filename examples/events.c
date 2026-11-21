@@ -10,7 +10,7 @@
  *        fnl_set_fullscreen fnl_is_fullscreen fnl_overlay_flush
  *        fnl_overlay_text_in fnl_overlay_rect_blend fnl_output_name
  *        fnl_key_name fnl_key_from_name fnl_is_shown fnl_set_log_level
- *        fnl_post
+ *        fnl_window_size_pt fnl_post
  */
 
 #include <fenestal/fenestal.h>
@@ -110,12 +110,12 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			fnl_invalidate(app); /* what we draw moved */
 			break;
 		case FNL_EVENT_BUTTON:
-			if (ev.button.pressed && ev.button.button == FNL_BUTTON_LEFT)
-				s->clicks++;
-			/* The library's own count: 2 on the second press of a
-			 * double-click, without a clock here. */
-			if (ev.button.pressed && ev.button.clicks > 1)
-				s->clicks += ev.button.clicks - 1;
+			/* The library's own count: 1 on a lone press, 2 on the second press
+			 * of a double-click, without a clock here. A release carries 0, so
+			 * the figure a press set stands until the next one. */
+			if (ev.button.pressed && ev.button.button == FNL_BUTTON_LEFT &&
+				ev.button.clicks > 0)
+				s->clicks = ev.button.clicks;
 			fnl_invalidate(app);
 			break;
 		case FNL_EVENT_SCROLL:

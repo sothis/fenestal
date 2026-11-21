@@ -2366,28 +2366,6 @@ static bool uevent_is_ours(const struct BackendState *p, const char *buf,
 	return drm && hotplug && card;
 }
 
-/* Whether a uevent is a GPU coming or going: a DRM card node added or
- * removed -- a dock's GPU, an external one -- of any card, this one's
- * included, but for the GPU a move to another kernel driver takes away
- * and brings back (app_gpu_driver_owns()), whose card goes and comes with
- * each move. Untested: no GPU here can be plugged (TODO). */
-static bool uevent_is_gpu(const App *a, const char *buf, size_t n)
-{
-	bool drm = false, card = false, change = false, moved = false;
-	for (size_t at = 0; at < n;) {
-		const char *s    = buf + at;
-		const size_t len = strnlen(s, n - at);
-		drm |= strcmp(s, "SUBSYSTEM=drm") == 0;
-		card |= strncmp(s, "DEVNAME=dri/card", 16) == 0;
-		change |=
-			strcmp(s, "ACTION=add") == 0 || strcmp(s, "ACTION=remove") == 0;
-		if (strncmp(s, "DEVPATH=", 8) == 0)
-			moved = app_gpu_driver_owns(a, s + 8);
-		at += len + 1;
-	}
-	return drm && card && change && !moved;
-}
-
 /* A slot that was this connector and saw these same modes, as the lists
  * name them -- a size and a refresh, and the same preferred: a monitor
  * plugged back in, whose slot can be live again without being written. Not
@@ -2779,7 +2757,7 @@ static void kms_pump(App *a, int timeout_ms)
 			while ((got = recv(p->uevent_fd, buf, sizeof buf - 1, 0)) > 0) {
 				buf[got] = '\0';
 				ours |= uevent_is_ours(p, buf, (size_t)got);
-				gpu |= uevent_is_gpu(a, buf, (size_t)got);
+				gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
 			}
 			if (gpu)
 				app_gpu_hotplug(a);

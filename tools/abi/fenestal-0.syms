@@ -31,9 +31,15 @@ fnl_text_height
 fnl_text_advance
 fnl_text_elide
 fnl_text_wrap
+fnl_overlay_text_in
 fnl_overlay_text
 fnl_overlay_rect
+fnl_overlay_rect_blend
+fnl_overlay_rect_round
+fnl_overlay_circle
+fnl_overlay_gradient
 fnl_image_supported
+fnl_image_valid
 fnl_image_create
 fnl_image_destroy
 fnl_overlay_image
@@ -53,6 +59,7 @@ fnl_titlebar_height
 fnl_titlebar_owned
 fnl_titlebar_claim
 fnl_claim
+fnl_claim_focus
 fnl_claim_at
 fnl_begin_move
 fnl_begin_resize

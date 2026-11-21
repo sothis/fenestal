@@ -34,6 +34,10 @@ fnl_text_wrap
 fnl_overlay_text_in
 fnl_overlay_text
 fnl_overlay_rect
+fnl_overlay_rect_blend
+fnl_overlay_rect_round
+fnl_overlay_circle
+fnl_overlay_gradient
 fnl_image_supported
 fnl_image_valid
 fnl_image_create

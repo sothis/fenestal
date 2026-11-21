@@ -625,10 +625,9 @@ typedef enum {
 	FNL_EVENT_IMAGE_LOST = 21, /* ev.image_lost */
 
 	/* The keyboard focus moved to another of the caller's claims: Tab or
-	 * Shift+Tab from inside a claim that asked for the keyboard, or
-	 * fnl_claim_focus() by hand. The focus is the library's to move and the
-	 * caller's to draw: a focus ring is the caller's rectangle, the same as
-	 * every other it draws. Since 0.9. */
+	 * Shift+Tab from inside a claim that asked for the keyboard. The focus is
+	 * the library's to move and the caller's to draw: a focus ring is the
+	 * caller's rectangle, the same as every other it draws. Since 0.9. */
 	FNL_EVENT_CLAIM_FOCUS = 22, /* ev.claim_focus */
 } FnlEventType;
 
@@ -864,8 +863,9 @@ FNL_STATIC_ASSERT(sizeof(FnlEvent) == 48 || sizeof(FnlEvent) == 40,
  *
  * There is never more than one thread inside a callback. Any of them may use
  * the knobs and fnl_poll_event(); none may call fnl_run() or
- * fnl_shutdown(). */
-/* The two device callbacks, strictly alternating: on_gpu_created on the
+ * fnl_shutdown().
+ *
+ * The two device callbacks are strictly alternating: on_gpu_created on the
  * thread that called fnl_run() for the outermost pair and on the render
  * thread for every pair in between (see above). on_gpu_created is where
  * fnl_image_create() belongs after a loss: the device a caller's images were
@@ -1281,7 +1281,8 @@ FNL_API bool fnl_image_supported(const FnlApp *app); /* [overlay] */
  * across a loss can tell the moment it may draw it again.
  *
  * [overlay]: inside on_overlay, on_gpu_created, or a fnl_post(). */
-FNL_API bool fnl_image_valid(const FnlApp *app, const FnlImage *img);
+FNL_API bool fnl_image_valid(const FnlApp *app,
+							 const FnlImage *img); /* [overlay] */
 
 FNL_API FnlImage *fnl_image_create(FnlApp *app, int w, int h,
 								   FnlImageFormat fmt,
@@ -1500,10 +1501,8 @@ FNL_API bool fnl_claim(FnlApp *app, int x, int y, int w, int h); /* [overlay] */
  * and with one addition: the library moves the focus to it on Tab or
  * Shift+Tab from inside a claim that already has it, and FNL_EVENT_CLAIM_FOCUS
  * says where the focus landed -- the caller draws the ring, the same as every
- * other rectangle. The claim is an ordinary one for the pointer (fnl_claim_at()
- * answers for it), so a caller that wants both calls both.
- *
- * [overlay]. */
+ * other rectangle. The claim is an ordinary one for the pointer too
+ * (fnl_claim_at() answers for it), so this once is all a caller needs. */
 FNL_API bool fnl_claim_focus(FnlApp *app, int x, int y, int w,
 							 int h); /* [overlay] */
 

@@ -370,27 +370,31 @@ static bool key_held_get(const App *a, FnlKey k)
  * the same as every other rectangle. */
 static void claim_focus_step(App *a, int dir)
 {
-	/* The claims this frame's on_overlay declared, in the order it drew them:
-	 * the focus moves among those that asked for it, so a control that
-	 * stopped being drawn stops being reachable in the same frame. */
-	const int n = a->claim_count;
-	if (n <= 0)
-		return;
+	/* The published list, not the one on_overlay is building: that belongs to
+	 * the render thread, and the pump is the one walking it. A focus on a
+	 * claim that stopped being drawn is the caller's to redraw or drop, and
+	 * the list the last frame published is what decides whether it is still
+	 * reachable. */
+	fnl_mutex_lock(&a->lock);
+	const int n  = a->pub_claim_count;
 	const int at = a->focus_claim;
-	for (int i = 1; i <= n; i++) {
-		const int next = ((at < 0 ? (dir > 0 ? -1 : 0) : at) + dir * i + n) % n;
-		if (next >= 0 && next < n && a->claim_focus[next]) {
-			a->focus_claim       = next;
-			FnlEvent ev          = { .type = FNL_EVENT_CLAIM_FOCUS };
-			ev.claim_focus.claim = next;
-			app_event(a, &ev);
-			return;
-		}
+	int next     = -1;
+	for (int i = 1; i <= n && next < 0; i++) {
+		const int cand = ((at < 0 ? (dir > 0 ? -1 : 0) : at) + dir * i + n) % n;
+		if (a->pub_claim_focus[cand])
+			next = cand;
 	}
+	fnl_mutex_unlock(&a->lock);
+
 	/* Nothing to move to: the focus stays where it was, which may be on a
 	 * claim that no longer asked for it -- the next frame's claims are what
-	 * decides, and a focus on a claim that stopped being drawn is the
-	 * caller's to redraw or drop. */
+	 * decides. */
+	if (next < 0)
+		return;
+	a->focus_claim       = next;
+	FnlEvent ev          = { .type = FNL_EVENT_CLAIM_FOCUS };
+	ev.claim_focus.claim = next;
+	app_event(a, &ev);
 }
 
 /* Flag a change the next frame has to carry rather than the next one the
@@ -461,7 +465,7 @@ static void publish_size(App *a, int w_pt, int h_pt, int s120, bool has_serial,
 	a->win_w      = w_pt;
 	a->win_h      = h_pt;
 	a->configured = true;
-	a->display_gen++; /* a size is a display fact (app_rank_tick()) */
+	display_gen_bump(a); /* a size is a display fact */
 
 	/* After cur_* and the scale, which the area is measured from. */
 	app_reticle_clamp(a);
@@ -534,7 +538,7 @@ void app_publish_output(App *a, const char *name, int w_pt, int h_pt)
 	if (a->want_out_w_pt == w_pt && a->want_out_h_pt == h_pt &&
 		(!name || !strcmp(a->want_output, name)))
 		return;
-	a->display_gen++; /* what output the window is on (app_rank_tick()) */
+	display_gen_bump(a); /* what output the window is on */
 
 	fnl_mutex_lock(&a->lock);
 	a->want_out_w_pt = w_pt;
@@ -547,7 +551,7 @@ void app_publish_output(App *a, const char *name, int w_pt, int h_pt)
 
 void app_publish_output_mode(App *a, const char *name, int mode_w, int mode_h)
 {
-	a->display_gen++; /* the output's own mode (app_rank_tick()) */
+	display_gen_bump(a); /* the output's own mode */
 	fnl_mutex_lock(&a->lock);
 	a->want_out_mode_w = mode_w;
 	a->want_out_mode_h = mode_h;
@@ -561,7 +565,7 @@ void app_publish_output_mode(App *a, const char *name, int mode_w, int mode_h)
  * the period it measures. */
 void app_publish_refresh(App *a, unsigned int mhz)
 {
-	a->display_gen++; /* the refresh rate, which the display name carries */
+	display_gen_bump(a); /* the refresh rate, which the name carries */
 	fnl_atomic_store_u32(&a->out_refresh_mhz, mhz);
 }
 
@@ -589,7 +593,7 @@ void app_publish_outputs(App *a, char (*names)[OUTPUT_NAME_MAX], int n,
 		memcpy(a->out_names, kept, (size_t)count * sizeof kept[0]);
 		a->out_count   = count;
 		a->out_current = cur;
-		a->display_gen++; /* the window server's outputs changed */
+		display_gen_bump(a); /* the window server's outputs changed */
 		a->want_user_gen++;
 		fnl_cond_signal(&a->cond); /* for a loop at rest */
 	}
@@ -1883,18 +1887,19 @@ void app_pointer_relative(App *a, double dx_pt, double dy_pt)
 }
 
 /* How deep in its run this press is: 1 for a lone press, 2 for the second
- * press of a double-click, and so on. A press within DECO_DBLCLICK_MS of the
- * last one's and within DECO_DRAG_SLOP of it is the next in the run; anything
- * else starts a new one. The count is per button, so a double-click of the
- * left does not stretch a press of the right, and the window's own titlebar
- * keeps its own timing (App::last_titlebar_click_ms) -- this is the caller's,
- * in FnlButtonEvent::clicks. The pump thread's, like the rest of the
- * pointer's state. */
-static void event_button_clicks(App *a, FnlButton b, double x_pt, double y_pt,
-								uint32_t time_ms)
+ * press of a double-click, and so on -- and 0 for a button the run table does
+ * not carry, which is one this library has no FnlButton for. A press within
+ * DECO_DBLCLICK_MS of the last one's and within DECO_DRAG_SLOP of it is the
+ * next in the run; anything else starts a new one. The count is per button, so
+ * a double-click of the left does not stretch a press of the right, and the
+ * window's own titlebar keeps its own timing (App::last_titlebar_click_ms) --
+ * this is the caller's, in FnlButtonEvent::clicks. The pump thread's, like the
+ * rest of the pointer's state. */
+static int event_button_clicks(App *a, FnlButton b, double x_pt, double y_pt,
+							   uint32_t time_ms)
 {
 	if ((unsigned)b >= 3)
-		return;
+		return 0;
 	/* The anonymous struct the App field declares: addressed by its member,
 	 * not by a tag there is none of. */
 	uint32_t *at = &a->click[(unsigned)b].at;
@@ -1909,6 +1914,7 @@ static void event_button_clicks(App *a, FnlButton b, double x_pt, double y_pt,
 	*at = time_ms;
 	*x  = x_pt;
 	*y  = y_pt;
+	return *run;
 }
 
 void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
@@ -1934,11 +1940,8 @@ void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
 	 * the next in the run, and anything else starts a new one. A release
 	 * carries 0 -- a run is counted on its presses, not stretched by how
 	 * long the button is held. */
-	ev.button.clicks = 0;
-	if (pressed) {
-		event_button_clicks(a, b, x_pt, y_pt, time_ms);
-		ev.button.clicks = a->click[(unsigned)b].run;
-	}
+	ev.button.clicks =
+		pressed ? event_button_clicks(a, b, x_pt, y_pt, time_ms) : 0;
 	app_event(a, &ev);
 
 	if (b != FNL_BUTTON_LEFT)
@@ -2894,6 +2897,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	a->met_gpu_pm                                    = METRICS_UNKNOWN;
 	a->met_cpu_s                                     = -1.0;
 	a->wall_mark                                     = -1.0;
+	a->focus_claim                                   = -1;
 	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;
 
 	/* The library's own bar until a caller replaces it. Zero would be a

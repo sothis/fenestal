@@ -133,7 +133,8 @@ static inline void loop_input_ms(App *a, uint32_t ms)
  * kernel's strings, NUL-separated after the "action@device" header, carry
  * SUBSYSTEM=drm, ACTION=add/remove and a DEVNAME=dri/cardN. A move to
  * another kernel driver is not a hotplug: the card goes and comes with it,
- * and app_gpu_driver_owns() says which paths are the moved GPU's. */
+ * and app_gpu_driver_owns() says which paths are the moved GPU's. Untested:
+ * no GPU of this machine's can be plugged (TODO). */
 static inline bool loop_uevent_is_gpu(const App *a, const char *buf, size_t n)
 {
 	bool drm = false, card = false, change = false, moved = false;

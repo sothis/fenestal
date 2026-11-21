@@ -73,7 +73,7 @@
 #define CAL_MOVE 1.8       /* and a move to another kernel driver, more */
 #define CAL_LIMIT 30.0     /* an entry not drawn on in this is left out */
 #define RANK_QUIET 1.0     /* seconds on one output, unmoved, to act */
-#define CAL_PANEL_W 640 /* the panel's least width, points, padding out */
+#define CAL_PANEL_W 640    /* the panel's least width, points, padding out */
 /* The panel's own padding and the gap inside its figures, which plan() and
  * the draw must agree on: they are what turns a measured line into a width. */
 #define CAL_PAD 20
@@ -803,8 +803,8 @@ static void plan(App *a, const char *display, bool all)
 			a->cal.fps[n++] = 0.0;
 		}
 	fnl_mutex_unlock(&a->lock);
-	a->cal.n = n;
-	a->cal.i = 0;
+	a->cal.n       = n;
+	a->cal.i       = 0;
 	a->cal.panel_w = panel_width(a);
 	snprintf(a->cal.display, sizeof a->cal.display, "%s", display);
 	order_plan(a, display);
@@ -1153,8 +1153,9 @@ void app_rank_tick(App *a)
 		 * size moves it too, while a turn that changes nothing costs a
 		 * compare instead of two round trips through the backend. */
 		char display[RANK_DISPLAY_MAX];
-		if (a->rank_gen_seen != a->display_gen) {
-			a->rank_gen_seen = a->display_gen;
+		const uint32_t gen = fnl_atomic_load_u32(&a->display_gen);
+		if (a->rank_gen_seen != gen) {
+			a->rank_gen_seen = gen;
 			display_now(a, display, sizeof display);
 			const unsigned long hash = list_hash(a);
 			if (strcmp(display, a->rank_display) != 0 ||
