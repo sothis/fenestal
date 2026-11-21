@@ -62,6 +62,15 @@ struct BackendState {
 	 * to the library's 120ths by resolve_scale120(). */
 	UINT dpi;
 
+	/* What stands between this window and a display driver of its own, as
+	 * FnlBackendVtbl::host reports it -- "", "wine", "wine on X11" or
+	 * "wine on Wayland". A literal, probed once in win32_open(), where the
+	 * display driver has loaded: probing it per call takes the loader lock
+	 * and scans ntdll for wine_get_version, and on_move() asks on every
+	 * WM_MOVE. NULL until open, which host() reads as "probe now" -- the
+	 * status line is asked for before there is a window. */
+	const char *host; 
+
 	/* The monitor the window is on, so that publishing the output costs one
 	 * MonitorFromWindow while it has not changed. */
 	HMONITOR monitor;

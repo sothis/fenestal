@@ -1170,6 +1170,7 @@ static void on_size(App *a, HWND hwnd, WPARAM wp)
 }
 
 static const char *win32_host(const App *a);
+static const char *win32_host_probe(void);
 
 /* A move to another monitor at the same DPI changes no size. Cheap: the
  * monitor is only asked about when its handle changed.
@@ -2338,6 +2339,10 @@ static FnlResult win32_open(App *a)
 	 * thread must not start against a zero. */
 	publish_size(a);
 
+	/* And what stands between this window and a display driver: asked here,
+	 * where wine's has loaded, so on_move() need not ask on every WM_MOVE. */
+	a->backend_state->host = win32_host_probe();
+
 	return FNL_OK;
 }
 
@@ -2760,9 +2765,11 @@ static void win32_cursor_changed(App *a)
  * launch -- no DISPLAY in the environment is enough for the Wayland one --
  * and the key that would pin it is usually absent; a display driver is a
  * module like any other once the first window exists. */
-static const char *win32_host(const App *a)
+/* Asked once, in win32_open(): under_wine() takes the loader lock and scans
+ * ntdll for wine_get_version, and which display driver wine loaded is fixed
+ * once it has one. */
+static const char *win32_host_probe(void)
 {
-	(void)a;
 	if (!under_wine())
 		return "";
 	if (GetModuleHandleW(L"winewayland.drv"))
@@ -2770,6 +2777,17 @@ static const char *win32_host(const App *a)
 	if (GetModuleHandleW(L"winex11.drv"))
 		return "wine on X11";
 	return "wine";
+}
+
+static const char *win32_host(const App *a)
+{
+	const struct BackendState *p = a->backend_state;
+	/* The cached answer, from open. Before it -- the status line is asked for
+	 * while the window is still being made -- there is nothing to cache in and
+	 * a probe costs nothing anybody waits on, so it is asked each time. */
+	if (p && p->host)
+		return p->host;
+	return win32_host_probe();
 }
 
 /* Under wine whichever display driver: its Direct3D 12 is vkd3d-proton,
