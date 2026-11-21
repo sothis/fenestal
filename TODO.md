@@ -146,7 +146,11 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
 - **X11's sync value kept for its frame, run out at a drag's first press**
   (`SYNC_SHOWN_WAIT`, `x11_present_event()`): `x11-vulkan`'s stress round
   says so once in release and in `gc`, `pace.py --border` never (DESIGN *X11:
-  xcb, not Xlib*). Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
+  xcb, not Xlib*). **Back again (2026-11-21)**: `x11-vulkan`'s release round
+  fails `log is clean` on it, 110 of 111 checks passing, with the same line in
+  logs from 2026-11-02 through 11-06 -- so the serial matching this entry
+  records as having cleared it did not hold, and the drag's first press is not
+  the only way in. Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
   about five frames behind once swapchains have been made again, frames
   queued that are never answered -- Mesa's, presented to a swapchain retired
   before it sent them. Matched by serial now (DESIGN): `x11-vulkan` and
