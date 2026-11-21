@@ -1015,13 +1015,10 @@ Open:
   where the box has no extent along the axis, which needs the axis in core
   and not only in the shader.
 
-Not owed, and not yet known:
-
-- **The gradient's angle is measured clockwise from the rectangle's own x
-  axis** (0 left to right, 90 top to bottom), which is my choice and is
-  written down nowhere but the header's comment. Nothing has been drawn
-  with any of the three -- they compile, the ABI is checked, and the
-  coverage maths is the shape shader's existing one for strokes -- so the
-  angle's direction, the corner radius's clamp and the disc's edge are
-  all reasoned and not seen. A picture is `FNL_BACKEND=x11` with
-  `import -window`, which is this desk's cheapest look at a frame.
+Seen (2026-11-21): the four forms drawn on this desk's X11 with Vulkan,
+from the testbed's shapes panel (O). The corners are round and the middle
+flat, the disc's edge is clean, and the gradient runs from the first
+colour at the left to the second at the right -- so the angle's direction
+and the corner radius's clamp are as the header says. What is still
+reasoned rather than measured is the coverage maths at a fractional
+scale, which no capture here has been read against.
