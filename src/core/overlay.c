@@ -152,6 +152,37 @@ void overlay_frame(App *a, int x, int y, int w, int h, const float color[4])
 	overlay_rect(a, x + w - 1, y, 1, h, color);
 }
 
+/* A rectangle whose colour blends over what is under it rather than replacing
+ * it, so a colour with alpha below one is a wash and not the hole an opaque
+ * write makes (see FnlColor and DESIGN *Recording*). It is the shape shader's
+ * box form with its fill bit set -- one instance in the alpha-blended stream
+ * -- so a caller who wants a soft panel under a border draws both and needs
+ * no second pipeline for either. */
+void overlay_rect_blend(App *a, int x, int y, int w, int h,
+						const float color[4])
+{
+	if (!a->overlay_open || a->shape_count >= OVERLAY_MAX_SHAPES ||
+		!a->ovl_map[a->ovl_img])
+		return;
+
+	const int s120 = scale120(a);
+	ShapeInstance *o = (ShapeInstance *)(a->ovl_map[a->ovl_img] +
+										 OVERLAY_SHAPE_OFF) + a->shape_count++;
+	/* The box's opposite corners, in physical pixels; p2 is unused by the fill
+	 * path, and half_w is 0 so the coverage ramp straddles the border. */
+	o->p0[0] = surf_ptf(a, (float)x, s120);
+	o->p0[1] = surf_ptf(a, (float)y, s120);
+	o->p1[0] = surf_ptf(a, (float)(x + w), s120);
+	o->p1[1] = surf_ptf(a, (float)(y + h), s120);
+	o->p2[0] = o->p0[0];
+	o->p2[1] = o->p0[1];
+	o->half_w  = 0.0f;
+	o->feather = STROKE_FEATHER_PX;
+	memcpy(o->color, color, sizeof o->color);
+	o->fill = 1.0f;
+	o->pad[0] = o->pad[1] = o->pad[2] = 0.0f;
+}
+
 void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
 				   float x2, float y2, float width, const float color[4])
 {
@@ -168,6 +199,8 @@ void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
 	o->half_w  = width * (float)s120 / 120.0f * 0.5f;
 	o->feather = STROKE_FEATHER_PX;
 	memcpy(o->color, color, sizeof o->color);
+	o->fill = 0.0f;
+	o->pad[0] = o->pad[1] = o->pad[2] = 0.0f;
 }
 
 void overlay_stroke(App *a, float x0, float y0, float x1, float y1,

@@ -72,14 +72,15 @@ FnlResult create_overlay_pipelines(App *a)
 	VkShaderModule sv = make_shader(a, shape_vert_spv, sizeof shape_vert_spv);
 	VkShaderModule sf = make_shader(a, shape_frag_spv, sizeof shape_frag_spv);
 	/* Packed as vec4s: fewer attributes is fewer fetches, at no extra cost. */
-	const VkVertexInputAttributeDescription shape_va[3] = {
+	const VkVertexInputAttributeDescription shape_va[4] = {
 		{ 0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, p0) },
 		{ 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, p2) },
 		{ 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, color) },
+		{ 3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, fill) },
 	};
 	VK(a)->shape_pipeline = make_overlay_pipeline(
 		a, VK(a)->render_pass, sv, sf, VK(a)->overlay_layout,
-		sizeof(ShapeInstance), shape_va, 3, OVERLAY_BLEND_ALPHA);
+		sizeof(ShapeInstance), shape_va, 4, OVERLAY_BLEND_ALPHA);
 	vkDestroyShaderModule(VK(a)->device, sv, NULL);
 	vkDestroyShaderModule(VK(a)->device, sf, NULL);
 

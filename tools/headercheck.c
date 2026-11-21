@@ -42,6 +42,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	while (fnl_poll_event(app, &ev))
 		if (ev.type == FNL_EVENT_KEY && ev.key.pressed) {
 			fnl_overlay_rect(app, 0, 0, frame->area_w_px, 1, white);
+			fnl_overlay_rect_blend(app, 0, 0, frame->area_w_px, 1, white);
 			fnl_overlay_counts(app, &counts);
 			(void)counts;
 		}

@@ -515,16 +515,17 @@ FnlResult d3d_create_overlay(App *a)
 
 	const size_t rect[2]   = { offsetof(RectInstance, rect),
 							   offsetof(RectInstance, color) };
-	const size_t shape[3]  = { offsetof(ShapeInstance, p0),
+	const size_t shape[4]  = { offsetof(ShapeInstance, p0),
 							   offsetof(ShapeInstance, p2),
-							   offsetof(ShapeInstance, color) };
+							   offsetof(ShapeInstance, color),
+							   offsetof(ShapeInstance, fill) };
 	const size_t text[3]   = { offsetof(GlyphInstance, rect),
 							   offsetof(GlyphInstance, uv),
 							   offsetof(GlyphInstance, color) };
 	const PsoDesc descs[7] = {
 		{ "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
 		  BLEND_NONE },
-		{ "stroke", BYTES(shape_vert_dxil), BYTES(shape_frag_dxil), shape, 3,
+		{ "stroke", BYTES(shape_vert_dxil), BYTES(shape_frag_dxil), shape, 4,
 		  BLEND_ALPHA },
 		/* A caller's picture: one quad at the rectangle the push block names
 		 * and no vertex input at all, so the corner is the vertex index. */

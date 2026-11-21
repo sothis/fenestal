@@ -1194,6 +1194,24 @@ FNL_API void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz,
 FNL_API void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h,
 							  FnlColor c); /* [overlay] */
 
+/* The same rectangle, blended over what is under it instead of replacing it.
+ *
+ * A filled rectangle's colour is written, alpha included, so a colour with
+ * alpha below one is a hole in the window rather than a wash (see FnlColor).
+ * This is the wash: the colour is composited over what is already there,
+ * the same factors the strokes blend with, so a dim band under a meter or a
+ * step of a panel behind a row is one call.
+ *
+ * It is drawn with the strokes -- the shape pipeline's box form -- so a
+ * caller who wants a soft panel under a border draws both and needs no
+ * second pipeline for either. Everything appended before it is issued first,
+ * as fnl_overlay_flush() does, so it lands on top of what it washes rather
+ * than under it.
+ *
+ * [overlay]. */
+FNL_API void fnl_overlay_rect_blend(FnlApp *app, int x, int y, int w, int h,
+								FnlColor c); /* [overlay] */
+
 /* A picture to draw: pixels the library copies, keeps and uploads again
  * itself. A logo, an icon, cover art -- the overlay draws text, rectangles
  * and strokes, and nothing else, so an app with a picture had to draw it from

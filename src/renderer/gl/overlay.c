@@ -337,14 +337,15 @@ FnlResult gl_create_overlay(App *a)
 
 	const size_t rect[2] = { offsetof(RectInstance, rect),
 							 offsetof(RectInstance, color) };
-	const size_t shape[3] = { offsetof(ShapeInstance, p0),
+	const size_t shape[4] = { offsetof(ShapeInstance, p0),
 							  offsetof(ShapeInstance, p2),
-							  offsetof(ShapeInstance, color) };
+							  offsetof(ShapeInstance, color),
+							  offsetof(ShapeInstance, fill) };
 	const size_t text[3] = { offsetof(GlyphInstance, rect),
 							 offsetof(GlyphInstance, uv),
 							 offsetof(GlyphInstance, color) };
 	g->vao_rect  = make_vao(rect, 2);
-	g->vao_shape = make_vao(shape, 3);
+	g->vao_shape = make_vao(shape, 4);
 	g->vao_text  = make_vao(text, 3);
 	gl.CreateVertexArrays(1, &g->vao_empty);
 

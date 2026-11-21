@@ -24,6 +24,7 @@ layout(location = 0)      in vec2 v_px;
 layout(location = 1) flat in vec4 v_p0p1;   /* p0.xy, p1.xy           */
 layout(location = 2) flat in vec4 v_p2hf;   /* p2.xy, half_w, feather */
 layout(location = 3) flat in vec4 v_color;
+layout(location = 4) flat in float v_fill;  /* 1: fill the box        */
 
 layout(location = 0) out vec4 out_color;
 
@@ -59,11 +60,29 @@ void main()
 	 * and p1 being opposite corners of a rectangle. */
 	float half_w  = v_p2hf.z;
 	float feather = v_p2hf.w;
-	float d = (v_p2hf.xy == v_p0p1.xy && v_p0p1.xy != v_p0p1.zw)
-			? box_border_distance(v_px, v_p0p1.xy, v_p0p1.zw)
-			: min(segment_distance(v_px, v_p0p1.xy, v_p0p1.zw),
-				  segment_distance(v_px, v_p0p1.zw, v_p2hf.xy));
-	float coverage = 1.0 - smoothstep(half_w - feather, half_w + feather, d);
+	float coverage;
+	if (v_fill > 0.5) {
+		/* A filled box: coverage from the signed distance to the filled
+		 * rectangle -- 1 inside, falling to 0 across the feather at the
+		 * border -- so the interior is opaque whatever half_w says. */
+		vec2 half_e = 0.5 * abs(v_p0p1.zw - v_p0p1.xy);
+		vec2 q = abs(v_px - 0.5 * (v_p0p1.xy + v_p0p1.zw)) - half_e;
+		float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+		coverage = 1.0 - smoothstep(-feather, feather, sd);
+	} else {
+		/* One distance for the whole shape, so a join is covered once and is
+		 * exactly as opaque as the arms leading into it.
+		 *
+		 * Which shape is told by p2, with no flag beside it: p2 == p1 collapses
+		 * the second arm to a point inside the first, a plain line; p2 == p0 with
+		 * p0 != p1 is the one thing an elbow can never mean, so it is read as p0
+		 * and p1 being opposite corners of a rectangle. */
+		float d = (v_p2hf.xy == v_p0p1.xy && v_p0p1.xy != v_p0p1.zw)
+					? box_border_distance(v_px, v_p0p1.xy, v_p0p1.zw)
+					: min(segment_distance(v_px, v_p0p1.xy, v_p0p1.zw),
+						  segment_distance(v_px, v_p0p1.zw, v_p2hf.xy));
+		coverage = 1.0 - smoothstep(half_w - feather, half_w + feather, d);
+	}
 	if (coverage <= 0.0)
 		discard;
 

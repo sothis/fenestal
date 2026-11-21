@@ -358,6 +358,20 @@ void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h, FnlColor c)
 	overlay_rect(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h), col);
 }
 
+void fnl_overlay_rect_blend(FnlApp *app, int x, int y, int w, int h, FnlColor c)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a))
+		return;
+	/* The solid stream is drawn before the blended one, so what a wash is
+	 * over is already there: the library's own background rules end here. */
+	overlay_flush_rects(a);
+	float col[4];
+	to_surface(a, c, col);
+	overlay_rect_blend(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
+						  col);
+}
+
 void fnl_overlay_stroke(FnlApp *app, float x0, float y0, float x1, float y1,
 						float width, FnlColor c)
 {

@@ -889,9 +889,11 @@ typedef struct {
 	float half_w;       /* half the stroke width, pixels                   */
 	float feather;      /* coverage ramp half-width, pixels                */
 	float color[4];
+	float fill;         /* 1: the box p0..p1 is filled, not outlined        */
+	float pad[3];       /* the stride the vertex stage reads               */
 } ShapeInstance;
 
-_Static_assert(sizeof(ShapeInstance) == 48,
+_Static_assert(sizeof(ShapeInstance) == 64,
 			   "ShapeInstance must match shape.vert");
 _Static_assert(offsetof(ShapeInstance, p2) == 16,
 			   "ShapeInstance layout drifted");
@@ -2881,6 +2883,11 @@ bool overlay_clip(const App *a, int x, int y, int w, int h, FnlRect *out);
 /* A logical-point rectangle, clipped to the framebuffer. Solid: the pipeline
  * does not blend, so this writes exactly what it is given. */
 void overlay_rect(App *a, int x, int y, int w, int h, const float color[4]);
+/* The same rectangle, blended over what is under it instead of replacing it:
+ * the shape pipeline's box form, so a colour with alpha is a wash and not the
+ * hole an opaque write leaves (DESIGN *Recording*). */
+void overlay_rect_blend(App *a, int x, int y, int w, int h,
+						const float color[4]);
 /* Four of them: a one-point outline just inside the rectangle. */
 void overlay_frame(App *a, int x, int y, int w, int h, const float color[4]);
 void overlay_stroke(App *a, float x0, float y0, float x1, float y1, float width,

@@ -8,8 +8,9 @@
  *
  * Shows: fnl_poll_event fnl_key_down fnl_invalidate fnl_quit fnl_text_line
  *        fnl_set_fullscreen fnl_is_fullscreen fnl_overlay_flush
- *        fnl_overlay_text_in fnl_output_name fnl_key_name fnl_key_from_name
- *        fnl_is_shown fnl_set_log_level fnl_post
+ *        fnl_overlay_text_in fnl_overlay_rect_blend fnl_output_name
+ *        fnl_key_name fnl_key_from_name fnl_is_shown fnl_set_log_level
+ *        fnl_post
  */
 
 #include <fenestal/fenestal.h>
@@ -163,6 +164,14 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		fnl_overlay_text_in(app, 16, 48 + 2 * fnl_text_line(FNL_TEXT_BODY),
 							w_pt - 32, FNL_TEXT_ALIGN_RIGHT, FNL_TEXT_BODY, ink,
 							count);
+		/* A wash under the line, so a colour with alpha is a wash and not
+		 * the hole an opaque write makes: the library blends this one over
+		 * what is under it, as fnl_overlay_rect() cannot. Flushed, so the
+		 * line's glyphs land on top of it. */
+		const FnlColor wash = { 1.0f, 1.0f, 1.0f, 0.15f };
+		fnl_overlay_rect_blend(app, 16, 48 + 2 * fnl_text_line(FNL_TEXT_BODY),
+							   w_pt - 32, fnl_text_line(FNL_TEXT_BODY), wash);
+		fnl_overlay_flush(app);
 	}
 
 	/* A marker over the text, so drawn after a flush: without it the
