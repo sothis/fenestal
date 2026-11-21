@@ -115,6 +115,15 @@ struct RendererState {
 	void                 *readback_map[OVERLAY_MAX_IMAGES];
 	VkDeviceSize          readback_bytes;
 	VkPhysicalDevice      phys;
+	/* The physical device's extension names, enumerated once when
+	 * create_device() first asks about one: it asks about ten of them, and
+	 * each ask used to be a second full enumeration of the same list.
+	 * `dev_ext_phys` is whose list it is, so a device creation that lands on
+	 * another physical device asks again. Owned here and freed with the
+	 * instance. */
+	VkExtensionProperties *dev_exts;
+	uint32_t               dev_ext_n;
+	VkPhysicalDevice       dev_ext_phys;
 	/* A CPU rasteriser: its present blocks on the frame being drawn, so the
 	 * block is work and App::present_block is left unmeasured. */
 	bool                  phys_software;

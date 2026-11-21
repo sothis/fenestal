@@ -762,22 +762,40 @@ static bool swapchain_maintenance(VkPhysicalDevice phys,
 
 /* Whether the device offers an extension, asked of the driver: a device
  * extension the device lacks fails vkCreateDevice outright. */
-static bool device_has_extension(VkPhysicalDevice phys, const char *name)
+/* Whether the physical device offers `name`. The list is enumerated once and
+ * kept on the renderer's state: a device creation asks about ten names, and
+ * each ask was a second full enumeration of the same list -- two driver round
+ * trips apiece, about twenty before the first frame. Asked again only where
+ * the creation landed on another physical device, which a move or a recovery
+ * may do. */
+static bool device_has_extension(App *a, const char *name)
 {
-	uint32_t n = 0;
-	if (vkEnumerateDeviceExtensionProperties(phys, NULL, &n, NULL) !=
-		VK_SUCCESS || n == 0)
-		return false;
-	VkExtensionProperties *props = xmalloc(n * sizeof *props);
-	if (!props)
-		return false;
-	bool found = false;
-	if (vkEnumerateDeviceExtensionProperties(phys, NULL, &n, props) ==
-		VK_SUCCESS)
-		for (uint32_t i = 0; i < n && !found; i++)
-			found = strcmp(props[i].extensionName, name) == 0;
-	free(props);
-	return found;
+	if (!VK(a)->dev_exts || VK(a)->dev_ext_phys != VK(a)->phys) {
+		free(VK(a)->dev_exts);
+		VK(a)->dev_exts      = NULL;
+		VK(a)->dev_ext_n     = 0;
+		VK(a)->dev_ext_phys  = VK(a)->phys;
+
+		uint32_t n = 0;
+		if (vkEnumerateDeviceExtensionProperties(VK(a)->phys, NULL, &n,
+												 NULL) != VK_SUCCESS ||
+			n == 0)
+			return false;
+		VkExtensionProperties *props = xmalloc(n * sizeof *props);
+		if (!props)
+			return false;
+		if (vkEnumerateDeviceExtensionProperties(VK(a)->phys, NULL, &n,
+												 props) != VK_SUCCESS) {
+			free(props);
+			return false;
+		}
+		VK(a)->dev_exts  = props;
+		VK(a)->dev_ext_n = n;
+	}
+	for (uint32_t i = 0; i < VK(a)->dev_ext_n; i++)
+		if (strcmp(VK(a)->dev_exts[i].extensionName, name) == 0)
+			return true;
+	return false;
 }
 
 #ifdef VK_EXT_present_timing
@@ -837,8 +855,8 @@ static FnlResult create_device(App *a)
 	};
 	const bool wait_exts =
 		VK(a)->get_features2 &&
-		device_has_extension(VK(a)->phys, VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
-		device_has_extension(VK(a)->phys, VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+		device_has_extension(a, VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
+		device_has_extension(a, VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 	if (wait_exts)
 		VK(a)->get_features2(VK(a)->phys, &have2);
 	VK(a)->present_wait = wait_exts && id_have.presentId &&
@@ -862,7 +880,7 @@ static FnlResult create_device(App *a)
 		const char *const *more = VK(a)->bridge->device_extensions(&k);
 		uint32_t on = 0;
 		for (uint32_t i = 0; i < k && n_exts < 10; i++)
-			if (device_has_extension(VK(a)->phys, more[i])) {
+			if (device_has_extension(a, more[i])) {
 				exts[n_exts++] = more[i];
 				on++;
 			}
@@ -896,11 +914,11 @@ static FnlResult create_device(App *a)
 		.pNext = &id2_have,
 	};
 	if (VK(a)->get_features2 && stamps_asked &&
-		device_has_extension(VK(a)->phys,
+		device_has_extension(a,
 							 VK_EXT_PRESENT_TIMING_EXTENSION_NAME) &&
-		device_has_extension(VK(a)->phys,
+		device_has_extension(a,
 							 VK_KHR_PRESENT_ID_2_EXTENSION_NAME) &&
-		device_has_extension(VK(a)->phys,
+		device_has_extension(a,
 							 VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) &&
 		!FNL_FAULT("no-present-timing")) {
 		VK(a)->get_features2(VK(a)->phys, &have3);
@@ -929,8 +947,7 @@ static FnlResult create_device(App *a)
 	VK(a)->google_timing = !VK(a)->present_timing && stamps_wanted &&
 						   VK(a)->bridge->driver_clock &&
 						   device_has_extension(
-							   VK(a)->phys,
-							   VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) &&
+							   a, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) &&
 						   !FNL_FAULT("no-present-timing");
 	if (VK(a)->google_timing)
 		exts[n_exts++] = VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME;
@@ -939,7 +956,7 @@ static FnlResult create_device(App *a)
 	 * The name is spelt out because the header declares it only under
 	 * VK_ENABLE_BETA_EXTENSIONS. */
 	static const char PORTABILITY_SUBSET[] = "VK_KHR_portability_subset";
-	if (device_has_extension(VK(a)->phys, PORTABILITY_SUBSET))
+	if (device_has_extension(a, PORTABILITY_SUBSET))
 		exts[n_exts++] = PORTABILITY_SUBSET;
 	/* A swapchain larger than the window, presented one to one from its
 	 * corner (swapchain.c). One device extension: the KHR where the
@@ -956,12 +973,10 @@ static FnlResult create_device(App *a)
 		VK(a)->get_features2 && n_exts < 16) {
 		const char *scale_name = NULL;
 		if (device_has_extension(
-				VK(a)->phys,
-				VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
+				a, VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
 			scale_name = VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
 		else if (device_has_extension(
-					 VK(a)->phys,
-					 VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
+					 a, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
 			scale_name = VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
 		if (scale_name &&
 			swapchain_maintenance(VK(a)->phys, VK(a)->get_features2)) {
@@ -989,7 +1004,7 @@ static FnlResult create_device(App *a)
 	};
 	VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &VK(a)->device));
 	VK(a)->memory_budget = VK(a)->get_memory2 &&
-		device_has_extension(VK(a)->phys, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+		device_has_extension(a, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 	VK(a)->wait_for_present = NULL;
 	if (VK(a)->present_wait)
 		VK(a)->wait_for_present = (PFN_vkWaitForPresentKHR)
@@ -1484,6 +1499,7 @@ static void vk_destroy_instance(App *a)
 	}
 	if (VK(a)->instance)
 		vkDestroyInstance(VK(a)->instance, NULL);
+	free(VK(a)->dev_exts);
 	free(a->renderer_state);
 	a->renderer_state = NULL;
 	/* Written by this renderer alone (create_device_objects()), and ""
