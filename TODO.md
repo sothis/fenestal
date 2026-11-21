@@ -945,15 +945,22 @@ Open, each needing a decision or a measurement:
   not, which is latent only while no compositor repeats a press of its own.
   Settling it needs a compositor that does, or a focus regain that resends
   one; the stress round's held-key check says mutter does not.
-- **Win32's clipboard `Sleep()`** (`clipboard_open()`): up to 50 ms on the
-  window thread dispatching nothing, which the rule on that thread forbids.
-  The pumping idiom `size_await()` uses is the candidate and needs a judgment
-  on the re-entry it allows, with `WM_SIZE` mid-clipboard.
-- **The GL overlay push block**, written three to five times a frame into
-  the region the frame's own draws read. One buffer per slot is not the
-  answer: a UBO range's start must be `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT`
-  aligned, so it wants a bound range per kind or a second binding point, and
-  both change the shaders.
+- ~~**Win32's clipboard `Sleep()`**~~ -- **closed (2026-11-21)**: the waits
+  are `pump_sent()`, `size_await()`'s idiom, so the thread dispatches what
+  another window *sends* it and takes nothing off its queue. The re-entry
+  the review asked to judge turns out not to need one: `WM_SIZE` is posted,
+  which `QS_SENDMESSAGE` excludes, and `clipboard_open()` waits before the
+  clipboard is open, so nothing is held across a handler.
+- ~~**The GL overlay push block**~~ -- **closed (2026-11-21)**, and the
+  review's own reasoning about it was wrong on one point: a bound range at
+  the binding point the block already has needs no shader change, so the
+  alignment it named is the answer rather than the obstacle. The buffer is
+  eight slots of `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT` bytes, `gl_push()`
+  writes the next and binds its range at point 0, and the slot ring restarts
+  at the top of a recording. A write no longer lands in the bytes the draw
+  before it may still be fetching. Verified at run time: the same frame off
+  GL and off Vulkan agrees to 0.13% of its text ink, so the text's block is
+  neither truncated nor bound to the wrong slot.
 - **Per-frame figures that move slowly**: the calibration panel re-measures
   every entry each frame (`pw` is frozen once `plan()` sets the ids); the
   controls ask the backend for its outputs twice a frame and recompute
@@ -995,30 +1002,29 @@ stroke, fill, round or gradient an instance is, and `shaders/shape.frag`
 reads it -- so all three blend, all three are one draw with the strokes, and
 none needs a pipeline of its own.
 
-Open:
+Both decisions the shapes left open are made (2026-11-21):
 
-- **A disc past the coordinate bound is clamped, not refused.**
-  `fnl_overlay_circle()` holds `cx`, `cy` and `r` to `OVERLAY_COORD_MAX`,
-  which is the bound the drawing calls hold their points to, so a radius
-  past it draws a disc of that bound rather than answering false. Every
-  other overlay call clamps its points the same way and a disc's centre is
-  geometry rather than a cell, so the question is whether a caller asking
-  for something that large has made a mistake worth a line in the log --
-  `fnl_image_create()` refuses a size past the bound, and this does not.
-- **A gradient on a degenerate box divides by a floor.** The shader's
-  ` t = dot(p - lo, dir) / max(dot(hi - lo, dir), 1e-6)`, so a box with
-  no extent along the gradient's axis -- zero width at 90 degrees, zero
-  height at 0 -- comes out as a hard edge on one side rather than as the
-  nearer colour. A gradient across a zero-width rectangle is a caller's
-  mistake, but the answer should be the nearer colour, not a division by
-  a fudge factor. The alternative is to answer false from the appender
-  where the box has no extent along the axis, which needs the axis in core
-  and not only in the shader.
+- **A disc past the coordinate bound is refused, not clamped.** The centre
+  is a position and is still clamped like every other point; the radius is
+  not, because a disc of a clamped radius is silently a different picture
+  from the one asked for. Past `OVERLAY_COORD_MAX` it draws nothing and
+  says so once, on `fnl_image_create()`'s terms.
+- **A gradient on a degenerate box is the first colour.** The shader tests
+  the span's *size* rather than dividing by a floor, since an angle past 90
+  degrees runs the axis backwards and a signed test would mistake that for
+  degenerate; zero span is `t = 0` at every pixel, so the box is one colour
+  instead of a hard edge down its middle.
 
 Seen (2026-11-21): the four forms drawn on this desk's X11 with Vulkan,
-from the testbed's shapes panel (O). The corners are round and the middle
-flat, the disc's edge is clean, and the gradient runs from the first
-colour at the left to the second at the right -- so the angle's direction
-and the corner radius's clamp are as the header says. What is still
-reasoned rather than measured is the coverage maths at a fractional
-scale, which no capture here has been read against.
+from the testbed's shapes panel (`--shapes`, or O). The corners are round
+and the middle flat, the disc's edge is clean, and the gradient runs from
+the first colour at the left to the second at the right -- so the angle's
+direction and the corner radius's clamp are as the header says.
+
+The coverage maths is measured as well as seen. The disc's edge, read off
+a capture at surface scale 1.25 and again at 1.50, is partial coverage
+spread across the whole 0-to-1 range on both -- 265 and 322 boundary
+pixels, median 0.73 and 0.76 -- which is an analytic edge and neither a
+staircase (all 0 or all 1) nor a blur (clustered at one value). The feather
+is 0.5 physical pixels at any scale, so this is the ramp the shader
+documents rather than one that happened to look right.

@@ -397,12 +397,26 @@ void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r, FnlColor c)
 	App *a = (App *)app;
 	if (!overlay_here(a) || !(r > 0.0f))
 		return;
-	/* The float clamp, since a disc's centre is geometry and may sit between
-	 * pixels: the same bound the drawing calls hold their points to. */
+	/* The centre is a position, and is clamped like every other point a caller
+	 * hands us: a disc whose middle is off the map can still be worth drawing.
+	 * The radius is not -- a disc of a clamped radius is silently a different
+	 * picture from the one asked for, and one large enough to be past the bound
+	 * would cover the caller's whole window. So it is refused, on
+	 * fnl_image_create()'s terms, and said once. */
 	const float lim = (float)OVERLAY_COORD_MAX;
-	cx              = cx > lim ? lim : cx < -lim ? -lim : cx;
-	cy              = cy > lim ? lim : cy < -lim ? -lim : cy;
-	r               = r > lim ? lim : r;
+	if (r > lim) {
+		static bool said;
+		if (!said) {
+			said = true;
+			fnl_log(FNL_LOG_WARN,
+					"fnl_overlay_circle(): a radius of %.0f points is past "
+					"the bound of %d, so nothing is drawn",
+					(double)r, OVERLAY_COORD_MAX);
+		}
+		return;
+	}
+	cx = cx > lim ? lim : cx < -lim ? -lim : cx;
+	cy = cy > lim ? lim : cy < -lim ? -lim : cy;
 	float col[4];
 	to_surface(a, c, col);
 	overlay_circle(a, cx, cy, r, col);

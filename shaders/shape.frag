@@ -73,7 +73,13 @@ void main()
 		float a = radians(half_w);
 		vec2  dir = vec2(cos(a), sin(a));
 		vec2  lo = v_p0p1.xy, hi = v_p0p1.zw;
-		float t = dot(v_px - lo, dir) / max(dot(hi - lo, dir), 1e-6);
+		/* The span is signed, since an angle past 90 degrees runs the axis
+		 * backwards, so the test is on its size and not on the value: a box
+		 * with no extent along the axis has no ramp to run, and its answer is
+		 * the first colour rather than a divide by a fudge factor, which put
+		 * a hard edge down the box instead. */
+		float span = dot(hi - lo, dir);
+		float t    = abs(span) > 1e-6 ? dot(v_px - lo, dir) / span : 0.0;
 		out_color = mix(v_color, v_color2, clamp(t, 0.0, 1.0));
 		return;
 	}
