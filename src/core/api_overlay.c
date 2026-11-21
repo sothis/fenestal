@@ -369,7 +369,7 @@ void fnl_overlay_rect_blend(FnlApp *app, int x, int y, int w, int h, FnlColor c)
 	float col[4];
 	to_surface(a, c, col);
 	overlay_rect_blend(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
-					  col);
+					   col);
 }
 
 void fnl_overlay_rect_round(FnlApp *app, int x, int y, int w, int h,
@@ -400,16 +400,16 @@ void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r, FnlColor c)
 	/* The float clamp, since a disc's centre is geometry and may sit between
 	 * pixels: the same bound the drawing calls hold their points to. */
 	const float lim = (float)OVERLAY_COORD_MAX;
-	cx = cx > lim ? lim : cx < -lim ? -lim : cx;
-	cy = cy > lim ? lim : cy < -lim ? -lim : cy;
-	r  = r > lim ? lim : r;
+	cx              = cx > lim ? lim : cx < -lim ? -lim : cx;
+	cy              = cy > lim ? lim : cy < -lim ? -lim : cy;
+	r               = r > lim ? lim : r;
 	float col[4];
 	to_surface(a, c, col);
 	overlay_circle(a, cx, cy, r, col);
 }
 
-void fnl_overlay_gradient(FnlApp *app, int x, int y, int w, int h,
-						  float angle, FnlColor c, FnlColor c2)
+void fnl_overlay_gradient(FnlApp *app, int x, int y, int w, int h, float angle,
+						  FnlColor c, FnlColor c2)
 {
 	App *a = (App *)app;
 	if (!overlay_here(a))

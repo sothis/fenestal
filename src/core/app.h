@@ -891,17 +891,17 @@ typedef struct {
 	float half_w;       /* half the stroke width, or the corner radius      */
 	float feather;      /* coverage ramp half-width, pixels                */
 	float color[4];
-	float color2[4];    /* the gradient's second colour, or color's copy     */
-	float shape_kind;   /* ShapeKind: 0 stroke, 1 fill, 2 round, 3 disc, 4 grad */
+	float color2[4];  /* the gradient's second colour, or color's copy     */
+	float shape_kind; /* ShapeKind: 0 stroke, 1 fill, 2 round, 3 disc, 4 grad */
 } ShapeInstance;
 
 /* What ShapeInstance::shape_kind says an instance is. Appended to, never
  * renumbered: the shader reads the number and a compiled caller holds it. */
 typedef enum {
-	SHAPE_STROKE = 0, /* the capsule, elbow and box the titlebar is made of */
-	SHAPE_FILL = 1,   /* a filled box, blended (fnl_overlay_rect_blend)    */
-	SHAPE_ROUND = 2,  /* a filled box with rounded corners                  */
-	SHAPE_GRADIENT = 3 /* a two-colour linear gradient                      */
+	SHAPE_STROKE   = 0, /* the capsule, elbow and box the titlebar is made of */
+	SHAPE_FILL     = 1, /* a filled box, blended (fnl_overlay_rect_blend)    */
+	SHAPE_ROUND    = 2, /* a filled box with rounded corners                  */
+	SHAPE_GRADIENT = 3  /* a two-colour linear gradient                      */
 } ShapeKind;
 
 _Static_assert(sizeof(ShapeInstance) == 68,
@@ -2909,8 +2909,7 @@ void overlay_rect_blend(App *a, int x, int y, int w, int h,
 						const float color[4]);
 void overlay_rect_round(App *a, int x, int y, int w, int h, float radius,
 						const float color[4]);
-void overlay_circle(App *a, float cx, float cy, float r,
-					const float color[4]);
+void overlay_circle(App *a, float cx, float cy, float r, const float color[4]);
 void overlay_gradient(App *a, int x, int y, int w, int h, float angle,
 					  const float color[4], const float color2[4]);
 /* Four of them: a one-point outline just inside the rectangle. */

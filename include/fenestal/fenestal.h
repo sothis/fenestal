@@ -1210,19 +1210,19 @@ FNL_API void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h,
  *
  * [overlay]. */
 FNL_API void fnl_overlay_rect_blend(FnlApp *app, int x, int y, int w, int h,
-								FnlColor c); /* [overlay] */
+									FnlColor c); /* [overlay] */
 
 /* A filled rectangle with rounded corners, `radius` points of them: a panel,
  * a chip, a button's face. Clamped to half the shorter side, so a radius past
  * that is a disc on a square and nothing asks for a corner that folds. */
 FNL_API void fnl_overlay_rect_round(FnlApp *app, int x, int y, int w, int h,
-								float radius, FnlColor c); /* [overlay] */
+									float radius, FnlColor c); /* [overlay] */
 
 /* A filled disc of radius `r` at `(cx, cy)`, in points rather than pixels, so
  * a knob or a lamp sits where the geometry puts it rather than on the pixel
  * grid: the edge is antialiased and the interior is opaque. */
 FNL_API void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r,
-							FnlColor c); /* [overlay] */
+								FnlColor c); /* [overlay] */
 
 /* A linear gradient across the rectangle, from `c` at the start to `c2` at
  * the end, `angle` degrees clockwise from the rectangle's own x axis -- 0
@@ -1234,8 +1234,8 @@ FNL_API void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r,
  *
  * [overlay]. */
 FNL_API void fnl_overlay_gradient(FnlApp *app, int x, int y, int w, int h,
-							  float angle, FnlColor c,
-							  FnlColor c2); /* [overlay] */
+								  float angle, FnlColor c,
+								  FnlColor c2); /* [overlay] */
 
 /* A picture to draw: pixels the library copies, keeps and uploads again
  * itself. A logo, an icon, cover art -- the overlay draws text, rectangles

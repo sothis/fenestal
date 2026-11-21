@@ -46,7 +46,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			fnl_overlay_rect_round(app, 0, 0, frame->area_w_px, 1, 4.0f, white);
 			fnl_overlay_circle(app, 0.0f, 0.0f, 4.0f, white);
 			fnl_overlay_gradient(app, 0, 0, frame->area_w_px, 1, 0.0f, white,
-							 white);
+								 white);
 			fnl_overlay_counts(app, &counts);
 			(void)counts;
 		}

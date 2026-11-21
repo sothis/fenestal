@@ -53,9 +53,9 @@ typedef struct {
 } GlOverlayPush;
 
 typedef struct {
-	float    screen[2];
+	float screen[2];
 	uint32_t srgb;
-	float    texel_u;
+	float texel_u;
 } GlTextPush;
 
 /* The image pipeline's, as std140 lays it out: the same bytes as the Vulkan
@@ -193,21 +193,22 @@ static void destroy_atlas(App *a)
  * the bake, which a glyph's uv reads with v = 0 at its top. */
 static FnlResult build_atlas(App *a, int si)
 {
-	const int aw = (int)FONT_ATLAS_W[si];
-	const int ah = (int)FONT_ATLAS_H[si];
+	const int aw       = (int)FONT_ATLAS_W[si];
+	const int ah       = (int)FONT_ATLAS_H[si];
 	const size_t bytes = (size_t)aw * (size_t)ah;
 
 	unsigned char *scratch = calloc(1, bytes);
 	if (!scratch)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"out of memory expanding the %dx%d glyph atlas",
-						aw, ah);
-	if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si],
-					 FONT_ATLAS_LEN[si], scratch, bytes)) {
+						"out of memory expanding the %dx%d glyph atlas", aw,
+						ah);
+	if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si], FONT_ATLAS_LEN[si],
+					 scratch, bytes)) {
 		free(scratch);
 		return fnl_fail(FNL_ERR_SYSTEM,
 						"the baked atlas for scale %d does not decode to "
-						"%dx%d", FONT_SCALE[si], aw, ah);
+						"%dx%d",
+						FONT_SCALE[si], aw, ah);
 	}
 
 	gl_clear_errors();
@@ -258,11 +259,11 @@ FnlResult gl_text_set_scale(App *a, int s120)
  * into client memory instead and each flush uploads what it draws
  * (gl_arena_upload()), into a buffer of the slot's that the slot's fence
  * guards as before. */
-static FnlResult make_arenas(App *a, unsigned *bufs, size_t bytes,
-							 void **maps, void **block)
+static FnlResult make_arenas(App *a, unsigned *bufs, size_t bytes, void **maps,
+							 void **block)
 {
-	const GLbitfield f = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT |
-						 GL_MAP_COHERENT_BIT;
+	const GLbitfield f =
+		GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
 	/* The client memory is one block for every slot, kept whole in the
 	 * renderer's state and handed out by offset: a heap pointer stored
 	 * inside the loop reads as a leak to -fanalyzer (CLAUDE.md). */
@@ -283,8 +284,7 @@ static FnlResult make_arenas(App *a, unsigned *bufs, size_t bytes,
 			maps[i] = (unsigned char *)*block + (size_t)i * bytes;
 		} else {
 			gl.NamedBufferStorage(bufs[i], (GLsizeiptr)bytes, NULL, f);
-			maps[i] = gl.MapNamedBufferRange(bufs[i], 0, (GLsizeiptr)bytes,
-											 f);
+			maps[i] = gl.MapNamedBufferRange(bufs[i], 0, (GLsizeiptr)bytes, f);
 		}
 		if (!maps[i])
 			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
@@ -297,7 +297,7 @@ static void destroy_arenas(unsigned *bufs, void **maps, void **block)
 {
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		if (bufs[i])
-			gl.DeleteBuffers(1, &bufs[i]);   /* unmaps it too */
+			gl.DeleteBuffers(1, &bufs[i]); /* unmaps it too */
 		bufs[i] = 0;
 		maps[i] = NULL;
 	}
@@ -316,16 +316,13 @@ FnlResult gl_create_overlay(App *a)
 	/* The subpixel variant always: dual-source blending is core since 3.3,
 	 * where Vulkan has it as an optional feature. */
 	g->prog_text  = gl_program("text", SRC(text_vert), SRC(text_lcd_frag));
-	g->prog_blit  = gl_program("fetch", SRC(fullscreen_vert),
-							   SRC(blit_frag));
-	g->prog_mlaa  = gl_program("MLAA", SRC(fullscreen_vert),
-							   SRC(mlaa_frag));
+	g->prog_blit  = gl_program("fetch", SRC(fullscreen_vert), SRC(blit_frag));
+	g->prog_mlaa  = gl_program("MLAA", SRC(fullscreen_vert), SRC(mlaa_frag));
 	g->prog_image = gl_program("image", SRC(image_vert), SRC(image_frag));
 #undef SRC
 	if (!g->prog_rect || !g->prog_shape || !g->prog_text || !g->prog_blit ||
 		!g->prog_mlaa || !g->prog_image)
-		return fnl_fail(FNL_ERR_SYSTEM,
-						"the overlay's programs did not build");
+		return fnl_fail(FNL_ERR_SYSTEM, "the overlay's programs did not build");
 
 	gl.CreateBuffers(1, &g->push);
 	gl.NamedBufferStorage(g->push, PUSH_BYTES, NULL, GL_DYNAMIC_STORAGE_BIT);
@@ -335,29 +332,29 @@ FnlResult gl_create_overlay(App *a)
 	gl.GetIntegerv(GL_MAX_CLIP_DISTANCES, &clips);
 	g->clip_distances = clips;
 
-	const size_t rect[2] = { offsetof(RectInstance, rect),
-							 offsetof(RectInstance, color) };
+	const size_t rect[2]  = { offsetof(RectInstance, rect),
+							  offsetof(RectInstance, color) };
 	const size_t shape[5] = { offsetof(ShapeInstance, p0),
 							  offsetof(ShapeInstance, p2),
 							  offsetof(ShapeInstance, color),
 							  offsetof(ShapeInstance, color2),
 							  offsetof(ShapeInstance, shape_kind) };
-	const size_t text[3] = { offsetof(GlyphInstance, rect),
-							 offsetof(GlyphInstance, uv),
-							 offsetof(GlyphInstance, color) };
-	g->vao_rect  = make_vao(rect, 2);
-	g->vao_shape = make_vao(shape, 5);
-	g->vao_text  = make_vao(text, 3);
+	const size_t text[3]  = { offsetof(GlyphInstance, rect),
+							  offsetof(GlyphInstance, uv),
+							  offsetof(GlyphInstance, color) };
+	g->vao_rect           = make_vao(rect, 2);
+	g->vao_shape          = make_vao(shape, 5);
+	g->vao_text           = make_vao(text, 3);
 	gl.CreateVertexArrays(1, &g->vao_empty);
 
 	g->sampler_nearest = make_sampler(GL_NEAREST);
 	g->sampler_linear  = make_sampler(GL_LINEAR);
 
 	g->arenas_client = gl_profile41;
-	FNL_TRY(make_arenas(a, g->text_buf, TEXT_ARENA_BYTES,
-						(void **)a->text_map, &g->text_block));
-	FNL_TRY(make_arenas(a, g->ovl_buf, OVERLAY_ARENA_BYTES,
-						(void **)a->ovl_map, &g->ovl_block));
+	FNL_TRY(make_arenas(a, g->text_buf, TEXT_ARENA_BYTES, (void **)a->text_map,
+						&g->text_block));
+	FNL_TRY(make_arenas(a, g->ovl_buf, OVERLAY_ARENA_BYTES, (void **)a->ovl_map,
+						&g->ovl_block));
 
 	/* The scale is 120 until the render thread latches another, as on
 	 * Vulkan. */
@@ -393,7 +390,7 @@ void gl_destroy_overlay(App *a)
 		}
 	}
 	const unsigned progs[6] = { g->prog_rect, g->prog_shape, g->prog_text,
-								g->prog_blit, g->prog_mlaa, g->prog_image };
+								g->prog_blit, g->prog_mlaa,  g->prog_image };
 	for (int i = 0; i < 6; i++)
 		if (progs[i])
 			gl.DeleteProgram(progs[i]);
@@ -409,7 +406,7 @@ void gl_destroy_overlay(App *a)
 	g->prog_blit = g->prog_mlaa = g->prog_image = 0;
 	g->vao_rect = g->vao_shape = g->vao_text = g->vao_empty = 0;
 	g->sampler_nearest = g->sampler_linear = 0;
-	g->push = 0;
+	g->push                                = 0;
 }
 
 /* ---- drawing ------------------------------------------------------------- */
@@ -455,8 +452,8 @@ static void set_blend(Blend b)
 		gl.BlendFuncSeparate(GL_SRC1_COLOR, GL_ONE_MINUS_SRC1_COLOR,
 							 GL_SRC1_ALPHA, GL_ONE_MINUS_SRC1_ALPHA);
 	else
-		gl.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
-							 GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+		gl.BlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+							 GL_ONE_MINUS_SRC_ALPHA);
 }
 
 /* Draw the instances appended since this kind was last flushed: the arena
@@ -494,8 +491,7 @@ void gl_overlay_flush_rects(App *a)
 void gl_overlay_flush_shapes(App *a)
 {
 	flush(a, GLS(a)->prog_shape, GLS(a)->vao_shape, OVERLAY_SHAPE_OFF,
-		  sizeof(ShapeInstance), BLEND_ALPHA, &a->shape_count,
-		  &a->shape_drawn);
+		  sizeof(ShapeInstance), BLEND_ALPHA, &a->shape_count, &a->shape_drawn);
 }
 
 /* NULL restores the whole image. The image's row 0 is its top, so a
@@ -522,7 +518,7 @@ bool gl_image_supported(const App *a)
  * does not appear, which is what fnl_image_supported() promised. */
 static bool image_upload(App *a, FnlImage *img, GlImageObj **out)
 {
-	*out = NULL;
+	*out          = NULL;
 	GlImageObj *o = calloc(1, sizeof *o);
 	if (!o)
 		return false;
@@ -532,8 +528,7 @@ static bool image_upload(App *a, FnlImage *img, GlImageObj **out)
 	 * framebuffer re-encodes on write. */
 	gl_clear_errors();
 	gl.CreateTextures(GL_TEXTURE_2D, 1, &o->tex);
-	gl.TextureStorage2D(o->tex, 1,
-						a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+	gl.TextureStorage2D(o->tex, 1, a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8,
 						img->w, img->h);
 	/* The unpack state is the context's, and on_record may have left any of
 	 * it set. */
@@ -562,8 +557,10 @@ void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 	if (!img->gpu) {
 		GlImageObj *o = NULL;
 		if (!image_upload(a, img, &o)) {
-			fnl_log(FNL_LOG_WARN, "the %dx%d image would not upload; it is "
-					"not drawn", img->w, img->h);
+			fnl_log(FNL_LOG_WARN,
+					"the %dx%d image would not upload; it is "
+					"not drawn",
+					img->w, img->h);
 			return;
 		}
 		img->gpu = o;
@@ -578,7 +575,7 @@ void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 	gl.BindSampler(0, g->sampler_linear);
 	set_blend(BLEND_ALPHA);
 	const GlImagePush push = {
-		.rect = { (float)x, (float)y, (float)w, (float)h },
+		.rect   = { (float)x, (float)y, (float)w, (float)h },
 		.screen = { (float)a->extent.w, (float)a->extent.h },
 	};
 	gl_push(a, &push, sizeof push);
@@ -612,15 +609,15 @@ static bool cover_upload(App *a)
 	gl_clear_errors();
 	gl.CreateTextures(GL_TEXTURE_2D, 1, &g->cover_tex);
 	gl.TextureStorage2D(g->cover_tex, 1,
-						a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8,
-						a->snap_w, a->snap_h);
+						a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8, a->snap_w,
+						a->snap_h);
 	gl.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 	gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 	gl.PixelStorei(GL_UNPACK_SKIP_ROWS, 0);
 	gl.PixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
-	gl.TextureSubImage2D(g->cover_tex, 0, 0, 0, a->snap_w, a->snap_h,
-						 GL_BGRA, GL_UNSIGNED_BYTE, a->snap_px);
+	gl.TextureSubImage2D(g->cover_tex, 0, 0, 0, a->snap_w, a->snap_h, GL_BGRA,
+						 GL_UNSIGNED_BYTE, a->snap_px);
 	if (gl.GetError() != GL_NO_ERROR) {
 		gl.DeleteTextures(1, &g->cover_tex);
 		g->cover_tex = 0;
@@ -640,7 +637,8 @@ bool gl_overlay_cover(App *a, float alpha)
 	if (g->cover_gen != a->snap_gen) {
 		g->cover_gen = a->snap_gen;
 		if (!cover_upload(a))
-			fnl_log(FNL_LOG_WARN, "the frame read back before the move "
+			fnl_log(FNL_LOG_WARN,
+					"the frame read back before the move "
 					"would not upload; the move dissolves from black");
 	}
 	if (!g->cover_tex)
@@ -670,7 +668,7 @@ void gl_cover_release(App *a)
 	g->cover_tex = 0;
 	if (g->readback && !gl_bridge_surfaceless(a)) {
 		free(g->readback);
-		g->readback = NULL;
+		g->readback       = NULL;
 		g->readback_bytes = 0;
 	}
 }
@@ -678,13 +676,11 @@ void gl_cover_release(App *a)
 FnlResult gl_text_end(App *a)
 {
 	if (a->text_count == a->text_drawn || !GLS(a)->overlay_on ||
-		!GLS(a)->prog_text ||
-		!GLS(a)->font_tex)
+		!GLS(a)->prog_text || !GLS(a)->font_tex)
 		return FNL_OK;
 
 	if (GLS(a)->arenas_client)
-		gl_arena_upload(GLS(a)->text_buf[a->text_img],
-						a->text_map[a->text_img],
+		gl_arena_upload(GLS(a)->text_buf[a->text_img], a->text_map[a->text_img],
 						(size_t)a->text_drawn * sizeof(GlyphInstance),
 						(size_t)(a->text_count - a->text_drawn) *
 							sizeof(GlyphInstance));
@@ -708,8 +704,7 @@ FnlResult gl_text_end(App *a)
 	};
 	gl_push(a, &push, sizeof push);
 	gl.DrawArraysInstancedBaseInstance(GL_TRIANGLE_STRIP, 0, 4,
-									   (GLsizei)(a->text_count -
-												 a->text_drawn),
+									   (GLsizei)(a->text_count - a->text_drawn),
 									   a->text_drawn);
 	a->text_drawn = a->text_count;
 	return FNL_OK;

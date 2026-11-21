@@ -45,9 +45,9 @@ static const float PALETTE[][4] = {
 	/* The metrics panel's, beside the controls' box, line, live and dim:
 	 * the slower half of a frame red, as the faster is COL_CTL_LIVE's
 	 * green, and the rate the slower allows yellow. */
-	[COL_MET_HEAD]   = { 1.00f, 0.78f, 0.30f, 1.0f },
-	[COL_MET_SLOW]   = { 1.00f, 0.38f, 0.35f, 1.0f },
-	[COL_MET_RATE]   = { 1.00f, 0.92f, 0.25f, 1.0f },
+	[COL_MET_HEAD] = { 1.00f, 0.78f, 0.30f, 1.0f },
+	[COL_MET_SLOW] = { 1.00f, 0.38f, 0.35f, 1.0f },
+	[COL_MET_RATE] = { 1.00f, 0.92f, 0.25f, 1.0f },
 };
 
 _Static_assert(sizeof PALETTE / sizeof PALETTE[0] == COL_COUNT,
@@ -60,8 +60,8 @@ void app_palette_init(App *a)
 {
 	for (int i = 0; i < COL_COUNT; i++) {
 		for (int c = 0; c < 3; c++)
-			a->pal[i][c] = a->srgb_surface ? srgb_to_linear(PALETTE[i][c])
-										   : PALETTE[i][c];
+			a->pal[i][c] =
+				a->srgb_surface ? srgb_to_linear(PALETTE[i][c]) : PALETTE[i][c];
 		a->pal[i][3] = PALETTE[i][3];
 	}
 }
@@ -90,10 +90,10 @@ static float surf_ptf(const App *a, float v, int s120)
 
 void overlay_begin(App *a, uint32_t img)
 {
-	a->ovl_img      = img;
-	a->rect_count   = a->rect_drawn  = 0;
-	a->shape_count  = a->shape_drawn = 0;
-	a->overlay_open = true;
+	a->ovl_img    = img;
+	a->rect_count = a->rect_drawn = 0;
+	a->shape_count = a->shape_drawn = 0;
+	a->overlay_open                 = true;
 	/* Nothing is narrowed at the top of a recording: the command buffer's
 	 * scissor was set to the whole framebuffer when the pass began. */
 	a->overlay_clipped = false;
@@ -110,14 +110,18 @@ void overlay_end(App *a)
 bool overlay_clip(const App *a, int x, int y, int w, int h, FnlRect *out)
 {
 	const int s120 = scale120(a);
-	int x0 = surf_pt(a, x, s120),     y0 = surf_pt(a, y, s120);
+	int x0 = surf_pt(a, x, s120), y0 = surf_pt(a, y, s120);
 	int x1 = surf_pt(a, x + w, s120), y1 = surf_pt(a, y + h, s120);
 	const int mw = (int)a->extent.w, mh = (int)a->extent.h;
 
-	if (x0 < 0)  x0 = 0;
-	if (y0 < 0)  y0 = 0;
-	if (x1 > mw) x1 = mw;
-	if (y1 > mh) y1 = mh;
+	if (x0 < 0)
+		x0 = 0;
+	if (y0 < 0)
+		y0 = 0;
+	if (x1 > mw)
+		x1 = mw;
+	if (y1 > mh)
+		y1 = mh;
 	if (x1 <= x0 || y1 <= y0)
 		return false;
 
@@ -136,10 +140,10 @@ void overlay_rect(App *a, int x, int y, int w, int h, const float color[4])
 		return;
 
 	RectInstance *o = (RectInstance *)a->ovl_map[a->ovl_img] + a->rect_count++;
-	o->rect[0] = (float)r.x;
-	o->rect[1] = (float)r.y;
-	o->rect[2] = (float)r.w;
-	o->rect[3] = (float)r.h;
+	o->rect[0]      = (float)r.x;
+	o->rect[1]      = (float)r.y;
+	o->rect[2]      = (float)r.w;
+	o->rect[3]      = (float)r.h;
 	memcpy(o->color, color, sizeof o->color);
 }
 
@@ -165,8 +169,9 @@ static void shape_boxf(App *a, float x, float y, float w, float h, float radius,
 		return;
 
 	const int s120 = scale120(a);
-	ShapeInstance *o = (ShapeInstance *)(a->ovl_map[a->ovl_img] +
-										 OVERLAY_SHAPE_OFF) + a->shape_count++;
+	ShapeInstance *o =
+		(ShapeInstance *)(a->ovl_map[a->ovl_img] + OVERLAY_SHAPE_OFF) +
+		a->shape_count++;
 	o->p0[0] = surf_ptf(a, x, s120);
 	o->p0[1] = surf_ptf(a, y, s120);
 	o->p1[0] = surf_ptf(a, x + w, s120);
@@ -176,8 +181,7 @@ static void shape_boxf(App *a, float x, float y, float w, float h, float radius,
 	/* The corner radius is points and scales with everything else; the
 	 * gradient's angle is degrees and does not, so the kind says which the
 	 * argument was and only the radius is converted. */
-	o->half_w  = kind == SHAPE_GRADIENT ? radius
-								: radius * (float)s120 / 120.0f;
+	o->half_w = kind == SHAPE_GRADIENT ? radius : radius * (float)s120 / 120.0f;
 	o->feather = STROKE_FEATHER_PX;
 	memcpy(o->color, color, sizeof o->color);
 	memcpy(o->color2, color2, sizeof o->color2);
@@ -209,8 +213,7 @@ void overlay_rect_round(App *a, int x, int y, int w, int h, float radius,
 	shape_box(a, x, y, w, h, radius, color, color, SHAPE_ROUND);
 }
 
-void overlay_circle(App *a, float cx, float cy, float r,
-					const float color[4])
+void overlay_circle(App *a, float cx, float cy, float r, const float color[4])
 {
 	/* A disc is a box whose half-extent is r and whose corner radius is r:
 	 * the shape shader's rounded-box distance at that radius is the disc's
@@ -229,19 +232,23 @@ void overlay_gradient(App *a, int x, int y, int w, int h, float angle,
 	shape_box(a, x, y, w, h, angle, color, color2, SHAPE_GRADIENT);
 }
 
-void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
-				   float x2, float y2, float width, const float color[4])
+void overlay_elbow(App *a, float x0, float y0, float x1, float y1, float x2,
+				   float y2, float width, const float color[4])
 {
 	if (!a->overlay_open || a->shape_count >= OVERLAY_MAX_SHAPES ||
 		!a->ovl_map[a->ovl_img])
 		return;
 
 	const int s120 = scale120(a);
-	ShapeInstance *o = (ShapeInstance *)(a->ovl_map[a->ovl_img] +
-										 OVERLAY_SHAPE_OFF) + a->shape_count++;
-	o->p0[0] = surf_ptf(a, x0, s120); o->p0[1] = surf_ptf(a, y0, s120);
-	o->p1[0] = surf_ptf(a, x1, s120); o->p1[1] = surf_ptf(a, y1, s120);
-	o->p2[0] = surf_ptf(a, x2, s120); o->p2[1] = surf_ptf(a, y2, s120);
+	ShapeInstance *o =
+		(ShapeInstance *)(a->ovl_map[a->ovl_img] + OVERLAY_SHAPE_OFF) +
+		a->shape_count++;
+	o->p0[0]   = surf_ptf(a, x0, s120);
+	o->p0[1]   = surf_ptf(a, y0, s120);
+	o->p1[0]   = surf_ptf(a, x1, s120);
+	o->p1[1]   = surf_ptf(a, y1, s120);
+	o->p2[0]   = surf_ptf(a, x2, s120);
+	o->p2[1]   = surf_ptf(a, y2, s120);
 	o->half_w  = width * (float)s120 / 120.0f * 0.5f;
 	o->feather = STROKE_FEATHER_PX;
 	memcpy(o->color, color, sizeof o->color);
@@ -249,16 +256,16 @@ void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
 	o->shape_kind = SHAPE_STROKE;
 }
 
-void overlay_stroke(App *a, float x0, float y0, float x1, float y1,
-					float width, const float color[4])
+void overlay_stroke(App *a, float x0, float y0, float x1, float y1, float width,
+					const float color[4])
 {
 	/* A degenerate second segment: the shader takes the nearer of the two, and
 	 * a point that already lies inside the first capsule never wins. */
 	overlay_elbow(a, x0, y0, x1, y1, x1, y1, width, color);
 }
 
-void overlay_box(App *a, float x0, float y0, float x1, float y1,
-				 float width, const float color[4])
+void overlay_box(App *a, float x0, float y0, float x1, float y1, float width,
+				 const float color[4])
 {
 	/* A second arm folded back onto the first is what an elbow can never be,
 	 * so the shader reads it as opposite corners of a rectangle. Packed
@@ -271,7 +278,7 @@ void text_begin(App *a, uint32_t img)
 	/* create_swapchain() refuses an image count above OVERLAY_MAX_IMAGES, so
 	 * the index is the image's own rather than a wrapped one -- wrapping would
 	 * put two in-flight frames on one buffer. */
-	a->text_img = img;
+	a->text_img   = img;
 	a->text_count = 0;
 	a->text_drawn = 0;
 }
@@ -292,17 +299,16 @@ void text_draw(App *a, int x, int y, TextSize sz, const float color[4],
 	if (!out || a->font_si < 0)
 		return;
 
-	const int  s120 = scale120(a);
-	const int  adv  = text_advance(sz);
+	const int s120  = scale120(a);
+	const int adv   = text_advance(sz);
 	const bool mono = text_is_mono(sz);
 	/* The proportional pen starts here and walks; see below. */
-	const int  origin_px = surf_pt(a, x, s120);
+	const int origin_px = surf_pt(a, x, s120);
 
 	/* Exactly 1.0 inside the baked range, so nothing about the common path
 	 * moves; past either end, what text_resampled() explains. */
-	const float qf = text_resampled(a)
-						 ? (float)s120 / (float)FONT_SCALE[a->font_si]
-						 : 1.0f;
+	const float qf =
+		text_resampled(a) ? (float)s120 / (float)FONT_SCALE[a->font_si] : 1.0f;
 	/* `y` is the top of the glyph box; the baseline is one cap height below,
 	 * which is what the overlay's vertical centring is written against. */
 	const int base_px = surf_pt(a, y + text_height(sz), s120);
@@ -326,8 +332,8 @@ void text_draw(App *a, int x, int y, TextSize sz, const float color[4],
 	 * trips on a run of spaces. OVERLAY_COORD_MAX is the bound the
 	 * coordinates are clamped to (see clamp_pt in app.h); the proportional
 	 * face has no step to divide by and takes it as a count. */
-	const int max_i = adv > 0 ? (OVERLAY_COORD_MAX - x) / adv
-							  : OVERLAY_COORD_MAX;
+	const int max_i =
+		adv > 0 ? (OVERLAY_COORD_MAX - x) / adv : OVERLAY_COORD_MAX;
 
 	for (int i = 0; *s; i++) {
 		if (i > max_i)
@@ -353,7 +359,7 @@ void text_draw(App *a, int x, int y, TextSize sz, const float color[4],
 		pen_prop += (float)cl->adv * qf;
 
 		if (!cl->w || !cl->h)
-			continue;                             /* space, or a blank glyph */
+			continue; /* space, or a blank glyph */
 		if (a->text_count >= TEXT_MAX_GLYPHS)
 			break;
 

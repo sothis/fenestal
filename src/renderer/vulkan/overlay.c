@@ -76,8 +76,10 @@ FnlResult create_overlay_pipelines(App *a)
 		{ 0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, p0) },
 		{ 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, p2) },
 		{ 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, color) },
-		{ 3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, color2) },
-		{ 4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ShapeInstance, shape_kind) },
+		{ 3, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+		  offsetof(ShapeInstance, color2) },
+		{ 4, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+		  offsetof(ShapeInstance, shape_kind) },
 	};
 	VK(a)->shape_pipeline = make_overlay_pipeline(
 		a, VK(a)->render_pass, sv, sf, VK(a)->overlay_layout,
