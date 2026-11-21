@@ -78,20 +78,8 @@ _Static_assert(sizeof(GlImagePush) == 32,
 _Static_assert(offsetof(GlImagePush, screen) == 16,
 			   "GlImagePush layout drifted");
 
-/* The uniform buffer behind every `Push` block: the largest of them, and how
- * many slots of it one recording may write.
- *
- * A slot each, because the block is rewritten three to five times a frame --
- * once for the rectangles and strokes, once for the text, once for a picture
- * and once for the veil -- and each write used to land in the same 32 bytes
- * the draw just before it may still be fetching, which is a stall or an
- * internal orphan the driver chooses between. Written into its own slot and
- * bound with glBindBufferRange() at the binding point it already uses, the
- * write never overlaps a read and no shader changes: the block is still
- * at point 0. A slot's start must be GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT
- * aligned, which the stride is, and eight is past the four a frame takes. */
+/* The uniform buffer behind every `Push` block: the largest of them. */
 #define PUSH_BYTES 32
-#define PUSH_SLOTS 8
 
 /* The device object behind FnlImage::gpu: this context's texture, made when
  * the image is first drawn and freed by gl_image_free() (and, with the
@@ -155,18 +143,10 @@ unsigned gl_program(const char *name, const char *vert, const char *frag)
 	return p;
 }
 
-/* The `Push` block for the draw that follows: written into this recording's
- * next slot and bound as a range at point 0, where every program's block is
- * already bound. The draw that read the slot before is reading different
- * bytes, so the write does not overlap it -- see PUSH_SLOTS. */
 void gl_push(App *a, const void *data, size_t bytes)
 {
 	FNL_ASSERT(bytes <= PUSH_BYTES);
-	const GLsizeiptr off = (GLsizeiptr)GLS(a)->push_slot * GLS(a)->push_align;
-	gl.NamedBufferSubData(GLS(a)->push, off, (GLsizeiptr)bytes, data);
-	gl.BindBufferRange(GL_UNIFORM_BUFFER, 0, GLS(a)->push, off,
-					   (GLsizeiptr)PUSH_BYTES);
-	GLS(a)->push_slot = (GLS(a)->push_slot + 1) % PUSH_SLOTS;
+	gl.NamedBufferSubData(GLS(a)->push, 0, (GLsizeiptr)bytes, data);
 }
 
 /* One instance-rate layout: `n` vec4 attributes at locations 0.. from the
@@ -344,17 +324,8 @@ FnlResult gl_create_overlay(App *a)
 		!g->prog_mlaa || !g->prog_image)
 		return fnl_fail(FNL_ERR_SYSTEM, "the overlay's programs did not build");
 
-	/* One slot's stride is the context's own alignment for a buffer range,
-	 * which is what glBindBufferRange() is told: asked once here, since it is
-	 * a constant of the context and not of a frame. */
-	GLint push_align = 0;
-	gl.GetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &push_align);
-	g->push_align = push_align > 0 ? (int)push_align : PUSH_BYTES;
-	g->push_slot  = 0;
 	gl.CreateBuffers(1, &g->push);
-	gl.NamedBufferStorage(g->push,
-						  (GLsizeiptr)(PUSH_SLOTS * (size_t)g->push_align),
-						  NULL, GL_DYNAMIC_STORAGE_BIT);
+	gl.NamedBufferStorage(g->push, PUSH_BYTES, NULL, GL_DYNAMIC_STORAGE_BIT);
 
 	/* Asked once, as a constant of the context, not at every frame. */
 	GLint clips = 0;
@@ -462,8 +433,7 @@ void gl_own_state(App *a)
 	gl.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	gl.DepthMask(GL_TRUE);
 	gl.BlendEquation(GL_FUNC_ADD);
-	/* The slot ring starts over here; each gl_push() binds its own range. */
-	GLS(a)->push_slot = 0;
+	gl.BindBufferBase(GL_UNIFORM_BUFFER, 0, GLS(a)->push);
 }
 
 /* The blend each kind is drawn with: rectangles replace what is under them,

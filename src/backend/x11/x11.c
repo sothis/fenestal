@@ -32,10 +32,18 @@
  * two together, so this is the bound and not the wait. */
 #define SYNC_CONFIGURE_WAIT 0.05
 
-/* How long a sync value kept for its frame's completion waits for it
- * before going anyway (x11_flush()): two periods at 60 Hz, Vulkan's bound
- * for the same wait. */
-#define SYNC_SHOWN_WAIT 0.034
+/* How long a sync value kept for its frame's completion waits for it before
+ * going anyway (x11_flush()). It was two periods at 60 Hz -- Vulkan's bound
+ * for the same wait -- and measured too tight: over 145 completions on this
+ * desk the latency is 16.4 ms at the median and 49.6 ms at its worst, with
+ * 2.8% past 34 ms, and a value that runs out once logs a line the round calls
+ * a failure and turns the shown-wait off until the next answer.
+ *
+ * A tenth of a second is above every completion measured and still bounds
+ * what the manager waits for: past it the presenter is not answering, which
+ * is what the fallback is for. FNL_X11_PRESENT_LOG=1 says the latency of each
+ * one, so a machine that runs later can measure its own. */
+#define SYNC_SHOWN_WAIT 0.100
 
 /* ---- the atoms ------------------------------------------------------------
  *
@@ -2165,14 +2173,32 @@ static void x11_frame_request(App *a)
 	p->present_pushed      = false;
 	if (!p->present_opcode)
 		return;
+	/* A swapchain made again numbers its presents from 1, and the frames still
+	 * queued belong to the one it replaced: Mesa drops the presents in its
+	 * queue with the swapchain it retires, so no completion is coming for any
+	 * of them, and keeping them would collide with the new chain's numbers --
+	 * the new chain's first present would take the old chain's first entry,
+	 * leaving its own queued for ever and the frame that answers a size never
+	 * answered. Discarded here, before the new chain's first number is taken;
+	 * a sync value kept for one of them goes with them. */
+	bool     purged   = false;
+	uint64_t purged_hw = 0; /* the highest frame index discarded */
 	fnl_mutex_lock(&p->present_lock);
+	if (p->present_chain_seen != a->present_chain) {
+		for (int k = 0; k < p->present_n; k++) {
+			const int at = (p->present_head + k) % X11_PRESENT_Q;
+			if (p->present_q[at] > purged_hw)
+				purged_hw = p->present_q[at];
+		}
+		purged                = p->present_n > 0;
+		p->present_head       = 0;
+		p->present_n          = 0;
+		p->present_chain_seen = a->present_chain;
+		p->present_ord_next   = 0;
+	}
 	if (p->present_n == X11_PRESENT_Q) {
 		p->present_head = (p->present_head + 1) % X11_PRESENT_Q;
 		p->present_n--;
-	}
-	if (p->present_chain_seen != a->present_chain) {
-		p->present_chain_seen = a->present_chain;
-		p->present_ord_next   = 0;
 	}
 	const int at       = (p->present_head + p->present_n) % X11_PRESENT_Q;
 	p->present_q[at]   = a->presents;
@@ -2181,6 +2207,23 @@ static void x11_frame_request(App *a)
 	p->present_n++;
 	const int queued = p->present_n;
 	fnl_mutex_unlock(&p->present_lock);
+	/* Sequentially, not nested: x11_flush() takes sync_lock and then
+	 * present_lock, so the two must not cross here. Queued, not flushed --
+	 * the pump's turn sends it, as x11_frame_cancel() leaves it. */
+	if (purged) {
+		bool sent = false;
+		fnl_mutex_lock(&p->sync_lock);
+		if (p->sync_await && purged_hw >= p->sync_await_index)
+			sent = sync_release_owed(p);
+		fnl_mutex_unlock(&p->sync_lock);
+		if (sent)
+			loop_wake(p->wake_fd);
+		if (p->present_log)
+			fnl_log(FNL_LOG_INFO,
+					"X11 present: swapchain %u, %llu's queue discarded",
+					(unsigned)a->present_chain,
+					(unsigned long long)purged_hw);
+	}
 	p->present_index  = a->presents;
 	p->present_pushed = true;
 	if (p->present_log)

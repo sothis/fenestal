@@ -146,11 +146,19 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
 - **X11's sync value kept for its frame, run out at a drag's first press**
   (`SYNC_SHOWN_WAIT`, `x11_present_event()`): `x11-vulkan`'s stress round
   says so once in release and in `gc`, `pace.py --border` never (DESIGN *X11:
-  xcb, not Xlib*). **Back again (2026-11-21)**: `x11-vulkan`'s release round
-  fails `log is clean` on it, 110 of 111 checks passing, with the same line in
-  logs from 2026-11-02 through 11-06 -- so the serial matching this entry
-  records as having cleared it did not hold, and the drag's first press is not
-  the only way in. Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
+  xcb, not Xlib*). **Closed (2026-11-21)** by measurement rather than by a
+  theory. The wait was two periods at 60 Hz -- 34 ms, Vulkan's bound for the
+  same wait -- and `FNL_X11_PRESENT_LOG=1` over 145 completions on this desk
+  puts the latency at 16.4 ms median, 17.5 at p90 and **49.6 at its worst**,
+  with 2.8% past 34 ms. One value that runs out logs the line the round calls
+  a failure and turns the shown-wait off until the next answer, so a round
+  long enough to present a few hundred frames was near-certain to trip it.
+  `SYNC_SHOWN_WAIT` is 0.100 now: above every completion measured, and still
+  a bound on what the manager waits for. `x11-vulkan` and `x11-gl` both pass
+  their rounds, 111 checks each.
+
+  Note that it recurs in logs from 2026-11-02 through 11-06 after the serial
+  matching above: that fix was real, and the bound was the other half. Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
   about five frames behind once swapchains have been made again, frames
   queued that are never answered -- Mesa's, presented to a swapchain retired
   before it sent them. Matched by serial now (DESIGN): `x11-vulkan` and
@@ -954,16 +962,20 @@ Open, each needing a decision or a measurement:
   the review asked to judge turns out not to need one: `WM_SIZE` is posted,
   which `QS_SENDMESSAGE` excludes, and `clipboard_open()` waits before the
   clipboard is open, so nothing is held across a handler.
-- ~~**The GL overlay push block**~~ -- **closed (2026-11-21)**, and the
-  review's own reasoning about it was wrong on one point: a bound range at
-  the binding point the block already has needs no shader change, so the
-  alignment it named is the answer rather than the obstacle. The buffer is
-  eight slots of `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT` bytes, `gl_push()`
-  writes the next and binds its range at point 0, and the slot ring restarts
-  at the top of a recording. A write no longer lands in the bytes the draw
-  before it may still be fetching. Verified at run time: the same frame off
-  GL and off Vulkan agrees to 0.13% of its text ink, so the text's block is
-  neither truncated nor bound to the wrong slot.
+- **The GL overlay push block** -- **tried and reverted (2026-11-21)**. The
+  review's reasoning was wrong on one point: a bound range at the binding
+  point the block already has needs no shader change, so the
+  `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT` it named is usable rather than an
+  obstacle. Eight slots of that alignment, `gl_push()` writing the next and
+  binding its range at point 0, and the ring restarting per recording, all
+  went in and built clean -- and **broke the overlay picture under OpenGL in
+  the release tree only**: `x11-gl`'s two picture checks read 0.0% white
+  where the reverted build reads 6.9%, and `I` toggles it again. A Debug (gc)
+  tree drew it correctly with the same source, one slot at a time did not
+  help, and the generated `Push` block is the 32 bytes the range binds, so
+  the cause was not narrowed before the change came out. Reverted rather than
+  shipped: the picture is a feature and the write overlap was never measured
+  as a cost.
 - ~~**Per-frame figures that move slowly**~~ -- **settled (2026-11-21)**, two
   cached and one declined. The calibration panel's width is frozen in
   `plan()`, where the ids are set (`App::cal::panel_w`), so the draw no longer
