@@ -131,6 +131,12 @@ void testbed_overlay_frame_stats_log(void);
  * the window's width, on stderr twice a second -- where the run sits beside
  * the library's controls, and the width at which the output box gives way. */
 void testbed_overlay_reserve_log(void);
+
+/* --shapes: the shapes panel on from the first frame, where O would toggle
+ * it. For a round that reads pixels: a keypress is a thing the harness has
+ * to arrange, and the panel answers whether the four filled forms draw at
+ * all. */
+void testbed_overlay_shapes_on(void);
 /* The GPU memory this process holds on the GPU drawing, in MiB: the
  * scene's API's figure, or the system's for OpenGL. From on_overlay. */
 bool testbed_vram_mib(FnlApp *app, double *mib);

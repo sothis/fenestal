@@ -10,4 +10,6 @@ CompileFlags:
     - --target=x86_64-apple-darwin
     - -isysroot
     - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -F
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
     - -D__APPLE__

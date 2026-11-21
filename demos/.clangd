@@ -1,0 +1,64 @@
+# Each demo's scenes include generated shader headers, which live in that
+# demo's own directory under the build and nowhere else -- so a parser with
+# only the tree's own include path reports every scene as broken. The -I flags
+# repeat the tree's for src/core/.clangd's reason: a .clangd takes the place of
+# compile_flags.txt for the files below it rather than adding to it.
+#
+# One list for all six, since a demo's generated directory is named after it
+# and a .clangd cannot glob: a header found through another demo's directory
+# would be a defect this hides, and none of the six share a file name. A new
+# demo wants its row here.
+CompileFlags:
+  Add:
+    - -DFNL_STATIC
+    - -DSCENE_HAS_VULKAN
+    - -DSCENE_HAS_GL
+    - -I/home/json/ws/fenestal/include
+    - -I/home/json/ws/fenestal/build/linux/release/demos/hello/generated
+    - -I/home/json/ws/fenestal/build/linux/release/demos/motion/generated
+    - -I/home/json/ws/fenestal/build/linux/release/demos/motion2/generated
+    - -I/home/json/ws/fenestal/build/linux/release/demos/texture/generated
+    - -I/home/json/ws/fenestal/build/linux/release/demos/texture2/generated
+    - -I/home/json/ws/fenestal/build/linux/release/demos/texture3/generated
+
+# The two scenes that are not this machine's take their flags from a condition,
+# as testbed/.clangd's do and for its reasons: the cross builds (./build.sh
+# win64, ./build.sh macos) are the authority and these make the editor agree.
+---
+If:
+  PathMatch: scene_d3d12\.c
+CompileFlags:
+  Add:
+    - --target=x86_64-pc-windows-gnu
+    - -isystem
+    - /usr/x86_64-w64-mingw32/include
+    - -D_WIN32_WINNT=0x0A00
+    - -DWINVER=0x0A00
+    - -D__USE_MINGW_ANSI_STDIO=1
+    - -DCOBJMACROS
+    - -I/home/json/ws/fenestal/build/win64/release/demos/hello/generated
+    - -I/home/json/ws/fenestal/build/win64/release/demos/motion/generated
+    - -I/home/json/ws/fenestal/build/win64/release/demos/motion2/generated
+    - -I/home/json/ws/fenestal/build/win64/release/demos/texture/generated
+    - -I/home/json/ws/fenestal/build/win64/release/demos/texture2/generated
+    - -I/home/json/ws/fenestal/build/win64/release/demos/texture3/generated
+
+# -F as well as -isysroot: `<Metal/Metal.h>` is found through the framework
+# search path and not the SDK's include path.
+---
+If:
+  PathMatch: scene_metal\.m
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-darwin
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -F
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
+    - -D__APPLE__
+    - -I/home/json/ws/fenestal/build/macos/release/demos/hello/generated
+    - -I/home/json/ws/fenestal/build/macos/release/demos/motion/generated
+    - -I/home/json/ws/fenestal/build/macos/release/demos/motion2/generated
+    - -I/home/json/ws/fenestal/build/macos/release/demos/texture/generated
+    - -I/home/json/ws/fenestal/build/macos/release/demos/texture2/generated
+    - -I/home/json/ws/fenestal/build/macos/release/demos/texture3/generated

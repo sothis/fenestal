@@ -253,6 +253,10 @@ static void usage(FILE *f, const char *prog)
 		"  --reserve-log      print fnl_titlebar_reserve()'s answer for a\n"
 		"                     caller's run, with the window's width, twice a\n"
 		"                     second: \"reserve: ...\".\n"
+		"  --shapes           the shapes panel on from the first frame, where\n"
+		"                     O toggles it: the wash, the rounded rectangle,\n"
+		"                     the disc and the gradient, for a round that reads\n"
+		"                     pixels rather than pressing keys.\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
@@ -316,7 +320,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		"--no-late-latch", "--late-latch=", "--scale=", "--gpu=",
 		"--custom-titlebar", "--text-input", "--frame-times", "--no-vsync",
 		"--transition=", "--footprint-log", "--frame-cpu-log",
-		"--frame-stats-log", "--reserve-log",
+		"--frame-stats-log", "--reserve-log", "--shapes",
 	};
 
 	for (int i = 1; i < argc; i++) {
@@ -380,6 +384,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--reserve-log")) {
 			testbed_overlay_reserve_log();
+			continue;
+		}
+		if (!strcmp(arg, "--shapes")) {
+			testbed_overlay_shapes_on();
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {

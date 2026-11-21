@@ -216,6 +216,11 @@ void testbed_overlay_reserve_log(void)
 	g_reserve_log = true;
 }
 
+void testbed_overlay_shapes_on(void)
+{
+	g_ui.shapes = true;
+}
+
 /* --frame-stats-log: the totals fnl_frame_stats() keeps and the rows
  * fnl_frame_samples() hands over, twice a second, with the figures the
  * frame's means are kept from. The totals are since counting was turned on,
