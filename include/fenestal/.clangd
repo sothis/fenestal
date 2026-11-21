@@ -1,0 +1,24 @@
+# The public headers, so that one may be parsed on its own -- which is what
+# tools/headercheck.c asks of them and what an editor does when it opens one.
+# -Iinclude is what <fenestal/fenestal.h> needs from a header in this directory,
+# and a .clangd takes the place of compile_flags.txt for the files below it.
+CompileFlags:
+  Add:
+    - -I/home/json/ws/fenestal/include
+    - -DFNL_STATIC
+
+# fnl_d3d12.h includes <d3d12.h> and <dxgi1_4.h>, which only mingw has on this
+# machine: without a target and its headers the editor reports the whole header
+# as broken. The cross build (./build.sh win64) is the authority.
+---
+If:
+  PathMatch: fnl_d3d12\.h
+CompileFlags:
+  Add:
+    - --target=x86_64-pc-windows-gnu
+    - -isystem
+    - /usr/x86_64-w64-mingw32/include
+    - -D_WIN32_WINNT=0x0A00
+    - -DWINVER=0x0A00
+    - -D__USE_MINGW_ANSI_STDIO=1
+    - -DCOBJMACROS

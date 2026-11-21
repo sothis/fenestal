@@ -1,0 +1,40 @@
+# The API reference's snippets, compiled into every tree (fnl_snippet_<name>)
+# and run by none. Two of them are other machines' scenes, so this directory
+# needs the same conditional flags testbed/.clangd gives its scenes: the cross
+# builds (./build.sh win64, ./build.sh macos) are the authority.
+#
+# -Iinclude goes in each block rather than in one shared place because a
+# .clangd's Add lists are concatenated, so the conditional ones would otherwise
+# depend on this fragment being read first. -DFNL_STATIC is the shape the build
+# compiles a snippet in.
+CompileFlags:
+  Add:
+    - -I/home/json/ws/fenestal/include
+    - -DFNL_STATIC
+
+---
+If:
+  PathMatch: scene_d3d12\.c
+CompileFlags:
+  Add:
+    - --target=x86_64-pc-windows-gnu
+    - -isystem
+    - /usr/x86_64-w64-mingw32/include
+    - -D_WIN32_WINNT=0x0A00
+    - -DWINVER=0x0A00
+    - -D__USE_MINGW_ANSI_STDIO=1
+    - -DCOBJMACROS
+
+# -F as well as -isysroot: <Metal/Metal.h> is found through the framework
+# search path and not the SDK's include path.
+---
+If:
+  PathMatch: scene_metal\.m
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-darwin
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -F
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
+    - -D__APPLE__

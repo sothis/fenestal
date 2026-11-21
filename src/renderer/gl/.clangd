@@ -1,0 +1,36 @@
+# The OpenGL renderer's flags, repeating src/renderer/.clangd's for its own
+# reason (a .clangd takes the place of compile_flags.txt for the files below it
+# rather than adding to it) -- but *without* that file's `-include app.h`, which
+# would be wrong here. egl_dyn.c defines _GNU_SOURCE at the top of itself,
+# "ahead of app.h's narrower pin", for dl_iterate_phdr(); forcing app.h first
+# sets _POSIX_C_SOURCE before <features.h> is read and the file loses
+# `struct dl_phdr_info`, which is the whole reason it asks. Every .c here names
+# "core/app.h" first anyway, and gl_state.h -- the header the forced include
+# exists for -- is one directory up, where src/renderer/.clangd still applies.
+CompileFlags:
+  Add:
+    - -I/home/json/ws/fenestal/include
+    - -I/home/json/ws/fenestal/src
+    - -I/home/json/ws/fenestal/tools
+    - -I/home/json/ws/fenestal/build/linux/release/generated
+    - -D_DEFAULT_SOURCE
+
+# cgl.m is the macOS bridge, compiled by clang against Apple's SDK, which a
+# Linux clangd has to be told about or it cannot find OpenGL/CGL.h. It also
+# needs GL/glcorearb.h, which the macos build copies into its own generated
+# headers (CMakeLists.txt says why: Apple's SDK has none).
+#
+# -F as well as -isysroot: the framework headers are found through the
+# framework search path and not the SDK's include path.
+---
+If:
+  PathMatch: cgl\.m
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-darwin
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -F
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
+    - -D__APPLE__
+    - -I/home/json/ws/fenestal/build/macos/release/generated/glhdr
