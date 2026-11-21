@@ -50,6 +50,11 @@ static struct {
 	 * one and the crosshair is drawn outside the area and clipped away, which
 	 * is a captured pointer with no cursor and no crosshair on screen. */
 	double reticle_x, reticle_y;
+	/* O: the shapes panel -- the four filled forms, so that a round can be
+	 * shown to draw them. Off by default: the testbed's own panels are what a
+	 * round measures, and this is a picture of the primitives rather than a
+	 * readout. */
+	bool shapes;
 } g_ui = { .show_help = true, .reticle_x = 0.5, .reticle_y = 0.5 };
 
 /* Clamped here, so "inside the area" is one function's promise rather than a
@@ -88,6 +93,7 @@ static const struct {
 	{ "F5", "Toggle metrics", { FNL_KEY_UNKNOWN } },
 	{ "F7", "Next output", { FNL_KEY_UNKNOWN } },
 	{ "I", "Picture", { FNL_KEY_UNKNOWN } },
+	{ "O", "Shapes", { FNL_KEY_UNKNOWN } },
 	{ "F9", "Release mouse", { FNL_KEY_UNKNOWN } },
 	{ "F11", "Fullscreen", { FNL_KEY_UNKNOWN } },
 	{ "Esc", "Quit", { FNL_KEY_UNKNOWN } },
@@ -456,6 +462,68 @@ static void picture_draw(FnlApp *app)
 					  g_picture);
 }
 
+/* ---- the shapes panel ----------------------------------------------------
+ *
+ * The four filled forms, drawn large enough that a picture of them says
+ * whether they are there and whether the corners, the edge and the ramp are
+ * where they should be. O toggles it; a harness that can read pixels reads
+ * the row across the middle.
+ *
+ * Every one of them is a *background* in the library's sense -- a filled
+ * rectangle blends over what is under it -- so what must sit on top (the
+ * labels) is flushed first, the same rule the rest of this file keeps. */
+static void shapes_draw(FnlApp *app)
+{
+	if (!g_ui.shapes)
+		return;
+
+	int cx, cy, cw, ch;
+	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
+
+	/* A column down the left of the area, wide enough for a row of four and
+	 * clear of the panels on the right. */
+	const int pad  = 20;
+	const int cell = ch / 6 > 40 ? ch / 6 : 40;
+	const int x    = cx + pad;
+	int y          = cy + pad;
+
+	const FnlColor ink = { 0.93f, 0.95f, 0.98f, 1.0f };
+	const FnlColor a1  = { 1.00f, 0.45f, 0.30f, 1.0f };
+	const FnlColor a2  = { 0.25f, 0.55f, 1.00f, 1.0f };
+
+	/* 1. The wash: a colour with alpha below one, over the panel behind it.
+	 *    What an opaque write would have made a hole instead. */
+	const FnlColor wash = { 1.00f, 0.45f, 0.30f, 0.35f };
+	fnl_overlay_rect_blend(app, x, y, cell * 3, cell, wash);
+
+	/* 2. The rounded corner, at a radius a third of the side so the corners
+	 *    are plainly round and the middle is plainly flat. */
+	fnl_overlay_rect_round(app, x, y + cell + 8, cell * 3, cell,
+						   (float)cell / 3.0f, a1);
+
+	/* 3. The disc, at a centre in points so a fraction of a pixel is
+	 *    expressible. */
+	fnl_overlay_circle(app, (float)x + (float)cell * 1.5f,
+					   (float)(y + 2 * (cell + 8)) + (float)cell * 0.5f,
+					   (float)cell * 0.5f, a2);
+
+	/* 4. The gradient, left to right at 0 degrees: the first colour at the
+	 *    left edge and the second at the right. */
+	fnl_overlay_gradient(app, x, y + 3 * (cell + 8), cell * 3, cell, 0.0f, a1,
+						 a2);
+
+	/* The names, one to a row, in the ink the rest of the testbed uses. */
+	const int ty = y + 4 * (cell + 8);
+	fnl_overlay_text(app, x, ty, FNL_TEXT_BODY, ink, "blend");
+	fnl_overlay_text(app, x, ty + fnl_text_line(FNL_TEXT_BODY), FNL_TEXT_BODY,
+					 ink, "round");
+	fnl_overlay_text(app, x, ty + 2 * fnl_text_line(FNL_TEXT_BODY),
+					 FNL_TEXT_BODY, ink, "circle");
+	fnl_overlay_text(app, x, ty + 3 * fnl_text_line(FNL_TEXT_BODY),
+					 FNL_TEXT_BODY, ink, "gradient");
+	(void)cw;
+}
+
 /* ---- what main.c calls --------------------------------------------------- */
 
 /* The footprint line, at most twice a second (proc.c's own pace). */
@@ -489,6 +557,11 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 	/* First of all: what is drawn after it is what a push constant left
 	 * standing would reach (see the picture above). */
 	picture_draw(app);
+	/* And the four filled forms, where O asked for them. Before the panels,
+	 * for the picture's reason: a push constant left standing would reach
+	 * whatever is drawn next, and the shapes' own pipelines are what a
+	 * leftover would show against. */
+	shapes_draw(app);
 	if (g_ui.show_help) {
 		/* Two give-ways, in order: the status readout yields to the titlebar,
 		 * and the keybindings yield to whichever of the two is below them. See
@@ -639,6 +712,13 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 				fnl_image_destroy(g_picture);
 				g_picture = NULL;
 			}
+			fnl_invalidate(app);
+		}
+		/* O: the shapes panel -- the wash, the rounded corner, the disc and
+		 * the gradient. Nothing else in the tree draws them, so this is the
+		 * only way a round can be shown to draw them. */
+		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_O) {
+			g_ui.shapes = !g_ui.shapes;
 			fnl_invalidate(app);
 		}
 		/* The panel also lights a row while its key is held. The held set is
