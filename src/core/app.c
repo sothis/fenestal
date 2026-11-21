@@ -70,7 +70,7 @@ static bool signal_handlers_drain(void)
 	while (fnl_atomic_load_u32(&signal_busy) != 0) {
 		if (now_seconds() > give_up) {
 			fnl_log(FNL_LOG_WARN, "a signal handler is still running after "
-					"a second; tearing down regardless");
+								  "a second; tearing down regardless");
 			return false;
 		}
 		fnl_sleep_seconds(1e-4);
@@ -140,8 +140,14 @@ static void restore_signal_handlers(void)
 
 static FNL_THREAD_LOCAL AppThread this_thread;
 
-void app_thread_set(AppThread t) { this_thread = t; }
-AppThread app_thread(void)       { return this_thread; }
+void app_thread_set(AppThread t)
+{
+	this_thread = t;
+}
+AppThread app_thread(void)
+{
+	return this_thread;
+}
 
 /* render_thread_started is the main thread's own, written there alone, so
  * reading it is no race on the one thread that asks. */
@@ -202,7 +208,7 @@ static void app_teardown(App *a)
 	/* The frame kept for a move's cover, which nothing paints from now:
 	 * the render thread is joined and the window's thread is this one. */
 	free(a->snap_px);
-	a->snap_px = NULL;
+	a->snap_px    = NULL;
 	a->snap_valid = false;
 
 	/* The caller's images first: their GPU objects are the device's, and the
@@ -260,39 +266,49 @@ void app_drain_requests(App *a)
 	FNL_ASSERT_THREAD(APP_THREAD_MAIN);
 	fnl_mutex_lock(&a->lock);
 	const PendingReq r = a->req;
-	a->req = (PendingReq){ 0 };
+	a->req             = (PendingReq){ 0 };
 	char title[TITLE_MAX];
 	if (r.title)
 		memcpy(title, a->title, sizeof title);
-	char *clip = a->clip_pending;
+	char *clip      = a->clip_pending;
 	a->clip_pending = NULL;
 	fnl_mutex_unlock(&a->lock);
 
 	/* The toggles first: a size asked for beside a fullscreen or maximize
 	 * request must be answered against the state after the toggle. */
-	if (r.fullscreen)  BACKEND(a)->set_fullscreen(a, r.fullscreen_val);
-	if (r.maximized)   BACKEND(a)->set_maximized(a, r.maximized_val);
-	if (r.minimize)    BACKEND(a)->minimize(a);
-	if (r.bar)         deco_apply_custom(a, r.bar_h, r.bar_min_w);
-	if (r.size)        app_request_size(a, r.size_w, r.size_h);
+	if (r.fullscreen)
+		BACKEND(a)->set_fullscreen(a, r.fullscreen_val);
+	if (r.maximized)
+		BACKEND(a)->set_maximized(a, r.maximized_val);
+	if (r.minimize)
+		BACKEND(a)->minimize(a);
+	if (r.bar)
+		deco_apply_custom(a, r.bar_h, r.bar_min_w);
+	if (r.size)
+		app_request_size(a, r.size_w, r.size_h);
 	/* Not beside a size: a new size is what the nudge is for, and the
 	 * nudge's way back would be to the size before it. */
 	if (r.nudge_size && !r.size)
 		BACKEND(a)->nudge_size(a);
 	/* The output before the mode: a mode is the output's, so one asked for
 	 * beside a move is looked for on the output moved to. */
-	if (r.output)      BACKEND(a)->set_output(a, r.output_name);
-	if (r.mode)        BACKEND(a)->set_mode(a, &r.mode_val);
-	if (r.release_ptr) BACKEND(a)->release_pointer(a);
+	if (r.output)
+		BACKEND(a)->set_output(a, r.output_name);
+	if (r.mode)
+		BACKEND(a)->set_mode(a, &r.mode_val);
+	if (r.release_ptr)
+		BACKEND(a)->release_pointer(a);
 	/* A caller's move or resize ends any double-click the titlebar was
 	 * waiting on, as the library's own drag does (deco_drag): the press
 	 * that started it was not a first click. Here, once, for every backend. */
 	if (r.move || r.resize) {
-		a->titlebar_armed = false;
+		a->titlebar_armed         = false;
 		a->last_titlebar_click_ms = 0;
 	}
-	if (r.move)        BACKEND(a)->begin_move(a);
-	if (r.resize)      BACKEND(a)->begin_resize(a, r.resize_edge);
+	if (r.move)
+		BACKEND(a)->begin_move(a);
+	if (r.resize)
+		BACKEND(a)->begin_resize(a, r.resize_edge);
 	if (r.cursor) {
 		a->cursor = r.cursor_val;
 		BACKEND(a)->cursor_changed(a);
@@ -329,7 +345,7 @@ static void key_held_set(App *a, FnlKey k, bool down)
 {
 	if (!key_tracked(k))
 		return;
-	FnlAtomicU32  *w   = &a->keys_held[(unsigned)k / 32u];
+	FnlAtomicU32 *w    = &a->keys_held[(unsigned)k / 32u];
 	const uint32_t bit = 1u << ((unsigned)k % 32u);
 	const uint32_t cur = fnl_atomic_load_u32(w);
 	fnl_atomic_store_u32(w, down ? (cur | bit) : (cur & ~bit));
@@ -340,7 +356,41 @@ static bool key_held_get(const App *a, FnlKey k)
 	if (!key_tracked(k))
 		return false;
 	return (fnl_atomic_load_u32(&a->keys_held[(unsigned)k / 32u]) >>
-			((unsigned)k % 32u)) & 1u;
+			((unsigned)k % 32u)) &
+		   1u;
+}
+
+/* Tab or Shift+Tab from inside a claim that asked for the keyboard: move the
+ * focus to the next or previous claim that did, wrapping at the ends, and post
+ * FNL_EVENT_CLAIM_FOCUS saying where it landed. A claim that did not ask is
+ * never the focus; Tab with none that did leaves the focus where it was.
+ *
+ * The focus is the library's to move and the caller's to draw: the event is
+ * the only thing that changes, and the caller's focus ring is drawn from it
+ * the same as every other rectangle. */
+static void claim_focus_step(App *a, int dir)
+{
+	/* The claims this frame's on_overlay declared, in the order it drew them:
+	 * the focus moves among those that asked for it, so a control that
+	 * stopped being drawn stops being reachable in the same frame. */
+	const int n = a->claim_count;
+	if (n <= 0)
+		return;
+	const int at = a->focus_claim;
+	for (int i = 1; i <= n; i++) {
+		const int next = ((at < 0 ? (dir > 0 ? -1 : 0) : at) + dir * i + n) % n;
+		if (next >= 0 && next < n && a->claim_focus[next]) {
+			a->focus_claim       = next;
+			FnlEvent ev          = { .type = FNL_EVENT_CLAIM_FOCUS };
+			ev.claim_focus.claim = next;
+			app_event(a, &ev);
+			return;
+		}
+	}
+	/* Nothing to move to: the focus stays where it was, which may be on a
+	 * claim that no longer asked for it -- the next frame's claims are what
+	 * decides, and a focus on a claim that stopped being drawn is the
+	 * caller's to redraw or drop. */
 }
 
 /* Flag a change the next frame has to carry rather than the next one the
@@ -376,8 +426,10 @@ void app_request_size(App *a, int w_pt, int h_pt)
 	int min_w, min_h;
 	deco_min_window(a, false, &min_w, &min_h);
 	int w = w_pt, h = h_pt + deco_bar_h(a, false);
-	if (w < min_w) w = min_w;
-	if (h < min_h) h = min_h;
+	if (w < min_w)
+		w = min_w;
+	if (h < min_h)
+		h = min_h;
 	BACKEND(a)->request_size(a, w, h);
 }
 
@@ -386,12 +438,12 @@ void app_request_size(App *a, int w_pt, int h_pt)
  * keeps one. A flip of fullscreen or maximized is urgent here, for every
  * backend, as Wayland's configure marks it: the frame that shows the new
  * state is not one to pace. */
-static void publish_size(App *a, int w_pt, int h_pt, int s120,
-						 bool has_serial, uint32_t serial)
+static void publish_size(App *a, int w_pt, int h_pt, int s120, bool has_serial,
+						 uint32_t serial)
 {
 	fnl_mutex_lock(&a->lock);
 	if (a->want_fullscreen != a->is_fullscreen ||
-		a->want_maximized  != a->is_maximized)
+		a->want_maximized != a->is_maximized)
 		a->want_urgent = true;
 	a->want_w          = w_pt;
 	a->want_h          = h_pt;
@@ -400,15 +452,16 @@ static void publish_size(App *a, int w_pt, int h_pt, int s120,
 	a->want_maximized  = a->is_maximized;
 	a->cfg_pending     = has_serial;
 	if (has_serial)
-		a->cfg_serial  = serial;
+		a->cfg_serial = serial;
 	fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
 
-	a->cur_w = w_pt;
-	a->cur_h = h_pt;
-	a->win_w = w_pt;
-	a->win_h = h_pt;
+	a->cur_w      = w_pt;
+	a->cur_h      = h_pt;
+	a->win_w      = w_pt;
+	a->win_h      = h_pt;
 	a->configured = true;
+	a->display_gen++; /* a size is a display fact (app_rank_tick()) */
 
 	/* After cur_* and the scale, which the area is measured from. */
 	app_reticle_clamp(a);
@@ -466,7 +519,7 @@ void app_post_focus(App *a, bool focused)
 {
 	if (!focused)
 		deco_release(a);
-	FnlEvent ev = { .type = FNL_EVENT_FOCUS };
+	FnlEvent ev      = { .type = FNL_EVENT_FOCUS };
 	ev.focus.focused = focused;
 	app_event(a, &ev);
 }
@@ -481,25 +534,26 @@ void app_publish_output(App *a, const char *name, int w_pt, int h_pt)
 	if (a->want_out_w_pt == w_pt && a->want_out_h_pt == h_pt &&
 		(!name || !strcmp(a->want_output, name)))
 		return;
+	a->display_gen++; /* what output the window is on (app_rank_tick()) */
 
 	fnl_mutex_lock(&a->lock);
 	a->want_out_w_pt = w_pt;
 	a->want_out_h_pt = h_pt;
 	if (name)
 		snprintf(a->want_output, sizeof a->want_output, "%s", name);
-	fnl_cond_signal(&a->cond);             /* for a loop at rest */
+	fnl_cond_signal(&a->cond); /* for a loop at rest */
 	fnl_mutex_unlock(&a->lock);
 }
 
-void app_publish_output_mode(App *a, const char *name, int mode_w,
-							 int mode_h)
+void app_publish_output_mode(App *a, const char *name, int mode_w, int mode_h)
 {
+	a->display_gen++; /* the output's own mode (app_rank_tick()) */
 	fnl_mutex_lock(&a->lock);
 	a->want_out_mode_w = mode_w;
 	a->want_out_mode_h = mode_h;
 	if (name)
 		snprintf(a->want_output, sizeof a->want_output, "%s", name);
-	fnl_cond_signal(&a->cond);             /* for a loop at rest */
+	fnl_cond_signal(&a->cond); /* for a loop at rest */
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -507,6 +561,7 @@ void app_publish_output_mode(App *a, const char *name, int mode_w,
  * the period it measures. */
 void app_publish_refresh(App *a, unsigned int mhz)
 {
+	a->display_gen++; /* the refresh rate, which the display name carries */
 	fnl_atomic_store_u32(&a->out_refresh_mhz, mhz);
 }
 
@@ -517,7 +572,7 @@ void app_publish_outputs(App *a, char (*names)[OUTPUT_NAME_MAX], int n,
 						 int current)
 {
 	char kept[OUTPUTS_MAX][OUTPUT_NAME_MAX];
-	int  count = 0, cur = -1;
+	int count = 0, cur = -1;
 	for (int i = 0; i < n && count < OUTPUTS_MAX; i++) {
 		if (!names[i][0])
 			continue;
@@ -534,8 +589,9 @@ void app_publish_outputs(App *a, char (*names)[OUTPUT_NAME_MAX], int n,
 		memcpy(a->out_names, kept, (size_t)count * sizeof kept[0]);
 		a->out_count   = count;
 		a->out_current = cur;
+		a->display_gen++; /* the window server's outputs changed */
 		a->want_user_gen++;
-		fnl_cond_signal(&a->cond);         /* for a loop at rest */
+		fnl_cond_signal(&a->cond); /* for a loop at rest */
 	}
 	fnl_mutex_unlock(&a->lock);
 }
@@ -599,12 +655,16 @@ void app_content_px_rect(const App *a, int *x, int *y, int *w, int *h)
 	int cx, cy, cw, ch, pw, ph;
 
 	content_rect(a->cur_w, a->cur_h, bar, &cx, &cy, &cw, &ch);
-	content_px_for(a->cur_w, a->cur_h, s120,
-				   deco_margin(a, a->is_fullscreen), bar, &pw, &ph);
-	if (x) *x = scale_pt(cx, s120);
-	if (y) *y = scale_pt(cy, s120);
-	if (w) *w = pw;
-	if (h) *h = ph;
+	content_px_for(a->cur_w, a->cur_h, s120, deco_margin(a, a->is_fullscreen),
+				   bar, &pw, &ph);
+	if (x)
+		*x = scale_pt(cx, s120);
+	if (y)
+		*y = scale_pt(cy, s120);
+	if (w)
+		*w = pw;
+	if (h)
+		*h = ph;
 }
 
 /* Where the reticle is, and whether there is one, published only on a
@@ -613,8 +673,8 @@ void app_content_px_rect(const App *a, int *x, int *y, int *w, int *h)
  * ending is answered at once where nothing invites a frame. */
 void app_reticle_publish(App *a)
 {
-	const int  x  = (int)(a->cur_px + 0.5);
-	const int  y  = (int)(a->cur_py + 0.5);
+	const int x   = (int)(a->cur_px + 0.5);
+	const int y   = (int)(a->cur_py + 0.5);
 	const bool on = a->pointer_captured;
 
 	if (!on && !a->want_captured)
@@ -628,7 +688,7 @@ void app_reticle_publish(App *a)
 	a->want_captured = on;
 	a->want_cursor_x = x;
 	a->want_cursor_y = y;
-	fnl_cond_signal(&a->cond);             /* for a loop at rest */
+	fnl_cond_signal(&a->cond); /* for a loop at rest */
 	fnl_mutex_unlock(&a->lock);
 	if (flipped && !BACKEND(a)->invites)
 		app_mark_urgent(a);
@@ -639,10 +699,14 @@ void app_reticle_publish(App *a)
  * at the origin rather than at -1. */
 static void reticle_bound(App *a, int w, int h)
 {
-	if (a->cur_px > w - 1) a->cur_px = w - 1;
-	if (a->cur_py > h - 1) a->cur_py = h - 1;
-	if (a->cur_px < 0.0)   a->cur_px = 0.0;
-	if (a->cur_py < 0.0)   a->cur_py = 0.0;
+	if (a->cur_px > w - 1)
+		a->cur_px = w - 1;
+	if (a->cur_py > h - 1)
+		a->cur_py = h - 1;
+	if (a->cur_px < 0.0)
+		a->cur_px = 0.0;
+	if (a->cur_py < 0.0)
+		a->cur_py = 0.0;
 }
 
 /* The reticle starts where the click that asked for the capture landed.
@@ -749,8 +813,7 @@ bool backend_noop_gpu_driver_set(const App *a, const GpuDriver *g,
 }
 
 bool backend_noop_gpu_driver_held(const App *a, const GpuDriver *g,
-								  bool every_nvidia, char *what,
-								  size_t size)
+								  bool every_nvidia, char *what, size_t size)
 {
 	(void)a;
 	(void)g;
@@ -769,9 +832,7 @@ const char *backend_always_present(void)
  * DESIGN *One build per operating system*. */
 
 #define BACKEND_ENTRY(key) &fnl_backend_##key,
-static const FnlBackendVtbl *const BACKENDS[] = {
-	FNL_BACKENDS(BACKEND_ENTRY)
-};
+static const FnlBackendVtbl *const BACKENDS[] = { FNL_BACKENDS(BACKEND_ENTRY) };
 #undef BACKEND_ENTRY
 #define BACKEND_COUNT (sizeof BACKENDS / sizeof BACKENDS[0])
 
@@ -792,8 +853,8 @@ static FnlResult refuse_old_name(const char *old, const char *now)
 	const char *v = getenv(old);
 	if (!v || !v[0])
 		return FNL_OK;
-	return fnl_fail(FNL_ERR_UNSUPPORTED, "%s is %s now: %s=%s", old, now,
-					now, v);
+	return fnl_fail(FNL_ERR_UNSUPPORTED, "%s is %s now: %s=%s", old, now, now,
+					v);
 }
 
 /* A variable one backend reads, found set where another opened: said once,
@@ -802,8 +863,10 @@ static void note_other_backends_vars(const FnlBackendVtbl *p)
 {
 	const char *v = getenv("FNL_KMS_LAYOUT");
 	if (v && v[0] && p->id != BACKEND_KMS)
-		fnl_log(FNL_LOG_INFO, "FNL_KMS_LAYOUT is KMS's alone; on %s the "
-				"layout is the session's", p->name);
+		fnl_log(FNL_LOG_INFO,
+				"FNL_KMS_LAYOUT is KMS's alone; on %s the "
+				"layout is the session's",
+				p->name);
 }
 
 FnlResult backend_choose_and_open(App *a)
@@ -828,8 +891,7 @@ FnlResult backend_choose_and_open(App *a)
 					 BACKENDS[i]->key);
 		}
 		return fnl_fail(FNL_ERR_UNSUPPORTED,
-						"FNL_BACKEND is '%s'; this build has %s", want,
-						have);
+						"FNL_BACKEND is '%s'; this build has %s", want, have);
 	}
 
 	/* Chosen: the first that is not absent, stepping past one that finds no
@@ -844,10 +906,11 @@ FnlResult backend_choose_and_open(App *a)
 			note_append(passed, sizeof passed, p->name, why);
 			continue;
 		}
-		a->backend = p;
+		a->backend         = p;
 		const FnlResult rc = FNL_FAULT("backend-no-display")
-			? fnl_fail(FNL_ERR_NO_DISPLAY, "%s refused (FNL_FAULT)", p->name)
-			: p->open(a);
+								 ? fnl_fail(FNL_ERR_NO_DISPLAY,
+											"%s refused (FNL_FAULT)", p->name)
+								 : p->open(a);
 		if (rc == FNL_OK) {
 			fnl_log(FNL_LOG_INFO, "backend: %s%s%s", p->name,
 					passed[0] ? "; passed over " : "", passed);
@@ -855,7 +918,7 @@ FnlResult backend_choose_and_open(App *a)
 			return FNL_OK;
 		}
 		if (rc != FNL_ERR_NO_DISPLAY)
-			return rc;       /* app_teardown() closes it */
+			return rc; /* app_teardown() closes it */
 		note_append(passed, sizeof passed, p->name, fnl_last_error());
 		p->close(a);
 		a->backend = NULL;
@@ -869,9 +932,8 @@ FnlResult backend_choose_and_open(App *a)
 /* Every renderer this build has, in the order tried (renderer.h,
  * FNL_RENDERERS). */
 #define RENDERER_ENTRY(key) &fnl_renderer_##key,
-static const FnlRendererVtbl *const RENDERERS[] = {
-	FNL_RENDERERS(RENDERER_ENTRY)
-};
+static const FnlRendererVtbl *const RENDERERS[] = { FNL_RENDERERS(
+	RENDERER_ENTRY) };
 #undef RENDERER_ENTRY
 /* A test of it is a constant of the build, parenthesised where it decides
  * a branch: that is clang's mark for a constant on purpose, which
@@ -908,7 +970,7 @@ static FnlResult renderer_candidates(const FnlInitDesc *d,
 {
 	char have[64];
 	renderer_keys(have, sizeof have);
-	*n = 0;
+	*n     = 0;
 	*named = NULL;
 	FNL_TRY(refuse_old_name("FNL_GPU_API", "FNL_RENDERER"));
 
@@ -916,8 +978,8 @@ static FnlResult renderer_candidates(const FnlInitDesc *d,
 	if (d->renderer != FNL_RENDERER_DEFAULT)
 		/* Out of range is a renderer no build has, and not a shift past
 		 * the word. */
-		allowed = (unsigned)d->renderer < 32
-				? FNL_RENDERER_BIT(d->renderer) : 0;
+		allowed =
+			(unsigned)d->renderer < 32 ? FNL_RENDERER_BIT(d->renderer) : 0;
 	else if (d->renderers)
 		allowed = d->renderers;
 	else if ((RENDERER_COUNT == 1))
@@ -942,9 +1004,10 @@ static FnlResult renderer_candidates(const FnlInitDesc *d,
 		if (!(allowed & FNL_RENDERER_BIT(g->api)))
 			return fnl_fail(FNL_ERR_UNSUPPORTED,
 							"FNL_RENDERER is '%s', which this program has "
-							"no scene for", want);
+							"no scene for",
+							want);
 		out[(*n)++] = g;
-		*named = "FNL_RENDERER";
+		*named      = "FNL_RENDERER";
 	} else {
 		for (size_t i = 0; i < RENDERER_COUNT; i++)
 			if (allowed & FNL_RENDERER_BIT(RENDERERS[i]->api))
@@ -955,7 +1018,8 @@ static FnlResult renderer_candidates(const FnlInitDesc *d,
 	if (*n == 0 && (RENDERER_COUNT == 1))
 		return fnl_fail(FNL_ERR_UNSUPPORTED,
 						"this build has the %s renderer, not the one "
-						"asked for", RENDERERS[0]->name);
+						"asked for",
+						RENDERERS[0]->name);
 	if (*n == 0)
 		return fnl_fail(FNL_ERR_UNSUPPORTED,
 						"this build has %s, and none of them was asked for",
@@ -968,7 +1032,8 @@ static FnlResult renderer_candidates(const FnlInitDesc *d,
 			return fnl_fail(FNL_ERR_UNSUPPORTED,
 							"the %s renderer cannot draw the overlay, and "
 							"every window here wears a titlebar drawn "
-							"from it", out[i]->name);
+							"from it",
+							out[i]->name);
 	return FNL_OK;
 }
 
@@ -985,8 +1050,8 @@ FnlResult renderer_check_choice(const FnlInitDesc *d)
 static void adopt_size(App *a)
 {
 	fnl_mutex_lock(&a->lock);
-	a->draw_w = a->want_w;
-	a->draw_h = a->want_h;
+	a->draw_w        = a->want_w;
+	a->draw_h        = a->want_h;
 	a->draw_scale120 = a->want_scale120;
 	/* The grab ring belongs to this first build too: at zero the first frame
 	 * would rebuild the swapchain it had just been handed, and the build
@@ -1042,7 +1107,7 @@ bool app_name_has(const char *name, const char *part)
 	 * them: "Intel HD Graphics 630" names "Intel(R) HD Graphics 630". */
 	char bare[GPU_NAME_MAX];
 	size_t o = 0;
-	for (size_t i = 0; name[i] && o + 1 < sizeof bare; ) {
+	for (size_t i = 0; name[i] && o + 1 < sizeof bare;) {
 		if (strncmp(name + i, "(R)", 3) == 0) {
 			i += 3;
 		} else if (strncmp(name + i, "(TM)", 4) == 0) {
@@ -1063,23 +1128,24 @@ static FnlResult renderer_build(App *a, const FnlRendererVtbl *g,
 {
 	renderer_set(a, g);
 	a->device_lost = a->surface_lost = false;
-	double t = now_seconds();
-	FnlResult rc = may_fault && FNL_FAULT("renderer-refused")
-		? fnl_fail(FNL_ERR_NO_DEVICE, "%s refused (FNL_FAULT)", g->name)
-		: g->create_instance(a);
+	double t                         = now_seconds();
+	FnlResult rc =
+		may_fault && FNL_FAULT("renderer-refused")
+			? fnl_fail(FNL_ERR_NO_DEVICE, "%s refused (FNL_FAULT)", g->name)
+			: g->create_instance(a);
 	a->build_ms[0] = (now_seconds() - t) * 1e3;
 	if (rc < 0) {
 		a->renderer = NULL;
 		return rc;
 	}
 	a->renderer_ready = true;
-	t = now_seconds();
+	t                 = now_seconds();
 	if ((rc = g->create_surface(a)) == FNL_OK) {
 		a->build_ms[1] = (now_seconds() - t) * 1e3;
 		adopt_size(a);
-		a->record_gen = 1; /* img_cmd_gen starts at 0, so everything records */
-		t = now_seconds();
-		rc = g->create_device_objects(a);
+		a->record_gen  = 1; /* img_cmd_gen starts at 0, so everything records */
+		t              = now_seconds();
+		rc             = g->create_device_objects(a);
 		a->build_ms[2] = (now_seconds() - t) * 1e3;
 	}
 	if (rc < 0) {
@@ -1087,7 +1153,7 @@ static FnlResult renderer_build(App *a, const FnlRendererVtbl *g,
 		g->destroy_surface(a);
 		g->destroy_instance(a);
 		a->renderer_ready = false;
-		a->renderer = NULL;
+		a->renderer       = NULL;
 	}
 	return rc;
 }
@@ -1151,28 +1217,34 @@ static bool renderer_cross(App *a, const GpuDriver *g)
 		return false;
 	if (!to || !gpu_spanned(a, to)) {
 		fnl_log(FNL_LOG_INFO, "GPU driver: the frames pause for this move, "
-				"with no Vulkan scene to draw across it with");
+							  "with no Vulkan scene to draw across it with");
 		return false;
 	}
 	memcpy(a->gpu_cross_want, a->gpu_want, sizeof a->gpu_cross_want);
 	const int index = a->gpu_index;
-	a->gpu_want[0] = '\0';
-	a->gpu_index = 0;
-	a->gpu_cross = true;
+	a->gpu_want[0]  = '\0';
+	a->gpu_index    = 0;
+	a->gpu_cross    = true;
 	char held[768];
 	if (FNL_FAULT("gpu-driver-uncrossed")) {
 		fnl_log(FNL_LOG_INFO, "GPU driver: not drawn across the move "
-				"(FNL_FAULT)");
+							  "(FNL_FAULT)");
 	} else if (renderer_build_here(a, to) < 0) {
-		fnl_log(FNL_LOG_INFO, "GPU driver: nothing here to draw on across "
-				"the move (%s)", fnl_last_error());
+		fnl_log(FNL_LOG_INFO,
+				"GPU driver: nothing here to draw on across "
+				"the move (%s)",
+				fnl_last_error());
 	} else {
 		if (BACKEND(a)->gpu_driver_held(a, g, false, held, sizeof held)) {
-			fnl_log(FNL_LOG_WARN, "GPU driver: the renderer drawn across "
-					"the move holds %s, which the move needs let go", held);
+			fnl_log(FNL_LOG_WARN,
+					"GPU driver: the renderer drawn across "
+					"the move holds %s, which the move needs let go",
+					held);
 		} else if (app_gpu_driver_start_move(a, g)) {
-			fnl_log(FNL_LOG_INFO, "GPU driver: drawn on %s, built in %.0f "
-					"ms, while %s moves to %s", a->gpu_name,
+			fnl_log(FNL_LOG_INFO,
+					"GPU driver: drawn on %s, built in %.0f "
+					"ms, while %s moves to %s",
+					a->gpu_name,
 					a->build_ms[0] + a->build_ms[1] + a->build_ms[2], g->pci,
 					g->other);
 			return true;
@@ -1182,9 +1254,9 @@ static bool renderer_cross(App *a, const GpuDriver *g)
 		renderer_unbuild(a);
 	}
 	fnl_log(FNL_LOG_INFO, "GPU driver: the frames pause for this move and "
-			"every later one");
+						  "every later one");
 	a->gpu_cross_off = true;
-	a->gpu_cross = false;
+	a->gpu_cross     = false;
 	memcpy(a->gpu_want, a->gpu_cross_want, sizeof a->gpu_want);
 	a->gpu_index = index;
 	return false;
@@ -1204,10 +1276,12 @@ static bool gpu_driver_leftover(App *a, const GpuDriver *g)
 		snprintf(held, sizeof held, "(FNL_FAULT)");
 	else if (!BACKEND(a)->gpu_driver_held(a, g, true, held, sizeof held))
 		return false;
-	fnl_log(FNL_LOG_WARN, "GPU driver: %s is open in this process with no "
-			"renderer built, so %s stays on %s", held, g->pci, g->bound);
+	fnl_log(FNL_LOG_WARN,
+			"GPU driver: %s is open in this process with no "
+			"renderer built, so %s stays on %s",
+			held, g->pci, g->bound);
 	app_gpu_drivers_pin(a, "NVIDIA's driver is held by something the "
-						"library did not open, or did not close");
+						   "library did not open, or did not close");
 	return true;
 }
 
@@ -1234,8 +1308,8 @@ static void gpu_relist_landing(App *a, const FnlRendererVtbl *to)
 void renderer_swap(App *a)
 {
 	const FnlRendererVtbl *from = a->renderer;
-	const FnlRendererVtbl *to = a->renderer_next;
-	a->renderer_next = NULL;
+	const FnlRendererVtbl *to   = a->renderer_next;
+	a->renderer_next            = NULL;
 	/* With the moves offered, the listing ends first: OpenGL torn down
 	 * while it lists Vulkan's GPUs closes glvnd with NVIDIA's Vulkan
 	 * driver mapped, which the close then keeps for the process's life
@@ -1263,8 +1337,8 @@ void renderer_swap(App *a)
 		/* The way back is the renderer the window was on before the move,
 		 * whose choice gpu_back_* is, and not the one drawn across on. */
 		a->gpu_cross_landing = false;
-		from = a->gpu_cross_from;
-		stayed = !a->mover_moved;
+		from                 = a->gpu_cross_from;
+		stayed               = !a->mover_moved;
 	} else if (a->gpu_driver_next >= 0) {
 		GpuDriver g;
 		if (!app_gpu_driver_take(a, &g))
@@ -1281,7 +1355,7 @@ void renderer_swap(App *a)
 	FnlResult rc;
 	/* The GPUs listed again, the others first: after a move to another
 	 * kernel driver, and after a GPU came or went (app_gpu_hotplug()). */
-	const bool relist = a->gpu_driver_moved || a->gpu_hotplug_relist;
+	const bool relist     = a->gpu_driver_moved || a->gpu_hotplug_relist;
 	a->gpu_hotplug_relist = false;
 	if (!stayed && relist)
 		gpu_relist_landing(a, to);
@@ -1295,8 +1369,10 @@ void renderer_swap(App *a)
 	 * matched nothing, and the pick took another -- is no move: the window
 	 * goes back, and the GPU to the driver it left (below). */
 	if (rc == FNL_OK && !app_gpu_driver_landed(a)) {
-		rc = fnl_fail(FNL_ERR_NO_DEVICE, "drawn on %s, not on the GPU "
-					  "moved", a->gpu_name);
+		rc = fnl_fail(FNL_ERR_NO_DEVICE,
+					  "drawn on %s, not on the GPU "
+					  "moved",
+					  a->gpu_name);
 		renderer_unbuild(a);
 		app_gpu_driver_unseen(a);
 	}
@@ -1309,9 +1385,11 @@ void renderer_swap(App *a)
 		if (relist)
 			a->gpu_others_listed = false;
 		a->gpu_driver_moved = false;
-		fnl_log(FNL_LOG_INFO, "rebuilt on %s, drawn with %s in %.0f ms "
-				"(instance %.0f, surface %.0f, objects %.0f)", a->gpu_name,
-				to->name, a->build_ms[0] + a->build_ms[1] + a->build_ms[2],
+		fnl_log(FNL_LOG_INFO,
+				"rebuilt on %s, drawn with %s in %.0f ms "
+				"(instance %.0f, surface %.0f, objects %.0f)",
+				a->gpu_name, to->name,
+				a->build_ms[0] + a->build_ms[1] + a->build_ms[2],
 				a->build_ms[0], a->build_ms[1], a->build_ms[2]);
 		return;
 	}
@@ -1319,14 +1397,14 @@ void renderer_swap(App *a)
 	 * there is nothing of the one asked for to come back to. Marked as the
 	 * way back, so that device_recover() goes back no further. A GPU moved
 	 * to another driver for it goes back to its own first. */
-	fnl_log(FNL_LOG_WARN, "%s would not draw here (%s); back to %s",
-			to->name, fnl_last_error(), from->name);
+	fnl_log(FNL_LOG_WARN, "%s would not draw here (%s); back to %s", to->name,
+			fnl_last_error(), from->name);
 	app_gpu_driver_undo(a);
 	a->gpu_index = a->gpu_back_index;
 	memcpy(a->gpu_want, a->gpu_back_want, sizeof a->gpu_want);
 	a->gpu_switch_back = true;
 	if (renderer_build_here(a, from) < 0) {
-		a->renderer = NULL;
+		a->renderer      = NULL;
 		a->renderer_owed = from;
 	}
 }
@@ -1352,8 +1430,7 @@ bool renderer_owed_retry(App *a)
 static uint32_t renderer_scenes(const FnlInitDesc *d)
 {
 	if (d->renderer != FNL_RENDERER_DEFAULT)
-		return (unsigned)d->renderer < 32 ? FNL_RENDERER_BIT(d->renderer)
-										  : 0;
+		return (unsigned)d->renderer < 32 ? FNL_RENDERER_BIT(d->renderer) : 0;
 	if (d->renderers)
 		return d->renderers;
 	return (RENDERER_COUNT == 1) ? FNL_RENDERER_BIT(RENDERERS[0]->api) : 0;
@@ -1377,7 +1454,7 @@ static void gpu_span_set(App *a, uint32_t scenes)
 	int n = 1;
 	for (size_t i = 0; i < RENDERER_COUNT && n < GPU_SPAN_MAX; i++)
 		if (RENDERERS[i] != a->renderer && renderer_spanned(scenes, i)) {
-			a->gpu_span[n] = RENDERERS[i];
+			a->gpu_span[n]   = RENDERERS[i];
 			a->gpu_part_n[n] = 0;
 			n++;
 		}
@@ -1391,11 +1468,11 @@ static void gpu_span_set(App *a, uint32_t scenes)
 static void gpu_span_clear(App *a)
 {
 	fnl_mutex_lock(&a->lock);
-	a->gpu_span_n = 0;
+	a->gpu_span_n    = 0;
 	a->gpu_part_n[0] = 0;
-	a->gpu_part_cur = -1;
-	a->gpu_list_n = 0;
-	a->gpu_list_cur = -1;
+	a->gpu_part_cur  = -1;
+	a->gpu_list_n    = 0;
+	a->gpu_list_cur  = -1;
 	fnl_atomic_store_u32(&a->gpu_count, 0);
 	fnl_mutex_unlock(&a->lock);
 }
@@ -1406,8 +1483,8 @@ static bool gpu_in_use_soft(App *a)
 {
 	fnl_mutex_lock(&a->lock);
 	const int cur = a->gpu_list_cur;
-	const bool soft = cur >= 0 &&
-					  a->gpu_list[cur].kind == FNL_GPU_KIND_SOFTWARE;
+	const bool soft =
+		cur >= 0 && a->gpu_list[cur].kind == FNL_GPU_KIND_SOFTWARE;
 	fnl_mutex_unlock(&a->lock);
 	return soft;
 }
@@ -1433,9 +1510,8 @@ static int gpu_listed(App *a, const FnlRendererVtbl *r, GpuEntry *out,
 	memset(out, 0, GPU_LIST_MAX * sizeof *out);
 	const int c = r->list_gpus(a, out, GPU_LIST_MAX);
 	if (timed)
-		fnl_log(FNL_LOG_INFO, "%s lists %d GPU%s here, in %.0f ms",
-				r->name, c, c == 1 ? "" : "s",
-				(now_seconds() - t0) * 1000.0);
+		fnl_log(FNL_LOG_INFO, "%s lists %d GPU%s here, in %.0f ms", r->name, c,
+				c == 1 ? "" : "s", (now_seconds() - t0) * 1000.0);
 	return c;
 }
 
@@ -1455,30 +1531,28 @@ static int gpu_listed(App *a, const FnlRendererVtbl *r, GpuEntry *out,
 static void gpu_list_early(App *a, uint32_t scenes,
 						   const FnlRendererVtbl *drawing)
 {
-	if (!BACKEND(a)->shared_driver(a) &&
-		drawing->api != FNL_RENDERER_OPENGL)
+	if (!BACKEND(a)->shared_driver(a) && drawing->api != FNL_RENDERER_OPENGL)
 		return;
 	for (size_t i = 0; i < RENDERER_COUNT; i++) {
 		const FnlRendererVtbl *r = RENDERERS[i];
-		bool listed = false;
+		bool listed              = false;
 		for (int k = 0; k < a->gpu_early_n; k++)
 			listed |= a->gpu_early_r[k] == r;
 		if (r == drawing || listed || !renderer_spanned(scenes, i) ||
 			a->gpu_early_n == GPU_SPAN_MAX)
 			continue;
-		const int k = a->gpu_early_n;
+		const int k       = a->gpu_early_n;
 		a->gpu_early_c[k] = gpu_listed(a, r, a->gpu_early[k], true);
 		a->gpu_early_r[k] = r;
-		a->gpu_early_n = k + 1;
+		a->gpu_early_n    = k + 1;
 	}
 }
 
 /* The first of cand[from..] that lists a GPU that is not software, with
  * its name in `name`; NULL where none does. */
-static const FnlRendererVtbl *hardware_in(App *a,
-										  const FnlRendererVtbl **cand,
-										  size_t from, size_t n,
-										  char *name, size_t size)
+static const FnlRendererVtbl *hardware_in(App *a, const FnlRendererVtbl **cand,
+										  size_t from, size_t n, char *name,
+										  size_t size)
 {
 	for (size_t j = from; j < n; j++) {
 		if (!cand[j]->list_gpus)
@@ -1501,8 +1575,8 @@ static const FnlRendererVtbl *hardware_in(App *a,
  * nothing at startup; and only where no GPU was named, which a software
  * one may be on purpose. Where the other will not build, the first is
  * built again. True with `*g` the renderer that stands. */
-static bool renderer_correct(App *a, const FnlRendererVtbl **cand,
-							 size_t i, size_t n, uint32_t scenes,
+static bool renderer_correct(App *a, const FnlRendererVtbl **cand, size_t i,
+							 size_t n, uint32_t scenes,
 							 const FnlRendererVtbl **g)
 {
 	*g = cand[i];
@@ -1510,22 +1584,25 @@ static bool renderer_correct(App *a, const FnlRendererVtbl **cand,
 		return true;
 	char soft[GPU_NAME_MAX], hard[GPU_NAME_MAX];
 	snprintf(soft, sizeof soft, "%s", a->gpu_name);
-	const FnlRendererVtbl *hw = hardware_in(a, cand, i + 1, n, hard,
-											sizeof hard);
+	const FnlRendererVtbl *hw =
+		hardware_in(a, cand, i + 1, n, hard, sizeof hard);
 	if (!hw)
 		return true;
 	renderer_unbuild(a);
 	gpu_span_clear(a);
 	gpu_list_early(a, scenes, hw);
 	if (renderer_build(a, hw, true) == FNL_OK) {
-		fnl_log(FNL_LOG_INFO, "%s would draw on software here (%s), and "
-				"%s has hardware (%s)", cand[i]->name, soft, hw->name, hard);
+		fnl_log(FNL_LOG_INFO,
+				"%s would draw on software here (%s), and "
+				"%s has hardware (%s)",
+				cand[i]->name, soft, hw->name, hard);
 		*g = hw;
 		return true;
 	}
-	fnl_log(FNL_LOG_WARN, "%s has hardware here (%s) and would not draw "
-			"(%s); %s draws on software", hw->name, hard, fnl_last_error(),
-			cand[i]->name);
+	fnl_log(FNL_LOG_WARN,
+			"%s has hardware here (%s) and would not draw "
+			"(%s); %s draws on software",
+			hw->name, hard, fnl_last_error(), cand[i]->name);
 	gpu_span_clear(a);
 	return renderer_build(a, cand[i], false) == FNL_OK;
 }
@@ -1553,10 +1630,10 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 			cand[0] = g;
 		}
 	const uint32_t scenes = renderer_scenes(d);
-	int spanned = 0;
+	int spanned           = 0;
 	for (size_t i = 0; i < RENDERER_COUNT; i++)
 		spanned += renderer_spanned(scenes, i);
-	a->gpu_spans = spanned > 1;
+	a->gpu_spans      = spanned > 1;
 	a->renderer_named = named ? cand[0]->api : FNL_RENDERER_DEFAULT;
 	if (named) {
 		fnl_log(FNL_LOG_INFO, "renderer: %s, named by %s", cand[0]->name,
@@ -1592,18 +1669,27 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 
 void backend_noop_set_geometry(App *a, int w, int h, int margin)
 {
-	(void)a; (void)w; (void)h; (void)margin;
+	(void)a;
+	(void)w;
+	(void)h;
+	(void)margin;
 }
 
 void backend_noop_ack_configure(App *a, uint32_t serial)
 {
-	(void)a; (void)serial;
+	(void)a;
+	(void)serial;
 }
 
 void backend_noop_present_pixels(App *a, const void *px, int w, int h,
 								 size_t pitch, bool bgra)
 {
-	(void)a; (void)px; (void)w; (void)h; (void)pitch; (void)bgra;
+	(void)a;
+	(void)px;
+	(void)w;
+	(void)h;
+	(void)pitch;
+	(void)bgra;
 }
 
 bool backend_noop_apply_scale(App *a)
@@ -1614,21 +1700,26 @@ bool backend_noop_apply_scale(App *a)
 
 uint32_t backend_noop_buffer_granularity(const App *a, int s120)
 {
-	(void)a; (void)s120;
+	(void)a;
+	(void)s120;
 	return 1;
 }
 
 int backend_noop_modes(const App *a, FnlMode *out, int max, int *current)
 {
-	(void)a; (void)out; (void)max;
+	(void)a;
+	(void)out;
+	(void)max;
 	*current = -1;
 	return 0;
 }
 
-int backend_noop_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX],
-						 int max, int *current)
+int backend_noop_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
+						 int *current)
 {
-	(void)a; (void)names; (void)max;
+	(void)a;
+	(void)names;
+	(void)max;
 	*current = -1;
 	return 0;
 }
@@ -1636,7 +1727,7 @@ int backend_noop_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX],
 int backend_published_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX],
 							  int max, int *current)
 {
-	App *m = (App *)a;                 /* the lock is not const */
+	App *m = (App *)a; /* the lock is not const */
 	fnl_mutex_lock(&m->lock);
 	const int n = a->out_count < max ? a->out_count : max;
 	memcpy(names, a->out_names, (size_t)(n > 0 ? n : 0) * OUTPUT_NAME_MAX);
@@ -1653,12 +1744,14 @@ void backend_noop_set_title(App *a, const char *utf8)
 
 void backend_noop_set_mode(App *a, const FnlMode *mode)
 {
-	(void)a; (void)mode;
+	(void)a;
+	(void)mode;
 }
 
 void backend_noop_set_output(App *a, const char *name)
 {
-	(void)a; (void)name;
+	(void)a;
+	(void)name;
 }
 
 FnlResult backend_noop_check_error(App *a)
@@ -1733,7 +1826,7 @@ bool app_post(App *a, void (*fn)(void *ud), void *ud)
 	}
 	fnl_mutex_unlock(&a->lock);
 	if (ok)
-		fnl_invalidate(a);      /* a post is a reason to draw */
+		fnl_invalidate(a); /* a post is a reason to draw */
 	return ok;
 }
 
@@ -1755,7 +1848,7 @@ void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt)
 {
 	if (a->pointer_captured || app_rank_holds_input(a))
 		return;
-	FnlEvent ev = { .type = entered ? FNL_EVENT_ENTER : FNL_EVENT_LEAVE };
+	FnlEvent ev   = { .type = entered ? FNL_EVENT_ENTER : FNL_EVENT_LEAVE };
 	ev.presence.x = x_pt;
 	ev.presence.y = y_pt;
 	app_event(a, &ev);
@@ -1783,10 +1876,39 @@ void app_pointer_relative(App *a, double dx_pt, double dy_pt)
 {
 	if (app_rank_holds_input(a))
 		return;
-	FnlEvent ev = { .type = FNL_EVENT_RELATIVE };
+	FnlEvent ev    = { .type = FNL_EVENT_RELATIVE };
 	ev.relative.dx = dx_pt;
 	ev.relative.dy = dy_pt;
 	app_event(a, &ev);
+}
+
+/* How deep in its run this press is: 1 for a lone press, 2 for the second
+ * press of a double-click, and so on. A press within DECO_DBLCLICK_MS of the
+ * last one's and within DECO_DRAG_SLOP of it is the next in the run; anything
+ * else starts a new one. The count is per button, so a double-click of the
+ * left does not stretch a press of the right, and the window's own titlebar
+ * keeps its own timing (App::last_titlebar_click_ms) -- this is the caller's,
+ * in FnlButtonEvent::clicks. The pump thread's, like the rest of the
+ * pointer's state. */
+static void event_button_clicks(App *a, FnlButton b, double x_pt, double y_pt,
+								uint32_t time_ms)
+{
+	if ((unsigned)b >= 3)
+		return;
+	/* The anonymous struct the App field declares: addressed by its member,
+	 * not by a tag there is none of. */
+	uint32_t *at = &a->click[(unsigned)b].at;
+	int *run     = &a->click[(unsigned)b].run;
+	double *x    = &a->click[(unsigned)b].x;
+	double *y    = &a->click[(unsigned)b].y;
+	if (*run > 0 && time_ms >= *at && time_ms - *at <= DECO_DBLCLICK_MS &&
+		fabs(x_pt - *x) <= DECO_DRAG_SLOP && fabs(y_pt - *y) <= DECO_DRAG_SLOP)
+		(*run)++;
+	else
+		*run = 1;
+	*at = time_ms;
+	*x  = x_pt;
+	*y  = y_pt;
 }
 
 void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
@@ -1802,11 +1924,21 @@ void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
 		a->buttons_down |= bit;
 	else
 		a->buttons_down &= ~bit;
-	FnlEvent ev = { .type = FNL_EVENT_BUTTON };
-	ev.button.x = x_pt;
-	ev.button.y = y_pt;
-	ev.button.button = b;
+	FnlEvent ev       = { .type = FNL_EVENT_BUTTON };
+	ev.button.x       = x_pt;
+	ev.button.y       = y_pt;
+	ev.button.button  = b;
 	ev.button.pressed = pressed;
+	/* The click count, kept per button and only on a press: a press within
+	 * DECO_DBLCLICK_MS of the last one's and within DECO_DRAG_SLOP of it is
+	 * the next in the run, and anything else starts a new one. A release
+	 * carries 0 -- a run is counted on its presses, not stretched by how
+	 * long the button is held. */
+	ev.button.clicks = 0;
+	if (pressed) {
+		event_button_clicks(a, b, x_pt, y_pt, time_ms);
+		ev.button.clicks = a->click[(unsigned)b].run;
+	}
 	app_event(a, &ev);
 
 	if (b != FNL_BUTTON_LEFT)
@@ -1814,17 +1946,16 @@ void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
 	if (pressed)
 		deco_press(a, x_pt, y_pt, time_ms);
 	else
-		deco_release(a);                        /* it stayed a click */
+		deco_release(a); /* it stayed a click */
 }
 
-void app_pointer_scroll(App *a, double x_pt, double y_pt, double dx,
-						double dy)
+void app_pointer_scroll(App *a, double x_pt, double y_pt, double dx, double dy)
 {
 	if (app_rank_holds_input(a))
 		return;
-	FnlEvent ev = { .type = FNL_EVENT_SCROLL };
-	ev.scroll.x = x_pt;
-	ev.scroll.y = y_pt;
+	FnlEvent ev  = { .type = FNL_EVENT_SCROLL };
+	ev.scroll.x  = x_pt;
+	ev.scroll.y  = y_pt;
 	ev.scroll.dx = dx;
 	ev.scroll.dy = dy;
 	app_event(a, &ev);
@@ -1841,15 +1972,18 @@ bool app_key_repeats(FnlKey k)
 {
 	switch (k) {
 	case FNL_KEY_UNKNOWN:
-	case FNL_KEY_LSHIFT:    case FNL_KEY_RSHIFT:
-	case FNL_KEY_LCTRL:     case FNL_KEY_RCTRL:
-	case FNL_KEY_LALT:      case FNL_KEY_RALT:
-	case FNL_KEY_LSUPER:    case FNL_KEY_RSUPER:
-	case FNL_KEY_CAPS_LOCK: case FNL_KEY_NUM_LOCK:
-	case FNL_KEY_SCROLL_LOCK:
-		return false;
-	default:
-		return true;
+	case FNL_KEY_LSHIFT:
+	case FNL_KEY_RSHIFT:
+	case FNL_KEY_LCTRL:
+	case FNL_KEY_RCTRL:
+	case FNL_KEY_LALT:
+	case FNL_KEY_RALT:
+	case FNL_KEY_LSUPER:
+	case FNL_KEY_RSUPER:
+	case FNL_KEY_CAPS_LOCK:
+	case FNL_KEY_NUM_LOCK:
+	case FNL_KEY_SCROLL_LOCK: return false;
+	default: return true;
 	}
 }
 
@@ -1858,16 +1992,15 @@ void app_key_repeat(App *a, FnlKey k)
 	/* A held modifier is held, not typed again: Win32 auto-repeats Shift and
 	 * Ctrl, and X11 does whatever the server's per-key setting says, so the
 	 * filter is here and not in the one backend that times its own. */
-	if (!app_text_input(a) || !app_key_repeats(k) ||
-		app_rank_holds_input(a))
+	if (!app_text_input(a) || !app_key_repeats(k) || app_rank_holds_input(a))
 		return;
 	/* Straight to the queue. app_key() is where the bindings are, and a
 	 * repeat must reach none of them: the held set already has the key, and
 	 * a held F11 is still one request for fullscreen. */
-	FnlEvent ev = { .type = FNL_EVENT_KEY };
-	ev.key.key = k;
+	FnlEvent ev    = { .type = FNL_EVENT_KEY };
+	ev.key.key     = k;
 	ev.key.pressed = true;
-	ev.key.repeat = true;
+	ev.key.repeat  = true;
 	app_event(a, &ev);
 }
 
@@ -1882,7 +2015,7 @@ void app_text(App *a, uint32_t cp)
 		(cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff)
 		return;
 
-	FnlEvent ev = { .type = FNL_EVENT_TEXT };
+	FnlEvent ev       = { .type = FNL_EVENT_TEXT };
 	ev.text.codepoint = cp;
 	/* Terminated by hand rather than left to the initialiser, which promises
 	 * zeroes for the union's first member and says nothing about the rest. */
@@ -1897,7 +2030,7 @@ void app_text_utf8(App *a, const char *utf8)
 {
 	while (utf8 && *utf8) {
 		uint32_t cp;
-		bool     ok;
+		bool ok;
 		utf8 = utf8_decode(utf8, &cp, &ok);
 		if (ok)
 			app_text(a, cp);
@@ -1922,8 +2055,8 @@ void app_compose_set(App *a, const char *utf8)
 		utf8 = "";
 	fnl_mutex_lock(&a->text_lock);
 	const size_t n = utf8_fit(utf8, strlen(utf8), sizeof a->compose);
-	const bool moved = strlen(a->compose) != n ||
-					   memcmp(a->compose, utf8, n) != 0;
+	const bool moved =
+		strlen(a->compose) != n || memcmp(a->compose, utf8, n) != 0;
 	if (moved) {
 		memcpy(a->compose, utf8, n);
 		a->compose[n] = '\0';
@@ -1932,7 +2065,7 @@ void app_compose_set(App *a, const char *utf8)
 	if (!moved)
 		return;
 
-	FnlEvent ev = { .type = FNL_EVENT_COMPOSE };
+	FnlEvent ev       = { .type = FNL_EVENT_COMPOSE };
 	ev.compose.length = (unsigned)n;
 	app_event(a, &ev);
 }
@@ -1947,7 +2080,7 @@ void app_clipboard_take(App *a, char *owned, size_t len)
 			len = (size_t)(nul - owned);
 		owned[len] = '\0';
 	} else {
-		len = 0;        /* reported as an empty clipboard, which is honest */
+		len = 0; /* reported as an empty clipboard, which is honest */
 	}
 
 	fnl_mutex_lock(&a->text_lock);
@@ -1956,7 +2089,7 @@ void app_clipboard_take(App *a, char *owned, size_t len)
 	a->clip_in_len = len;
 	fnl_mutex_unlock(&a->text_lock);
 
-	FnlEvent ev = { .type = FNL_EVENT_CLIPBOARD };
+	FnlEvent ev         = { .type = FNL_EVENT_CLIPBOARD };
 	ev.clipboard.length = (unsigned)len;
 	app_event(a, &ev);
 }
@@ -1986,8 +2119,7 @@ bool app_text_rect(const App *a, int *x, int *y, int *w, int *h)
 
 /* The public half of the two strings: a copy out, on the terms fenestal.h
  * gives. Here beside what writes them, so the lock has one file. */
-static size_t text_copy_out(const char *src, size_t len, char *buf,
-							size_t size)
+static size_t text_copy_out(const char *src, size_t len, char *buf, size_t size)
 {
 	if (buf && size) {
 		const size_t n = src ? utf8_fit(src, len, size) : 0;
@@ -2005,9 +2137,9 @@ static size_t text_fetch(const FnlApp *app, bool clipboard, char *buf,
 	if (!a)
 		return text_copy_out(NULL, 0, buf, size);
 	fnl_mutex_lock(&a->text_lock);
-	const char  *src = clipboard ? a->clip_in : a->compose;
+	const char *src  = clipboard ? a->clip_in : a->compose;
 	const size_t len = clipboard ? a->clip_in_len : strlen(a->compose);
-	const size_t n = text_copy_out(src, len, buf, size);
+	const size_t n   = text_copy_out(src, len, buf, size);
 	fnl_mutex_unlock(&a->text_lock);
 	return n;
 }
@@ -2033,8 +2165,8 @@ void app_key(App *a, FnlKey k, bool pressed)
 	 * the caller was told went down. */
 	if (app_rank_holds_input(a) && (pressed || !key_held_get(a, k)))
 		return;
-	FnlEvent ev = { .type = FNL_EVENT_KEY };
-	ev.key.key = k;
+	FnlEvent ev    = { .type = FNL_EVENT_KEY };
+	ev.key.key     = k;
 	ev.key.pressed = pressed;
 	/* A repeat never comes through here; see app_key_repeat(). */
 	ev.key.repeat = false;
@@ -2054,6 +2186,17 @@ void app_key(App *a, FnlKey k, bool pressed)
 	if (k != FNL_KEY_UNKNOWN &&
 		(uint32_t)k == fnl_atomic_load_u32(&a->metrics_key))
 		fnl_set_metrics_panel(a, !fnl_atomic_load_bool(&a->metrics_shown));
+
+	/* Tab and Shift+Tab move the keyboard focus among the claims that asked
+	 * for it (fnl_claim_focus()), and the event says where it landed. The
+	 * library moves the focus; the caller draws the ring. A claim that did not
+	 * ask is never the focus, and Tab with no claim that did leaves the focus
+	 * where it was. */
+	if (k == FNL_KEY_TAB)
+		claim_focus_step(a, key_held_get(a, FNL_KEY_LSHIFT) ||
+									key_held_get(a, FNL_KEY_RSHIFT)
+								? -1
+								: 1);
 
 	switch (k) {
 	case FNL_KEY_ESCAPE:
@@ -2076,11 +2219,8 @@ void app_key(App *a, FnlKey k, bool pressed)
 		 * way out -- but it is not a second way in. */
 		BACKEND(a)->release_pointer(a);
 		break;
-	case FNL_KEY_F11:
-		BACKEND(a)->set_fullscreen(a, !a->is_fullscreen);
-		break;
-	default:
-		break;
+	case FNL_KEY_F11: BACKEND(a)->set_fullscreen(a, !a->is_fullscreen); break;
+	default: break;
 	}
 
 	app_event(a, &ev);
@@ -2196,7 +2336,7 @@ static int gpu_slot(App *a, const FnlRendererVtbl *r) FNL_REQUIRES(a->lock)
 			return k;
 	if (a->gpu_span_n == 0) {
 		a->gpu_span[0] = r;
-		a->gpu_span_n = 1;
+		a->gpu_span_n  = 1;
 	}
 	return 0;
 }
@@ -2207,7 +2347,7 @@ static void gpu_merge(App *a) FNL_REQUIRES(a->lock)
 {
 	/* The published one: the listing thread merges too. */
 	const int k = gpu_slot(a, renderer_any(a));
-	int m = 0;
+	int m       = 0;
 	/* A renderer's list_gpus sets a GPU's name, kind and renderer and no
 	 * more; what it listed into may be a stack's, so driver_move, which
 	 * makes an entry a move to another kernel driver, and the driver an
@@ -2215,10 +2355,10 @@ static void gpu_merge(App *a) FNL_REQUIRES(a->lock)
 	 * app_gpu_driver_entries() alone. */
 	for (int j = 0; j < a->gpu_span_n; j++)
 		for (int i = 0; i < a->gpu_part_n[j] && m < GPU_LIST_MAX; i++) {
-			a->gpu_list[m] = a->gpu_part[j][i];
-			a->gpu_list[m].driver[0] = '\0';
-			a->gpu_list[m].slot = j;
-			a->gpu_list[m].local = i;
+			a->gpu_list[m]               = a->gpu_part[j][i];
+			a->gpu_list[m].driver[0]     = '\0';
+			a->gpu_list[m].slot          = j;
+			a->gpu_list[m].local         = i;
 			a->gpu_list[m++].driver_move = 0;
 		}
 	m += app_gpu_driver_entries(a, a->gpu_list, m, GPU_LIST_MAX);
@@ -2227,10 +2367,9 @@ static void gpu_merge(App *a) FNL_REQUIRES(a->lock)
 	 * placed it anywhere. */
 	int cur = -1;
 	for (int i = 0; i < m && a->gpu_part_cur >= 0; i++)
-		if (a->gpu_list[i].slot == k && a->gpu_list[i].local ==
-				a->gpu_part_cur)
+		if (a->gpu_list[i].slot == k && a->gpu_list[i].local == a->gpu_part_cur)
 			cur = i;
-	a->gpu_list_n = m;
+	a->gpu_list_n   = m;
 	a->gpu_list_cur = cur;
 	fnl_atomic_store_u32(&a->gpu_count, (uint32_t)m);
 }
@@ -2248,7 +2387,7 @@ void app_gpu_list_merge(App *a)
 void app_gpu_drivers_pin(App *a, const char *why)
 {
 	fnl_mutex_lock(&a->lock);
-	const bool was = a->gpu_drivers_pinned;
+	const bool was        = a->gpu_drivers_pinned;
 	a->gpu_drivers_pinned = true;
 	gpu_merge(a);
 	fnl_mutex_unlock(&a->lock);
@@ -2272,7 +2411,7 @@ void app_gpu_list_publish(App *a, const GpuEntry *list, int n, int cur)
 	for (int i = 0; i < n; i++)
 		a->gpu_part[k][i] = list[i];
 	a->gpu_part_n[k] = n;
-	a->gpu_part_cur = cur;
+	a->gpu_part_cur  = cur;
 	gpu_merge(a);
 	fnl_mutex_unlock(&a->lock);
 	inventory_say(a, k);
@@ -2283,10 +2422,10 @@ const char *app_gpu_kind_word(FnlGpuKind k)
 {
 	switch (k) {
 	case FNL_GPU_KIND_INTEGRATED: return "integrated";
-	case FNL_GPU_KIND_DISCRETE:   return "discrete";
-	case FNL_GPU_KIND_VIRTUAL:    return "virtual";
-	case FNL_GPU_KIND_SOFTWARE:   return "software";
-	default:                      return "hardware";
+	case FNL_GPU_KIND_DISCRETE: return "discrete";
+	case FNL_GPU_KIND_VIRTUAL: return "virtual";
+	case FNL_GPU_KIND_SOFTWARE: return "software";
+	default: return "hardware";
 	}
 }
 
@@ -2304,12 +2443,11 @@ const char *app_renderer_key(FnlRenderer r)
 	return g ? g->key : "-";
 }
 
-void app_gpu_inventory(const App *a, int i, const char *name,
-					   const char *kind)
+void app_gpu_inventory(const App *a, int i, const char *name, const char *kind)
 {
 	/* Held until the list is merged (app_gpu_list_publish()), which is
 	 * what numbers it: the moves and the ranking place a GPU anywhere. */
-	App *m = (App *)a;                 /* the lock is not const */
+	App *m = (App *)a; /* the lock is not const */
 	if (i < 0 || i >= GPU_LIST_MAX)
 		return;
 	if (i == 0)
@@ -2348,14 +2486,13 @@ static void inventory_say(App *a, int k)
 	for (int i = 0; i < n; i++) {
 		if (via[i][0])
 			fnl_log(FNL_LOG_INFO, "GPU %d: %s (%s, %s via %s)", number[i],
-					a->inv_name[i], a->inv_kind[i], a->renderer->name,
-					via[i]);
+					a->inv_name[i], a->inv_kind[i], a->renderer->name, via[i]);
 		else if (spans)
 			fnl_log(FNL_LOG_INFO, "GPU %d: %s (%s, %s)", number[i],
 					a->inv_name[i], a->inv_kind[i], a->renderer->name);
 		else
-			fnl_log(FNL_LOG_INFO, "GPU %d: %s (%s)", number[i],
-					a->inv_name[i], a->inv_kind[i]);
+			fnl_log(FNL_LOG_INFO, "GPU %d: %s (%s)", number[i], a->inv_name[i],
+					a->inv_kind[i]);
 	}
 	a->inv_n = 0;
 }
@@ -2384,13 +2521,11 @@ static void inventory_say(App *a, int k)
  * COST_WINDOW and each counts, so the figures stay measured. Either is
  * drawn with the window left at rest (rest_owed()). */
 
-
 uint64_t app_gpu_timed(App *a)
 {
-	a->gpu_timed = true;
-	a->gpu_uncounted[a->presents % GPU_UNCOUNTED].index = a->presents;
-	a->gpu_uncounted[a->presents % GPU_UNCOUNTED].uncounted =
-		!a->cost_counts;
+	a->gpu_timed                                            = true;
+	a->gpu_uncounted[a->presents % GPU_UNCOUNTED].index     = a->presents;
+	a->gpu_uncounted[a->presents % GPU_UNCOUNTED].uncounted = !a->cost_counts;
 	return a->presents;
 }
 
@@ -2420,7 +2555,7 @@ void app_gpu_time(App *a, double seconds, uint64_t index)
 	 * the row goes out without, as an unread one does. */
 	if (a->counting && a->gpu_late_n < GPU_LATE_MAX) {
 		a->gpu_late[a->gpu_late_n].index = index;
-		a->gpu_late[a->gpu_late_n].ms = (float)(seconds * 1e3);
+		a->gpu_late[a->gpu_late_n].ms    = (float)(seconds * 1e3);
 		a->gpu_late_n++;
 	}
 }
@@ -2431,9 +2566,9 @@ static bool cost_fold(App *a)
 	const uint32_t seq = fnl_atomic_load_u32(&a->gpu_sample_seq);
 	if (seq == a->gpu_cost_seq)
 		return false;
-	a->gpu_cost_seq = seq;
+	a->gpu_cost_seq   = seq;
 	const uint32_t us = fnl_atomic_load_u32(&a->gpu_sample_us);
-	const double s = us * 1e-6;
+	const double s    = us * 1e-6;
 	if (a->counting) {
 		a->st.gpu_us += us;
 		a->st.gpu_samples++;
@@ -2463,24 +2598,23 @@ void app_cost_publish(App *a, double now, bool window)
 {
 	/* With the frame-rate window where it runs; at rest without sampling it
 	 * does not, and the time since the last publish stands in. */
-	const bool due = window ||
-		(a->resting && !fnl_atomic_load_bool(&a->cost_sampling) &&
-		 now - a->cost_published_at >= COST_WINDOW);
+	const bool due =
+		window || (a->resting && !fnl_atomic_load_bool(&a->cost_sampling) &&
+				   now - a->cost_published_at >= COST_WINDOW);
 	const bool gpu_new = a->gpu_cost > 0.0 &&
-		fnl_atomic_load_u32(&a->cost_gpu_us) == COST_UNKNOWN;
+						 fnl_atomic_load_u32(&a->cost_gpu_us) == COST_UNKNOWN;
 	const double cpu = app_cpu_cost(a);
-	const bool cpu_new = cpu > 0.0 &&
-		fnl_atomic_load_u32(&a->cost_cpu_us) == COST_UNKNOWN;
+	const bool cpu_new =
+		cpu > 0.0 && fnl_atomic_load_u32(&a->cost_cpu_us) == COST_UNKNOWN;
 	if (!gpu_new && !cpu_new && !(a->cost_owed && due))
 		return;
 	if (a->gpu_cost > 0.0)
 		fnl_atomic_store_u32(&a->cost_gpu_us,
 							 (uint32_t)(a->gpu_cost * 1e6 + 0.5));
 	if (cpu > 0.0)
-		fnl_atomic_store_u32(&a->cost_cpu_us,
-							 (uint32_t)(cpu * 1e6 + 0.5));
+		fnl_atomic_store_u32(&a->cost_cpu_us, (uint32_t)(cpu * 1e6 + 0.5));
 	a->cost_published_at = now;
-	a->cost_owed = false;
+	a->cost_owed         = false;
 }
 
 /* A new device's figures are its own -- a GPU that takes the output and
@@ -2489,22 +2623,22 @@ void app_cost_publish(App *a, double now, bool window)
  * and carries over a rebuild; wall_cost, the figure's, does not. */
 void app_frame_cost_reset(App *a)
 {
-	a->gpu_cost = 0.0;
+	a->gpu_cost     = 0.0;
 	a->gpu_cost_seq = fnl_atomic_load_u32(&a->gpu_sample_seq);
 	fnl_atomic_store_u32(&a->cost_gpu_us, COST_UNKNOWN);
-	a->met_gpu_at = 0.0;         /* the panel's share, from this device's */
-	a->cpu_cost = 0.0;
+	a->met_gpu_at = 0.0; /* the panel's share, from this device's */
+	a->cpu_cost   = 0.0;
 	a->cpu_marked = false;
-	a->wall_cost = 0.0;
-	a->wall_mark = -1.0;
+	a->wall_cost  = 0.0;
+	a->wall_mark  = -1.0;
 	fnl_atomic_store_u32(&a->cost_cpu_us, COST_UNKNOWN);
 }
 
 void app_frame_mark(App *a, FrameMark m)
 {
 	const bool cost = m != FRAME_MARK_PRESENT;
-	const double cpu = cost || a->parts
-					 ? thread_cpu_seconds(&a->cpu_clock) : -1.0;
+	const double cpu =
+		cost || a->parts ? thread_cpu_seconds(&a->cpu_clock) : -1.0;
 	/* The wall clock only where the thread's CPU time is not known, the
 	 * one place it is read (app_cpu_cost()). */
 	if (a->cpu_cost <= 0.0) {
@@ -2513,21 +2647,20 @@ void app_frame_mark(App *a, FrameMark m)
 		} else if (m == FRAME_MARK_PRESENT && a->wall_mark >= 0.0) {
 			const double s = now_seconds() - a->wall_mark;
 			if (a->cost_counts)
-				a->wall_cost = a->wall_cost > 0.0
-							 ? a->wall_cost * 0.9 + s * 0.1 : s;
+				a->wall_cost =
+					a->wall_cost > 0.0 ? a->wall_cost * 0.9 + s * 0.1 : s;
 			a->wall_mark = -1.0;
 		}
 	}
 	if (m == FRAME_MARK_REC) {
-		a->cpu_mark = cpu;
+		a->cpu_mark   = cpu;
 		a->cpu_marked = cpu >= 0.0;
 	} else if (m == FRAME_MARK_PRESENTED && a->cpu_marked && cpu >= 0.0) {
 		/* Not a frame drawn only to show the figures, as for the GPU's
 		 * (app_gpu_time()). */
 		const double s = cpu - a->cpu_mark;
 		if (a->cost_counts)
-			a->cpu_cost = a->cpu_cost > 0.0 ? a->cpu_cost * 0.9 + s * 0.1
-											: s;
+			a->cpu_cost = a->cpu_cost > 0.0 ? a->cpu_cost * 0.9 + s * 0.1 : s;
 		a->cpu_marked = false;
 	}
 	parts_mark(a, m, cpu);
@@ -2630,10 +2763,10 @@ bool app_gpu_entry_of(App *a, int i, const FnlRendererVtbl **r, int *local)
 	bool found = false;
 	fnl_mutex_lock(&a->lock);
 	if (i >= 0 && i < a->gpu_list_n && a->gpu_list[i].slot >= 0 &&
-			a->gpu_list[i].slot < a->gpu_span_n) {
-		*r = a->gpu_span[a->gpu_list[i].slot];
+		a->gpu_list[i].slot < a->gpu_span_n) {
+		*r     = a->gpu_span[a->gpu_list[i].slot];
 		*local = a->gpu_list[i].local;
-		found = true;
+		found  = true;
 	}
 	fnl_mutex_unlock(&a->lock);
 	return found;
@@ -2644,8 +2777,14 @@ bool app_gpu_entry_of(App *a, int i, const FnlRendererVtbl **r, int *local)
 extern const char ubuntu_copyright_txt[];
 extern const char ubuntu_licence_txt[];
 
-const char *fnl_font_notice(void)  { return ubuntu_copyright_txt; }
-const char *fnl_font_licence(void) { return ubuntu_licence_txt; }
+const char *fnl_font_notice(void)
+{
+	return ubuntu_copyright_txt;
+}
+const char *fnl_font_licence(void)
+{
+	return ubuntu_licence_txt;
+}
 
 /* Which device, from the caller and then from the environment. The caller
  * comes first because a program that chose a device has a reason the person
@@ -2659,7 +2798,7 @@ static void gpu_choice(App *a, const FnlInitDesc *d)
 	app_frame_cost_reset(a);
 	fnl_atomic_store_u32(&a->cost_cpu_us, COST_UNKNOWN);
 	a->cost_counts = true;
-	a->gpu_index = d->gpu_index > 0 ? d->gpu_index : 0;
+	a->gpu_index   = d->gpu_index > 0 ? d->gpu_index : 0;
 	a->gpu_want[0] = '\0';
 	if (d->gpu_name && d->gpu_name[0]) {
 		snprintf(a->gpu_want, sizeof a->gpu_want, "%s", d->gpu_name);
@@ -2703,7 +2842,8 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	if (desc->size < offsetof(FnlInitDesc, log))
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"FnlInitDesc::size is %zu; pass sizeof "
-						"(FnlInitDesc)", desc->size);
+						"(FnlInitDesc)",
+						desc->size);
 	/* And a whole number of fields: the copy below takes `size` bytes, so a
 	 * size landing inside a field leaves it partly written -- the log
 	 * callback, for one. Every sizeof is a multiple of its type's alignment
@@ -2720,8 +2860,8 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
 						"header is version %u.%u, library is %u.%u",
 						desc->header_version >> 16,
-						(desc->header_version >> 8) & 0xff,
-						FNL_VERSION_MAJOR, FNL_VERSION_MINOR);
+						(desc->header_version >> 8) & 0xff, FNL_VERSION_MAJOR,
+						FNL_VERSION_MINOR);
 
 	/* Copied into a zeroed one of this build's size before any field is
 	 * read: an older caller's descriptor stops short of the newer fields. */
@@ -2751,21 +2891,21 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	 * and none of its process figures known yet. */
 	fnl_atomic_store_u32(&a->metrics_key, (uint32_t)FNL_KEY_F5);
 	a->met_cpu_pm = a->met_ram_mib = a->met_vram_mib = METRICS_UNKNOWN;
-	a->met_gpu_pm = METRICS_UNKNOWN;
-	a->met_cpu_s = -1.0;
-	a->wall_mark = -1.0;
+	a->met_gpu_pm                                    = METRICS_UNKNOWN;
+	a->met_cpu_s                                     = -1.0;
+	a->wall_mark                                     = -1.0;
 	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;
 
 	/* The library's own bar until a caller replaces it. Zero would be a
 	 * window with no titlebar band at all, a state this library does not
 	 * have and every geometry site would then compute from. */
-	a->deco_h            = DECO_TITLEBAR_H;
-	a->late_latch        = !d.no_late_latch;
-	a->late_fixed        = d.late_latch_fixed;
+	a->deco_h     = DECO_TITLEBAR_H;
+	a->late_latch = !d.no_late_latch;
+	a->late_fixed = d.late_latch_fixed;
 	/* "No measurement", which the memset cannot express: zero is a
 	 * legitimate reading for either. See App::present_block. */
-	a->present_block     = -1.0;
-	a->late_held         = -1.0;
+	a->present_block = -1.0;
+	a->late_held     = -1.0;
 	/* The one figure every layout number is multiplied by, so it is held to
 	 * app.h's range first: past it scale_pt() is a signed overflow. Clamped
 	 * and said out loud rather than refused. */
@@ -2773,18 +2913,19 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	if (a->scale_override120 > 0) {
 		const int s = clamp_scale120(a->scale_override120);
 		if (s != a->scale_override120)
-			fnl_log(FNL_LOG_WARN, "scale_override120 is %d, which is outside "
-								  "%d to %d; using %d",
+			fnl_log(FNL_LOG_WARN,
+					"scale_override120 is %d, which is outside "
+					"%d to %d; using %d",
 					a->scale_override120, SCALE120_MIN, SCALE120_MAX, s);
 		a->scale_override120 = s;
 	}
 	gpu_choice(a, &d);
-	a->content_is_ui    = d.content_is_ui;
-	a->rank_no_measure  = d.no_gpu_ranking;
+	a->content_is_ui        = d.content_is_ui;
+	a->rank_no_measure      = d.no_gpu_ranking;
 	a->no_titlebar_controls = d.no_titlebar_controls;
-	a->frame_times       = d.frame_times;
+	a->frame_times          = d.frame_times;
 	parts_open(a);
-	a->echo_events       = d.echo_events || echo_wanted_by_env();
+	a->echo_events = d.echo_events || echo_wanted_by_env();
 
 	/* Copied: the caller's string may be a local, and it is read long after
 	 * fnl_init() has returned. Truncation is silent. */
@@ -2792,7 +2933,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 
 	/* Bounded like every point figure a caller hands over (see clamp_pt in
 	 * app.h); at or below zero is the library's default. */
-	a->init_w_pt = d.width_pt  > 0 ? clamp_pt(d.width_pt)  : 0;
+	a->init_w_pt = d.width_pt > 0 ? clamp_pt(d.width_pt) : 0;
 	a->init_h_pt = d.height_pt > 0 ? clamp_pt(d.height_pt) : 0;
 
 	/* Which renderers this caller may be handed, checked before anything is
@@ -2812,8 +2953,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	/* Measured here, on the one thread that exists, because both of them ask
 	 * afterwards: the render thread draws the title and the input thread
 	 * hit-tests around it (see deco_title_fits). */
-	fnl_atomic_store_u32(&a->title_w,
-						 (uint32_t)text_width(a->title, TEXT_UI));
+	fnl_atomic_store_u32(&a->title_w, (uint32_t)text_width(a->title, TEXT_UI));
 
 	fnl_mutex_init(&a->lock);
 	fnl_mutex_init(&a->ev_lock);
@@ -2877,7 +3017,7 @@ void fnl_shutdown(App *a)
 	 * using. Refused with a line rather than hung or freed. */
 	if (app_thread() == APP_THREAD_RENDER || a->in_run) {
 		fnl_log(FNL_LOG_ERROR, "fnl_shutdown() called from a callback; "
-				"it must be called after fnl_run() returns");
+							   "it must be called after fnl_run() returns");
 		return;
 	}
 	app_teardown(a);
@@ -2908,11 +3048,12 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 	 * attributed to the thread fnl_init() ran on; another thread would pump
 	 * a connection it did not open. */
 	if (app_thread() != APP_THREAD_MAIN)
-		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_start() must be called "
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_start() must be called "
 						"on the thread that called fnl_init()");
 	if (a->in_run)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_start() called from a "
-						"callback of its own");
+												  "callback of its own");
 
 	/* Copied, not referenced: the render thread reads these every frame, and
 	 * the caller's FnlCallbacks may be a local. The three size tests are
@@ -2925,12 +3066,14 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 		if (cb->size < offsetof(FnlCallbacks, on_gpu_created))
 			return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 							"FnlCallbacks::size is %zu; set it to sizeof "
-							"(FnlCallbacks)", cb->size);
+							"(FnlCallbacks)",
+							cb->size);
 		if (cb->size % FNL_ALIGNOF(FnlCallbacks) != 0)
 			return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 							"FnlCallbacks::size is %zu, which is not a size "
 							"this struct has ever had; set it to sizeof "
-							"(FnlCallbacks)", cb->size);
+							"(FnlCallbacks)",
+							cb->size);
 		memcpy(&a->cb, cb, cb->size);
 	}
 
@@ -2940,7 +3083,7 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 	 * registered only on_gpu_lost gets exactly one per loss. See
 	 * App::cb_gpu_created. */
 	app_aa_settle(a);
-	a->in_run = true;
+	a->in_run         = true;
 	a->cb_gpu_created = true;
 	if (a->cb.on_gpu_created)
 		a->cb.on_gpu_created(a->cb.ud, a);
@@ -2979,11 +3122,12 @@ FnlResult fnl_pump(App *a, int timeout_ms)
 	if (!a)
 		return FNL_ERR_INVALID_ARGUMENT;
 	if (app_thread() != APP_THREAD_MAIN)
-		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_pump() must be called "
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_pump() must be called "
 						"on the thread that called fnl_init()");
 	if (!a->in_run)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_pump() outside "
-						"fnl_start() and fnl_stop()");
+												  "fnl_start() and fnl_stop()");
 	if (fnl_atomic_load_bool(&a->should_close))
 		return FNL_SKIPPED;
 	BACKEND(a)->pump(a, timeout_ms);

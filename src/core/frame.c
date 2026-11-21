@@ -24,9 +24,9 @@
 /* The fraction of a turn's idle the hold may take; the rest is headroom. */
 #define LATE_SLACK_SPEND 0.75
 /* The climb towards that, per frame. The fall is one step. */
-#define LATE_SLACK_RISE  0.05
+#define LATE_SLACK_RISE 0.05
 /* Above this a sample is not a display period: 20 Hz. Seconds. */
-#define LATE_SLACK_MAX   0.05
+#define LATE_SLACK_MAX 0.05
 /* Frames after a swapchain rebuild that say nothing about the period: FIFO
  * does not throttle a new swapchain until its queue has filled. An image
  * count, above any this builds. */
@@ -93,9 +93,9 @@
  * spaced turns, the gap doubling after each burst that changed nothing, up
  * to the last. A swap that does throttle nothing pays a burst of frames a
  * minute once the gap has grown. */
-#define PERIOD_PROBE_LEN   (PERIOD_RELEARN_RUN + 3)
+#define PERIOD_PROBE_LEN (PERIOD_RELEARN_RUN + 3)
 #define PERIOD_PROBE_FIRST 120
-#define PERIOD_PROBE_MAX   3840
+#define PERIOD_PROBE_MAX 3840
 /* A gap longer than this is a stall, not a sample. Seconds. */
 #define LATE_STALL 0.5
 /* Good frames a miss is remembered for: two seconds at 60 Hz. */
@@ -141,10 +141,10 @@ static void hold_wait(App *a, double seconds, bool for_configure)
 	double left = seconds;
 
 	fnl_mutex_lock(&a->lock);
-	while (!a->quit && !a->want_urgent &&
-		   !(for_configure &&
-			 (a->want_w != a->draw_w || a->want_h != a->draw_h ||
-			  a->want_scale120 != a->draw_scale120))) {
+	while (
+		!a->quit && !a->want_urgent &&
+		!(for_configure && (a->want_w != a->draw_w || a->want_h != a->draw_h ||
+							a->want_scale120 != a->draw_scale120))) {
 		const double t0 = now_seconds();
 		if (!fnl_cond_wait_for(&a->cond, &a->lock, left))
 			break;
@@ -171,18 +171,18 @@ static double late_hold(const App *a)
  * under it. */
 static void late_latch_feedback(App *a, double displayed)
 {
-	double gap = displayed - a->late_prev_disp;
+	double gap        = displayed - a->late_prev_disp;
 	a->late_prev_disp = displayed;
-	if (gap <= 0.0 || gap > LATE_STALL)          /* first sample, or a stall */
+	if (gap <= 0.0 || gap > LATE_STALL) /* first sample, or a stall */
 		return;
 
 	/* Average only the gaps that look like a period, and adopt a shorter one
 	 * only when it keeps happening: tracking the minimum lets one short gap
 	 * make every frame read as a miss. */
 	if (a->late_period <= 0.0) {
-		a->late_period = gap;
-		a->late_turn = gap;
-		a->late_ceiling = gap;                   /* until a slip says lower */
+		a->late_period  = gap;
+		a->late_turn    = gap;
+		a->late_ceiling = gap; /* until a slip says lower */
 		return;
 	}
 
@@ -192,8 +192,8 @@ static void late_latch_feedback(App *a, double displayed)
 		 * Proportional: a fixed step drives the ceiling negative. */
 		if (a->late_recent++ && a->late_delay > 0.001) {
 			a->late_ceiling = a->late_delay * 0.9;
-			a->late_delay = a->late_ceiling * 0.9;
-			a->late_recent = 0;
+			a->late_delay   = a->late_ceiling * 0.9;
+			a->late_recent  = 0;
 		}
 		a->late_cooldown = LATE_COOLDOWN;
 		return;
@@ -201,12 +201,12 @@ static void late_latch_feedback(App *a, double displayed)
 	/* Exactly one decrement per good frame and one site that clears
 	 * late_recent, or a single later hiccup reads as the second miss. */
 	if (a->late_cooldown > 0 && --a->late_cooldown == 0)
-		a->late_recent = 0;                      /* the window passed quietly */
+		a->late_recent = 0; /* the window passed quietly */
 	if (gap < a->late_period * 0.75) {
-		if (++a->late_short >= LATE_SHORT) {     /* it is the new period */
+		if (++a->late_short >= LATE_SHORT) { /* it is the new period */
 			a->late_period = gap;
-			a->late_turn = gap;
-			a->late_short = 0;
+			a->late_turn   = gap;
+			a->late_short  = 0;
 		}
 		return;
 	}
@@ -225,8 +225,8 @@ static void late_latch_feedback(App *a, double displayed)
 	if (a->late_turn > a->late_period * LATE_SLIDE) {
 		if (a->late_delay > LATE_HOLD_MIN) {
 			a->late_ceiling = a->late_delay * 0.9;
-			a->late_delay = a->late_ceiling * 0.9;
-			a->late_turn = a->late_period;
+			a->late_delay   = a->late_ceiling * 0.9;
+			a->late_turn    = a->late_period;
 			return;
 		}
 		a->late_period = a->late_turn;
@@ -250,9 +250,9 @@ static void late_latch_feedback(App *a, double displayed)
 	if (cap < 0.0)
 		cap = 0.0;
 
-	a->late_ceiling += 0.000005;                 /* re-probe, 0.3 ms a second */
+	a->late_ceiling += 0.000005; /* re-probe, 0.3 ms a second */
 	if (a->late_delay < cap)
-		a->late_delay += 0.00005;                /* 3 ms a second */
+		a->late_delay += 0.00005; /* 3 ms a second */
 	if (a->late_delay > cap)
 		a->late_delay = cap;
 }
@@ -263,7 +263,7 @@ static void late_latch_feedback(App *a, double displayed)
 static void inst_sample(App *a, double displayed)
 {
 	const double gap = displayed - a->inst_prev;
-	a->inst_prev = displayed;
+	a->inst_prev     = displayed;
 	if (gap <= 0.0 || gap > LATE_STALL)
 		return;
 	if (a->inst_period <= 0.0) {
@@ -300,7 +300,7 @@ static void inst_sample(App *a, double displayed)
  * slides rather than doubles and a miss never registers. */
 static void late_latch_slack(App *a, double held, double blocked)
 {
-	double slack = held + blocked;
+	double slack      = held + blocked;
 	const double turn = slack + a->late_cost;
 
 	if (held <= 0.0) {
@@ -309,12 +309,12 @@ static void late_latch_slack(App *a, double held, double blocked)
 		/* A missed cycle is folded in rather than dropped: it loosens the
 		 * test for a few turns, and dropping it would never adopt a slower
 		 * display. */
-		a->late_base = a->late_base > 0.0
-					 ? a->late_base * 0.9 + turn * 0.1 : turn;
+		a->late_base =
+			a->late_base > 0.0 ? a->late_base * 0.9 + turn * 0.1 : turn;
 		if (a->late_base_n < LATE_BASE_TURNS) {
 			if (++a->late_base_n == LATE_BASE_TURNS) {
 				a->late_ceiling = a->late_base;
-				a->late_turn = a->late_base;
+				a->late_turn    = a->late_base;
 			}
 			return;
 		}
@@ -324,7 +324,7 @@ static void late_latch_slack(App *a, double held, double blocked)
 		a->late_turn += (turn - a->late_turn) * LATE_TURN_WEIGHT;
 		if (a->late_turn > a->late_base * LATE_OVERRUN) {
 			a->late_ceiling = a->late_delay * 0.9;
-			a->late_delay = a->late_ceiling * 0.9;
+			a->late_delay   = a->late_ceiling * 0.9;
 			/* The next cut wants evidence of its own. */
 			a->late_turn = a->late_base;
 			return;
@@ -341,7 +341,7 @@ static void late_latch_slack(App *a, double held, double blocked)
 	if (slack > a->late_base)
 		slack = a->late_base;
 
-	a->late_ceiling += 0.000005;                 /* re-probe, 0.3 ms a second */
+	a->late_ceiling += 0.000005; /* re-probe, 0.3 ms a second */
 	double target = slack * LATE_SLACK_SPEND;
 	if (target > a->late_ceiling * 0.9)
 		target = a->late_ceiling * 0.9;
@@ -361,7 +361,7 @@ static void late_slack_forget(App *a)
 {
 	a->late_delay = a->late_ceiling = 0.0;
 	a->late_base = a->late_turn = 0.0;
-	a->late_base_n = 0;
+	a->late_base_n              = 0;
 }
 
 /* ---- the display period, where nothing announces it -----------------------
@@ -405,7 +405,7 @@ static bool disp_period_sample(App *a, double period)
 		if (period_missed(a, period))
 			return false;
 		a->disp_period = period;
-		a->disp_early = false;
+		a->disp_early  = false;
 		return true;
 	}
 
@@ -416,8 +416,7 @@ static bool disp_period_sample(App *a, double period)
 	 * other: a device falling behind for a while is not a new display. */
 	if (period > a->disp_period * LATE_MISS_FACTOR) {
 		const uint32_t mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
-		if (mhz == 0 ||
-			a->disp_period >= 1000.0 / mhz * PACE_UNTHROTTLED) {
+		if (mhz == 0 || a->disp_period >= 1000.0 / mhz * PACE_UNTHROTTLED) {
 			a->disp_long_n = 0;
 			return false;
 		}
@@ -427,12 +426,13 @@ static bool disp_period_sample(App *a, double period)
 			a->disp_long_n++;
 			a->disp_long += (period - a->disp_long) / a->disp_long_n;
 		} else {
-			a->disp_long = period;
+			a->disp_long   = period;
 			a->disp_long_n = 1;
 		}
 		if (a->disp_long_n < PERIOD_RELEARN_RUN)
 			return false;
-		fnl_log(FNL_LOG_INFO, "display period learnt again: %.2f ms, where "
+		fnl_log(FNL_LOG_INFO,
+				"display period learnt again: %.2f ms, where "
 				"%.2f stood -- a swap that did not block at first",
 				a->disp_long * 1e3, a->disp_period * 1e3);
 		a->disp_period = a->disp_long;
@@ -457,14 +457,15 @@ static bool period_probe(App *a)
 		return false;
 	if (a->probe_left > 0) {
 		if (--a->probe_left == 0) {
-			a->probe_gap = a->probe_gap * 2 < PERIOD_PROBE_MAX
-						 ? a->probe_gap * 2 : PERIOD_PROBE_MAX;
+			a->probe_gap  = a->probe_gap * 2 < PERIOD_PROBE_MAX
+								? a->probe_gap * 2
+								: PERIOD_PROBE_MAX;
 			a->probe_wait = a->probe_gap;
 		}
 		return true;
 	}
 	if (a->probe_gap == 0) {
-		a->probe_gap = PERIOD_PROBE_FIRST;
+		a->probe_gap  = PERIOD_PROBE_FIRST;
 		a->probe_wait = a->probe_gap;
 	}
 	if (--a->probe_wait > 0)
@@ -486,10 +487,9 @@ static bool scene_pin_applies(int pin_w, int pin_h, int area_w, int area_h)
 static bool swapchain_stale(const App *a, int w, int h, int s, int m,
 							bool vsync)
 {
-	return w != a->draw_w || h != a->draw_h ||
-		   s != a->draw_scale120 || m != a->draw_margin ||
-		   !RENDERER(a)->present_mode_matches(a, vsync) ||
-		   a->resized;
+	return w != a->draw_w || h != a->draw_h || s != a->draw_scale120 ||
+		   m != a->draw_margin ||
+		   !RENDERER(a)->present_mode_matches(a, vsync) || a->resized;
 }
 
 /* ---- the veil ---------------------------------------------------------------
@@ -522,8 +522,8 @@ static void snapshot_drop(App *a)
 {
 	fnl_mutex_lock(&a->lock);
 	unsigned char *old = a->snap_px;
-	a->snap_px = NULL;
-	a->snap_valid = false;
+	a->snap_px         = NULL;
+	a->snap_valid      = false;
 	fnl_mutex_unlock(&a->lock);
 	free(old);
 }
@@ -561,18 +561,17 @@ static float veil_step(App *a, double now)
 {
 	float v = 0.0f;
 	switch (a->veil_phase) {
-	case VEIL_NONE:
-		return 0.0f;
+	case VEIL_NONE: return 0.0f;
 	case VEIL_SNAP:
 		/* Where the lift had reached, already in steps: the frame read
 		 * back is the one on screen, cover and all. */
 		return a->veil_snap;
 	case VEIL_OUT: {
 		const double s = veil_seconds(a, true);
-		v = s > 0.0 ? (float)((now - a->veil_t0) / s) : 1.0f;
+		v              = s > 0.0 ? (float)((now - a->veil_t0) / s) : 1.0f;
 		if (v >= 1.0f) {
-			v = 1.0f;
-			a->veil_phase = VEIL_HELD;
+			v                = 1.0f;
+			a->veil_phase    = VEIL_HELD;
 			a->veil_presents = a->presents;
 		}
 		break;
@@ -587,14 +586,14 @@ static float veil_step(App *a, double now)
 		v = 1.0f;
 		if (a->presents > a->veil_presents) {
 			a->veil_phase = VEIL_IN;
-			a->veil_t0 = now;
+			a->veil_t0    = now;
 		}
 		break;
 	case VEIL_IN: {
 		const double s = veil_seconds(a, false);
 		v = s > 0.0 ? 1.0f - (float)((now - a->veil_t0) / s) : 0.0f;
 		if (v <= 0.0f) {
-			v = 0.0f;
+			v             = 0.0f;
 			a->veil_phase = VEIL_NONE;
 			snapshot_drop(a);
 		}
@@ -616,8 +615,7 @@ static void veil_lift(App *a)
 	switch (a->veil_phase) {
 	case VEIL_NONE:
 	case VEIL_IN:
-	case VEIL_ARMED:
-		return;
+	case VEIL_ARMED: return;
 	case VEIL_SNAP:
 		a->snap_owed = false;
 		if (a->snap_fresh && a->veil_snap > 0.0f) {
@@ -645,11 +643,10 @@ static void veil_lift(App *a)
 		if (v > 1.0)
 			v = 1.0;
 		break;
-	case VEIL_HELD:
-		break;
+	case VEIL_HELD: break;
 	}
 	a->veil_phase = VEIL_IN;
-	a->veil_t0 = now - (1.0 - v) * in;
+	a->veil_t0    = now - (1.0 - v) * in;
 }
 
 bool app_veil_gate(App *a)
@@ -677,34 +674,33 @@ bool app_veil_gate(App *a)
 		 * (veil_unseen()). */
 		if (veil_hidden(a)) {
 			snapshot_drop(a);
-			a->veil_black = false;
-			a->veil_phase = VEIL_HELD;
+			a->veil_black    = false;
+			a->veil_phase    = VEIL_HELD;
 			a->veil_presents = a->presents;
 			return true;
 		}
 		const bool lifting = a->veil_phase == VEIL_IN;
-		a->veil_snap = lifting ? a->last_draw.veil : 0.0f;
+		a->veil_snap       = lifting ? a->last_draw.veil : 0.0f;
 		if (!lifting) {
 			snapshot_drop(a);
 			a->veil_black = false;
 		}
 		a->record_gen++;
-		a->snap_owed = true;
+		a->snap_owed  = true;
 		a->snap_fresh = false;
 		a->veil_phase = VEIL_SNAP;
-		a->veil_t0 = now;
+		a->veil_t0    = now;
 		return false;
 	}
 	case VEIL_SNAP:
-		if (a->snap_owed && now - a->veil_t0 <= VEIL_STALL &&
-			!veil_hidden(a))
+		if (a->snap_owed && now - a->veil_t0 <= VEIL_STALL && !veil_hidden(a))
 			return false;
 		a->snap_owed = false;
 		if (a->snap_fresh) {
 			/* Held across the move: nothing comes down first. */
-			a->snap_fresh = false;
-			a->veil_black = false;
-			a->veil_phase = VEIL_HELD;
+			a->snap_fresh    = false;
+			a->veil_black    = false;
+			a->veil_phase    = VEIL_HELD;
 			a->veil_presents = a->presents;
 			return true;
 		}
@@ -716,12 +712,12 @@ bool app_veil_gate(App *a)
 		snapshot_drop(a);
 		a->veil_black = true;
 		if (out <= 0.0) {
-			a->veil_phase = VEIL_HELD;
+			a->veil_phase    = VEIL_HELD;
 			a->veil_presents = a->presents;
 			return true;
 		}
 		a->veil_phase = VEIL_OUT;
-		a->veil_t0 = now - (double)a->veil_snap * out;
+		a->veil_t0    = now - (double)a->veil_snap * out;
 		return false;
 	case VEIL_OUT:
 		if (now - a->veil_t0 <= out + VEIL_STALL && !veil_hidden(a))
@@ -760,8 +756,8 @@ void app_snapshot_set(App *a, const void *px, int w, int h, size_t pitch,
 	 * uploads that order. */
 	for (int y = 0; y < h; y++) {
 		unsigned char *dst = fresh + (size_t)y * row;
-		const unsigned char *src = (const unsigned char *)px +
-								   (size_t)y * pitch;
+		const unsigned char *src =
+			(const unsigned char *)px + (size_t)y * pitch;
 		if (bgra) {
 			memcpy(dst, src, row);
 			continue;
@@ -777,10 +773,10 @@ void app_snapshot_set(App *a, const void *px, int w, int h, size_t pitch,
 	 * block it finds there. */
 	fnl_mutex_lock(&a->lock);
 	unsigned char *old = a->snap_px;
-	a->snap_px = fresh;
-	a->snap_w = w;
-	a->snap_h = h;
-	a->snap_valid = true;
+	a->snap_px         = fresh;
+	a->snap_w          = w;
+	a->snap_h          = h;
+	a->snap_valid      = true;
 	a->snap_gen++;
 	fnl_mutex_unlock(&a->lock);
 	free(old);
@@ -804,6 +800,13 @@ static void device_recover(App *a)
 		a->cb_gpu_created = false;
 		if (a->cb.on_gpu_lost)
 			a->cb.on_gpu_lost(a->cb.ud, a);
+		/* The caller's images are not drawable until the device that replaces
+		 * this one is up (fnl_image_valid()), and the gap is otherwise silent:
+		 * a caller that keeps a picture across a loss redraws rather than
+		 * polls. FNL_EVENT_GPU closes it, posted when the device is back. */
+		FnlEvent ev        = { .type = FNL_EVENT_IMAGE_LOST };
+		ev.image_lost.lost = true;
+		app_event(a, &ev);
 	}
 
 	/* A renderer owed after a swap that failed both ways, a move to
@@ -834,7 +837,7 @@ static void device_recover(App *a)
 		 * window server kept the last frame, the lift goes on. */
 		fnl_mutex_lock(&a->lock);
 		const bool shown = a->snap_shown;
-		a->snap_shown = false;
+		a->snap_shown    = false;
 		fnl_mutex_unlock(&a->lock);
 		/* A loss while a frame is read back from a lift held, where the
 		 * gap showed the cover whole: the frame is read back at the whole
@@ -845,7 +848,7 @@ static void device_recover(App *a)
 		if (a->veil_phase == VEIL_HELD || a->veil_phase == VEIL_ARMED ||
 			(a->veil_phase == VEIL_IN && shown)) {
 			if (veil_seconds(a, false) > 0.0) {
-				a->veil_phase = VEIL_ARMED;
+				a->veil_phase    = VEIL_ARMED;
 				a->veil_presents = a->presents;
 			} else {
 				a->veil_phase = VEIL_NONE;
@@ -868,12 +871,14 @@ static void device_recover(App *a)
 	 * left only the device's loss raised, and a recovery from that alone
 	 * keeps the GPU that failed, on OpenGL whose display is one device's. */
 	if (a->gpu_switching && !a->gpu_switch_back) {
-		fnl_log(FNL_LOG_WARN, "the GPU asked for would not draw here (%s); "
-				"back to the one before", fnl_last_error());
+		fnl_log(FNL_LOG_WARN,
+				"the GPU asked for would not draw here (%s); "
+				"back to the one before",
+				fnl_last_error());
 		a->gpu_index = a->gpu_back_index;
 		memcpy(a->gpu_want, a->gpu_back_want, sizeof a->gpu_want);
 		a->gpu_switch_back = true;
-		a->surface_lost = true;
+		a->surface_lost    = true;
 	} else if (a->gpu_switching) {
 		a->gpu_switching = a->gpu_switch_back = false;
 	}
@@ -901,8 +906,8 @@ static int gpu_req_find(const App *a) FNL_REQUIRES(a->lock)
 	const int at = a->gpu_req - 1;
 	if (at < 0)
 		return -1;
-	if (at < a->gpu_list_n && gpu_entry_same(&a->gpu_list[at],
-											 &a->gpu_req_entry))
+	if (at < a->gpu_list_n &&
+		gpu_entry_same(&a->gpu_list[at], &a->gpu_req_entry))
 		return at;
 	for (int i = 0; i < a->gpu_list_n; i++)
 		if (gpu_entry_same(&a->gpu_list[i], &a->gpu_req_entry))
@@ -934,13 +939,13 @@ static void gpu_switch_owed(App *a)
 	 * the one made. The gate is asked outside the lock, which it takes to
 	 * let go of a frame read back (snapshot_drop()). */
 	fnl_mutex_lock(&a->lock);
-	int want = gpu_req_find(a);
+	int want         = gpu_req_find(a);
 	const bool gated = want >= 0 && want != a->gpu_list_cur;
 	fnl_mutex_unlock(&a->lock);
 	if (gated && !app_veil_gate(a))
 		return;
 	fnl_mutex_lock(&a->lock);
-	want = gpu_req_find(a);
+	want             = gpu_req_find(a);
 	const bool other = want >= 0 && want != a->gpu_list_cur;
 	/* A wish that came between the two reads has not been through the
 	 * gate: the next turn takes it there. */
@@ -950,12 +955,12 @@ static void gpu_switch_owed(App *a)
 	}
 	/* Only a wish spent lifts a veil: with none, this runs every turn,
 	 * and the lift of a move just made is the first present's. */
-	const bool wished = a->gpu_req != 0;
-	a->gpu_req = 0;
+	const bool wished       = a->gpu_req != 0;
+	a->gpu_req              = 0;
 	char name[GPU_NAME_MAX] = "";
-	const int move = other ? a->gpu_list[want].driver_move - 1 : -1;
-	const FnlRenderer lands = other ? a->gpu_list[want].renderer
-									: FNL_RENDERER_DEFAULT;
+	const int move          = other ? a->gpu_list[want].driver_move - 1 : -1;
+	const FnlRenderer lands =
+		other ? a->gpu_list[want].renderer : FNL_RENDERER_DEFAULT;
 	if (other)
 		memcpy(name, a->gpu_list[want].name, sizeof name);
 	fnl_mutex_unlock(&a->lock);
@@ -967,7 +972,7 @@ static void gpu_switch_owed(App *a)
 	int local;
 	if (!other || !app_gpu_entry_of(a, want, &r, &local)) {
 		if (wished)
-			veil_lift(a);       /* a veil that came down for nothing */
+			veil_lift(a); /* a veil that came down for nothing */
 		return;
 	}
 
@@ -976,12 +981,12 @@ static void gpu_switch_owed(App *a)
 	memcpy(a->gpu_back_want, a->gpu_want, sizeof a->gpu_back_want);
 	/* gpu_index counts the list of the renderer that will pick, which is
 	 * another renderer's where the GPU is one of its (renderer_swap()). */
-	a->gpu_index = local + 1;
-	a->gpu_want[0] = '\0';
-	a->renderer_next = r != a->renderer ? r : NULL;
-	a->gpu_switching = true;
+	a->gpu_index       = local + 1;
+	a->gpu_want[0]     = '\0';
+	a->renderer_next   = r != a->renderer ? r : NULL;
+	a->gpu_switching   = true;
 	a->gpu_switch_back = false;
-	a->surface_lost = true;
+	a->surface_lost    = true;
 }
 
 /* A period to space by before the window has settled, so that a border
@@ -1004,16 +1009,16 @@ static void disp_period_early(App *a, double period)
 		a->disp_try_n = 0;
 		return;
 	}
-	const double off = period > a->disp_try ? period - a->disp_try
-											: a->disp_try - period;
+	const double off =
+		period > a->disp_try ? period - a->disp_try : a->disp_try - period;
 	if (a->disp_try_n > 0 && off > a->disp_try * PERIOD_EARLY_TOL)
 		a->disp_try_n = 0;
-	a->disp_try = a->disp_try_n == 0
-				? period
-				: a->disp_try + (period - a->disp_try) / (a->disp_try_n + 1);
+	a->disp_try = a->disp_try_n == 0 ? period
+									 : a->disp_try + (period - a->disp_try) /
+														 (a->disp_try_n + 1);
 	if (++a->disp_try_n >= PERIOD_EARLY_RUN) {
 		a->disp_period = a->disp_try;
-		a->disp_early = true;
+		a->disp_early  = true;
 	}
 }
 
@@ -1041,13 +1046,13 @@ static void disp_period_early(App *a, double period)
 static double pace_period(const App *a, bool *every)
 {
 	const uint32_t mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
-	*every = false;
+	*every             = false;
 	if (mhz == 0)
 		return a->disp_period;
-	const double refresh = 1000.0 / mhz;
+	const double refresh   = 1000.0 / mhz;
 	const bool unthrottled = a->disp_period > 0.0
-		? a->disp_period < refresh * PACE_UNTHROTTLED
-		: a->present_untimed;
+								 ? a->disp_period < refresh * PACE_UNTHROTTLED
+								 : a->present_untimed;
 	if (unthrottled) {
 		*every = true;
 		return refresh;
@@ -1066,11 +1071,10 @@ static double pace_period(const App *a, bool *every)
  * must not be paced twice. */
 static bool pace_space(App *a, double period, bool every)
 {
-	bool held = false;
+	bool held          = false;
 	const double t_now = now_seconds();
-	double anchor = a->rebuild_at;
-	if ((every || t_now - a->rebuild_at < PACE_HOLDOVER) &&
-		a->pace_at > anchor)
+	double anchor      = a->rebuild_at;
+	if ((every || t_now - a->rebuild_at < PACE_HOLDOVER) && a->pace_at > anchor)
 		anchor = a->pace_at;
 	const double since = t_now - anchor;
 	if (since < period) {
@@ -1079,7 +1083,7 @@ static bool pace_space(App *a, double period, bool every)
 	}
 	/* After the wait, and on every turn that reaches here, or the anchor
 	 * goes stale the moment one is let straight through. */
-	a->pace_at = now_seconds();
+	a->pace_at  = now_seconds();
 	a->pace_ran = true;
 	/* A held turn is anchored where its hold was due, not where it came
 	 * back: no timed wait returns early, so anchoring on the return spaces
@@ -1117,11 +1121,11 @@ static bool pace_space(App *a, double period, bool every)
  * a drag is held to the size handshake, whose frame between two sizes
  * waited for the one before on this desk's XWayland, 44 fps in pace.py's
  * border row where it was 59. */
-#define DISPLAY_AHEAD        1
-#define DISPLAY_AHEAD_SLOW   2
-#define DISPLAY_MISS_RUN     2
-#define DISPLAY_RETRY_FIRST  2.0
-#define DISPLAY_RETRY_MAX    64.0
+#define DISPLAY_AHEAD 1
+#define DISPLAY_AHEAD_SLOW 2
+#define DISPLAY_MISS_RUN 2
+#define DISPLAY_RETRY_FIRST 2.0
+#define DISPLAY_RETRY_MAX 64.0
 /* Bounded, at a period for each frame still to be answered and half a
  * period more, and no longer than the second: a frame the window server
  * never answers costs the turn this, not the loop, and then nothing is
@@ -1131,8 +1135,8 @@ static bool pace_space(App *a, double period, bool every)
  * began with three frames already waiting, each wait ran out before the
  * last of them was shown, and the queue was never drained, 47 ms from
  * latch to screen where it would be 16.5. */
-#define DISPLAY_WAIT_SLACK   0.5
-#define DISPLAY_WAIT_MAX_S   0.1
+#define DISPLAY_WAIT_SLACK 0.5
+#define DISPLAY_WAIT_MAX_S 0.1
 
 /* Until the window server has answered for all but the last `ahead` - 1
  * frames presented (app_frame_answered()), or the bound has gone by. False
@@ -1153,10 +1157,10 @@ static bool display_wait(App *a, int ahead, double period)
 	/* Answered is the frame's index and one, so the last presented frame,
 	 * presents - 1, is answered at presents. */
 	const uint32_t want = (uint32_t)(a->presents - (uint64_t)ahead + 1);
-	const int32_t owed = (int32_t)(want - seen);
-	double left = period > 0.0 ? period * ((owed > 0 ? owed : 0) +
-										   DISPLAY_WAIT_SLACK)
-							   : DISPLAY_WAIT_MAX_S;
+	const int32_t owed  = (int32_t)(want - seen);
+	double left         = period > 0.0
+							  ? period * ((owed > 0 ? owed : 0) + DISPLAY_WAIT_SLACK)
+							  : DISPLAY_WAIT_MAX_S;
 	if (left > DISPLAY_WAIT_MAX_S)
 		left = DISPLAY_WAIT_MAX_S;
 	fnl_mutex_lock(&a->lock);
@@ -1172,7 +1176,7 @@ static bool display_wait(App *a, int ahead, double period)
 	const uint32_t now_seen = fnl_atomic_load_u32(&a->frame_answered);
 	fnl_mutex_unlock(&a->lock);
 	if ((int32_t)(now_seen - want) < 0) {
-		a->display_unanswered = true;
+		a->display_unanswered    = true;
 		a->display_unanswered_at = now_seen;
 	}
 	return true;
@@ -1181,20 +1185,21 @@ static bool display_wait(App *a, int ahead, double period)
 static void display_hold(App *a)
 {
 	if (a->display_ahead == 0) {
-		a->display_ahead = DISPLAY_AHEAD;
+		a->display_ahead     = DISPLAY_AHEAD;
 		a->display_retry_gap = DISPLAY_RETRY_FIRST;
 	}
 	const double t0 = now_seconds();
 	if (a->display_ahead > DISPLAY_AHEAD && t0 >= a->display_retry_at) {
-		a->display_ahead = DISPLAY_AHEAD;
+		a->display_ahead  = DISPLAY_AHEAD;
 		a->display_misses = 0;
 	}
-	const uint32_t mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
+	const uint32_t mhz  = fnl_atomic_load_u32(&a->out_refresh_mhz);
 	const double period = a->disp_period > 0.0 ? a->disp_period
-						: mhz ? 1000.0 / mhz : 0.0;
-	const bool waited = display_wait(a, a->display_ahead, period);
-	const double t1 = now_seconds();
-	a->display_block = t1 - t0;
+						  : mhz                ? 1000.0 / mhz
+											   : 0.0;
+	const bool waited   = display_wait(a, a->display_ahead, period);
+	const double t1     = now_seconds();
+	a->display_block    = t1 - t0;
 	if (!waited)
 		return;
 
@@ -1202,13 +1207,13 @@ static void display_hold(App *a)
 	if (period > 0.0 && next && a->display_ahead == DISPLAY_AHEAD &&
 		t1 - a->display_last > period * LATE_MISS_FACTOR) {
 		if (++a->display_misses >= DISPLAY_MISS_RUN) {
-			a->display_ahead = DISPLAY_AHEAD_SLOW;
-			a->display_misses = 0;
+			a->display_ahead    = DISPLAY_AHEAD_SLOW;
+			a->display_misses   = 0;
 			a->display_retry_at = t1 + a->display_retry_gap;
-			a->display_retry_gap = a->display_retry_gap * 2.0 >
-								   DISPLAY_RETRY_MAX
-								 ? DISPLAY_RETRY_MAX
-								 : a->display_retry_gap * 2.0;
+			a->display_retry_gap =
+				a->display_retry_gap * 2.0 > DISPLAY_RETRY_MAX
+					? DISPLAY_RETRY_MAX
+					: a->display_retry_gap * 2.0;
 		}
 	} else if (next && a->display_ahead == DISPLAY_AHEAD) {
 		a->display_misses = 0;
@@ -1218,7 +1223,7 @@ static void display_hold(App *a)
 		if (t1 > a->display_retry_at + a->display_retry_gap)
 			a->display_retry_gap = DISPLAY_RETRY_FIRST;
 	}
-	a->display_last = t1;
+	a->display_last          = t1;
 	a->display_last_presents = a->presents;
 }
 
@@ -1232,7 +1237,7 @@ static bool pace_turn(App *a, bool rebuild, bool urgent, bool vsync,
 	*spaced = false;
 
 	const bool invited = BACKEND(a)->frame_wait(a, !rebuild);
-	a->display_block = 0.0;
+	a->display_block   = 0.0;
 	if (invited && vsync && !rebuild && BACKEND(a)->display_waits &&
 		now_seconds() - a->rebuild_at >= PACE_HOLDOVER)
 		display_hold(a);
@@ -1240,7 +1245,7 @@ static bool pace_turn(App *a, bool rebuild, bool urgent, bool vsync,
 	/* Every vsynced turn and, tearing, every rebuild; never an urgent one. */
 	bool every;
 	const double period = pace_period(a, &every);
-	const bool probe = every && vsync && !rebuild && period_probe(a);
+	const bool probe    = every && vsync && !rebuild && period_probe(a);
 	if (invited && !urgent && !BACKEND(a)->invites && period > 0.0 &&
 		(vsync || rebuild) && !probe)
 		*spaced = pace_space(a, period, every);
@@ -1265,18 +1270,18 @@ static bool pace_turn(App *a, bool rebuild, bool urgent, bool vsync,
 
 /* Everything the frame is drawn from, taken under App::lock as one set. */
 typedef struct {
-	int          w, h, s;
-	bool         fs, act, mx, cap;
-	Zone         hb;
-	int          ow, oh, curx, cury;
-	int          pin_w, pin_h;
+	int w, h, s;
+	bool fs, act, mx, cap;
+	Zone hb;
+	int ow, oh, curx, cury;
+	int pin_w, pin_h;
 	FnlAntialias aa;
-	char         outname[OUTPUT_NAME_MAX];
-	char         title[TITLE_MAX];
-	uint32_t     cfg_serial, user_gen;
-	bool         cfg_pending;
-	int          bar_h;
-	bool         custom_bar;
+	char outname[OUTPUT_NAME_MAX];
+	char title[TITLE_MAX];
+	uint32_t cfg_serial, user_gen;
+	bool cfg_pending;
+	int bar_h;
+	bool custom_bar;
 } Latch;
 
 /* The second look, taken after the wait: the newest input and configure are
@@ -1286,23 +1291,26 @@ static bool latch_take(App *a, Latch *l, bool *urgent, double *cb_at)
 {
 	fnl_mutex_lock(&a->lock);
 	const bool quit = a->quit;
-	l->w    = a->want_w;
-	l->h    = a->want_h;
-	l->s    = want_s120(a);
-	l->hb   = a->hovered_button;
-	l->fs   = a->want_fullscreen;
-	l->act  = a->want_active;
-	l->mx   = a->want_maximized;
-	l->cap  = a->want_captured;
-	l->ow   = a->want_out_w_pt;    l->oh   = a->want_out_h_pt;
-	l->curx = a->want_cursor_x;    l->cury = a->want_cursor_y;
-	l->pin_w = a->want_scene_w;    l->pin_h = a->want_scene_h;
-	l->aa = a->want_aa;
+	l->w            = a->want_w;
+	l->h            = a->want_h;
+	l->s            = want_s120(a);
+	l->hb           = a->hovered_button;
+	l->fs           = a->want_fullscreen;
+	l->act          = a->want_active;
+	l->mx           = a->want_maximized;
+	l->cap          = a->want_captured;
+	l->ow           = a->want_out_w_pt;
+	l->oh           = a->want_out_h_pt;
+	l->curx         = a->want_cursor_x;
+	l->cury         = a->want_cursor_y;
+	l->pin_w        = a->want_scene_w;
+	l->pin_h        = a->want_scene_h;
+	l->aa           = a->want_aa;
 	/* deco_apply_custom() writes the pair under this lock; latched together,
 	 * a frame cannot be laid out at one height and painted at the other. */
-	l->bar_h = deco_client(l->fs) ? a->deco_h : 0;
+	l->bar_h      = deco_client(l->fs) ? a->deco_h : 0;
 	l->custom_bar = a->deco_custom;
-	l->user_gen = a->want_user_gen;
+	l->user_gen   = a->want_user_gen;
 	memcpy(l->outname, a->want_output, sizeof l->outname);
 	memcpy(l->title, a->title, sizeof l->title);
 	*urgent |= a->want_urgent;
@@ -1326,8 +1334,7 @@ static void scene_resolve(const Latch *l, int m, int *scene_w, int *scene_h)
 
 	*scene_w = SCENE_NATIVE;
 	*scene_h = SCENE_NATIVE;
-	if (l->pin_w > 0 &&
-		scene_pin_applies(l->pin_w, l->pin_h, area_w, area_h)) {
+	if (l->pin_w > 0 && scene_pin_applies(l->pin_w, l->pin_h, area_w, area_h)) {
 		*scene_w = l->pin_w;
 		*scene_h = l->pin_h;
 	} else if (l->aa != FNL_AA_NONE) {
@@ -1339,15 +1346,15 @@ static void scene_resolve(const Latch *l, int m, int *scene_w, int *scene_h)
 /* False when the rebuild failed, and the turn draws nothing. */
 static bool swapchain_adopt(App *a, const Latch *l, int m)
 {
-	if (l->w != a->draw_w || l->h != a->draw_h ||
-		l->s != a->draw_scale120 || m != a->draw_margin) {
-		a->size_at = now_seconds();
+	if (l->w != a->draw_w || l->h != a->draw_h || l->s != a->draw_scale120 ||
+		m != a->draw_margin) {
+		a->size_at        = now_seconds();
 		a->buffer_settled = false;
 	}
-	a->draw_w = l->w;
-	a->draw_h = l->h;
+	a->draw_w        = l->w;
+	a->draw_h        = l->h;
 	a->draw_scale120 = l->s;
-	a->draw_margin = m;
+	a->draw_margin   = m;
 	/* Glyphs are rasterised for a pixel size. A failure costs the text, not
 	 * the frame: none is drawn until a later scale change succeeds. */
 	if (RENDERER(a)->scale_changed(a, l->s) < 0)
@@ -1410,7 +1417,7 @@ void app_surface_sync(App *a, uint32_t cfg_serial, bool cfg_pending)
 		a->applied_geo_w = a->draw_w;
 		a->applied_geo_h = a->draw_h;
 		a->applied_geo_m = a->draw_margin;
-		surface_changed = true;
+		surface_changed  = true;
 	}
 
 	surface_changed |= BACKEND(a)->apply_scale(a);
@@ -1440,11 +1447,11 @@ static uint64_t stats_us(double seconds)
 static void gpu_late_fold(App *a) FNL_REQUIRES(a->lock)
 {
 	for (uint32_t k = 0; k < a->gpu_late_n; k++) {
-		const uint32_t look = a->ring_n < 4 * GPU_HOLD_FRAMES
-								  ? a->ring_n : 4 * GPU_HOLD_FRAMES;
+		const uint32_t look =
+			a->ring_n < 4 * GPU_HOLD_FRAMES ? a->ring_n : 4 * GPU_HOLD_FRAMES;
 		for (uint32_t i = 1; i <= look; i++) {
-			FnlFrameSample *r = &a->ring[(a->ring_head + FRAME_RING - i) %
-										 FRAME_RING];
+			FnlFrameSample *r =
+				&a->ring[(a->ring_head + FRAME_RING - i) % FRAME_RING];
 			if (r->index == a->gpu_late[k].index) {
 				if (r->gpu_ms == GPU_PENDING)
 					r->gpu_ms = a->gpu_late[k].ms;
@@ -1460,12 +1467,12 @@ static void gpu_late_fold(App *a) FNL_REQUIRES(a->lock)
 static void stats_publish(App *a, bool vsync, const FnlFrameSample *drawn)
 {
 	a->st.period_ms = a->disp_period * 1e3;
-	a->st.hold_ms = (a->late_latch && vsync ? late_hold(a) : 0.0) * 1e3;
+	a->st.hold_ms   = (a->late_latch && vsync ? late_hold(a) : 0.0) * 1e3;
 	fnl_mutex_lock(&a->lock);
 	a->pub_st = a->st;
 	if (drawn) {
 		a->ring[a->ring_head] = *drawn;
-		a->ring_head = (a->ring_head + 1) % FRAME_RING;
+		a->ring_head          = (a->ring_head + 1) % FRAME_RING;
 		if (a->ring_n < FRAME_RING)
 			a->ring_n++;
 		else
@@ -1488,32 +1495,27 @@ static void stats_publish(App *a, bool vsync, const FnlFrameSample *drawn)
  * to the frame and nothing would say why. */
 static void frame_times_log(App *a, double dt, bool vsync)
 {
-	const double n = a->fc_frames;
+	const double n     = a->fc_frames;
 	const double parts = a->fc_pace_sum + a->fc_draw_sum + a->fc_rebuild_sum;
 	const double other = dt > parts ? dt - parts : 0.0;
 	fnl_log(FNL_LOG_INFO,
 			"frame %.2f ms: pace %.2f fence %.2f acquire %.2f record %.2f "
 			"submit %.2f present %.2f rebuild %.2f other %.2f (draw %.2f, "
 			"hold %.2f, %d fps, gpu idle %d/%d, miss %d/%d, period %.2f)",
-			dt * 1e3 / n, a->fc_pace_sum * 1e3 / n,
-			a->fc_fence_sum * 1e3 / n,
+			dt * 1e3 / n, a->fc_pace_sum * 1e3 / n, a->fc_fence_sum * 1e3 / n,
 			(a->fc_wait_sum - a->fc_fence_sum) * 1e3 / n,
-			a->fc_record_sum * 1e3 / n,
-			a->fc_submit_sum * 1e3 / n,
-			a->fc_present_sum * 1e3 / n,
-			a->fc_rebuild_sum * 1e3 / n,
-			other * 1e3 / n,
-			a->fc_draw_sum * 1e3 / n,
+			a->fc_record_sum * 1e3 / n, a->fc_submit_sum * 1e3 / n,
+			a->fc_present_sum * 1e3 / n, a->fc_rebuild_sum * 1e3 / n,
+			other * 1e3 / n, a->fc_draw_sum * 1e3 / n,
 			(a->late_latch && vsync ? late_hold(a) : 0.0) * 1e3,
-			(int)fnl_atomic_load_u32(&a->fps_display),
-			a->fc_idle, a->fc_frames,
+			(int)fnl_atomic_load_u32(&a->fps_display), a->fc_idle, a->fc_frames,
 			a->inst_miss, a->inst_frames, a->disp_period * 1e3);
 	parts_log(a);
 	a->inst_miss = a->inst_frames = 0;
 	a->fc_pace_sum = a->fc_wait_sum = a->fc_record_sum = 0.0;
-	a->fc_fence_sum = 0.0;
+	a->fc_fence_sum                                    = 0.0;
 	a->fc_submit_sum = a->fc_present_sum = a->fc_draw_sum = 0.0;
-	a->fc_rebuild_sum = 0.0;
+	a->fc_rebuild_sum                                     = 0.0;
 	a->fc_frames = a->fc_idle = 0;
 }
 
@@ -1532,10 +1534,11 @@ static bool fps_update(App *a, double now, bool vsync)
 	const double dt = now - a->fps_last_t;
 	if (dt < FPS_WINDOW)
 		return false;
-	fnl_atomic_store_u32(&a->fps_display,
+	fnl_atomic_store_u32(
+		&a->fps_display,
 		(uint32_t)((double)(a->presents - a->fps_presents) / dt + 0.5));
 	a->fps_presents = a->presents;
-	a->fps_last_t = now;
+	a->fps_last_t   = now;
 	return true;
 }
 
@@ -1562,37 +1565,37 @@ static bool draw_state_update(App *a, const Latch *l)
 	}
 
 	FnlDrawState ds = {
-		.is_fullscreen  = l->fs,
-		.is_active      = l->act,
-		.is_maximized   = l->mx,
+		.is_fullscreen    = l->fs,
+		.is_active        = l->act,
+		.is_maximized     = l->mx,
 		.pointer_captured = l->cap,
-		.cursor_x       = l->curx,
-		.cursor_y       = l->cury,
-		.hovered_button = l->hb,
-		.bar_h          = l->bar_h,
-		.custom_bar     = l->custom_bar,
-		.user_gen       = l->user_gen,
-		.out_w_pt       = l->ow,
-		.out_h_pt       = l->oh,
+		.cursor_x         = l->curx,
+		.cursor_y         = l->cury,
+		.hovered_button   = l->hb,
+		.bar_h            = l->bar_h,
+		.custom_bar       = l->custom_bar,
+		.user_gen         = l->user_gen,
+		.out_w_pt         = l->ow,
+		.out_h_pt         = l->oh,
 		/* So a caller drawing fnl_fps() gets a frame when it moves, and
 		 * one drawing fnl_frame_gpu_ms(), fnl_frame_cpu_ms() and
 		 * fnl_input_latency_ms() too. */
-		.fps            = (int)fnl_atomic_load_u32(&a->fps_display),
-		.cost_gpu_us    = fnl_atomic_load_u32(&a->cost_gpu_us),
-		.cost_cpu_us    = fnl_atomic_load_u32(&a->cost_cpu_us),
-		.input_lat_us   = fnl_atomic_load_u32(&a->input_lat_us),
+		.fps          = (int)fnl_atomic_load_u32(&a->fps_display),
+		.cost_gpu_us  = fnl_atomic_load_u32(&a->cost_gpu_us),
+		.cost_cpu_us  = fnl_atomic_load_u32(&a->cost_cpu_us),
+		.input_lat_us = fnl_atomic_load_u32(&a->input_lat_us),
 		/* The panel, and the process's figures it shows (metrics.c),
 		 * which stand still while it is hidden. */
-		.metrics        = fnl_atomic_load_bool(&a->metrics_shown),
-		.met_cpu_pm     = a->met_cpu_pm,
-		.met_ram_mib    = a->met_ram_mib,
-		.met_vram_mib   = a->met_vram_mib,
-		.met_gpu_pm     = a->met_gpu_pm,
+		.metrics      = fnl_atomic_load_bool(&a->metrics_shown),
+		.met_cpu_pm   = a->met_cpu_pm,
+		.met_ram_mib  = a->met_ram_mib,
+		.met_vram_mib = a->met_vram_mib,
+		.met_gpu_pm   = a->met_gpu_pm,
 		/* What was built, not what was asked for; zero is the native path. */
-		.scene_w        = (int)a->scene_extent.w,
-		.scene_h        = (int)a->scene_extent.h,
-		.scene_time     = scene_time,
-		.veil           = veil_step(a, a->latch_time),
+		.scene_w    = (int)a->scene_extent.w,
+		.scene_h    = (int)a->scene_extent.h,
+		.scene_time = scene_time,
+		.veil       = veil_step(a, a->latch_time),
 	};
 	ds.aa = l->aa;
 	memcpy(ds.output, l->outname, sizeof ds.output);
@@ -1604,18 +1607,18 @@ static bool draw_state_update(App *a, const Latch *l)
 		fnl_atomic_store_u32(&a->title_w,
 							 (uint32_t)text_width(ds.title, TEXT_UI));
 	FnlDrawState other = ds;
-	other.fps = a->last_draw.fps;
-	other.cost_gpu_us = a->last_draw.cost_gpu_us;
-	other.cost_cpu_us = a->last_draw.cost_cpu_us;
+	other.fps          = a->last_draw.fps;
+	other.cost_gpu_us  = a->last_draw.cost_gpu_us;
+	other.cost_cpu_us  = a->last_draw.cost_cpu_us;
 	other.input_lat_us = a->last_draw.input_lat_us;
-	other.met_cpu_pm = a->last_draw.met_cpu_pm;
-	other.met_ram_mib = a->last_draw.met_ram_mib;
+	other.met_cpu_pm   = a->last_draw.met_cpu_pm;
+	other.met_ram_mib  = a->last_draw.met_ram_mib;
 	other.met_vram_mib = a->last_draw.met_vram_mib;
-	other.met_gpu_pm = a->last_draw.met_gpu_pm;
-	const bool moved = !fnl_draw_state_eq(&other, &a->last_draw);
+	other.met_gpu_pm   = a->last_draw.met_gpu_pm;
+	const bool moved   = !fnl_draw_state_eq(&other, &a->last_draw);
 	if (!fnl_draw_state_eq(&ds, &a->last_draw)) {
 		a->last_draw = ds;
-		a->record_gen++;          /* every image re-records on next acquire */
+		a->record_gen++; /* every image re-records on next acquire */
 	}
 	return moved;
 }
@@ -1632,8 +1635,7 @@ static void slack_learn(App *a, bool rebuilt, bool vsync, bool spaced)
 		return;
 	if (rebuilt) {
 		a->late_settle = LATE_SLACK_SETTLE;
-	} else if (!BACKEND(a)->invites && vsync &&
-			   a->present_block >= 0.0) {
+	} else if (!BACKEND(a)->invites && vsync && a->present_block >= 0.0) {
 		if (a->late_settle > 0) {
 			a->late_settle--;
 		} else if (!spaced) {
@@ -1641,20 +1643,19 @@ static void slack_learn(App *a, bool rebuilt, bool vsync, bool spaced)
 			 * acquire blocked for what the hold would have taken, and the sum
 			 * is still the period. Not a turn the spacing held, or the
 			 * estimator is fed its own output. */
-			const double held = a->late_held > 0.0 ? a->late_held : 0.0;
-			const double period = held + a->display_block + a->device_block
-								+ a->present_block + a->late_cost;
+			const double held   = a->late_held > 0.0 ? a->late_held : 0.0;
+			const double period = held + a->display_block + a->device_block +
+								  a->present_block + a->late_cost;
 			if (a->presents <= LATE_SETTLE_PRESENTS) {
 				disp_period_early(a, period);
 				return;
 			}
-			const bool taken = disp_period_sample(a, period);
-			const double parts[4] = { held, a->device_block,
-									  a->present_block, a->late_cost };
+			const bool taken      = disp_period_sample(a, period);
+			const double parts[4] = { held, a->device_block, a->present_block,
+									  a->late_cost };
 			parts_period(a, parts, taken);
 
-			if (a->late_latch && a->late_fixed <= 0.0 &&
-				a->late_held >= 0.0)
+			if (a->late_latch && a->late_fixed <= 0.0 && a->late_held >= 0.0)
 				late_latch_slack(a, a->late_held, a->present_block);
 		}
 	}
@@ -1676,7 +1677,7 @@ static void frame_resumed(App *a)
 		return;
 	a->resumes_seen = n;
 	fnl_log(FNL_LOG_INFO, "back from a sleep: the swapchain is rebuilt and "
-			"the hold learnt again");
+						  "the hold learnt again");
 	a->resized = true;
 	late_slack_forget(a);
 }
@@ -1712,20 +1713,19 @@ static bool rest_owed(App *a, bool changed, bool figures, double latched,
 	if (figures && a->resting && a->rest_settle == 0 &&
 		a->presents > REST_AFTER_PRESENTS)
 		return true;
-	if (changed || a->rest_settle > 0 ||
-		a->presents <= REST_AFTER_PRESENTS) {
+	if (changed || a->rest_settle > 0 || a->presents <= REST_AFTER_PRESENTS) {
 		if (a->resting) {
-			a->resting = false;
+			a->resting     = false;
 			a->late_settle = LATE_SLACK_SETTLE;
-			a->pace_at = latched;
+			a->pace_at     = latched;
 			if (!sampling) {
 				a->fps_last_t = a->fc_last_t = latched;
-				a->fps_presents = a->presents;
+				a->fps_presents              = a->presents;
 			}
 			a->fc_pace_sum = a->fc_wait_sum = a->fc_record_sum = 0.0;
-			a->fc_fence_sum = 0.0;
+			a->fc_fence_sum                                    = 0.0;
 			a->fc_submit_sum = a->fc_present_sum = a->fc_draw_sum = 0.0;
-			a->fc_rebuild_sum = 0.0;
+			a->fc_rebuild_sum                                     = 0.0;
 			a->fc_frames = a->fc_idle = 0;
 			parts_reset(a);
 		}
@@ -1745,8 +1745,10 @@ static bool rest_owed(App *a, bool changed, bool figures, double latched,
 	if (a->frame_times && !sampling &&
 		latched - a->fc_last_t >= FRAME_TIMES_WINDOW) {
 		if (a->fc_frames > 0)
-			fnl_log(FNL_LOG_INFO, "frame at rest: %d drawn to show the "
-					"figures, none for a change", a->fc_frames);
+			fnl_log(FNL_LOG_INFO,
+					"frame at rest: %d drawn to show the "
+					"figures, none for a change",
+					a->fc_frames);
 		else
 			fnl_log(FNL_LOG_INFO, "frame at rest: 0 fps, nothing drawn");
 		a->fc_last_t = latched;
@@ -1845,14 +1847,14 @@ void *render_loop(void *arg)
 		 * and whether it waits. Everything the frame is *drawn from* is taken
 		 * after that wait. */
 		fnl_mutex_lock(&a->lock);
-		bool quit = a->quit;
-		int  w    = a->want_w;
-		int  h    = a->want_h;
-		int  s    = want_s120(a);
-		bool fs   = a->want_fullscreen;
-		bool urgent = a->want_urgent;
+		bool quit      = a->quit;
+		int w          = a->want_w;
+		int h          = a->want_h;
+		int s          = want_s120(a);
+		bool fs        = a->want_fullscreen;
+		bool urgent    = a->want_urgent;
 		a->want_urgent = false;
-		double cb_at = a->frame_cb_at;
+		double cb_at   = a->frame_cb_at;
 		fnl_mutex_unlock(&a->lock);
 
 		if (quit)
@@ -1860,7 +1862,7 @@ void *render_loop(void *arg)
 
 		/* Read once a turn, so a turn's phases are all timed or none. */
 		a->counting = fnl_atomic_load_bool(&a->stats_on);
-		a->timing = a->frame_times || a->counting;
+		a->timing   = a->frame_times || a->counting;
 
 		/* No renderer at all until the one owed builds: nothing below may
 		 * be asked of it. */
@@ -1891,11 +1893,11 @@ void *render_loop(void *arg)
 			 * and would cut short the hold of every frame that answers one. */
 			if (urgent)
 				app_mark_urgent(a);
-			continue;     /* still set = try again, paced by the sleep inside */
+			continue; /* still set = try again, paced by the sleep inside */
 		}
 
 		if (w == 0 || h == 0) {
-			if (urgent)          /* no frame drawn, so still owed; see above */
+			if (urgent) /* no frame drawn, so still owed; see above */
 				app_mark_urgent(a);
 			/* Minimized, on Win32 and Cocoa: no lift is seen. */
 			veil_unseen(a);
@@ -1917,8 +1919,8 @@ void *render_loop(void *arg)
 		 * rebuild, and the window is flipped onto a plane where Windows
 		 * composed it. Asked with the latch's own test below as well, which
 		 * replaces this one's. */
-		const bool settle = a->buffer.w > 0 && !a->buffer_settled &&
-							app_buffer_at_rest(a);
+		const bool settle =
+			a->buffer.w > 0 && !a->buffer_settled && app_buffer_at_rest(a);
 		bool rebuild = swapchain_stale(a, w, h, s, m, vsync) || settle;
 
 		/* Every vsynced frame, not only the rebuilt ones: pacing only
@@ -1933,21 +1935,20 @@ void *render_loop(void *arg)
 		 * present that would be swallowed. Wayland answers true to both and
 		 * says it by not inviting, which the frame_cb_at terms read. */
 		const bool forced_cover = FNL_FAULT("occluded");
-		const bool shown = BACKEND(a)->window_on_screen(a);
-		const bool covered = shown && renderer_covered(a, forced_cover);
-		bool on_screen = shown && !covered;
+		const bool shown        = BACKEND(a)->window_on_screen(a);
+		const bool covered      = shown && renderer_covered(a, forced_cover);
+		bool on_screen          = shown && !covered;
 
 		/* A tearing mode never waits, so by itself it would present flat out
 		 * to a window nobody can see. Once nothing has invited for the length
 		 * of the pacing wait, or the backend or the renderer says the window
 		 * is not shown, take the wait after all: it parks until the window is
 		 * back. */
-		if (!pace && ((cb_at > 0.0 &&
-					   now - cb_at > FRAME_WAIT_S) ||
-					  !on_screen))
+		if (!pace &&
+			((cb_at > 0.0 && now - cb_at > FRAME_WAIT_S) || !on_screen))
 			pace = true;
-		bool invited = true;
-		bool spaced  = false;
+		bool invited        = true;
+		bool spaced         = false;
 		const double t_pace = a->timing ? now_seconds() : 0.0;
 		/* This turn's frame for fnl_frame_samples(), filled as its phases
 		 * end; pushed at the turn's end where a frame was drawn. */
@@ -1957,9 +1958,9 @@ void *render_loop(void *arg)
 		/* Nothing measurable until pace_turn() says so; see App::late_held.
 		 * The display hold's block too: a turn parked or at rest runs no
 		 * pace_turn(), and slack_learn() would sum an earlier turn's. */
-		a->late_held = -1.0;
+		a->late_held     = -1.0;
 		a->display_block = 0.0;
-		a->pace_ran = false;
+		a->pace_ran      = false;
 		/* At rest the wait was rest_wait()'s, and a frame that answers it is
 		 * held for nothing more: the queue is empty, so it is shown at the
 		 * next refresh however late in the period it is submitted. */
@@ -1975,9 +1976,9 @@ void *render_loop(void *arg)
 			app_park(a, true);
 			invited = false;
 		} else if (pace) {
-			invited = a->resting ? BACKEND(a)->frame_wait(a, !rebuild)
-								 : pace_turn(a, rebuild, urgent, vsync,
-											 &spaced);
+			invited = a->resting
+						  ? BACKEND(a)->frame_wait(a, !rebuild)
+						  : pace_turn(a, rebuild, urgent, vsync, &spaced);
 		}
 		/* Whether or not either ran: a tearing frame that waited for nothing
 		 * reads as zero rather than being left out of the mean. */
@@ -2012,18 +2013,18 @@ void *render_loop(void *arg)
 		const double latched = now_seconds();
 
 		/* Opens TRANSITION_GRACE for the skip below. */
-		if (urgent)              /* including one that landed mid-wait */
+		if (urgent) /* including one that landed mid-wait */
 			a->transition_at = latched;
 
-		vsync = fnl_atomic_load_bool(&a->vsync);
-		m = deco_margin(a, l.fs);
+		vsync   = fnl_atomic_load_bool(&a->vsync);
+		m       = deco_margin(a, l.fs);
 		rebuild = swapchain_stale(a, l.w, l.h, l.s, m, vsync) || settle;
 
 		int scene_w, scene_h;
 		scene_resolve(&l, m, &scene_w, &scene_h);
 		/* Apart from the swapchain's rebuild: this replaces one image. */
-		const bool scene_rebuild = (scene_w != a->draw_scene_w ||
-									scene_h != a->draw_scene_h);
+		const bool scene_rebuild =
+			(scene_w != a->draw_scene_w || scene_h != a->draw_scene_h);
 
 		/* No invitation came and nothing has to be answered: the surface is
 		 * not on screen, so no frame. A configure, a rebuild or the
@@ -2039,9 +2040,8 @@ void *render_loop(void *arg)
 		 * library has parked a covered window rather than inferring it from
 		 * frames that stop. */
 		fnl_atomic_store_bool(&a->pub_shown, on_screen);
-		if (!invited && (cb_at > 0.0 || !on_screen) &&
-			!rebuild && !scene_rebuild &&
-			!l.cfg_pending &&
+		if (!invited && (cb_at > 0.0 || !on_screen) && !rebuild &&
+			!scene_rebuild && !l.cfg_pending &&
 			latched - a->transition_at > TRANSITION_GRACE) {
 			/* Uninvited for VEIL_STALL and not merely this turn's
 			 * FRAME_WAIT_S: a compositor may take that long to show a new
@@ -2051,7 +2051,7 @@ void *render_loop(void *arg)
 			/* The frame-rate window restarts, or the idle time would read as
 			 * a near-zero rate once back on screen. */
 			a->fps_last_t = a->fc_last_t = latched;
-			a->fps_presents = a->presents;
+			a->fps_presents              = a->presents;
 			continue;
 		}
 
@@ -2101,8 +2101,8 @@ void *render_loop(void *arg)
 		 * would be the frames its figures measure (DESIGN *The metrics
 		 * panel*). */
 		const bool sampling = fnl_atomic_load_bool(&a->cost_sampling);
-		const bool window = !a->resting || sampling
-						  ? fps_update(a, now, vsync) : false;
+		const bool window =
+			!a->resting || sampling ? fps_update(a, now, vsync) : false;
 
 		/* The instrument runs under --no-late-latch and a pinned delay too.
 		 * Only where frames are invited, so it reads 0/0 on every backend
@@ -2116,8 +2116,7 @@ void *render_loop(void *arg)
 		 * reads as "no signal" rather than "no invitations". cb_at keeps it
 		 * off the frames before the first callback. */
 		if (a->late_latch && a->late_fixed <= 0.0 && BACKEND(a)->invites &&
-			cb_at > 0.0 &&
-			cb_at != a->late_prev_disp &&
+			cb_at > 0.0 && cb_at != a->late_prev_disp &&
 			a->presents > LATE_SETTLE_PRESENTS)
 			late_latch_feedback(a, cb_at);
 
@@ -2145,8 +2144,8 @@ void *render_loop(void *arg)
 		/* A pending event is a reason to record (see events_pending). Gated
 		 * on a callback that could drain it, or the first event would
 		 * re-record every frame for good. */
-		const bool events = (a->cb.on_overlay || a->cb.on_record) &&
-							events_pending(a);
+		const bool events =
+			(a->cb.on_overlay || a->cb.on_record) && events_pending(a);
 		if (events)
 			a->record_gen++;
 
@@ -2166,7 +2165,7 @@ void *render_loop(void *arg)
 		 * COST_WINDOW. Neither is a change that frames are still owed after
 		 * (REST_SETTLE). */
 		const bool figures = changed && !other && a->resting;
-		const bool sample = sampling && !changed && a->resting &&
+		const bool sample  = sampling && !changed && a->resting &&
 							latched - a->cost_sampled_at >= COST_WINDOW;
 		/* Whether the frames drawn from here are the figures' to measure --
 		 * a publish of their own owed, and their times in the means: not
@@ -2181,12 +2180,12 @@ void *render_loop(void *arg)
 			continue;
 
 		const double t_draw = a->timing ? now_seconds() : 0.0;
-		const int idle_was = a->fc_idle;
+		const int idle_was  = a->fc_idle;
 		a->fc_wait = a->fc_record = a->fc_submit = a->fc_present = 0.0;
 		/* Each renderer sets it early in draw_frame(); zeroed so a frame that
 		 * stops before then adds no other frame's wait to `fence`. */
 		a->device_block = 0.0;
-		a->gpu_timed = false;
+		a->gpu_timed    = false;
 		/* The frame's index is the presents before it, and it was presented
 		 * where that count moved: a submit whose present the display
 		 * refused -- out of date -- counts nothing, and is a frame drawn and
@@ -2198,30 +2197,30 @@ void *render_loop(void *arg)
 		/* `draw` minus the four phase fields the renderer fills is time in
 		 * the renderer outside any phase named here. */
 		if (a->timing) {
-			a->fc_draw_sum    += now_seconds() - t_draw;
-			a->fc_wait_sum    += a->fc_wait;
+			a->fc_draw_sum += now_seconds() - t_draw;
+			a->fc_wait_sum += a->fc_wait;
 			/* The fence share of `wait`, which the line reports apart from
 			 * the rest of it. Bounded by it: `wait` is the whole span. */
-			a->fc_fence_sum   += a->device_block < a->fc_wait
-									 ? a->device_block : a->fc_wait;
-			a->fc_record_sum  += a->fc_record;
-			a->fc_submit_sum  += a->fc_submit;
+			a->fc_fence_sum +=
+				a->device_block < a->fc_wait ? a->device_block : a->fc_wait;
+			a->fc_record_sum += a->fc_record;
+			a->fc_submit_sum += a->fc_submit;
 			a->fc_present_sum += a->fc_present;
 			a->fc_frames++;
 		}
 		if (a->counting) {
 			FnlFrameStats *st = &a->st;
-			const double fence = a->device_block < a->fc_wait
-									 ? a->device_block : a->fc_wait;
+			const double fence =
+				a->device_block < a->fc_wait ? a->device_block : a->fc_wait;
 			st->frames++;
 			st->presents += presented;
-			st->draw_us    += stats_us(now_seconds() - t_draw);
-			st->fence_us   += stats_us(fence);
+			st->draw_us += stats_us(now_seconds() - t_draw);
+			st->fence_us += stats_us(fence);
 			st->acquire_us += stats_us(a->fc_wait - fence);
-			st->record_us  += stats_us(a->fc_record);
-			st->submit_us  += stats_us(a->fc_submit);
+			st->record_us += stats_us(a->fc_record);
+			st->submit_us += stats_us(a->fc_submit);
 			st->present_us += stats_us(a->fc_present);
-			st->gpu_idle   += (uint64_t)(a->fc_idle - idle_was);
+			st->gpu_idle += (uint64_t)(a->fc_idle - idle_was);
 			frame_row.index      = presents_before;
 			frame_row.time       = latched - a->started_at;
 			frame_row.fence_ms   = (float)(fence * 1e3);
@@ -2231,9 +2230,8 @@ void *render_loop(void *arg)
 			frame_row.present_ms = (float)(a->fc_present * 1e3);
 			frame_row.draw_ms    = (float)((now_seconds() - t_draw) * 1e3);
 			frame_row.presented  = presented;
-			frame_row.gpu_ms     = a->gpu_timed && submitted ? GPU_PENDING
-															 : -1.0f;
-			row_drawn = true;
+			frame_row.gpu_ms = a->gpu_timed && submitted ? GPU_PENDING : -1.0f;
+			row_drawn        = true;
 		}
 		a->frame = (a->frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
@@ -2244,7 +2242,7 @@ void *render_loop(void *arg)
 		 * on skipped frames -- e.g. acquire timeouts -- would free those
 		 * resources while they may still be in use. */
 		if (submitted) {
-			a->shown_gen = a->record_gen;
+			a->shown_gen       = a->record_gen;
 			a->cost_sampled_at = latched;
 			if (changed && !figures)
 				a->rest_settle = REST_SETTLE;

@@ -42,20 +42,24 @@ int logical_h(const App *a)
  *
  * Clamped to the buffer: where create_swapchain() clamped the extent, the
  * point count read back can convert to a pixel one past the edge. */
-void content_px(const App *a, const FnlDrawState *ds, int *x, int *y,
-				int *w, int *h)
+void content_px(const App *a, const FnlDrawState *ds, int *x, int *y, int *w,
+				int *h)
 {
 	int s120 = scale120(a);
 	int cx, cy, cw, ch;
 	content_rect(logical_w(a), logical_h(a), ds->bar_h, &cx, &cy, &cw, &ch);
 
 	const int fw = (int)a->extent.w, fh = (int)a->extent.h;
-	int x0 = surf_pt(a, cx, s120),      y0 = surf_pt(a, cy, s120);
+	int x0 = surf_pt(a, cx, s120), y0 = surf_pt(a, cy, s120);
 	int x1 = surf_pt(a, cx + cw, s120), y1 = surf_pt(a, cy + ch, s120);
-	if (x1 > fw) x1 = fw;
-	if (y1 > fh) y1 = fh;
-	if (x0 > x1) x0 = x1;
-	if (y0 > y1) y0 = y1;
+	if (x1 > fw)
+		x1 = fw;
+	if (y1 > fh)
+		y1 = fh;
+	if (x0 > x1)
+		x0 = x1;
+	if (y0 > y1)
+		y0 = y1;
 
 	*x = x0;
 	*y = y0;
@@ -77,8 +81,8 @@ void content_px(const App *a, const FnlDrawState *ds, int *x, int *y,
 Extent app_buffer_extent(App *a, Extent min, Extent max)
 {
 	const int s120 = scale120(a);
-	long long w = scale_pt(a->draw_w + 2 * a->draw_margin, s120);
-	long long h = scale_pt(a->draw_h + 2 * a->draw_margin, s120);
+	long long w    = scale_pt(a->draw_w + 2 * a->draw_margin, s120);
+	long long h    = scale_pt(a->draw_h + 2 * a->draw_margin, s120);
 	if (max.w > 0 && w > max.w) {
 		h = h * max.w / w;
 		w = max.w;
@@ -87,17 +91,23 @@ Extent app_buffer_extent(App *a, Extent min, Extent max)
 		w = w * max.h / h;
 		h = max.h;
 	}
-	if (w < min.w) w = min.w;
-	if (h < min.h) h = min.h;
-	if (w < 1) w = 1;
-	if (h < 1) h = 1;
+	if (w < min.w)
+		w = min.w;
+	if (h < min.h)
+		h = min.h;
+	if (w < 1)
+		w = 1;
+	if (h < 1)
+		h = 1;
 
 	const long long gran = BACKEND(a)->buffer_granularity(a, s120);
 	if (gran > 1) {
 		w -= w % gran;
 		h -= h % gran;
-		if (w < gran) w = gran;
-		if (h < gran) h = gran;
+		if (w < gran)
+			w = gran;
+		if (h < gran)
+			h = gran;
 	}
 	return (Extent){ (int)w, (int)h };
 }
@@ -130,8 +140,8 @@ static int room_side(int want, int max, int out, bool rest)
 {
 	if (rest)
 		return want;
-	int side = (want + BUFFER_ROOM_STEP - 1) / BUFFER_ROOM_STEP *
-			   BUFFER_ROOM_STEP;
+	int side =
+		(want + BUFFER_ROOM_STEP - 1) / BUFFER_ROOM_STEP * BUFFER_ROOM_STEP;
 	/* The output is the room a window has there -- on Win32 the work
 	 * area, which a fullscreen window is larger than -- so a window at
 	 * least that large is not rounded past itself. */
@@ -154,7 +164,7 @@ static int room_side(int want, int max, int out, bool rest)
 Extent app_buffer_room(const App *a, Extent e, Extent max)
 {
 	const Extent out = output_px(a);
-	const bool rest = app_buffer_at_rest(a);
+	const bool rest  = app_buffer_at_rest(a);
 	return (Extent){ room_side(e.w, max.w, out.w, rest),
 					 room_side(e.h, max.h, out.h, rest) };
 }
@@ -168,8 +178,7 @@ bool app_buffer_room_fits(const App *a, Extent e, Extent room)
 	if (app_buffer_at_rest(a))
 		return e.w == room.w && e.h == room.h;
 	const Extent out = output_px(a);
-	if (e.w > room.w || e.h > room.h || 2 * e.w < room.w ||
-		2 * e.h < room.h)
+	if (e.w > room.w || e.h > room.h || 2 * e.w < room.w || 2 * e.h < room.h)
 		return false;
 	return out.w <= 0 || e.w < out.w || e.h < out.h ||
 		   (e.w == room.w && e.h == room.h);
@@ -178,22 +187,24 @@ bool app_buffer_room_fits(const App *a, Extent e, Extent room)
 /* Where a scene of scene_w x scene_h lands inside an area_w x area_h
  * presentable area: scaled to fit, centred, aspect kept, in pixels of the
  * area. The letterbox bars are what is left over. */
-void scene_dst_rect(int scene_w, int scene_h, int area_w, int area_h,
-					int *x, int *y, int *w, int *h)
+void scene_dst_rect(int scene_w, int scene_h, int area_w, int area_h, int *x,
+					int *y, int *w, int *h)
 {
 	/* The smaller of the two ratios, in integers: w = scene_w * area_h /
 	 * scene_h when height binds, and the other way round when width does. */
-	long long by_w = (long long)scene_h * area_w;   /* height if width binds  */
-	long long by_h = (long long)scene_w * area_h;   /* width  if height binds */
-	if (by_w <= (long long)scene_w * area_h) {      /* width binds            */
+	long long by_w = (long long)scene_h * area_w; /* height if width binds  */
+	long long by_h = (long long)scene_w * area_h; /* width  if height binds */
+	if (by_w <= (long long)scene_w * area_h) {    /* width binds            */
 		*w = area_w;
 		*h = (int)(by_w / scene_w);
 	} else {
 		*w = (int)(by_h / scene_h);
 		*h = area_h;
 	}
-	if (*w < 1) *w = 1;
-	if (*h < 1) *h = 1;
+	if (*w < 1)
+		*w = 1;
+	if (*h < 1)
+		*h = 1;
 	*x = (area_w - *w) / 2;
 	*y = (area_h - *h) / 2;
 }
@@ -216,21 +227,21 @@ void app_publish_window(App *a, const FnlDrawState *ds)
 	content_px(a, ds, &px, &py, &pw, &ph);
 
 	fnl_mutex_lock(&a->lock);
-	a->pub_win_w = w;
-	a->pub_win_h = h;
-	a->pub_cx = cx;
-	a->pub_cy = cy;
-	a->pub_cw = cw;
-	a->pub_ch = ch;
+	a->pub_win_w     = w;
+	a->pub_win_h     = h;
+	a->pub_cx        = cx;
+	a->pub_cy        = cy;
+	a->pub_cw        = cw;
+	a->pub_ch        = ch;
 	a->pub_area_w_px = pw;
 	a->pub_area_h_px = ph;
-	a->pub_scene_w = (int)a->scene_extent.w;
-	a->pub_scene_h = (int)a->scene_extent.h;
-	a->pub_scale120 = scale120(a);
-	a->pub_out_w_pt = ds->out_w_pt;
-	a->pub_out_h_pt = ds->out_h_pt;
-	a->pub_csd = csd;
-	a->pub_bar_h = ds->bar_h;
+	a->pub_scene_w   = (int)a->scene_extent.w;
+	a->pub_scene_h   = (int)a->scene_extent.h;
+	a->pub_scale120  = scale120(a);
+	a->pub_out_w_pt  = ds->out_w_pt;
+	a->pub_out_h_pt  = ds->out_h_pt;
+	a->pub_csd       = csd;
+	a->pub_bar_h     = ds->bar_h;
 	fnl_mutex_unlock(&a->lock);
 
 	/* And whatever moved since the last frame, as events. After the publish
@@ -256,7 +267,7 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 	/* Two palettes: with client-side decorations the titlebar is the only
 	 * thing that can show which window has the keyboard, and the compositor
 	 * says which that is through xdg_toplevel's activated state. */
-	const float *bar   = a->pal[ds->is_active ? COL_BAR_ON  : COL_BAR_OFF];
+	const float *bar   = a->pal[ds->is_active ? COL_BAR_ON : COL_BAR_OFF];
 	const float *line  = a->pal[ds->is_active ? COL_LINE_ON : COL_LINE_OFF];
 	const float *white = a->pal[ds->is_active ? COL_ICON_ON : COL_ICON_OFF];
 
@@ -270,7 +281,7 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 	if (ds->custom_bar)
 		return;
 
-	int  min_x, max_x, full_x, close_x, by;
+	int min_x, max_x, full_x, close_x, by;
 	bool vis;
 	deco_button_rects(a, w, &min_x, &max_x, &full_x, &close_x, &by, &vis);
 
@@ -278,11 +289,10 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 	 * by screen position, so this cannot drift out of step with the backend's
 	 * hit test however the buttons are arranged. */
 	const int btn_x[] = { min_x, max_x, full_x, close_x };
-	Zone hb = ds->hovered_button;
+	Zone hb           = ds->hovered_button;
 	if (vis && hb >= ZONE_BUTTON_MIN && hb <= ZONE_BUTTON_CLOSE &&
 		btn_x[hb - ZONE_BUTTON_MIN] >= 0)
-		overlay_rect(a, btn_x[hb - ZONE_BUTTON_MIN], by,
-					 DECO_BTN_W, DECO_BTN_H,
+		overlay_rect(a, btn_x[hb - ZONE_BUTTON_MIN], by, DECO_BTN_W, DECO_BTN_H,
 					 hb == ZONE_BUTTON_CLOSE ? a->pal[COL_CLOSE] : line);
 
 	if (!vis)
@@ -294,8 +304,8 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 	 * the half-width insets that keep each icon inside its box.
 	 *
 	 * Coordinates use the box corners (l, t) - (r, b). */
-	const float icon  = 12.0f;        /* icon box edge */
-	const float thick = 1.8f;         /* stroke width  */
+	const float icon  = 12.0f; /* icon box edge */
+	const float thick = 1.8f;  /* stroke width  */
 	const float half  = thick * 0.5f;
 
 	/* Spine length of a fullscreen bracket arm. The stroke is a capsule, so
@@ -311,12 +321,11 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 	const float t_in = t + half;
 	const float b_in = b - half;
 
-#define STROKE(x0, y0, x1, y1) \
+#define STROKE(x0, y0, x1, y1)                                                 \
 	overlay_stroke(a, (x0), (y0), (x1), (y1), thick, white)
-#define ELBOW(x0, y0, x1, y1, x2, y2) \
+#define ELBOW(x0, y0, x1, y1, x2, y2)                                          \
 	overlay_elbow(a, (x0), (y0), (x1), (y1), (x2), (y2), thick, white)
-#define BOX(x0, y0, x1, y1) \
-	overlay_box(a, (x0), (y0), (x1), (y1), thick, white)
+#define BOX(x0, y0, x1, y1) overlay_box(a, (x0), (y0), (x1), (y1), thick, white)
 
 	/* minimize: a single bar sharing the maximize box's bottom edge -- same
 	 * baseline and same span, so the two icons line up across the strip. */
@@ -337,13 +346,13 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 		const float ml = (float)max_x + (DECO_BTN_W - icon) / 2.0f;
 		const float mr = ml + icon;
 		if (ds->is_maximized) {
-			const float off = 3.0f;           /* diagonal offset between them */
-			const float fl = ml + half, fr = mr - half - off;  /* front box */
+			const float off = 3.0f; /* diagonal offset between them */
+			const float fl = ml + half, fr = mr - half - off; /* front box */
 			const float ft = t_in + off, fb = b_in;
 			BOX(fl, ft, fr, fb);
-			ELBOW(fl + off, ft - off,       /* back box: along the top edge,  */
-				  fr + off, ft - off,       /* round the corner, and down the */
-				  fr + off, fb - off);      /* right side                     */
+			ELBOW(fl + off, ft - off,  /* back box: along the top edge,  */
+				  fr + off, ft - off,  /* round the corner, and down the */
+				  fr + off, fb - off); /* right side                     */
 		} else {
 			BOX(ml + half, t_in, mr - half, b_in);
 		}
@@ -351,13 +360,13 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 
 	/* fullscreen: four corner brackets, each one draw bent at the corner
 	 * rather than two strokes meeting there, for the same reason. */
-	const float fl = (float)full_x + (DECO_BTN_W - icon) / 2.0f;
-	const float fr = fl + icon;
+	const float fl    = (float)full_x + (DECO_BTN_W - icon) / 2.0f;
+	const float fr    = fl + icon;
 	const float fl_in = fl + half, fr_in = fr - half;
-	ELBOW(fl_in + arm, t_in, fl_in, t_in, fl_in, t_in + arm);  /* top-left    */
-	ELBOW(fr_in - arm, t_in, fr_in, t_in, fr_in, t_in + arm);  /* top-right   */
-	ELBOW(fl_in + arm, b_in, fl_in, b_in, fl_in, b_in - arm);  /* bottom-left */
-	ELBOW(fr_in - arm, b_in, fr_in, b_in, fr_in, b_in - arm);  /* bottom-right*/
+	ELBOW(fl_in + arm, t_in, fl_in, t_in, fl_in, t_in + arm); /* top-left    */
+	ELBOW(fr_in - arm, t_in, fr_in, t_in, fr_in, t_in + arm); /* top-right   */
+	ELBOW(fl_in + arm, b_in, fl_in, b_in, fl_in, b_in - arm); /* bottom-left */
+	ELBOW(fr_in - arm, b_in, fr_in, b_in, fr_in, b_in - arm); /* bottom-right*/
 
 	/* close: two diagonals -- the reason this pipeline exists */
 	const float cl = (float)close_x + (DECO_BTN_W - icon) / 2.0f;
@@ -373,9 +382,8 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
 	 * same string the window server was given. Dropped when it would run
 	 * into the controls or the buttons; see deco_title_fits(). */
 	if (deco_title_fits(a, w))
-		text_draw(a, DECO_TITLE_X,
-				  (DECO_TITLEBAR_H - text_height(TEXT_UI)) / 2, TEXT_UI,
-				  white, ds->title);
+		text_draw(a, DECO_TITLE_X, (DECO_TITLEBAR_H - text_height(TEXT_UI)) / 2,
+				  TEXT_UI, white, ds->title);
 
 	/* The controls, last of everything the bar paints. Given the presentable
 	 * area because the size box reads it out -- see ctl_combo_label(). */
@@ -403,7 +411,7 @@ static void draw_veil(App *a, float alpha, int w, int h)
 	if (!overlay_clip(a, 0, 0, w, h, &win))
 		return;
 	const float black[4] = { 0.0f, 0.0f, 0.0f, alpha };
-	const float mid = (float)h * 0.5f;
+	const float mid      = (float)h * 0.5f;
 	overlay_scissor(a, &win);
 	if (a->veil_black || !RENDERER(a)->overlay_cover(a, alpha)) {
 		overlay_stroke(a, 0.0f, mid, (float)w, mid, (float)h + 4.0f, black);
@@ -432,8 +440,11 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 	/* The claim list is rebuilt from nothing every frame, so a control that
 	 * stopped being drawn stops being hit-testable in the same frame. Cleared
 	 * even with no callback, which is what publishes the empty list a caller
-	 * that stopped drawing its bar should get. */
+	 * that stopped drawing its bar should get. The focus is rebuilt with it:
+	 * a focus on a claim that stopped being drawn is the caller's to redraw
+	 * or drop, and the index it names is meaningless once the list moves. */
 	a->claim_count = 0;
+	a->focus_claim = -1;
 
 	/* The caller's, on top of the library's and into the same three streams,
 	 * so the flushes below cover both. Here rather than in on_record because
@@ -446,16 +457,16 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 		 * active_samples() answers for a device that refused the
 		 * multisampled one. */
 		const int scene_samples = RENDERER(a)->active_samples(a, ds);
-		FnlFrame f = {
-			.index      = a->presents,
-			.time       = now_seconds() - a->started_at,
-			.scene_w_px = ds->scene_w,
-			.scene_h_px = ds->scene_h,
-			.target     = ds->scene_w <= 0    ? FNL_TARGET_DIRECT
-						: scene_samples > 1   ? FNL_TARGET_OFFSCREEN_MS
-											  : FNL_TARGET_OFFSCREEN,
-			.samples    = scene_samples,
-			.scene_time = ds->scene_time,
+		FnlFrame f              = {
+						 .index      = a->presents,
+						 .time       = now_seconds() - a->started_at,
+						 .scene_w_px = ds->scene_w,
+						 .scene_h_px = ds->scene_h,
+						 .target     = ds->scene_w <= 0 ? FNL_TARGET_DIRECT
+									   : scene_samples > 1 ? FNL_TARGET_OFFSCREEN_MS
+														   : FNL_TARGET_OFFSCREEN,
+						 .samples    = scene_samples,
+						 .scene_time = ds->scene_time,
 		};
 		f.area_w_px = aw;
 		f.area_h_px = ah;
@@ -498,9 +509,9 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 	/* A calibration's panel over all of it (src/core/rank.c). */
 	const FnlResult brc = app_rank_draw(a, w, h);
 
-	overlay_flush_rects(a);        /* backgrounds  */
-	overlay_flush_shapes(a);       /* icon strokes */
-	FnlResult rc = text_end(a);    /* every glyph not yet drawn, one draw */
+	overlay_flush_rects(a);     /* backgrounds  */
+	overlay_flush_shapes(a);    /* icon strokes */
+	FnlResult rc = text_end(a); /* every glyph not yet drawn, one draw */
 	if (rc == FNL_OK)
 		rc = mrc;
 	if (rc == FNL_OK)

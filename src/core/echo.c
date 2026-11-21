@@ -33,114 +33,114 @@ bool echo_wanted_by_env(void)
  * has a row, so a harness can tell any of them apart; a new key without one
  * is "unknown" on the line, which is how the omission is noticed. */
 static const char *const KEY_NAMES[] = {
-	[FNL_KEY_W]               = "W",
-	[FNL_KEY_A]               = "A",
-	[FNL_KEY_S]               = "S",
-	[FNL_KEY_D]               = "D",
-	[FNL_KEY_UP]              = "Up",
-	[FNL_KEY_DOWN]            = "Down",
-	[FNL_KEY_LEFT]            = "Left",
-	[FNL_KEY_RIGHT]           = "Right",
-	[FNL_KEY_LSHIFT]          = "LShift",
-	[FNL_KEY_RSHIFT]          = "RShift",
-	[FNL_KEY_ESCAPE]          = "Escape",
-	[FNL_KEY_F1]              = "F1",
-	[FNL_KEY_F2]              = "F2",
-	[FNL_KEY_F9]              = "F9",
-	[FNL_KEY_F10]             = "F10",
-	[FNL_KEY_F11]             = "F11",
-	[FNL_KEY_B]               = "B",
-	[FNL_KEY_C]               = "C",
-	[FNL_KEY_E]               = "E",
-	[FNL_KEY_F]               = "F",
-	[FNL_KEY_G]               = "G",
-	[FNL_KEY_H]               = "H",
-	[FNL_KEY_I]               = "I",
-	[FNL_KEY_J]               = "J",
-	[FNL_KEY_K]               = "K",
-	[FNL_KEY_L]               = "L",
-	[FNL_KEY_M]               = "M",
-	[FNL_KEY_N]               = "N",
-	[FNL_KEY_O]               = "O",
-	[FNL_KEY_P]               = "P",
-	[FNL_KEY_Q]               = "Q",
-	[FNL_KEY_R]               = "R",
-	[FNL_KEY_T]               = "T",
-	[FNL_KEY_U]               = "U",
-	[FNL_KEY_V]               = "V",
-	[FNL_KEY_X]               = "X",
-	[FNL_KEY_Y]               = "Y",
-	[FNL_KEY_Z]               = "Z",
-	[FNL_KEY_0]               = "0",
-	[FNL_KEY_1]               = "1",
-	[FNL_KEY_2]               = "2",
-	[FNL_KEY_3]               = "3",
-	[FNL_KEY_4]               = "4",
-	[FNL_KEY_5]               = "5",
-	[FNL_KEY_6]               = "6",
-	[FNL_KEY_7]               = "7",
-	[FNL_KEY_8]               = "8",
-	[FNL_KEY_9]               = "9",
-	[FNL_KEY_F3]              = "F3",
-	[FNL_KEY_F4]              = "F4",
-	[FNL_KEY_F5]              = "F5",
-	[FNL_KEY_F6]              = "F6",
-	[FNL_KEY_F7]              = "F7",
-	[FNL_KEY_F8]              = "F8",
-	[FNL_KEY_F12]             = "F12",
-	[FNL_KEY_SPACE]           = "Space",
-	[FNL_KEY_ENTER]           = "Enter",
-	[FNL_KEY_TAB]             = "Tab",
-	[FNL_KEY_BACKSPACE]       = "Backspace",
-	[FNL_KEY_MINUS]           = "Minus",
-	[FNL_KEY_EQUAL]           = "Equal",
-	[FNL_KEY_LBRACKET]        = "LBracket",
-	[FNL_KEY_RBRACKET]        = "RBracket",
-	[FNL_KEY_BACKSLASH]       = "Backslash",
-	[FNL_KEY_SEMICOLON]       = "Semicolon",
-	[FNL_KEY_APOSTROPHE]      = "Apostrophe",
-	[FNL_KEY_GRAVE]           = "Grave",
-	[FNL_KEY_COMMA]           = "Comma",
-	[FNL_KEY_PERIOD]          = "Period",
-	[FNL_KEY_SLASH]           = "Slash",
-	[FNL_KEY_INTL_BACKSLASH]  = "IntlBackslash",
-	[FNL_KEY_LCTRL]           = "LCtrl",
-	[FNL_KEY_RCTRL]           = "RCtrl",
-	[FNL_KEY_LALT]            = "LAlt",
-	[FNL_KEY_RALT]            = "RAlt",
-	[FNL_KEY_LSUPER]          = "LSuper",
-	[FNL_KEY_RSUPER]          = "RSuper",
-	[FNL_KEY_MENU]            = "Menu",
-	[FNL_KEY_INSERT]          = "Insert",
-	[FNL_KEY_DELETE]          = "Delete",
-	[FNL_KEY_HOME]            = "Home",
-	[FNL_KEY_END]             = "End",
-	[FNL_KEY_PAGE_UP]         = "PageUp",
-	[FNL_KEY_PAGE_DOWN]       = "PageDown",
-	[FNL_KEY_CAPS_LOCK]       = "CapsLock",
-	[FNL_KEY_NUM_LOCK]        = "NumLock",
-	[FNL_KEY_SCROLL_LOCK]     = "ScrollLock",
-	[FNL_KEY_PRINT_SCREEN]    = "PrintScreen",
-	[FNL_KEY_PAUSE]           = "Pause",
-	[FNL_KEY_KP_0]            = "KP0",
-	[FNL_KEY_KP_1]            = "KP1",
-	[FNL_KEY_KP_2]            = "KP2",
-	[FNL_KEY_KP_3]            = "KP3",
-	[FNL_KEY_KP_4]            = "KP4",
-	[FNL_KEY_KP_5]            = "KP5",
-	[FNL_KEY_KP_6]            = "KP6",
-	[FNL_KEY_KP_7]            = "KP7",
-	[FNL_KEY_KP_8]            = "KP8",
-	[FNL_KEY_KP_9]            = "KP9",
-	[FNL_KEY_KP_DECIMAL]      = "KPDecimal",
-	[FNL_KEY_KP_DIVIDE]       = "KPDivide",
-	[FNL_KEY_KP_MULTIPLY]     = "KPMultiply",
-	[FNL_KEY_KP_SUBTRACT]     = "KPSubtract",
-	[FNL_KEY_KP_ADD]          = "KPAdd",
-	[FNL_KEY_KP_ENTER]        = "KPEnter",
-	[FNL_KEY_VOLUME_DOWN]     = "VolumeDown",
-	[FNL_KEY_VOLUME_UP]       = "VolumeUp",
-	[FNL_KEY_MUTE]            = "Mute",
+	[FNL_KEY_W]              = "W",
+	[FNL_KEY_A]              = "A",
+	[FNL_KEY_S]              = "S",
+	[FNL_KEY_D]              = "D",
+	[FNL_KEY_UP]             = "Up",
+	[FNL_KEY_DOWN]           = "Down",
+	[FNL_KEY_LEFT]           = "Left",
+	[FNL_KEY_RIGHT]          = "Right",
+	[FNL_KEY_LSHIFT]         = "LShift",
+	[FNL_KEY_RSHIFT]         = "RShift",
+	[FNL_KEY_ESCAPE]         = "Escape",
+	[FNL_KEY_F1]             = "F1",
+	[FNL_KEY_F2]             = "F2",
+	[FNL_KEY_F9]             = "F9",
+	[FNL_KEY_F10]            = "F10",
+	[FNL_KEY_F11]            = "F11",
+	[FNL_KEY_B]              = "B",
+	[FNL_KEY_C]              = "C",
+	[FNL_KEY_E]              = "E",
+	[FNL_KEY_F]              = "F",
+	[FNL_KEY_G]              = "G",
+	[FNL_KEY_H]              = "H",
+	[FNL_KEY_I]              = "I",
+	[FNL_KEY_J]              = "J",
+	[FNL_KEY_K]              = "K",
+	[FNL_KEY_L]              = "L",
+	[FNL_KEY_M]              = "M",
+	[FNL_KEY_N]              = "N",
+	[FNL_KEY_O]              = "O",
+	[FNL_KEY_P]              = "P",
+	[FNL_KEY_Q]              = "Q",
+	[FNL_KEY_R]              = "R",
+	[FNL_KEY_T]              = "T",
+	[FNL_KEY_U]              = "U",
+	[FNL_KEY_V]              = "V",
+	[FNL_KEY_X]              = "X",
+	[FNL_KEY_Y]              = "Y",
+	[FNL_KEY_Z]              = "Z",
+	[FNL_KEY_0]              = "0",
+	[FNL_KEY_1]              = "1",
+	[FNL_KEY_2]              = "2",
+	[FNL_KEY_3]              = "3",
+	[FNL_KEY_4]              = "4",
+	[FNL_KEY_5]              = "5",
+	[FNL_KEY_6]              = "6",
+	[FNL_KEY_7]              = "7",
+	[FNL_KEY_8]              = "8",
+	[FNL_KEY_9]              = "9",
+	[FNL_KEY_F3]             = "F3",
+	[FNL_KEY_F4]             = "F4",
+	[FNL_KEY_F5]             = "F5",
+	[FNL_KEY_F6]             = "F6",
+	[FNL_KEY_F7]             = "F7",
+	[FNL_KEY_F8]             = "F8",
+	[FNL_KEY_F12]            = "F12",
+	[FNL_KEY_SPACE]          = "Space",
+	[FNL_KEY_ENTER]          = "Enter",
+	[FNL_KEY_TAB]            = "Tab",
+	[FNL_KEY_BACKSPACE]      = "Backspace",
+	[FNL_KEY_MINUS]          = "Minus",
+	[FNL_KEY_EQUAL]          = "Equal",
+	[FNL_KEY_LBRACKET]       = "LBracket",
+	[FNL_KEY_RBRACKET]       = "RBracket",
+	[FNL_KEY_BACKSLASH]      = "Backslash",
+	[FNL_KEY_SEMICOLON]      = "Semicolon",
+	[FNL_KEY_APOSTROPHE]     = "Apostrophe",
+	[FNL_KEY_GRAVE]          = "Grave",
+	[FNL_KEY_COMMA]          = "Comma",
+	[FNL_KEY_PERIOD]         = "Period",
+	[FNL_KEY_SLASH]          = "Slash",
+	[FNL_KEY_INTL_BACKSLASH] = "IntlBackslash",
+	[FNL_KEY_LCTRL]          = "LCtrl",
+	[FNL_KEY_RCTRL]          = "RCtrl",
+	[FNL_KEY_LALT]           = "LAlt",
+	[FNL_KEY_RALT]           = "RAlt",
+	[FNL_KEY_LSUPER]         = "LSuper",
+	[FNL_KEY_RSUPER]         = "RSuper",
+	[FNL_KEY_MENU]           = "Menu",
+	[FNL_KEY_INSERT]         = "Insert",
+	[FNL_KEY_DELETE]         = "Delete",
+	[FNL_KEY_HOME]           = "Home",
+	[FNL_KEY_END]            = "End",
+	[FNL_KEY_PAGE_UP]        = "PageUp",
+	[FNL_KEY_PAGE_DOWN]      = "PageDown",
+	[FNL_KEY_CAPS_LOCK]      = "CapsLock",
+	[FNL_KEY_NUM_LOCK]       = "NumLock",
+	[FNL_KEY_SCROLL_LOCK]    = "ScrollLock",
+	[FNL_KEY_PRINT_SCREEN]   = "PrintScreen",
+	[FNL_KEY_PAUSE]          = "Pause",
+	[FNL_KEY_KP_0]           = "KP0",
+	[FNL_KEY_KP_1]           = "KP1",
+	[FNL_KEY_KP_2]           = "KP2",
+	[FNL_KEY_KP_3]           = "KP3",
+	[FNL_KEY_KP_4]           = "KP4",
+	[FNL_KEY_KP_5]           = "KP5",
+	[FNL_KEY_KP_6]           = "KP6",
+	[FNL_KEY_KP_7]           = "KP7",
+	[FNL_KEY_KP_8]           = "KP8",
+	[FNL_KEY_KP_9]           = "KP9",
+	[FNL_KEY_KP_DECIMAL]     = "KPDecimal",
+	[FNL_KEY_KP_DIVIDE]      = "KPDivide",
+	[FNL_KEY_KP_MULTIPLY]    = "KPMultiply",
+	[FNL_KEY_KP_SUBTRACT]    = "KPSubtract",
+	[FNL_KEY_KP_ADD]         = "KPAdd",
+	[FNL_KEY_KP_ENTER]       = "KPEnter",
+	[FNL_KEY_VOLUME_DOWN]    = "VolumeDown",
+	[FNL_KEY_VOLUME_UP]      = "VolumeUp",
+	[FNL_KEY_MUTE]           = "Mute",
 };
 
 bool echo_key_known(FnlKey k)
@@ -174,7 +174,7 @@ FnlKey fnl_key_from_name(const char *name)
 	const size_t n = sizeof KEY_NAMES / sizeof KEY_NAMES[0];
 	for (size_t i = 0; i < n; i++) {
 		const char *have = KEY_NAMES[i];
-		size_t j = 0;
+		size_t j         = 0;
 		if (!have)
 			continue;
 		while (have[j] && lower(have[j]) == lower(name[j]))
@@ -188,10 +188,10 @@ FnlKey fnl_key_from_name(const char *name)
 static const char *button_name(FnlButton b)
 {
 	switch (b) {
-	case FNL_BUTTON_LEFT:   return "left";
-	case FNL_BUTTON_RIGHT:  return "right";
+	case FNL_BUTTON_LEFT: return "left";
+	case FNL_BUTTON_RIGHT: return "right";
 	case FNL_BUTTON_MIDDLE: return "middle";
-	default:                return "other";
+	default: return "other";
 	}
 }
 
@@ -214,7 +214,7 @@ static void echo(const App *app, const char *fmt, ...)
 	/* Built whole and written once: stderr is unbuffered, and a line from the
 	 * render thread's log must not land inside one the reader parses by
 	 * shape. */
-	char   line[640];
+	char line[640];
 	size_t n = 3;
 	memcpy(line, "EV ", 3);
 	va_start(ap, fmt);
@@ -223,10 +223,10 @@ static void echo(const App *app, const char *fmt, ...)
 	if (w > 0)
 		n += (size_t)w < sizeof line - n ? (size_t)w : sizeof line - n - 1;
 	w = snprintf(line + n, sizeof line - n,
-				 " | area %dx%d fs %d max %d cap %d scale %d out %s %dx%d",
-				 cw, ch, (int)fnl_is_fullscreen(app),
-				 (int)fnl_is_maximized(app), (int)fnl_is_pointer_captured(app),
-				 fnl_scale120(app), out && *out ? out : "?", ow, oh);
+				 " | area %dx%d fs %d max %d cap %d scale %d out %s %dx%d", cw,
+				 ch, (int)fnl_is_fullscreen(app), (int)fnl_is_maximized(app),
+				 (int)fnl_is_pointer_captured(app), fnl_scale120(app),
+				 out && *out ? out : "?", ow, oh);
 	if (w > 0)
 		n += (size_t)w < sizeof line - n ? (size_t)w : sizeof line - n - 1;
 	/* n is at most sizeof line - 1 here, so the newline always has room. */
@@ -252,12 +252,18 @@ void echo_event(const App *app, const FnlEvent *ev)
 		 * so a harness counting presses cannot count one by not looking. */
 		echo(app, "key %s %s", key_name(ev->key.key),
 			 !ev->key.pressed ? "release"
-			 : ev->key.repeat ? "repeat" : "press");
+			 : ev->key.repeat ? "repeat"
+							  : "press");
 		break;
 	case FNL_EVENT_BUTTON:
 		echo(app, "button %s %s %.1f %.1f", button_name(ev->button.button),
-			 ev->button.pressed ? "press" : "release",
-			 ev->button.x, ev->button.y);
+			 ev->button.pressed ? "press" : "release", ev->button.x,
+			 ev->button.y);
+		/* The click count, when there is one: a harness driving a double-click
+		 * reads the second press as "double", not as two presses it has to
+		 * time itself. */
+		if (ev->button.pressed && ev->button.clicks > 1)
+			echo(app, " (click %d)", ev->button.clicks);
 		break;
 	case FNL_EVENT_MOTION:
 		echo(app, "motion %.1f %.1f", ev->motion.x, ev->motion.y);
@@ -266,8 +272,8 @@ void echo_event(const App *app, const FnlEvent *ev)
 		echo(app, "relative %.1f %.1f", ev->relative.dx, ev->relative.dy);
 		break;
 	case FNL_EVENT_SCROLL:
-		echo(app, "scroll %.2f %.2f at %.1f %.1f", ev->scroll.dx,
-			 ev->scroll.dy, ev->scroll.x, ev->scroll.y);
+		echo(app, "scroll %.2f %.2f at %.1f %.1f", ev->scroll.dx, ev->scroll.dy,
+			 ev->scroll.x, ev->scroll.y);
 		break;
 	case FNL_EVENT_ENTER:
 		echo(app, "enter %.1f %.1f", ev->presence.x, ev->presence.y);
@@ -275,12 +281,8 @@ void echo_event(const App *app, const FnlEvent *ev)
 	case FNL_EVENT_LEAVE:
 		echo(app, "leave %.1f %.1f", ev->presence.x, ev->presence.y);
 		break;
-	case FNL_EVENT_FOCUS:
-		echo(app, "focus %d", (int)ev->focus.focused);
-		break;
-	case FNL_EVENT_CLOSE:
-		echo(app, "close");
-		break;
+	case FNL_EVENT_FOCUS: echo(app, "focus %d", (int)ev->focus.focused); break;
+	case FNL_EVENT_CLOSE: echo(app, "close"); break;
 
 	/* The notifications. Echoed on the same terms as the input above -- a
 	 * harness driving this program cannot see the titlebar's own controls act,
@@ -289,17 +291,16 @@ void echo_event(const App *app, const FnlEvent *ev)
 		echo(app, "resize %d %d pt %d %d px", ev->resize.w_pt, ev->resize.h_pt,
 			 ev->resize.w_px, ev->resize.h_px);
 		break;
-	case FNL_EVENT_SCALE:
-		echo(app, "scale %d", ev->scale.scale120);
-		break;
+	case FNL_EVENT_SCALE: echo(app, "scale %d", ev->scale.scale120); break;
 	case FNL_EVENT_WINDOW:
 		echo(app, "window fs %d max %d", (int)ev->window.fullscreen,
 			 (int)ev->window.maximized);
 		break;
 	case FNL_EVENT_ANTIALIAS:
-		echo(app, "antialias %s", ev->antialias.aa == FNL_AA_MSAA ? "fsaa"
-								: ev->antialias.aa == FNL_AA_MLAA ? "mlaa"
-																  : "none");
+		echo(app, "antialias %s",
+			 ev->antialias.aa == FNL_AA_MSAA   ? "fsaa"
+			 : ev->antialias.aa == FNL_AA_MLAA ? "mlaa"
+											   : "none");
 		break;
 	case FNL_EVENT_SCENE_SIZE:
 		echo(app, "scene %d %d", ev->scene.w_px, ev->scene.h_px);
@@ -307,8 +308,12 @@ void echo_event(const App *app, const FnlEvent *ev)
 	case FNL_EVENT_CAPTURE:
 		echo(app, "capture %d", (int)ev->capture.captured);
 		break;
-	case FNL_EVENT_LOST:
-		echo(app, "lost %u", ev->lost.count);
+	case FNL_EVENT_LOST: echo(app, "lost %u", ev->lost.count); break;
+	case FNL_EVENT_IMAGE_LOST:
+		echo(app, "image-lost %d", (int)ev->image_lost.lost);
+		break;
+	case FNL_EVENT_CLAIM_FOCUS:
+		echo(app, "claim-focus %d", ev->claim_focus.claim);
 		break;
 	case FNL_EVENT_COMPOSE: {
 		char buf[128];
@@ -329,8 +334,7 @@ void echo_event(const App *app, const FnlEvent *ev)
 		char name[OUTPUT_NAME_MAX];
 		snprintf(name, sizeof name, "%s", fnl_output_name(app));
 		one_line(name);
-		echo(app, "output %d %d pt %s", ev->output.w_pt, ev->output.h_pt,
-			 name);
+		echo(app, "output %d %d pt %s", ev->output.w_pt, ev->output.h_pt, name);
 		break;
 	}
 	case FNL_EVENT_GPU: {

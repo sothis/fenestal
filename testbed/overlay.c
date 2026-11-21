@@ -41,7 +41,7 @@ static const FnlColor COL_ACTIVE = TESTBED_RGB(0.35f, 1.00f, 0.55f);
  * everything that writes these and everything that reads them is one turn on
  * one thread. */
 static struct {
-	bool   show_help;       /* F1: the keybindings and the status readout */
+	bool show_help; /* F1: the keybindings and the status readout */
 	/* Where the crosshair is, as a *fraction* of the presentable area rather
 	 * than a count of its pixels. A fraction means the same thing at any
 	 * size, so a fullscreen toggle, a drag-resize, a scale change or a pick
@@ -56,10 +56,14 @@ static struct {
  * rule the relative path and the click each have to remember. */
 static void reticle_set(double x, double y)
 {
-	if (x < 0.0) x = 0.0;
-	if (y < 0.0) y = 0.0;
-	if (x > 1.0) x = 1.0;
-	if (y > 1.0) y = 1.0;
+	if (x < 0.0)
+		x = 0.0;
+	if (y < 0.0)
+		y = 0.0;
+	if (x > 1.0)
+		x = 1.0;
+	if (y > 1.0)
+		y = 1.0;
 	g_ui.reticle_x = x;
 	g_ui.reticle_y = y;
 }
@@ -69,34 +73,34 @@ static void reticle_set(double x, double y)
 static const struct {
 	const char *key;
 	const char *desc;
-	FnlKey      held[2];  /* highlight while either is down; UNKNOWN for none */
+	FnlKey held[2]; /* highlight while either is down; UNKNOWN for none */
 } BINDINGS[] = {
-	{ "W / Up",    "Forward",          { FNL_KEY_W,      FNL_KEY_UP     } },
-	{ "S / Down",  "Back",             { FNL_KEY_S,      FNL_KEY_DOWN   } },
-	{ "A / Left",  "Turn left",        { FNL_KEY_A,      FNL_KEY_LEFT   } },
-	{ "D / Right", "Turn right",       { FNL_KEY_D,      FNL_KEY_RIGHT  } },
-	{ "Shift",     "Run",              { FNL_KEY_LSHIFT, FNL_KEY_RSHIFT } },
-	{ "Click LMB", "Capture mouse",    { FNL_KEY_UNKNOWN } },
-	{ "F1",        "Toggle this help", { FNL_KEY_UNKNOWN } },
-	{ "F2",        "Scene motion",     { FNL_KEY_UNKNOWN } },
-	{ "F3",        "Text entry",       { FNL_KEY_UNKNOWN } },
-	{ "F4 / F6",   "Copy / paste",     { FNL_KEY_UNKNOWN } },
-	{ "F5",        "Toggle metrics",   { FNL_KEY_UNKNOWN } },
-	{ "F7",        "Next output",      { FNL_KEY_UNKNOWN } },
-	{ "I",         "Picture",          { FNL_KEY_UNKNOWN } },
-	{ "F9",        "Release mouse",    { FNL_KEY_UNKNOWN } },
-	{ "F11",       "Fullscreen",       { FNL_KEY_UNKNOWN } },
-	{ "Esc",       "Quit",             { FNL_KEY_UNKNOWN } },
+	{ "W / Up", "Forward", { FNL_KEY_W, FNL_KEY_UP } },
+	{ "S / Down", "Back", { FNL_KEY_S, FNL_KEY_DOWN } },
+	{ "A / Left", "Turn left", { FNL_KEY_A, FNL_KEY_LEFT } },
+	{ "D / Right", "Turn right", { FNL_KEY_D, FNL_KEY_RIGHT } },
+	{ "Shift", "Run", { FNL_KEY_LSHIFT, FNL_KEY_RSHIFT } },
+	{ "Click LMB", "Capture mouse", { FNL_KEY_UNKNOWN } },
+	{ "F1", "Toggle this help", { FNL_KEY_UNKNOWN } },
+	{ "F2", "Scene motion", { FNL_KEY_UNKNOWN } },
+	{ "F3", "Text entry", { FNL_KEY_UNKNOWN } },
+	{ "F4 / F6", "Copy / paste", { FNL_KEY_UNKNOWN } },
+	{ "F5", "Toggle metrics", { FNL_KEY_UNKNOWN } },
+	{ "F7", "Next output", { FNL_KEY_UNKNOWN } },
+	{ "I", "Picture", { FNL_KEY_UNKNOWN } },
+	{ "F9", "Release mouse", { FNL_KEY_UNKNOWN } },
+	{ "F11", "Fullscreen", { FNL_KEY_UNKNOWN } },
+	{ "Esc", "Quit", { FNL_KEY_UNKNOWN } },
 };
 #define BINDING_COUNT ((int)(sizeof BINDINGS / sizeof BINDINGS[0]))
-#define KEY_COL_CHARS 11      /* key column width, in character cells */
+#define KEY_COL_CHARS 11 /* key column width, in character cells */
 
-#define HELP_TITLE   "Keybindings"
+#define HELP_TITLE "Keybindings"
 
 /* Both panels are padded by this and both are inset from the window edge by
  * MARGIN. Named once because the fit test below measures what the drawing
  * draws, and two copies of a pad is how those come apart. */
-#define PANEL_PAD    10
+#define PANEL_PAD 10
 /* Clear space between the titlebar and the top of the help panel. */
 #define HELP_TOP_GAP 10
 
@@ -139,9 +143,10 @@ static int status_panel_top(FnlApp *app)
 {
 	int cx, cy, cw, ch;
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
-	(void)cx; (void)cw;
-	return cy + ch - MARGIN - STATUS_ROWS * fnl_text_line(FNL_TEXT_BODY)
-		   - PANEL_PAD;
+	(void)cx;
+	(void)cw;
+	return cy + ch - MARGIN - STATUS_ROWS * fnl_text_line(FNL_TEXT_BODY) -
+		   PANEL_PAD;
 }
 
 /* Whether there is room for it. The status readout does not yield to the
@@ -152,7 +157,8 @@ static bool status_panel_fits(FnlApp *app)
 {
 	int cx, cy, cw, ch;
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
-	(void)cx; (void)cw;
+	(void)cx;
+	(void)cw;
 	return status_panel_top(app) >= cy;
 }
 
@@ -172,8 +178,7 @@ static bool help_panel_fits(FnlApp *app, bool status_shown)
 	/* Clear of the status readout where there is one, and of the bottom of the
 	 * area where there is not -- so the panel gives way to the other panel
 	 * *and* to the window, rather than to whichever happens to be checked. */
-	const int limit = status_shown ? status_panel_top(app)
-								   : cy + ch - MARGIN;
+	const int limit = status_shown ? status_panel_top(app) : cy + ch - MARGIN;
 	return cy + HELP_TOP_GAP + help_panel_h() <= limit;
 }
 
@@ -229,13 +234,13 @@ bool testbed_vram_mib(FnlApp *app, double *mib)
 	case FNL_RENDERER_VULKAN: return scene_vulkan_vram(app, mib);
 #endif
 #ifdef SCENE_HAS_D3D12
-	case FNL_RENDERER_D3D12:  return scene_d3d12_vram(app, mib);
+	case FNL_RENDERER_D3D12: return scene_d3d12_vram(app, mib);
 #endif
 #ifdef SCENE_HAS_METAL
-	case FNL_RENDERER_METAL:  return scene_metal_vram(app, mib);
+	case FNL_RENDERER_METAL: return scene_metal_vram(app, mib);
 #endif
 	case FNL_RENDERER_OPENGL: return testbed_gpu_mem_os(fnl_gpu_name(app), mib);
-	default:                  return false;
+	default: return false;
 	}
 }
 
@@ -304,10 +309,9 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 		 * line above it. */
 		int pw, ph;
 		fnl_content_size_px(app, &pw, &ph);
-		snprintf(cur, sizeof cur, "Cursor  %d, %d",
-				 (int)(g_ui.reticle_x * pw), (int)(g_ui.reticle_y * ph));
-	}
-	else
+		snprintf(cur, sizeof cur, "Cursor  %d, %d", (int)(g_ui.reticle_x * pw),
+				 (int)(g_ui.reticle_y * ph));
+	} else
 		snprintf(cur, sizeof cur, "Cursor  -   (click to capture)");
 
 	/* The presentable area, not the buffer: the grab ring around the window is
@@ -327,8 +331,8 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 	else if (fnl_antialias(app) == FNL_AA_MLAA)
 		snprintf(aa, sizeof aa, "MLAA   ");
 
-	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s",
-			 f->area_w_px, f->area_h_px, scene, aa, fnl_present_mode(app));
+	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s", f->area_w_px, f->area_h_px,
+			 scene, aa, fnl_present_mode(app));
 
 	int x = MARGIN;
 	/* status_panel_top() is where the *background* starts; the first row of
@@ -356,9 +360,9 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 
 /* ---- the crosshair ------------------------------------------------------- */
 
-#define CURSOR_ARM   11.0f    /* points from centre to the end of an arm */
-#define CURSOR_GAP    3.0f    /* points of clear space at the centre     */
-#define CURSOR_THICK  1.5f
+#define CURSOR_ARM 11.0f /* points from centre to the end of an arm */
+#define CURSOR_GAP 3.0f  /* points of clear space at the centre     */
+#define CURSOR_THICK 1.5f
 
 static void draw_reticle(FnlApp *app)
 {
@@ -382,14 +386,14 @@ static void draw_reticle(FnlApp *app)
 	 * keeps the rest of the frame's text -- the library's caption included --
 	 * out of this program's scissor. */
 	fnl_overlay_clip(app, cx, cy, cw, ch);
-	fnl_overlay_stroke(app, x - CURSOR_ARM, y, x - CURSOR_GAP, y,
-					   CURSOR_THICK, COL_ACTIVE);
-	fnl_overlay_stroke(app, x + CURSOR_GAP, y, x + CURSOR_ARM, y,
-					   CURSOR_THICK, COL_ACTIVE);
-	fnl_overlay_stroke(app, x, y - CURSOR_ARM, x, y - CURSOR_GAP,
-					   CURSOR_THICK, COL_ACTIVE);
-	fnl_overlay_stroke(app, x, y + CURSOR_GAP, x, y + CURSOR_ARM,
-					   CURSOR_THICK, COL_ACTIVE);
+	fnl_overlay_stroke(app, x - CURSOR_ARM, y, x - CURSOR_GAP, y, CURSOR_THICK,
+					   COL_ACTIVE);
+	fnl_overlay_stroke(app, x + CURSOR_GAP, y, x + CURSOR_ARM, y, CURSOR_THICK,
+					   COL_ACTIVE);
+	fnl_overlay_stroke(app, x, y - CURSOR_ARM, x, y - CURSOR_GAP, CURSOR_THICK,
+					   COL_ACTIVE);
+	fnl_overlay_stroke(app, x, y + CURSOR_GAP, x, y + CURSOR_ARM, CURSOR_THICK,
+					   COL_ACTIVE);
 	fnl_overlay_clip(app, 0, 0, 0, 0);
 }
 
@@ -420,13 +424,13 @@ static void picture_pixels(unsigned char *px)
 {
 	for (int y = 0; y < PICTURE_PX; y++)
 		for (int x = 0; x < PICTURE_PX; x++) {
-			unsigned char *p = px + ((size_t)y * (size_t)PICTURE_PX
-									 + (size_t)x) * 4u;
+			unsigned char *p =
+				px + ((size_t)y * (size_t)PICTURE_PX + (size_t)x) * 4u;
 			const unsigned char v = ((x / 8) + (y / 8)) & 1 ? 0xFF : 0x00;
-			p[0] = v;
-			p[1] = v;
-			p[2] = v;
-			p[3] = 0xFF;
+			p[0]                  = v;
+			p[1]                  = v;
+			p[2]                  = v;
+			p[3]                  = 0xFF;
 		}
 }
 
@@ -438,9 +442,9 @@ static void picture_draw(FnlApp *app)
 	if (g_picture_on && !g_picture) {
 		unsigned char px[PICTURE_PX * PICTURE_PX * 4];
 		picture_pixels(px);
-		g_picture = fnl_image_create(app, PICTURE_PX, PICTURE_PX,
-									 FNL_IMAGE_RGBA8, px);
-		if (!g_picture)     /* a renderer that cannot draw a picture */
+		g_picture =
+			fnl_image_create(app, PICTURE_PX, PICTURE_PX, FNL_IMAGE_RGBA8, px);
+		if (!g_picture) /* a renderer that cannot draw a picture */
 			g_picture_on = false;
 	}
 	if (!g_picture)
@@ -465,12 +469,13 @@ static void footprint_log(FnlApp *app, double now)
 	testbed_proc_sample(&cpu, &ram);
 	if (!testbed_vram_mib(app, &vram))
 		vram = -1.0;
-	const double ms = fnl_frame_gpu_ms(app);
-	const int fps = fnl_fps(app);
+	const double ms  = fnl_frame_gpu_ms(app);
+	const int fps    = fnl_fps(app);
 	const double gpu = ms >= 0.0 && fps >= 0 ? ms * fps / 10.0 : -1.0;
-	fprintf(stderr, "footprint: CPU %.1f %%, RAM %.0f MiB, VRAM %.0f MiB, "
-			"frame CPU %.2f ms, GPU %.1f %%, on %s with %s\n", cpu, ram,
-			vram, fnl_frame_cpu_ms(app), gpu, fnl_gpu_name(app),
+	fprintf(stderr,
+			"footprint: CPU %.1f %%, RAM %.0f MiB, VRAM %.0f MiB, "
+			"frame CPU %.2f ms, GPU %.1f %%, on %s with %s\n",
+			cpu, ram, vram, fnl_frame_cpu_ms(app), gpu, fnl_gpu_name(app),
 			fnl_renderer_name(app));
 }
 
@@ -489,7 +494,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		 * and the keybindings yield to whichever of the two is below them. See
 		 * status_panel_fits() and help_panel_fits(). */
 		status = status_panel_fits(app);
-		help = help_panel_fits(app, status);
+		help   = help_panel_fits(app, status);
 		if (help)
 			draw_help(app);
 		if (status)
@@ -515,13 +520,15 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 			int cx, cy, cw, ch, rx, ry, rw, rh;
 			bool vis;
 			fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
-			(void)cx; (void)cy; (void)ch;
+			(void)cx;
+			(void)cy;
+			(void)ch;
 			/* 120 points: a caller's run wide enough to be worth asking
 			 * about, and not so wide that only a large window shows it. */
 			vis = fnl_titlebar_reserve(app, 120, &rx, &ry, &rw, &rh);
 			if (vis)
-				fprintf(stderr, "reserve: win %d -> x %d y %d %dx%d\n",
-						cw, rx, ry, rw, rh);
+				fprintf(stderr, "reserve: win %d -> x %d y %d %dx%d\n", cw, rx,
+						ry, rw, rh);
 			else
 				fprintf(stderr, "reserve: win %d -> not visible\n", cw);
 		}
@@ -535,22 +542,22 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 			g_stats_on = true;
 		}
 		if (at < 0.0 || f->time - at >= 0.5) {
-			at = f->time;
+			at            = f->time;
 			uint64_t lost = 0;
-			const int got = fnl_frame_samples(app, rows,
-					(int)(sizeof rows / sizeof rows[0]), sizeof rows[0],
-					&lost);
+			const int got = fnl_frame_samples(
+				app, rows, (int)(sizeof rows / sizeof rows[0]), sizeof rows[0],
+				&lost);
 			lost_all += lost;
 			for (int i = 0; i < got; i++) {
 				n_rows++;
 				if (rows[i].presented)
 					presented++;
 				if (rows[i].gpu_ms >= 0.0f)
-					rows_us += (unsigned long long)
-							   (rows[i].gpu_ms * 1e3f + 0.5f);
+					rows_us +=
+						(unsigned long long)(rows[i].gpu_ms * 1e3f + 0.5f);
 			}
 			FnlFrameStats st = { .size = sizeof st };
-			const bool have = fnl_frame_stats(app, &st);
+			const bool have  = fnl_frame_stats(app, &st);
 			fprintf(stderr,
 					"frame stats: frames %llu presents %llu, gpu %llu us "
 					"in %llu; rows %llu gpu %llu us, presented %llu, lost "
@@ -558,9 +565,9 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 					have ? (unsigned long long)st.frames : 0ULL,
 					have ? (unsigned long long)st.presents : 0ULL,
 					have ? (unsigned long long)st.gpu_us : 0ULL,
-					have ? (unsigned long long)st.gpu_samples : 0ULL,
-					n_rows, rows_us, presented, lost_all,
-					fnl_frame_cpu_ms(app), fnl_frame_gpu_ms(app));
+					have ? (unsigned long long)st.gpu_samples : 0ULL, n_rows,
+					rows_us, presented, lost_all, fnl_frame_cpu_ms(app),
+					fnl_frame_gpu_ms(app));
 		}
 	}
 	draw_reticle(app);
@@ -607,9 +614,9 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * bar the output box is on: a harness's way to move a fullscreen
 		 * window. */
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F7) {
-			const int n = fnl_output_count(app);
+			const int n     = fnl_output_count(app);
 			const char *cur = fnl_output_name(app);
-			int idx = -1;
+			int idx         = -1;
 			for (int i = 0; i < n && idx < 0; i++) {
 				const char *name = fnl_output_name_at(app, i);
 				const size_t len = strlen(name);
@@ -620,8 +627,7 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 					idx = i;
 			}
 			if (n > 0)
-				fnl_request_output(app,
-					fnl_output_name_at(app, (idx + 1) % n));
+				fnl_request_output(app, fnl_output_name_at(app, (idx + 1) % n));
 		}
 		/* I: the picture off and on, as examples/image.c binds it. The
 		 * destroy is the case a round cannot otherwise reach -- the free path
@@ -647,10 +653,13 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * slow by the surface scale. */
 		int cx, cy, cw, ch;
 		fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
-		(void)cx; (void)cy;
+		(void)cx;
+		(void)cy;
 		double rx = g_ui.reticle_x, ry = g_ui.reticle_y;
-		if (cw > 0) rx += ev->relative.dx / cw;
-		if (ch > 0) ry += ev->relative.dy / ch;
+		if (cw > 0)
+			rx += ev->relative.dx / cw;
+		if (ch > 0)
+			ry += ev->relative.dy / ch;
 		reticle_set(rx, ry);
 		fnl_invalidate(app);
 		break;
@@ -671,7 +680,6 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		}
 		break;
 
-	default:
-		break;
+	default: break;
 	}
 }

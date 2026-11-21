@@ -142,6 +142,7 @@ int main(void)
 	F(FnlEvent, button.y);
 	F(FnlEvent, button.button);
 	F(FnlEvent, button.pressed);
+	F(FnlEvent, button.clicks);
 	F(FnlEvent, motion.x);
 	F(FnlEvent, motion.y);
 	F(FnlEvent, relative.dx);
@@ -171,6 +172,8 @@ int main(void)
 	F(FnlEvent, output.h_pt);
 	F(FnlEvent, gpu.index);
 	F(FnlEvent, gpu.renderer);
+	F(FnlEvent, image_lost.lost);
+	F(FnlEvent, claim_focus.claim);
 #ifdef FNL_ABI_VULKAN
 	S(FnlVulkanGpu);
 	F(FnlVulkanGpu, instance);

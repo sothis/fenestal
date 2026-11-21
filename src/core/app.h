@@ -15,9 +15,8 @@
 #ifndef APP_H
 #define APP_H
 
-#include "core/compiler.h"    /* also pins _POSIX_C_SOURCE; must precede libc */
+#include "core/compiler.h" /* also pins _POSIX_C_SOURCE; must precede libc */
 #include "core/thread.h"
-
 
 #include <math.h>
 #include <stdio.h>
@@ -71,12 +70,12 @@ void fnl_set_log_fn(FnlLogFn fn, void *ud);
  * and the sanitizers print their stack on abort. Not for input validation:
  * what a caller or a peer can get wrong is answered by the two error tiers,
  * in every build. Not callable from a signal handler. */
-FNL_NORETURN void fnl_assert_fail(const char *expr, const char *file,
-								  int line, const char *func);
+FNL_NORETURN void fnl_assert_fail(const char *expr, const char *file, int line,
+								  const char *func);
 #ifdef NDEBUG
-#  define FNL_ASSERT(cond) ((void)0)
+#define FNL_ASSERT(cond) ((void)0)
 #else
-#  define FNL_ASSERT(cond)                                                    \
+#define FNL_ASSERT(cond)                                                       \
 	((cond) ? (void)0 : fnl_assert_fail(#cond, __FILE__, __LINE__, __func__))
 #endif
 
@@ -87,7 +86,7 @@ FNL_NORETURN void fnl_assert_fail(const char *expr, const char *file,
  * library's own paths: a caller on the wrong thread is answered by the
  * public entry point, in every build, and never reaches one of these. */
 typedef enum { APP_THREAD_OTHER, APP_THREAD_MAIN, APP_THREAD_RENDER } AppThread;
-void      app_thread_set(AppThread t);                         /* app.c */
+void app_thread_set(AppThread t); /* app.c */
 AppThread app_thread(void);
 #define FNL_ASSERT_THREAD(t) FNL_ASSERT(app_thread() == (t))
 /* Whether this thread may read App::renderer_state: the render thread, or
@@ -95,7 +94,7 @@ AppThread app_thread(void);
  * is the first on_gpu_created's, and after it is joined, the last
  * on_gpu_lost's. Asked by the interop getters a caller may call from
  * anywhere; the library's own paths assert the thread instead. */
-bool      app_renderer_state_ours(const App *a);               /* app.c */
+bool app_renderer_state_ours(const App *a); /* app.c */
 
 /* A recovery or fallback path made to run by name, from FNL_FAULT in the
  * environment (core/fault.c has the grammar and the list of sites). Debug
@@ -106,27 +105,27 @@ bool      app_renderer_state_ours(const App *a);               /* app.c */
  * renderer commits itself, where only it can (fault.c's list): whether
  * FNL_SELFTEST names it. */
 #ifdef NDEBUG
-#  define FNL_FAULT(name) false
-#  define FNL_FAULT_INIT() ((void)0)
-#  define FNL_SELFTEST(name) false
+#define FNL_FAULT(name) false
+#define FNL_FAULT_INIT() ((void)0)
+#define FNL_SELFTEST(name) false
 #else
-void fault_init(void);                                     /* fault.c */
+void fault_init(void); /* fault.c */
 bool fault_hit(const char *name);
 bool fault_selftest(const char *name);
-#  define FNL_FAULT(name) fault_hit(name)
-#  define FNL_FAULT_INIT() fault_init()
-#  define FNL_SELFTEST(name) fault_selftest(name)
+#define FNL_FAULT(name) fault_hit(name)
+#define FNL_FAULT_INIT() fault_init()
+#define FNL_SELFTEST(name) fault_selftest(name)
 #endif
 
 /* Propagate a failure out of the current function. Early return rather than a
  * goto: almost every failure is answered by the caller tearing the whole
  * device down (see destroy_device_objects), so there is nothing half-built to
  * unwind past. A function that does own something uses `goto fail`. */
-#define FNL_TRY(expr)                                                         \
-	do {                                                                      \
-		FnlResult fnl_try_r_ = (expr);                                        \
-		if (fnl_try_r_ < 0)                                                   \
-			return fnl_try_r_;                                                \
+#define FNL_TRY(expr)                                                          \
+	do {                                                                       \
+		FnlResult fnl_try_r_ = (expr);                                         \
+		if (fnl_try_r_ < 0)                                                    \
+			return fnl_try_r_;                                                 \
 	} while (0)
 
 /* The presentable area the window starts with, in pixels -- everything under
@@ -140,7 +139,7 @@ bool fault_selftest(const char *name);
 /* How long a wait for the server's invitation to draw may last: an occluded
  * or minimized surface stops being invited, and the render thread must not
  * park behind an invitation that is never coming. */
-#define FRAME_WAIT_S       0.1            /* seconds */
+#define FRAME_WAIT_S 0.1 /* seconds */
 
 /* ---- text metrics ---------------------------------------------------------
  * A closed set of sizes: an atlas is baked for each at every surface scale,
@@ -151,9 +150,9 @@ bool fault_selftest(const char *name);
  * The type is the public one and the short names are its values, so nothing
  * converts between the two. */
 typedef FnlTextSize TextSize;
-#define TEXT_BODY       FNL_TEXT_BODY
-#define TEXT_LARGE      FNL_TEXT_LARGE
-#define TEXT_UI         FNL_TEXT_UI
+#define TEXT_BODY FNL_TEXT_BODY
+#define TEXT_LARGE FNL_TEXT_LARGE
+#define TEXT_UI FNL_TEXT_UI
 #define TEXT_SIZE_COUNT FNL_TEXT_SIZE_COUNT
 
 #include "font_metrics.h"
@@ -163,43 +162,52 @@ _Static_assert(FONT_SIZE_COUNT == TEXT_SIZE_COUNT,
 
 /* Pen step per glyph, logical points, for a monospaced size; 0 for TEXT_UI,
  * which has an advance per glyph. text_width() measures either. */
-static inline int text_advance(TextSize sz) { return FONT_ADV_PT[sz]; }
-static inline bool text_is_mono(TextSize sz) { return FONT_SIZE_MONO[sz] != 0; }
+static inline int text_advance(TextSize sz)
+{
+	return FONT_ADV_PT[sz];
+}
+static inline bool text_is_mono(TextSize sz)
+{
+	return FONT_SIZE_MONO[sz] != 0;
+}
 /* Cap height, logical points: what text is centred in a box by. */
-static inline int text_height(TextSize sz)  { return FONT_CAP_PT[sz]; }
+static inline int text_height(TextSize sz)
+{
+	return FONT_CAP_PT[sz];
+}
 
 /* ---- client-side decorations ----------------------------------------------
  * In logical points, DECO_DBLCLICK_MS apart; scale_pt() converts to physical
  * pixels. */
 #define DECO_TITLEBAR_H 34
-#define DECO_TITLE_X    12      /* where the title text starts */
+#define DECO_TITLE_X 12 /* where the title text starts */
 /* How deep a resize edge is: a transparent margin *outside* the window
  * geometry where the backend asks for a grab ring
  * (FnlBackendVtbl::grab_ring), and the same depth hit-tested as an inner
  * margin where it does not. */
-#define DECO_GRAB        6
-#define DECO_BTN_W      28
-#define DECO_BTN_H      20
-#define DECO_BTN_GAP     6
+#define DECO_GRAB 6
+#define DECO_BTN_W 28
+#define DECO_BTN_H 20
+#define DECO_BTN_GAP 6
 #define DECO_BTN_MARGIN 10
 #define DECO_DBLCLICK_MS 400
 /* How far the pointer must travel with the button held before a press on the
  * titlebar becomes a window move rather than a click. */
-#define DECO_DRAG_SLOP   4
+#define DECO_DRAG_SLOP 4
 
 /* The wider gap that sets fullscreen apart from minimize/maximize/close. */
 #define DECO_BTN_GROUP_GAP 12
 
 /* The whole button strip including the margin outside it: the arithmetic
  * deco_button_rects() walks, as one number. */
-#define DECO_BTN_STRIP_W  (DECO_BTN_MARGIN + 4 * DECO_BTN_W + 2 * DECO_BTN_GAP \
-						   + DECO_BTN_GROUP_GAP)
+#define DECO_BTN_STRIP_W                                                       \
+	(DECO_BTN_MARGIN + 4 * DECO_BTN_W + 2 * DECO_BTN_GAP + DECO_BTN_GROUP_GAP)
 
 /* The smallest presentable area worth *offering*, in logical points: what
  * fnl_min_content_size_pt() reports. Advisory; the size the window refuses to
  * go below is deco_min_window()'s. */
-#define CONTENT_MIN_W     640
-#define CONTENT_MIN_H     480
+#define CONTENT_MIN_W 640
+#define CONTENT_MIN_H 480
 
 /* ---- the hard floor -------------------------------------------------------
  * The smallest window whose button strip still shows, in logical points of
@@ -208,8 +216,8 @@ static inline int text_height(TextSize sz)  { return FONT_CAP_PT[sz]; }
  * DECO_BTN_STRIP_W <= DECO_BTN_MARGIN`); the height is the bar. The floor
  * enforced is deco_min_window()'s, which adds the controls' run to this
  * width; see DESIGN *The size floor*. */
-#define DECO_MIN_W        (DECO_BTN_STRIP_W + DECO_BTN_MARGIN + 1)
-#define DECO_MIN_H        DECO_TITLEBAR_H
+#define DECO_MIN_W (DECO_BTN_STRIP_W + DECO_BTN_MARGIN + 1)
+#define DECO_MIN_H DECO_TITLEBAR_H
 
 _Static_assert(DECO_MIN_W > DECO_BTN_STRIP_W + DECO_BTN_MARGIN,
 			   "DECO_MIN_W is below the width where the button strip vanishes");
@@ -217,7 +225,7 @@ _Static_assert(DECO_MIN_H == DECO_TITLEBAR_H,
 			   "DECO_MIN_H is not the titlebar's height -- the floor exists to "
 			   "keep the bar drawable and grabbable, and nothing else");
 _Static_assert(CONTENT_MIN_W >= DECO_MIN_W &&
-			   CONTENT_MIN_H + DECO_TITLEBAR_H >= DECO_MIN_H,
+				   CONTENT_MIN_H + DECO_TITLEBAR_H >= DECO_MIN_H,
 			   "CONTENT_MIN_* is below the hard floor, so "
 			   "fnl_min_content_size_pt would offer sizes the window will "
 			   "not take");
@@ -225,8 +233,13 @@ _Static_assert(CONTENT_MIN_W >= DECO_MIN_W &&
 /* ZONE_BUTTON_* stay contiguous and in this order: deco_button_rects() and the
  * hit test both index them as ZONE_BUTTON_MIN + i. */
 typedef enum {
-	ZONE_CONTENT, ZONE_TITLEBAR, ZONE_BUTTON_MIN, ZONE_BUTTON_MAX,
-	ZONE_BUTTON_FULL, ZONE_BUTTON_CLOSE, ZONE_RESIZE,
+	ZONE_CONTENT,
+	ZONE_TITLEBAR,
+	ZONE_BUTTON_MIN,
+	ZONE_BUTTON_MAX,
+	ZONE_BUTTON_FULL,
+	ZONE_BUTTON_CLOSE,
+	ZONE_RESIZE,
 	/* The caller's: the run it reserved with fnl_titlebar_reserve(), or a
 	 * rectangle it claimed with fnl_titlebar_claim() or fnl_claim(). It
 	 * exists so that a press there is not taken for a window drag, nor in
@@ -242,34 +255,34 @@ typedef enum {
  * short names are its values; EDGE_COUNT is what a backend sizes its table
  * by. */
 typedef FnlEdge Edge;
-#define EDGE_NONE  FNL_EDGE_NONE
-#define EDGE_T     FNL_EDGE_TOP
-#define EDGE_B     FNL_EDGE_BOTTOM
-#define EDGE_L     FNL_EDGE_LEFT
-#define EDGE_R     FNL_EDGE_RIGHT
-#define EDGE_TL    FNL_EDGE_TOP_LEFT
-#define EDGE_TR    FNL_EDGE_TOP_RIGHT
-#define EDGE_BL    FNL_EDGE_BOTTOM_LEFT
-#define EDGE_BR    FNL_EDGE_BOTTOM_RIGHT
+#define EDGE_NONE FNL_EDGE_NONE
+#define EDGE_T FNL_EDGE_TOP
+#define EDGE_B FNL_EDGE_BOTTOM
+#define EDGE_L FNL_EDGE_LEFT
+#define EDGE_R FNL_EDGE_RIGHT
+#define EDGE_TL FNL_EDGE_TOP_LEFT
+#define EDGE_TR FNL_EDGE_TOP_RIGHT
+#define EDGE_BL FNL_EDGE_BOTTOM_LEFT
+#define EDGE_BR FNL_EDGE_BOTTOM_RIGHT
 #define EDGE_COUNT ((Edge)(FNL_EDGE_BOTTOM_RIGHT + 1))
 
 /* ---- the library's titlebar controls ---------------------------------------
  * Three checkboxes and the output, GPU and size drop-downs, in
  * src/core/controls.c. The indices are here because App carries their
  * state. */
-enum {
-	CTL_CHECK_FSAA = 0, CTL_CHECK_MLAA, CTL_CHECK_SCALE, CTL_CHECK_COUNT
-};
+enum { CTL_CHECK_FSAA = 0, CTL_CHECK_MLAA, CTL_CHECK_SCALE, CTL_CHECK_COUNT };
 
 /* ---- the caller's run of the titlebar -------------------------------------
  * How tall a control in the titlebar is -- the buttons' height, since a
  * caller's controls line up with them -- and how much clear space the title
  * keeps to its right before the run is refused (see deco_reserved_rect). */
-#define DECO_ITEM_H     DECO_BTN_H
-#define DECO_TITLE_GAP   8
+#define DECO_ITEM_H DECO_BTN_H
+#define DECO_TITLE_GAP 8
 
 /* A size in pixels. */
-typedef struct { int w, h; } Extent;
+typedef struct {
+	int w, h;
+} Extent;
 
 /* How many events the queue holds before it starts reporting losses. Sized
  * against the drain rather than the input rate: the contract is one drain a
@@ -278,12 +291,17 @@ typedef struct { int w, h; } Extent;
 
 /* The inputs one queued event carries, for fnl_input_latency_ms(); see
  * App::ev_born. */
-typedef struct { double sum, oldest; uint32_t n, stamped; } EvBorn;
+typedef struct {
+	double sum, oldest;
+	uint32_t n, stamped;
+} EvBorn;
 
 /* An origin and a size: physical pixels in the overlay's interface, window
  * points in the titlebar claims. Prefixed because macOS's MacTypes.h, which
  * every AppKit and Metal header brings in, declares a Rect of its own. */
-typedef struct { int x, y, w, h; } FnlRect;
+typedef struct {
+	int x, y, w, h;
+} FnlRect;
 
 /* The status line's list of outputs. One constant because the published copy
  * and the latched one are memcpy'd into each other, each sized by its own
@@ -293,7 +311,7 @@ typedef struct { int x, y, w, h; } FnlRect;
 /* The most modes and outputs the public getters and the titlebar's lists
  * read at once; FnlBackendVtbl::modes and ::outputs give at most these. */
 #define OUTPUT_MODES_MAX 64
-#define OUTPUTS_MAX      8
+#define OUTPUTS_MAX 8
 
 /* An image the caller made (fnl_image_create()): the library's copy of its
  * pixels and whatever the renderer has made of them. The copy is the point --
@@ -303,37 +321,46 @@ typedef struct { int x, y, w, h; } FnlRect;
  * NULL until it has one for the device in hand, and freed by the renderer
  * (FnlRendererVtbl::image_free). */
 struct FnlImage {
-	struct FnlImage *next;     /* the app's list of them */
-	App             *app;
-	int              w, h;
-	FnlImageFormat   fmt;
-	void            *pixels;   /* the library's copy, w * h * 4 bytes */
-	void            *gpu;      /* the renderer's object, or NULL */
+	struct FnlImage *next; /* the app's list of them */
+	App *app;
+	int w, h;
+	FnlImageFormat fmt;
+	void *pixels; /* the library's copy, w * h * 4 bytes */
+	void *gpu;    /* the renderer's object, or NULL */
 };
 
 /* One call a caller queued with fnl_post(), and how many are taken at once.
  * File scope rather than nested in App, where a declaration declares a type
  * and no member. */
-struct AppPost { void (*fn)(void *ud); void *ud; };
+struct AppPost {
+	void (*fn)(void *ud);
+	void *ud;
+};
 enum { APP_POST_MAX = 16 };
 
 /* What the [any]-thread knobs have asked the pump to do; see App::req. */
 typedef struct {
-	bool fullscreen,  fullscreen_val;
-	bool maximized,   maximized_val;
+	bool fullscreen, fullscreen_val;
+	bool maximized, maximized_val;
 	bool minimize;
 	bool release_ptr;
-	bool size;        int size_w, size_h;
-	bool mode;        FnlMode mode_val;
-	bool output;      char output_name[OUTPUT_NAME_MAX];
+	bool size;
+	int size_w, size_h;
+	bool mode;
+	FnlMode mode_val;
+	bool output;
+	char output_name[OUTPUT_NAME_MAX];
 	bool move;
-	bool resize;      Edge resize_edge;
-	bool bar;         int bar_h, bar_min_w;
-	bool cursor;      FnlCursor cursor_val;
+	bool resize;
+	Edge resize_edge;
+	bool bar;
+	int bar_h, bar_min_w;
+	bool cursor;
+	FnlCursor cursor_val;
 	bool text_mode;
 	bool clip_get;
-	bool nudge_size;  /* the render thread's; app_request_size_nudge() */
-	bool title;       /* App::title, which the drain copies under the lock */
+	bool nudge_size; /* the render thread's; app_request_size_nudge() */
+	bool title;      /* App::title, which the drain copies under the lock */
 } PendingReq;
 
 /* How many drawn frames fnl_frame_samples() keeps unread: seventeen
@@ -354,15 +381,15 @@ _Static_assert(FRAME_RING == 1024,
  * render thread keeps for the next publish. fenestal.h states the two
  * holds. */
 #define GPU_HOLD_FRAMES 8
-#define GPU_HOLD_S      0.25
-#define GPU_LATE_MAX    16
+#define GPU_HOLD_S 0.25
+#define GPU_LATE_MAX 16
 /* How many frames' word on whether their GPU time counts is kept
  * (App::gpu_uncounted): well past OVERLAY_MAX_IMAGES, the most frames a
  * renderer has in flight, each read by the time its slot or image is
  * drawn into again. */
-#define GPU_UNCOUNTED   32
+#define GPU_UNCOUNTED 32
 /* FnlFrameSample::gpu_ms while the frame waits for it; -1 is "none read". */
-#define GPU_PENDING     (-2.0f)
+#define GPU_PENDING (-2.0f)
 
 /* How many rectangles a caller may claim in one frame, fnl_claim() and
  * fnl_titlebar_claim() together. A fixed array because claims are appended
@@ -384,7 +411,7 @@ _Static_assert(CLAIMS_MAX == 64,
 
 /* Copy a title into `dst`, "Fenestal" for NULL or empty, cut at a character's
  * start rather than inside one where it is longer than TITLE_MAX - 1. */
-void app_title_copy(char dst[TITLE_MAX], const char *utf8);       /* app.c */
+void app_title_copy(char dst[TITLE_MAX], const char *utf8); /* app.c */
 
 /* The device's name, one constant for the same reason: it is copied into a
  * per-thread snapshot. At least what any graphics API reports; each
@@ -411,39 +438,39 @@ void app_title_copy(char dst[TITLE_MAX], const char *utf8);       /* app.c */
  * graphics API's swapchain, "D3D11", with its terminator. */
 #define GPU_VIA_MAX 8
 typedef struct {
-	char        name[GPU_NAME_MAX];
-	FnlGpuKind  kind;
+	char name[GPU_NAME_MAX];
+	FnlGpuKind kind;
 	FnlRenderer renderer;
 	/* What the frames reach the window through where that is not the
 	 * renderer's own swapchain: "D3D11" for Vulkan's through a DXGI one
 	 * (src/renderer/vulkan/present_dxgi.c), "" otherwise. A renderer lists
 	 * such an entry beside the plain one for the same GPU, so the two can
 	 * be chosen apart (fnl_gpu_via_at()); they are ranked as one. */
-	char        via[GPU_VIA_MAX];
+	char via[GPU_VIA_MAX];
 	/* Of a GPU listed both ways, whether this is the one its renderer
 	 * takes by itself: what the ranking measures and moves to, since how
 	 * the frames reach the window is the renderer's to choose and not a
 	 * frame's cost to say (src/core/rank.c). False for a GPU listed once. */
-	bool        way_default;
+	bool way_default;
 	/* 0 for a GPU. Otherwise the entry is a move of a GPU to another
 	 * kernel driver (FNL_GPU_DRIVER), drawn on after it with `renderer`,
 	 * and this is its place in App::gpu_drivers plus one:
 	 * src/core/drivers.c. */
-	int         driver_move;
+	int driver_move;
 	/* While moves are offered, the kernel driver an entry of the GPU that
 	 * can move draws on -- the one bound, or a move's -- which the
 	 * titlebar's GPU box names; "" for every other entry. Set by
 	 * gpu_merge() alone, as driver_move is. */
-	char        driver[GPU_DRIVER_NAME_MAX];
+	char driver[GPU_DRIVER_NAME_MAX];
 	/* Where in the parts the entry came from: App::gpu_span's slot and
 	 * its place in that renderer's own list, -1 for a move. The list is
 	 * not the parts end to end once a move has swapped the GPU's rows
 	 * (app_gpu_driver_entries()), so a row is mapped back by these and
 	 * never by counting. Set by gpu_merge(). */
-	int         slot, local;
+	int slot, local;
 	/* Its measured frame rate where a ranking has one (src/core/rank.c),
 	 * 0 where none; set by gpu_merge(). */
-	float       fps;
+	float fps;
 } GpuEntry;
 
 /* A ranked entry as src/core/rank.c keys it, "<renderer key>|<GPU>" with
@@ -457,8 +484,8 @@ typedef struct {
  * 3840x2160@30", with its terminator. */
 #define RANK_DISPLAY_MAX (OUTPUT_NAME_MAX + 32)
 typedef struct {
-	char   display[RANK_DISPLAY_MAX];
-	char   id[RANK_ID_MAX];
+	char display[RANK_DISPLAY_MAX];
+	char id[RANK_ID_MAX];
 	double fps;
 } RankRow;
 /* A GPU that can be moved to another kernel driver with the window open,
@@ -488,44 +515,44 @@ typedef struct {
  * the swap onto the moved GPU (app_gpu_driver_poll()). The thread joined
  * at the render thread's end, the move waited for to its own.
  */
-void app_gpu_drivers_start(App *a);                            /* drivers.c */
-void app_gpu_drivers_pin(App *a, const char *why);             /* app.c */
+void app_gpu_drivers_start(App *a);                /* drivers.c */
+void app_gpu_drivers_pin(App *a, const char *why); /* app.c */
 /* The list made again from the parts as they are, for what the moves
  * offered depend on and the parts do not. */
-void app_gpu_list_merge(App *a);                               /* app.c */
+void app_gpu_list_merge(App *a); /* app.c */
 /* The whole list said, every entry with its number, the moves included:
  * once the other renderers are listed, and when the ranking orders it
  * again for another display -- what a harness clicks by. */
-void app_gpu_list_say(App *a);                                 /* app.c */
-int  app_gpu_driver_entries(App *a, GpuEntry *list, int n,
-							int max);                          /* drivers.c */
+void app_gpu_list_say(App *a); /* app.c */
+int app_gpu_driver_entries(App *a, GpuEntry *list, int n,
+						   int max); /* drivers.c */
 void app_gpu_driver_owe(App *a, int move, const char *name,
-						FnlRenderer renderer);                 /* drivers.c */
-bool app_gpu_driver_take(App *a, GpuDriver *g);                /* drivers.c */
-bool app_gpu_driver_make(App *a, const GpuDriver *g);          /* drivers.c */
-bool app_gpu_driver_start_move(App *a, const GpuDriver *g);    /* drivers.c */
-void app_gpu_driver_poll(App *a);                              /* drivers.c */
-void app_gpu_driver_join(App *a);                              /* drivers.c */
+						FnlRenderer renderer);              /* drivers.c */
+bool app_gpu_driver_take(App *a, GpuDriver *g);             /* drivers.c */
+bool app_gpu_driver_make(App *a, const GpuDriver *g);       /* drivers.c */
+bool app_gpu_driver_start_move(App *a, const GpuDriver *g); /* drivers.c */
+void app_gpu_driver_poll(App *a);                           /* drivers.c */
+void app_gpu_driver_join(App *a);                           /* drivers.c */
 /* After the build that follows a move: whether it draws on the GPU moved,
  * and the move undone -- the GPU back on the driver it left -- where it
  * does not or the build failed. Both nothing where no move was made. */
-bool app_gpu_driver_landed(App *a);                            /* drivers.c */
-void app_gpu_driver_undo(App *a);                              /* drivers.c */
+bool app_gpu_driver_landed(App *a); /* drivers.c */
+void app_gpu_driver_undo(App *a);   /* drivers.c */
 /* A landing that found no GPU of the moved one's name, the GPU on the
  * driver asked for: every later move there with that renderer would miss
  * the same way, so that one is offered no more -- the driver's other
  * renderers still are, each a userspace of its own. */
-void app_gpu_driver_unseen(App *a);                            /* drivers.c */
+void app_gpu_driver_unseen(App *a); /* drivers.c */
 /* The GPU that can move bound to `driver` before any renderer is built,
  * where a move is offered and it is on the other: what a ranked entry on
  * that driver opens on (app_rank_start()). */
-void app_gpu_driver_prefer(App *a, const char *driver);        /* drivers.c */
+void app_gpu_driver_prefer(App *a, const char *driver); /* drivers.c */
 /* Whether a move is offered, and then the GPU's drivers into `g`: what a
  * ranked key naming a driver needs before this run can make it. */
-bool app_gpu_driver_offered(App *a, GpuDriver *g);             /* drivers.c */
+bool app_gpu_driver_offered(App *a, GpuDriver *g); /* drivers.c */
 /* The kernel driver a GPU's part of a key ends in -- " on nouveau",
  * " on nvidia", as app_gpu_entry_id() writes them -- or NULL. */
-const char *app_gpu_driver_of(const char *name);               /* drivers.c */
+const char *app_gpu_driver_of(const char *name); /* drivers.c */
 /* A GPU came or went -- a dock, an external GPU -- as a backend heard it
  * (on any thread): the list made again from every renderer at the render
  * loop's next quiet turn, by a rebuild on the GPU in use that lists the
@@ -534,9 +561,9 @@ const char *app_gpu_driver_of(const char *name);               /* drivers.c */
  * takes away and brings back, whose card comes and goes with each move,
  * which is no hotplug: the move lists again itself. Untested: no GPU
  * here can be plugged (TODO). */
-void app_gpu_hotplug(App *a);                                  /* drivers.c */
-void app_gpu_hotplug_poll(App *a);                             /* drivers.c */
-bool app_gpu_driver_owns(const App *a, const char *devpath);   /* drivers.c */
+void app_gpu_hotplug(App *a);                                /* drivers.c */
+void app_gpu_hotplug_poll(App *a);                           /* drivers.c */
+bool app_gpu_driver_owns(const App *a, const char *devpath); /* drivers.c */
 
 /* src/core/rank.c: DESIGN *Ranked by measured frame rate*. FNL_GPU_RANK
  * read and the ranking loaded, from fnl_init() before a renderer is built,
@@ -545,24 +572,24 @@ bool app_gpu_driver_owns(const App *a, const char *devpath);   /* drivers.c */
  * ranking, measured first, and given their figures, from gpu_merge() under
  * App::lock; and on the render thread each turn, the calibration and the
  * move to the ranked entry asked for, once the list is whole. */
-void app_rank_start(App *a);                                   /* rank.c */
+void app_rank_start(App *a); /* rank.c */
 void app_gpu_entry_id(const App *a, const GpuEntry *e, char *out,
-					  size_t size);                            /* rank.c */
-void app_rank_sort(const App *a, GpuEntry *list, int n);       /* rank.c */
-void app_rank_tick(App *a);                                    /* rank.c */
+					  size_t size);                      /* rank.c */
+void app_rank_sort(const App *a, GpuEntry *list, int n); /* rank.c */
+void app_rank_tick(App *a);                              /* rank.c */
 /* Whether a calibration holds the window's input -- every press, motion,
  * scroll and character dropped, a release let through so nothing stays
  * held -- on any thread; and the calibration's panel over everything the
  * frame drew, from draw_overlay() on the render thread. */
-bool app_rank_holds_input(const App *a);                       /* rank.c */
+bool app_rank_holds_input(const App *a); /* rank.c */
 /* Whether the GPU box offers a calibration, and one asked for there: every
  * entry on this display measured again now, and the figures of every other
  * display connected dropped, to be measured when the window is there -- a
  * monitor swapped on a cable at the mode it had keeps its key. Any
  * thread. */
-bool app_rank_recalibrates(const App *a);                      /* rank.c */
-void app_rank_recalibrate(App *a);                             /* rank.c */
-FNL_MUST_USE FnlResult app_rank_draw(App *a, int w, int h);    /* rank.c */
+bool app_rank_recalibrates(const App *a);                   /* rank.c */
+void app_rank_recalibrate(App *a);                          /* rank.c */
+FNL_MUST_USE FnlResult app_rank_draw(App *a, int w, int h); /* rank.c */
 
 /* renderer.h's, which comes later, named for the prototypes below. */
 typedef struct FnlRendererVtbl FnlRendererVtbl;
@@ -571,13 +598,13 @@ typedef struct FnlRendererVtbl FnlRendererVtbl;
  * renderer's own count, which App::gpu_list places after the GPUs of the
  * renderers before it. Under App::lock. */
 void app_gpu_list_publish(App *a, const GpuEntry *list, int n,
-						  int cur);                                /* app.c */
+						  int cur); /* app.c */
 /* One line of a pick's inventory, `GPU n: <name> (<kind>)`, GPU `i` of
  * the renderer's own list: held, and said by app_gpu_list_publish() with
  * the number the merged list gives it, naming the renderer beside the kind
  * where the list spans more than one. */
 void app_gpu_inventory(const App *a, int i, const char *name,
-					   const char *kind);                          /* app.c */
+					   const char *kind); /* app.c */
 /* A drawn frame's time on the GPU, from its first command to its last, as
  * a renderer read it back from its timestamps: from any thread, folded into
  * the mean on the render thread, by app_frame_cost() after each frame and
@@ -599,7 +626,7 @@ void app_gpu_inventory(const App *a, int i, const char *name,
  * of the move and to lift after it. Milliseconds. Short enough not to read
  * as a delay, long enough to read as a fade; past the ceiling a figure is a
  * move that never comes. */
-#define VEIL_MS     250
+#define VEIL_MS 250
 #define VEIL_MS_MAX 5000
 
 /* What fnl_input_latency_ms() takes a window server's or a device's stamp
@@ -609,19 +636,19 @@ void app_gpu_inventory(const App *a, int i, const char *name,
  * rounding, and reads as zero. A stamp is the input's that the backend
  * hands in next, within INPUT_STAMP_FRESH -- one handler's work, so that an
  * input with no stamp of its own never takes another's. Seconds. */
-#define INPUT_AGE_MAX     1.0
-#define INPUT_AGE_SLACK   0.002
+#define INPUT_AGE_MAX 1.0
+#define INPUT_AGE_SLACK 0.002
 #define INPUT_STAMP_FRESH 0.002
 /* The GPU's time on a frame, by the renderer that timed it: the frame
  * being drawn says so with app_gpu_timed(), which returns its index
  * (FnlFrame::index), and the renderer hands that back with the time once
  * it reads it, frames later. Render thread. */
-uint64_t app_gpu_timed(App *a);                                     /* app.c */
-void app_gpu_time(App *a, double seconds, uint64_t index);         /* app.c */
-void app_frame_cost(App *a);                                       /* app.c */
-void app_cost_poll(App *a);                                        /* app.c */
-void app_cost_publish(App *a, double now, bool window);            /* app.c */
-void app_frame_cost_reset(App *a);                                 /* app.c */
+uint64_t app_gpu_timed(App *a);                            /* app.c */
+void app_gpu_time(App *a, double seconds, uint64_t index); /* app.c */
+void app_frame_cost(App *a);                               /* app.c */
+void app_cost_poll(App *a);                                /* app.c */
+void app_cost_publish(App *a, double now, bool window);    /* app.c */
+void app_frame_cost_reset(App *a);                         /* app.c */
 
 /* Where a frame's CPU time is read, by every renderer, on the render
  * thread: the CPU half of the cost (fnl_frame_cpu_ms()) is the render
@@ -638,8 +665,8 @@ typedef enum FrameMark {
 	FRAME_MARK_PRESENT,   /* the call that hands the frame over, entered */
 	FRAME_MARK_PRESENTED, /* and returned from */
 } FrameMark;
-void app_frame_mark(App *a, FrameMark m);                          /* app.c */
-double app_cpu_cost(const App *a);                                 /* app.c */
+void app_frame_mark(App *a, FrameMark m); /* app.c */
+double app_cpu_cost(const App *a);        /* app.c */
 
 /* FNL_COST_PARTS=1 beside --frame-times: what a frame's two cost figures
  * are made of, a line or three after each frame line -- the render
@@ -651,57 +678,56 @@ double app_cpu_cost(const App *a);                                 /* app.c */
  * parts_close(). parts_mark() is app_frame_mark()'s, with the thread's CPU
  * time it read (negative where not known, or not read). */
 #define PARTS_GPU_MAX 8
-void parts_open(App *a);                                           /* parts.c */
-void parts_close(App *a);                                          /* parts.c */
-void parts_mark(App *a, FrameMark m, double cpu);                  /* parts.c */
+void parts_open(App *a);                          /* parts.c */
+void parts_close(App *a);                         /* parts.c */
+void parts_mark(App *a, FrameMark m, double cpu); /* parts.c */
 /* One GPU sample cut into `n` parts, the first the whole span; `names` is
  * static and the renderer's, and a new one starts the sums again. */
 void parts_gpu(App *a, const char *const *names, const double *seconds,
-			   int n);                                             /* parts.c */
-void parts_log(App *a);                                            /* parts.c */
+			   int n);  /* parts.c */
+void parts_log(App *a); /* parts.c */
 /* One period sample, its four parts (held, device, present, cost), and
  * whether the estimator took it: what the frame line's `period` is made
  * of. */
-void parts_period(App *a, const double s[4], bool taken);          /* parts.c */
-void parts_reset(App *a);                                          /* parts.c */
+void parts_period(App *a, const double s[4], bool taken); /* parts.c */
+void parts_reset(App *a);                                 /* parts.c */
 
 /* The other renderers' GPUs, listed once and placed in App::gpu_list: the
  * listing, and the thread the render thread starts it on after the first
  * frame. */
-void app_gpu_list_others(App *a);                                  /* app.c */
-void app_gpu_list_start(App *a);                                   /* app.c */
+void app_gpu_list_others(App *a); /* app.c */
+void app_gpu_list_start(App *a);  /* app.c */
 /* "discrete", "software", "hardware" for an unknown kind: the word the
  * inventory and the titlebar's list give a kind. And a renderer's name,
  * "OpenGL", and key, "gl", from the build's tables. */
-const char *app_gpu_kind_word(FnlGpuKind k);                       /* app.c */
-const char *app_renderer_name(FnlRenderer r);                      /* app.c */
-const char *app_renderer_key(FnlRenderer r);                       /* app.c */
+const char *app_gpu_kind_word(FnlGpuKind k);  /* app.c */
+const char *app_renderer_name(FnlRenderer r); /* app.c */
+const char *app_renderer_key(FnlRenderer r);  /* app.c */
 /* Where App::gpu_list's entry `i` comes from: the renderer (gpu_span's)
  * and its own 0-based index there; false past the end. Takes App::lock. */
 bool app_gpu_entry_of(App *a, int i, const FnlRendererVtbl **r,
-					  int *local);                                 /* app.c */
+					  int *local); /* app.c */
 /* `name` cut short enough for a title, as fnl_gpu_short_name() cuts the
  * name of the one in use: into `out`, or `name` itself where nothing would
  * be left. */
-const char *app_gpu_short(char *out, size_t size,
-						  const char *name);                       /* app.c */
+const char *app_gpu_short(char *out, size_t size, const char *name); /* app.c */
 /* Whether `part` is somewhere in `name`, ASCII letter case aside: how every
  * renderer's pick reads FnlInitDesc::gpu_name and FNL_GPU, and how a move
  * to another kernel driver finds the GPU moved by the name it keeps. The
  * drivers spell the names, and nobody types "Intel(R)": a name matches
  * with the vendors' marks in it or left out. */
-bool app_name_has(const char *name, const char *part);             /* app.c */
+bool app_name_has(const char *name, const char *part); /* app.c */
 
 /* Where the veil is (App::veil_phase, veil_step() in frame.c): drawn down
  * over the last frames before a move the library makes, black through the
  * rebuild, and lifted over the first frames after it. DESIGN *The veil*. */
 typedef enum {
-	VEIL_NONE,    /* nothing drawn */
-	VEIL_SNAP,    /* the next frame drawn reads itself back */
-	VEIL_OUT,     /* coming down to black ahead of a move */
-	VEIL_HELD,    /* black; the move is made once a frame of it is shown */
-	VEIL_ARMED,   /* black on the rebuilt device until its first present */
-	VEIL_IN,      /* lifting after it */
+	VEIL_NONE,  /* nothing drawn */
+	VEIL_SNAP,  /* the next frame drawn reads itself back */
+	VEIL_OUT,   /* coming down to black ahead of a move */
+	VEIL_HELD,  /* black; the move is made once a frame of it is shown */
+	VEIL_ARMED, /* black on the rebuilt device until its first present */
+	VEIL_IN,    /* lifting after it */
 } VeilPhase;
 
 /* Everything the command-buffer recording depends on: the render thread
@@ -715,33 +741,33 @@ typedef enum {
  *
  * Prefixed because <windows.h> declares DrawState. */
 typedef struct {
-	bool     is_fullscreen;
-	bool     is_active;       /* the window has the keyboard focus */
-	bool     is_maximized;    /* picks the restore icon over the maximize one */
-	bool     pointer_captured;  /* locked; the caller draws its own cursor */
+	bool is_fullscreen;
+	bool is_active;        /* the window has the keyboard focus */
+	bool is_maximized;     /* picks the restore icon over the maximize one */
+	bool pointer_captured; /* locked; the caller draws its own cursor */
 	/* Whether the caller paints the bar this frame. Latched beside bar_h:
 	 * fnl_titlebar_custom() changes both, and the pair has to cross to the
 	 * render thread together. */
-	bool     custom_bar;
+	bool custom_bar;
 	/* The reticle, in *pixels of the presentable area* -- App::cur_px's unit,
 	 * not logical points. Here only so that a moved reticle re-records. */
-	int      cursor_x, cursor_y;
+	int cursor_x, cursor_y;
 	/* The outputs the surface is on, the one being followed first. */
-	char     output[OUTPUT_NAME_MAX];
+	char output[OUTPUT_NAME_MAX];
 	/* The title the bar shows, latched so the render thread draws its own
 	 * copy and fnl_set_title() re-records the bar. */
-	char     title[TITLE_MAX];
-	Zone     hovered_button;  /* ZONE_BUTTON_*, or ZONE_CONTENT for none */
+	char title[TITLE_MAX];
+	Zone hovered_button; /* ZONE_BUTTON_*, or ZONE_CONTENT for none */
 	/* The titlebar band this frame is laid out against, in logical points, or
 	 * 0 in fullscreen. Latched with the size. */
-	int      bar_h;
-	int      out_w_pt, out_h_pt;   /* the output, in logical points */
+	int bar_h;
+	int out_w_pt, out_h_pt; /* the output, in logical points */
 	/* What fnl_fps() reports. It must stay here: a caller can compare the
 	 * reading against the one it drew only inside on_overlay, which runs only
 	 * when the frame is already being re-recorded. Moves with the window's
 	 * frames, and at rest only while fnl_set_cost_sampling() is on, in the
 	 * same turn as the two below, so the three cost one re-record. */
-	int      fps;
+	int fps;
 	/* What fnl_frame_gpu_ms() and fnl_frame_cpu_ms() report, in
 	 * microseconds, for fps's reason. Published at most once a COST_WINDOW
 	 * while frames are drawn, and once more when the window comes to rest
@@ -756,24 +782,24 @@ typedef struct {
 	 * took in tenths of a percent, each METRICS_UNKNOWN where the system
 	 * will not say. Moved at most once a METRICS_WINDOW, and only while the
 	 * panel is shown, so they cost no more re-records than fps. */
-	bool     metrics;
+	bool metrics;
 	uint32_t met_cpu_pm, met_ram_mib, met_vram_mib, met_gpu_pm;
 	/* The scene's own resolution in pixels, or SCENE_NATIVE. Here because
 	 * the letterbox rectangle and the fetch that fills it are recorded, not
 	 * pushed. */
-	int      scene_w, scene_h;
+	int scene_w, scene_h;
 	/* The antialiasing mode in force (App::want_aa): the one asked for, as
 	 * far as the device drawing can take it -- unlike the pair above, not
 	 * read back from what was built. */
 	FnlAntialias aa;
 	/* Seconds into the scene's animation, or 0 while motion is off. Being in
 	 * here is what re-records a moving scene. */
-	float    scene_time;
+	float scene_time;
 	/* The veil over a move to another GPU, renderer or kernel driver: 0
 	 * for none, 1 for black, in steps of 1/255 so that each step of a fade
 	 * is one re-record and a veil that stands is none (veil_step() in
 	 * frame.c, drawn by draw_veil() in draw.c). */
-	float    veil;
+	float veil;
 	/* Bumped by fnl_invalidate(): everything on_record and on_overlay draw
 	 * from that the library cannot see. */
 	uint32_t user_gen;
@@ -784,40 +810,30 @@ typedef struct {
  * overlay that stops refreshing when that field alone changes, so the size is
  * pinned and adding a field fails the build here. Update the comparison,
  * then the number. */
-_Static_assert(sizeof(FnlDrawState) == 380, "FnlDrawState changed -- keep "
+_Static_assert(sizeof(FnlDrawState) == 380,
+			   "FnlDrawState changed -- keep "
 			   "fnl_draw_state_eq() in step, then update this size");
 
 static inline bool fnl_draw_state_eq(const FnlDrawState *x,
 									 const FnlDrawState *y)
 {
-	return x->is_fullscreen  == y->is_fullscreen  &&
-		   x->is_active      == y->is_active      &&
-		   x->is_maximized   == y->is_maximized   &&
+	return x->is_fullscreen == y->is_fullscreen &&
+		   x->is_active == y->is_active && x->is_maximized == y->is_maximized &&
 		   x->pointer_captured == y->pointer_captured &&
-		   x->custom_bar     == y->custom_bar     &&
-		   x->cursor_x       == y->cursor_x       &&
-		   x->cursor_y       == y->cursor_y       &&
-		   !strcmp(x->output, y->output)          &&
-		   !strcmp(x->title, y->title)            &&
-		   x->hovered_button == y->hovered_button &&
-		   x->bar_h          == y->bar_h          &&
-		   x->out_w_pt       == y->out_w_pt       &&
-		   x->out_h_pt       == y->out_h_pt       &&
-		   x->fps            == y->fps            &&
-		   x->cost_gpu_us    == y->cost_gpu_us    &&
-		   x->cost_cpu_us    == y->cost_cpu_us    &&
-		   x->input_lat_us   == y->input_lat_us   &&
-		   x->metrics        == y->metrics        &&
-		   x->met_cpu_pm     == y->met_cpu_pm     &&
-		   x->met_ram_mib    == y->met_ram_mib    &&
-		   x->met_vram_mib   == y->met_vram_mib   &&
-		   x->met_gpu_pm     == y->met_gpu_pm     &&
-		   x->scene_w        == y->scene_w        &&
-		   x->scene_h        == y->scene_h        &&
-		   x->aa             == y->aa             &&
-		   x->scene_time     == y->scene_time     &&
-		   x->veil           == y->veil           &&
-		   x->user_gen       == y->user_gen;
+		   x->custom_bar == y->custom_bar && x->cursor_x == y->cursor_x &&
+		   x->cursor_y == y->cursor_y && !strcmp(x->output, y->output) &&
+		   !strcmp(x->title, y->title) &&
+		   x->hovered_button == y->hovered_button && x->bar_h == y->bar_h &&
+		   x->out_w_pt == y->out_w_pt && x->out_h_pt == y->out_h_pt &&
+		   x->fps == y->fps && x->cost_gpu_us == y->cost_gpu_us &&
+		   x->cost_cpu_us == y->cost_cpu_us &&
+		   x->input_lat_us == y->input_lat_us && x->metrics == y->metrics &&
+		   x->met_cpu_pm == y->met_cpu_pm && x->met_ram_mib == y->met_ram_mib &&
+		   x->met_vram_mib == y->met_vram_mib &&
+		   x->met_gpu_pm == y->met_gpu_pm && x->scene_w == y->scene_w &&
+		   x->scene_h == y->scene_h && x->aa == y->aa &&
+		   x->scene_time == y->scene_time && x->veil == y->veil &&
+		   x->user_gen == y->user_gen;
 }
 
 /* The metrics panel (fnl_set_metrics_panel()). The process's figures -- CPU,
@@ -828,16 +844,16 @@ static inline bool fnl_draw_state_eq(const FnlDrawState *x,
  * frame.c); and the panel itself, from draw_overlay() after the caller's
  * drawing, from the draw state's figures. */
 #define METRICS_WINDOW 0.5          /* seconds between process samples */
-#define METRICS_UNKNOWN 0xffffffffu  /* a figure the system will not say */
-void app_metrics_sample(App *a, double now);                 /* metrics.c */
-FNL_MUST_USE FnlResult app_metrics_draw(App *a, const FnlDrawState *ds,
-										int w, int h);       /* metrics.c */
+#define METRICS_UNKNOWN 0xffffffffu /* a figure the system will not say */
+void app_metrics_sample(App *a, double now); /* metrics.c */
+FNL_MUST_USE FnlResult app_metrics_draw(App *a, const FnlDrawState *ds, int w,
+										int h); /* metrics.c */
 
 /* The antialiasing mode the caller asked for, worked out again for the
  * device just built: from each on_gpu_created's site, ahead of the
  * callback, so the caller reads the mode the new device can draw. Any
  * thread. */
-void app_aa_settle(App *a);                                /* api_state.c */
+void app_aa_settle(App *a); /* api_state.c */
 
 /* fnl_key_down()'s set: one bit per FnlKey, in words because the atomics shim
  * has no wider type. Sized past the enum, so appending a key is not also an
@@ -857,8 +873,8 @@ _Static_assert(FNL_KEY_KP_ENTER < 32 * KEY_HELD_WORDS,
 
 /* One solid rectangle. Written, not blended. */
 typedef struct {
-	float rect[4];      /* x, y, w, h -- physical pixels                     */
-	float color[4];     /* straight RGBA, already converted for the surface  */
+	float rect[4];  /* x, y, w, h -- physical pixels                     */
+	float color[4]; /* straight RGBA, already converted for the surface  */
 } RectInstance;
 
 _Static_assert(sizeof(RectInstance) == 32, "RectInstance must match rect.vert");
@@ -868,10 +884,10 @@ _Static_assert(offsetof(RectInstance, color) == 16,
 /* One stroke: a capsule from p0 to p1, or two meeting at p1 and ending at p2.
  * The fragment shader takes the nearer of the two (see shaders/shape.frag). */
 typedef struct {
-	float p0[2], p1[2];   /* spine, physical pixels                          */
-	float p2[2];          /* second arm's end; == p1 for a plain line        */
-	float half_w;         /* half the stroke width, pixels                   */
-	float feather;        /* coverage ramp half-width, pixels                */
+	float p0[2], p1[2]; /* spine, physical pixels                          */
+	float p2[2];        /* second arm's end; == p1 for a plain line        */
+	float half_w;       /* half the stroke width, pixels                   */
+	float feather;      /* coverage ramp half-width, pixels                */
 	float color[4];
 } ShapeInstance;
 
@@ -883,9 +899,9 @@ _Static_assert(offsetof(ShapeInstance, color) == 32,
 			   "ShapeInstance layout drifted");
 
 typedef struct {
-	float rect[4];      /* x, y, w, h -- physical pixels                     */
-	float uv[4];        /* u0, v0, u1, v1 -- normalised atlas coordinates    */
-	float color[4];     /* straight RGBA, already converted for the surface  */
+	float rect[4];  /* x, y, w, h -- physical pixels                     */
+	float uv[4];    /* u0, v0, u1, v1 -- normalised atlas coordinates    */
+	float color[4]; /* straight RGBA, already converted for the surface  */
 } GlyphInstance;
 
 _Static_assert(sizeof(GlyphInstance) == 48,
@@ -913,17 +929,17 @@ _Static_assert(GPU_UNCOUNTED > 2 * OVERLAY_MAX_IMAGES,
  * glyphs, thirty rectangles and twenty strokes. Rectangles get the room they
  * do because a caller spends one per panel, row and cell. The eight images
  * come to 1.9 MB of host-visible memory, in two allocations. */
-#define TEXT_MAX_GLYPHS     4096
-#define OVERLAY_MAX_RECTS   1024
-#define OVERLAY_MAX_SHAPES   512
+#define TEXT_MAX_GLYPHS 4096
+#define OVERLAY_MAX_RECTS 1024
+#define OVERLAY_MAX_SHAPES 512
 
 /* The two non-text streams share one allocation per image: rectangles from
  * offset 0, strokes from OVERLAY_SHAPE_OFF. src/core/overlay.c appends and
  * the renderer draws, so both read the offset here. */
-#define OVERLAY_SHAPE_OFF   ((size_t)OVERLAY_MAX_RECTS * sizeof(RectInstance))
-#define OVERLAY_ARENA_BYTES (OVERLAY_SHAPE_OFF + \
-							 (size_t)OVERLAY_MAX_SHAPES * sizeof(ShapeInstance))
-#define TEXT_ARENA_BYTES    ((size_t)TEXT_MAX_GLYPHS * sizeof(GlyphInstance))
+#define OVERLAY_SHAPE_OFF ((size_t)OVERLAY_MAX_RECTS * sizeof(RectInstance))
+#define OVERLAY_ARENA_BYTES                                                    \
+	(OVERLAY_SHAPE_OFF + (size_t)OVERLAY_MAX_SHAPES * sizeof(ShapeInstance))
+#define TEXT_ARENA_BYTES ((size_t)TEXT_MAX_GLYPHS * sizeof(GlyphInstance))
 /* The strokes are cast in place out of the mapped arena, so their offset has
  * to keep a ShapeInstance aligned; the mapping itself is (Vulkan's
  * minMemoryMapAlignment is at least 64). */
@@ -956,20 +972,20 @@ _Static_assert(OVERLAY_SHAPE_OFF % FNL_ALIGNOF(ShapeInstance) == 0,
  * first, and UNORM takes them as-is. Only what the library paints; a
  * caller's colours are converted per call by api_overlay.c. */
 typedef enum {
-	COL_BAR_ON,         /* titlebar, focused / unfocused                    */
+	COL_BAR_ON, /* titlebar, focused / unfocused                    */
 	COL_BAR_OFF,
-	COL_LINE_ON,        /* window outline and button hover                  */
+	COL_LINE_ON, /* window outline and button hover                  */
 	COL_LINE_OFF,
-	COL_ICON_ON,        /* button icons, focused / unfocused                */
+	COL_ICON_ON, /* button icons, focused / unfocused                */
 	COL_ICON_OFF,
-	COL_CLOSE,          /* hover behind the close button                    */
-	COL_CTL_BOX,        /* a control's own background                       */
-	COL_CTL_DIM,        /* a control that cannot act, or an unfocused bar   */
-	COL_CTL_LIVE,       /* a tick, and the row already picked               */
-	COL_CTL_HILITE,     /* the list row under the pointer                   */
-	COL_MET_HEAD,       /* the metrics panel's headings                     */
-	COL_MET_SLOW,       /* the slower half of a frame's cost                */
-	COL_MET_RATE,       /* the rate the slower half allows                  */
+	COL_CLOSE,      /* hover behind the close button                    */
+	COL_CTL_BOX,    /* a control's own background                       */
+	COL_CTL_DIM,    /* a control that cannot act, or an unfocused bar   */
+	COL_CTL_LIVE,   /* a tick, and the row already picked               */
+	COL_CTL_HILITE, /* the list row under the pointer                   */
+	COL_MET_HEAD,   /* the metrics panel's headings                     */
+	COL_MET_SLOW,   /* the slower half of a frame's cost                */
+	COL_MET_RATE,   /* the rate the slower half allows                  */
 	COL_COUNT
 } OverlayColor;
 
@@ -980,10 +996,10 @@ typedef enum {
  * `w` counts pixels, and the cell occupies 3*w texels starting at x.
  * Everything else is pixels or rows. */
 typedef struct {
-	int16_t x, y;            /* cell origin: x in TEXELS, y in rows          */
-	int16_t w, h;            /* cell size:   w in PIXELS, h in rows          */
-	int16_t left, top;       /* from the pen on the baseline, y down, pixels */
-	int16_t adv;             /* pen step to the next glyph, PIXELS           */
+	int16_t x, y;      /* cell origin: x in TEXELS, y in rows          */
+	int16_t w, h;      /* cell size:   w in PIXELS, h in rows          */
+	int16_t left, top; /* from the pen on the baseline, y down, pixels */
+	int16_t adv;       /* pen step to the next glyph, PIXELS           */
 } GlyphCell;
 
 /* The layout is a contract between three programs: tools/mkfont writes the
@@ -991,13 +1007,11 @@ typedef struct {
  * its own copy of this declaration, and text_load_cells() decodes the bytes
  * into an array of these. The order is pinned as well as the size. */
 _Static_assert(sizeof(GlyphCell) == 14, "the blob is 7 int16 per cell");
-_Static_assert(offsetof(GlyphCell, x)    == 0  &&
-			   offsetof(GlyphCell, y)    == 2  &&
-			   offsetof(GlyphCell, w)    == 4  &&
-			   offsetof(GlyphCell, h)    == 6  &&
-			   offsetof(GlyphCell, left) == 8  &&
-			   offsetof(GlyphCell, top)  == 10 &&
-			   offsetof(GlyphCell, adv)  == 12,
+_Static_assert(offsetof(GlyphCell, x) == 0 && offsetof(GlyphCell, y) == 2 &&
+				   offsetof(GlyphCell, w) == 4 && offsetof(GlyphCell, h) == 6 &&
+				   offsetof(GlyphCell, left) == 8 &&
+				   offsetof(GlyphCell, top) == 10 &&
+				   offsetof(GlyphCell, adv) == 12,
 			   "GlyphCell's field order is the baked blob's -- move one and "
 			   "tools/mkfont's emitter and tools/verifyfont's copy move too");
 
@@ -1014,7 +1028,7 @@ struct FnlApp {
 	 * Written by fnl_init() or fnl_run() before the render thread exists,
 	 * and only read after, by either thread. */
 
-	const FnlBackendVtbl  *backend;
+	const FnlBackendVtbl *backend;
 	/* The exception to "set once": a move to another renderer's GPU
 	 * writes it, on the render thread (renderer_swap()), which alone reads
 	 * it while it runs. Any other thread reads renderer_pub
@@ -1023,7 +1037,7 @@ struct FnlApp {
 
 	/* Allocated by backend->open(). Anything only one backend needs
 	 * belongs there rather than here. */
-	struct BackendState  *backend_state;
+	struct BackendState *backend_state;
 	/* Allocated by renderer->create_instance() and freed by destroy_instance().
 	 * Everything only the graphics API needs -- its device, swapchain,
 	 * pipelines and targets -- is there, and nothing outside src/renderer/<g>/
@@ -1031,20 +1045,20 @@ struct FnlApp {
 	struct RendererState *renderer_state;
 
 	/* --scale=, in 120ths, or 0 for the backend's own preference. */
-	int                   scale_override120;
+	int scale_override120;
 	/* --gpu=, one-based into the list of devices that can present, or 0 for
 	 * the automatic ranking. */
-	int                   gpu_index;
+	int gpu_index;
 	/* Or by name: a part of the device's, empty for none. Wins over the
 	 * index. */
-	char                  gpu_want[GPU_WANT_MAX];
+	char gpu_want[GPU_WANT_MAX];
 
 	/* The caller's callbacks, copied by fnl_run(). */
-	FnlCallbacks          cb;
+	FnlCallbacks cb;
 	/* When the window opened, so FnlFrame::time and FnlEvent::time start near
 	 * zero. Set in fnl_init() immediately before the backend's open(),
 	 * which can already queue events. */
-	double                started_at;
+	double started_at;
 
 	/* The window's title, from FnlInitDesc at fnl_init and fnl_set_title()
 	 * after it, written under App::lock; the frame latches its own copy
@@ -1052,63 +1066,73 @@ struct FnlApp {
 	 * the *latched* copy measures to in logical points: taken at fnl_init
 	 * and by the render thread when the latched title changes, an atomic
 	 * because the hit test reads it too (see deco_title_fits). */
-	char                  title[TITLE_MAX];
-	FnlAtomicU32          title_w;
+	char title[TITLE_MAX];
+	FnlAtomicU32 title_w;
 	/* The presentable area asked for at fnl_init, in logical points, or 0 for
 	 * the library's own default. */
-	int                   init_w_pt, init_h_pt;
+	int init_w_pt, init_h_pt;
 
 	/* FnlInitDesc::echo_events, or FNL_ECHO_EVENTS in the environment. */
-	bool                  echo_events;
+	bool echo_events;
 	/* FnlInitDesc::content_is_ui: the presentable area is the caller's own
 	 * interface, so a press in it is the caller's event and takes no pointer
 	 * (deco_hit()). Read by the pump alone; written once at fnl_init. */
-	bool                  content_is_ui;
+	bool content_is_ui;
 	/* Whether a handler on the process's terminating signals could still
 	 * reach this app (FnlInitDesc::install_signal_handlers). The handler
 	 * reaches app_wakeup(), so while this is set the backends leave their
 	 * wakeup descriptors open rather than risk a write to a recycled number.
 	 * app_teardown() clears it once it has waited every handler out, which
 	 * is every teardown but one whose handler was stopped mid-way. */
-	bool                  installed_signals;
+	bool installed_signals;
 
 	/* ---- pump thread ---------------------------------------------------
 	 * The thread that called fnl_init() and runs fnl_run(): it owns the
 	 * window server. Nothing here is read by the render thread except where
 	 * a field says which lock carries it across. */
-	_Alignas(64)
-	bool                  pointer_captured;
+	_Alignas(64) bool pointer_captured;
 	/* Where the reticle is, in pixels of the presentable area. Kept here
 	 * rather than derived from the pointer, which does not move while the
 	 * pointer is captured. */
-	double                cur_px, cur_py;
+	double cur_px, cur_py;
 
 	/* The shape fnl_set_cursor() last asked for: the call records into
 	 * App::req and the drain stores it here, so the backends' pointer paths
 	 * read it without a lock. */
-	FnlCursor             cursor;
-	double                ptr_x, ptr_y;
-	uint32_t              last_titlebar_click_ms;
+	FnlCursor cursor;
+	double ptr_x, ptr_y;
+	uint32_t last_titlebar_click_ms;
+	/* The click count app_pointer_button() reports in FnlButtonEvent::clicks:
+	 * one per button, the last press's stamp and how deep in its run it was,
+	 * so a double-click needs no clock of the caller's. A press within
+	 * DECO_DBLCLICK_MS of the last one's and within DECO_DRAG_SLOP of it is the
+	 * next in the run; anything else starts a new one. The pump thread's, like
+	 * the rest of the pointer's state. */
+	struct {
+		uint32_t at;
+		int run;
+		double x, y;
+	} click[3];
 
 	/* A press on the titlebar that has not yet travelled DECO_DRAG_SLOP, so
 	 * it is still either a click or the start of a move. */
-	bool                  titlebar_armed;
-	double                titlebar_press_x, titlebar_press_y;
+	bool titlebar_armed;
+	double titlebar_press_x, titlebar_press_y;
 
-	bool                  configured;
+	bool configured;
 
 	/* Current toplevel states, as of the configure that applied them. The
 	 * render thread draws from FnlDrawState::is_fullscreen instead, which is
 	 * latched with the size it belongs to. */
-	bool                  is_fullscreen;
-	bool                  is_maximized;
-	int                   win_w, win_h;
-	int                   cur_w, cur_h;
+	bool is_fullscreen;
+	bool is_maximized;
+	int win_w, win_h;
+	int cur_w, cur_h;
 
 	/* What a window has to fit inside to be shown whole, in logical points --
 	 * what a caller's size list has to be filtered against. See
 	 * refresh_size_bounds. */
-	int                   out_w_pt, out_h_pt;
+	int out_w_pt, out_h_pt;
 
 	/* The titlebar, whoever draws it: its height in logical points, and who
 	 * paints it -- DECO_TITLEBAR_H and false for the library's own bar,
@@ -1117,62 +1141,61 @@ struct FnlApp {
 	 * pair into FnlDrawState under the same lock.
 	 *
 	 * deco_min_w is the width floor a custom bar asked for, or 0. */
-	int                   deco_h;
-	int                   deco_min_w;
-	bool                  deco_custom;
+	int deco_h;
+	int deco_min_w;
+	bool deco_custom;
 	/* FnlInitDesc::no_titlebar_controls: the library's own bar controls the
 	 * caller left out, read by controls.c wherever one is laid out, drawn or
 	 * hit-tested. Written once at fnl_init. */
-	uint32_t              no_titlebar_controls;
+	uint32_t no_titlebar_controls;
 
 	/* What this window is offering the desktop's clipboard. The pump's own
 	 * from the moment it takes it out of clip_pending: serving it to another
 	 * program may happen at any time after. */
-	char                 *clip_out;
-	size_t                clip_out_len;
+	char *clip_out;
+	size_t clip_out_len;
 
 	/* The input the backend hands in next, as app_input_age() or
 	 * app_input_ages() stamped it: when each was made, on FnlEvent::time's
 	 * clock, and when the stamp was taken, on now_seconds()'s; 0 for
 	 * none. */
-	EvBorn                in_born;
-	double                in_stamped_at;
+	EvBorn in_born;
+	double in_stamped_at;
 
 	/* Set once create_instance() has succeeded, so teardown -- which is
 	 * also fnl_init()'s failure path -- knows whether there is a renderer
 	 * to unwind. */
-	bool                  renderer_ready;
+	bool renderer_ready;
 	/* Whether the render thread has been started, and whether the three
 	 * mutexes and the condition variable have been made, so that teardown --
 	 * which is also fnl_init()'s failure path -- knows whether there is
 	 * anything to join or destroy. */
-	bool                  render_thread_started;
-	bool                  sync_ready;
-	FnlThread             render_thread;
+	bool render_thread_started;
+	bool sync_ready;
+	FnlThread render_thread;
 
 	/* ---- render thread -------------------------------------------------
 	 * The frame policy (src/core/frame.c), the overlay's streams and the
 	 * renderer. The main thread writes these only before fnl_run()
 	 * starts the render thread and after it has joined it. */
-	_Alignas(64)
-	uint32_t              frame;
-	bool                  resized;
+	_Alignas(64) uint32_t frame;
+	bool resized;
 	/* When a toplevel state change was last answered; see TRANSITION_GRACE. */
-	double                transition_at;
+	double transition_at;
 
-	uint64_t              presents;        /* successful presents, all time */
+	uint64_t presents; /* successful presents, all time */
 	/* Presents made, whatever they returned, raised by the renderer
 	 * once the call is back: what a backend's ack that must follow the
 	 * present compares against, since app_surface_sync() can flush before
 	 * it and a present that failed must release the ack too. Render
 	 * thread. */
-	uint64_t              present_calls;
+	uint64_t present_calls;
 	/* The frame that acks a configure has been presented and is waited for
 	 * until shown on a thread of the renderer's, which calls
 	 * FnlBackendVtbl::ack_release when it is; the backend's flush keeps
 	 * the ack meanwhile. Set by the render thread, cleared by that one. */
-	FnlAtomicBool         ack_held;
-	double                latch_time;      /* when this frame took its state */
+	FnlAtomicBool ack_held;
+	double latch_time; /* when this frame took its state */
 	/* How long the last frame's *presentation engine* made the CPU wait, in
 	 * seconds. Negative when the last turn did not reach a present, or when
 	 * the renderer cannot measure it, which leaves late latching inert there.
@@ -1183,26 +1206,26 @@ struct FnlApp {
 	 * device's own fences must *not* be counted: that is the GPU being
 	 * behind, and a delay that spent it would push the next submit later
 	 * still. */
-	double                present_block;
+	double present_block;
 	/* The frame loop's hold on the queue ahead of the screen
 	 * (FnlBackendVtbl::display_waits, frame.c): how long this turn's wait
 	 * took, which the period estimate counts; how many frames may wait,
 	 * and the misses that put it back up; when the last wait came back and
 	 * after which present; and when the deeper queue is let go again.
 	 * Render thread. */
-	double                display_block;
+	double display_block;
 	/* The index and one of the last frame the window server answered for,
 	 * shown or skipped (app_frame_answered(), the main thread's), 0 for
 	 * none; and whether the hold stopped waiting for an answer that did not
 	 * come, and what had come then. */
-	FnlAtomicU32          frame_answered;
-	bool                  display_unanswered;
-	uint32_t              display_unanswered_at;
-	int                   display_ahead;
-	int                   display_misses;
-	double                display_last;
-	uint64_t              display_last_presents;
-	double                display_retry_at, display_retry_gap;
+	FnlAtomicU32 frame_answered;
+	bool display_unanswered;
+	uint32_t display_unanswered_at;
+	int display_ahead;
+	int display_misses;
+	double display_last;
+	uint64_t display_last_presents;
+	double display_retry_at, display_retry_gap;
 	/* Whether this device's present can never be measured: a software
 	 * device's waits for its own rasteriser, not the display, so the
 	 * renderer leaves present_block negative for good. Set by the renderer
@@ -1210,79 +1233,79 @@ struct FnlApp {
 	 * knows of the device; read by the spacing, for which "no period yet"
 	 * means "space every turn" here and "let the swapchain throttle"
 	 * everywhere else (pace_period()). Render thread. */
-	bool                  present_untimed;
+	bool present_untimed;
 	/* And how long it waited on the device's fences in the same turn. No
 	 * spare time, so never part of the figure above; but part of the
 	 * *period*, because a driver may hold a FIFO swapchain to the display
 	 * there and block in neither the acquire nor the present. Read only on
 	 * a turn whose present_block is a measurement. */
-	double                device_block;
+	double device_block;
 
 	/* Late latching: waiting out most of the display period before taking the
 	 * frame's state. All policy; see src/core/frame.c and DESIGN *Late
 	 * latching*. */
-	bool                  late_latch;
-	double                late_fixed;
-	double                late_delay;
-	double                late_period;
-	double                late_ceiling;
-	double                late_prev_disp;
-	int                   late_cooldown;
-	int                   late_short;
-	int                   late_recent;
-	double                late_cost;
+	bool late_latch;
+	double late_fixed;
+	double late_delay;
+	double late_period;
+	double late_ceiling;
+	double late_prev_disp;
+	int late_cooldown;
+	int late_short;
+	int late_recent;
+	double late_cost;
 	/* The render thread's CPU time over a frame, the running mean in
 	 * seconds (app_frame_mark()), 0 until known; the reading at the
 	 * frame's FRAME_MARK_REC, and whether it was taken; and the clock, whose
 	 * rate is state on Windows. Render thread. */
-	double                cpu_cost;
-	double                cpu_mark;
-	bool                  cpu_marked;
-	FnlCpuClock           cpu_clock;
+	double cpu_cost;
+	double cpu_mark;
+	bool cpu_marked;
+	FnlCpuClock cpu_clock;
 	/* Where the thread's CPU time is not known: the wall clock over the
 	 * same span, FRAME_MARK_REC to FRAME_MARK_PRESENT, as late_cost has it
 	 * but over the frames that count (App::cost_counts) alone -- late_cost
 	 * is the pacing's and takes every frame. The running mean in seconds,
 	 * 0 until known, and the clock at the frame's FRAME_MARK_REC, negative
 	 * where none was taken. Render thread. */
-	double                wall_cost;
-	double                wall_mark;
+	double wall_cost;
+	double wall_mark;
 	/* The GPU's running mean over drawn frames, in seconds, and the sample
 	 * it last took in (gpu_sample_seq's), on the render thread; 0 until the
 	 * device in use has given one. */
-	double                gpu_cost;
-	uint32_t              gpu_cost_seq;
+	double gpu_cost;
+	uint32_t gpu_cost_seq;
 	/* When the two figures were last published (cost_*_us), whether frames
 	 * drawn since have moved them, and whether the frames being drawn now
 	 * count: not while the window draws only to show the figures, or each
 	 * such frame would owe the next (app_cost_publish()) and be in the
 	 * means it shows (app_gpu_time(), app_frame_mark()). Render thread. */
-	double                cost_published_at;
+	double cost_published_at;
 	/* When fnl_input_latency_ms()'s figure was last published
 	 * (events_latency_publish()). Render thread. */
-	double                lat_published_at;
-	bool                  cost_owed;
-	bool                  cost_counts;
+	double lat_published_at;
+	bool cost_owed;
+	bool cost_counts;
 	/* When a frame was last drawn, which a sampling window at rest draws
 	 * the next one a COST_WINDOW after. Render thread. */
-	double                cost_sampled_at;
-	int                   late_stable;
+	double cost_sampled_at;
+	int late_stable;
 	/* What the hold this turn cost, or negative when the turn took none and
 	 * its timings say nothing about spare time: a rebuild, a tearing frame,
 	 * an uninvited one. A measurement only together with present_block. */
-	double                late_held;
+	double late_held;
 	/* What a turn costs with nothing held -- hold, block and cost summed
 	 * over turns whose hold was zero -- how many have been measured, and
 	 * the same sum averaged over the held ones. The measured controller
 	 * reads the second against the first; see late_latch_slack(). Where
 	 * frames are invited, late_turn is the invitations' gaps averaged, read
 	 * against late_period; see late_latch_feedback(). Seconds. */
-	double                late_base;
-	int                   late_base_n;
-	double                late_turn;
+	double late_base;
+	int late_base_n;
+	double late_turn;
 	/* Frames left to ignore after a swapchain rebuild, whose empty queue
 	 * reads as a period with no slack in it. See LATE_SLACK_SETTLE. */
-	int                   late_settle;
+	int late_settle;
 
 	/* The display period as this loop measures it, when the last rebuild turn
 	 * was let through, and when the last vsynced turn was. Zero until enough
@@ -1291,35 +1314,35 @@ struct FnlApp {
 	 * throttling, rebuild_at the rest of the time. Read only where
 	 * the backend does not invite; see disp_period_sample() and hold_wait()
 	 * in src/core/frame.c. */
-	double                disp_period;
+	double disp_period;
 	/* The period a new window is spaced by until it has settled: the run of
 	 * early samples that agree, how many there are, and whether disp_period
 	 * is still that run's and not yet a settled window's. See
 	 * disp_period_early(). */
-	double                disp_try;
-	int                   disp_try_n;
-	bool                  disp_early;
+	double disp_try;
+	int disp_try_n;
+	bool disp_early;
 	/* An estimate under PACE_UNTHROTTLED of the refresh, put right: the
 	 * run of samples it drops that agree (disp_long, its mean, and how
 	 * many), and the probe that lets samples come while the spacing holds
 	 * every turn -- turns of a burst left, turns to the next, and the gap.
 	 * Render thread's. See disp_period_sample() and period_probe(). */
-	double                disp_long;
-	int                   disp_long_n;
-	int                   probe_left, probe_wait, probe_gap;
+	double disp_long;
+	int disp_long_n;
+	int probe_left, probe_wait, probe_gap;
 	/* App::resumes as the render thread last acted on it; see
 	 * frame_resumed(). */
-	uint32_t              resumes_seen;
+	uint32_t resumes_seen;
 	/* App::surface_remakes, likewise; see render_loop(). */
-	uint32_t              surface_remakes_seen;
+	uint32_t surface_remakes_seen;
 	/* A move to another GPU under way (gpu_switch_owed()): the rebuild it
 	 * raised is not a loss and is not said as one. gpu_switch_back is the
 	 * move back to the GPU before, after the new one would not build, and
 	 * gpu_back_* the choice that GPU was made by. */
-	bool                  gpu_switching;
-	bool                  gpu_switch_back;
-	int                   gpu_back_index;
-	char                  gpu_back_want[GPU_WANT_MAX];
+	bool gpu_switching;
+	bool gpu_switch_back;
+	int gpu_back_index;
+	char gpu_back_want[GPU_WANT_MAX];
 	/* A move to another renderer's GPU owed (gpu_switch_owed()), which the
 	 * next recovery makes as a swap (renderer_swap()); and the renderer a
 	 * swap and its way back both failed to build, tried again each turn
@@ -1331,12 +1354,12 @@ struct FnlApp {
 	 * render thread. Listed again once a move to another kernel driver
 	 * has landed, never while one runs: what the GPU is called, and which
 	 * renderers can draw on it, is its driver's (renderer_swap()). */
-	bool                  gpu_others_listed;
-	bool                  lister_started;
+	bool gpu_others_listed;
+	bool lister_started;
 	/* The lister's last write, done listing: lister_started stays until
 	 * the thread is joined. */
-	FnlAtomicBool         lister_done;
-	FnlThread             lister;
+	FnlAtomicBool lister_done;
+	FnlThread lister;
 	/* The GPUs that can be moved to another kernel driver (FNL_GPU_DRIVER,
 	 * src/core/drivers.c): listed by fnl_init() and again after each move,
 	 * under App::lock, which gpu_merge() reads them under on any thread.
@@ -1355,16 +1378,16 @@ struct FnlApp {
 	 * gpu_merge() writes for the GPU box's rows of it; and the driver it
 	 * was on when the list first offered a move, whose rows stay where
 	 * the renderers list the GPU for the window's life. */
-	GpuDriver             gpu_drivers[GPU_DRIVERS_MAX];
-	int                   gpu_drivers_n;
-	bool                  gpu_drivers_on;
-	bool                  gpu_drivers_pinned;
-	int                   gpu_driver_next;
+	GpuDriver gpu_drivers[GPU_DRIVERS_MAX];
+	int gpu_drivers_n;
+	bool gpu_drivers_on;
+	bool gpu_drivers_pinned;
+	int gpu_driver_next;
 	const FnlRendererVtbl *gpu_driver_to;
 	/* The place in the list of the GPU in use as the last FNL_EVENT_GPU
 	 * saw it: a ranking that orders the list again for another display
 	 * moves it, which is a list to read again (events_post_state()). */
-	int                   ev_last_gpu_cur;
+	int ev_last_gpu_cur;
 	/* The GPU hotplugs heard (app_gpu_hotplug()), counted by any thread,
 	 * and the rebuild they owe the render thread, which lists every
 	 * renderer before it builds (renderer_swap()). A count and not a flag:
@@ -1373,26 +1396,26 @@ struct FnlApp {
 	 * the wait starts it again and one heard after it is owed a rebuild
 	 * of its own -- a flag cleared after the wait would spend it unwaited
 	 * for. */
-	FnlAtomicU32          gpu_hotplug_gen;
-	uint32_t              gpu_hotplug_seen_gen, gpu_hotplug_done;
-	bool                  gpu_hotplug_relist;
-	double                gpu_hotplug_seen;   /* render thread's, 0: none */
+	FnlAtomicU32 gpu_hotplug_gen;
+	uint32_t gpu_hotplug_seen_gen, gpu_hotplug_done;
+	bool gpu_hotplug_relist;
+	double gpu_hotplug_seen; /* render thread's, 0: none */
 	/* The renderer fnl_init() tries first where nothing named one: the
 	 * ranked first entry's (app_rank_start()), FNL_RENDERER_DEFAULT for
 	 * the build's order. Main thread's, before the render thread. */
-	FnlRenderer           renderer_first;
+	FnlRenderer renderer_first;
 	/* The renderer FNL_RENDERER or FnlInitDesc::renderer named, which the
 	 * window draws with or fails: the ranking's move then counts that
 	 * renderer's entries alone (rank.c). FNL_RENDERER_DEFAULT where none
 	 * was named. Main thread's, before the render thread. */
-	FnlRenderer           renderer_named;
+	FnlRenderer renderer_named;
 	struct {
-		char        driver[GPU_DRIVER_NAME_MAX];
+		char driver[GPU_DRIVER_NAME_MAX];
 		FnlRenderer renderer;
-	}                     gpu_driver_unseen[GPU_DRIVERS_MAX * GPU_SPAN_MAX];
-	int                   gpu_driver_unseen_n;
-	char                  gpu_driver_gpu[GPU_NAME_MAX];
-	char                  gpu_driver_home[GPU_DRIVER_NAME_MAX];
+	} gpu_driver_unseen[GPU_DRIVERS_MAX * GPU_SPAN_MAX];
+	int gpu_driver_unseen_n;
+	char gpu_driver_gpu[GPU_NAME_MAX];
+	char gpu_driver_home[GPU_DRIVER_NAME_MAX];
 	/* The ranking (src/core/rank.c): rank, the figures kept, read by
 	 * gpu_merge() under App::lock and written under it; rank_path the file
 	 * they are kept in, "" where FNL_GPU_RANK is off or there is nowhere
@@ -1404,78 +1427,82 @@ struct FnlApp {
 	 * rank_asked_index what the caller asked for at fnl_init(), kept
 	 * because a move spends App::gpu_want and App::gpu_index. The render
 	 * thread's from the first frame on, with the calibration's state. */
-	RankRow               rank[RANK_MAX];
-	int                   rank_n;
-	char                  rank_path[768];
-	int                   rank_target;
-	char                  rank_land[RANK_ID_MAX];
-	bool                  rank_asked_name;
-	int                   rank_asked_index;
+	RankRow rank[RANK_MAX];
+	int rank_n;
+	char rank_path[768];
+	int rank_target;
+	char rank_land[RANK_ID_MAX];
+	bool rank_asked_name;
+	int rank_asked_index;
 	/* FNL_GPU_RANK as rank.c's RANK_*; whether what is missing is to be
 	 * asked again (rank.c's check_missing()), and whether =calibrate has
 	 * had its one measure of everything; and the display and the list
 	 * that were last asked about, the list by its keys' hash. */
-	int                   rank_mode;
+	int rank_mode;
 	/* FnlInitDesc::no_gpu_ranking: what FNL_GPU_RANK unset means off, and what
 	 * a kept ranking is still read for -- the order is used, nothing is
 	 * measured (rank.c's app_rank_start()). */
-	bool                  rank_no_measure;
-	bool                  rank_dirty;
-	bool                  rank_forced;
-	char                  rank_display[RANK_DISPLAY_MAX];
-	unsigned long         rank_list_hash;
+	bool rank_no_measure;
+	bool rank_dirty;
+	bool rank_forced;
+	char rank_display[RANK_DISPLAY_MAX];
+	unsigned long rank_list_hash;
+	/* The display stamp the last derivation was made at (App::display_gen),
+	 * so a turn that changed no display fact skips display_now() and
+	 * list_hash() entirely (app_rank_tick()). */
+	uint32_t rank_gen_seen;
 	/* What the window was last seen on and at what size, and since when:
 	 * a display is measured, and the window moved to its first entry, only
 	 * once it has stayed on one output, unmoved and not straddling another,
 	 * for RANK_QUIET (rank.c's quiet()). */
-	char                  rank_seen[RANK_DISPLAY_MAX];
-	int                   rank_seen_w, rank_seen_h;
-	double                rank_seen_at;
+	char rank_seen[RANK_DISPLAY_MAX];
+	int rank_seen_w, rank_seen_h;
+	double rank_seen_at;
 	struct {
-		int    state;               /* rank.c's CAL_* */
-		int    i, n;                /* the entry measured, of n */
-		char   ids[GPU_LIST_MAX * 2][RANK_ID_MAX];
+		int state; /* rank.c's CAL_* */
+		int i, n;  /* the entry measured, of n */
+		char ids[GPU_LIST_MAX * 2][RANK_ID_MAX];
 		double fps[GPU_LIST_MAX * 2];
-		double at;                  /* when the state was entered */
-		double started, entry_at;   /* the calibration's, the entry's */
+		double at;                /* when the state was entered */
+		double started, entry_at; /* the calibration's, the entry's */
 		/* Which group each entry is of -- 0 on the driver the GPU is on,
 		 * 1 a move's or after one -- and what each group's entries took,
 		 * which the time left is reckoned from. */
 		unsigned char group[GPU_LIST_MAX * 2];
 		double dur_sum[2];
-		int    dur_k[2];
+		int dur_k[2];
 		double gpu_sum, cpu_sum;
-		int    gpu_k, cpu_k;
+		int gpu_k, cpu_k;
 		/* The figure watched in CAL_BIN spans while the entry settles and
 		 * is sampled (rank.c's bin_tick()): this span's sums and when it
 		 * began; the last span's figure and its GPU and CPU seconds; and
 		 * the running mean's figure at the last span. */
 		double bin_gpu, bin_cpu;
-		int    bin_gk, bin_ck;
+		int bin_gk, bin_ck;
 		double bin_at, bin_last, span_gpu, span_cpu, mean_last;
-		char   back[RANK_ID_MAX];   /* the entry in use before it */
-		char   display[RANK_DISPLAY_MAX];  /* where it measures */
-	}                     cal;
+		char back[RANK_ID_MAX];         /* the entry in use before it */
+		char display[RANK_DISPLAY_MAX]; /* where it measures */
+	} cal;
 	/* A calibration under way, which holds the window's input
 	 * (app_rank_holds_input()): the render thread writes it, the input
 	 * thread reads it. */
-	FnlAtomicBool         calibrating;
+	FnlAtomicBool calibrating;
 	/* A calibration asked for from the GPU box (app_rank_recalibrate()),
 	 * the input thread's, which the render thread spends. */
-	FnlAtomicBool         rank_recal_owed;
+	FnlAtomicBool rank_recal_owed;
 	/* The buttons whose press was posted, by FnlButton bit: a release
 	 * during a calibration goes for those alone. The input thread's. */
-	uint32_t              buttons_down;
+	uint32_t buttons_down;
 	/* A pick's inventory lines, held until its list is merged, which is
 	 * what numbers them (app_gpu_inventory()). The thread picking. */
-	char                  inv_name[GPU_LIST_MAX][GPU_NAME_MAX];
-	char                  inv_kind[GPU_LIST_MAX][32];
-	int                   inv_n;
+	char inv_name[GPU_LIST_MAX][GPU_NAME_MAX];
+	char inv_kind[GPU_LIST_MAX][32];
+	int inv_n;
 	/* The move made and not yet seen to land (app_gpu_driver_landed()):
 	 * the GPU, the driver it left as `bound` and the one it is on as
 	 * `other`. Render thread's. */
-	GpuDriver             gpu_driver_made;
-	bool                  gpu_driver_moved;
+	GpuDriver gpu_driver_made;
+	bool gpu_driver_moved;
 	/* A move drawn across (DESIGN *Drawn across the move*): the renderer
 	 * built on drivers that open nothing of the GPU moved while the move
 	 * runs on a thread of its own (renderer_cross()). gpu_cross from that
@@ -1491,81 +1518,81 @@ struct FnlApp {
 	 * gpu_driver_made, gpu_driver_moved and mover_moved, which the render
 	 * thread reads once it has joined it; mover_done is its last write.
 	 * Render thread's otherwise. */
-	bool                  gpu_cross;
-	bool                  gpu_cross_off;
-	bool                  gpu_cross_landing;
-	char                  gpu_cross_want[GPU_WANT_MAX];
+	bool gpu_cross;
+	bool gpu_cross_off;
+	bool gpu_cross_landing;
+	char gpu_cross_want[GPU_WANT_MAX];
 	const FnlRendererVtbl *gpu_cross_from;
 	/* What the last build's three steps took, in milliseconds -- the
 	 * instance, the surface, the device objects -- said with a swap, where
 	 * a move's pause is whichever of them the driver is slow at
 	 * (renderer_build()). The thread building. */
-	double                build_ms[3];
-	bool                  mover_started;
-	FnlThread             mover;
-	GpuDriver             mover_move;
-	bool                  mover_moved;
-	FnlAtomicBool         mover_done;
-	double                rebuild_at;
-	double                pace_at;
+	double build_ms[3];
+	bool mover_started;
+	FnlThread mover;
+	GpuDriver mover_move;
+	bool mover_moved;
+	FnlAtomicBool mover_done;
+	double rebuild_at;
+	double pace_at;
 	/* Whether this turn went through pace_space(), which is whether a
 	 * rebuild it makes dates from pace_at. */
-	bool                  pace_ran;
+	bool pace_ran;
 
 	/* A period estimate and a missed-cycle count for --frame-times, which
 	 * reports them as `miss n/m`. Kept independently of late_period, which
 	 * exists only where and while the probe runs. See inst_sample(). */
-	double                inst_period;
-	double                inst_prev;
-	int                   inst_miss;
-	int                   inst_frames;
+	double inst_period;
+	double inst_prev;
+	int inst_miss;
+	int inst_frames;
 
 	/* Bumped whenever the frame must be recorded again, and the draw state
 	 * the last recording was made from. */
-	uint32_t              record_gen;
-	FnlDrawState          last_draw;
+	uint32_t record_gen;
+	FnlDrawState last_draw;
 	/* The loop at rest (rest_owed() in src/core/frame.c): whether the last
 	 * turn drew nothing, record_gen as the last submitted frame left it, and
 	 * how many frames are still drawn after the last change before a turn
 	 * may draw none. */
-	bool                  resting;
-	uint32_t              shown_gen;
-	int                   rest_settle;
+	bool resting;
+	uint32_t shown_gen;
+	int rest_settle;
 
 	/* The last-reported copy of everything events_post_state() diffs
 	 * against. src/core/events.c owns it. */
-	bool                  ev_state_seeded;
-	int                   ev_last_w_pt, ev_last_h_pt;
-	int                   ev_last_w_px, ev_last_h_px;
-	int                   ev_last_scale120;
-	int                   ev_last_scene_w, ev_last_scene_h;
-	FnlAntialias          ev_last_aa;
-	bool                  ev_last_fullscreen, ev_last_maximized;
-	bool                  ev_last_captured;
-	char                  ev_last_output[OUTPUT_NAME_MAX];
-	int                   ev_last_out_w_pt, ev_last_out_h_pt;
+	bool ev_state_seeded;
+	int ev_last_w_pt, ev_last_h_pt;
+	int ev_last_w_px, ev_last_h_px;
+	int ev_last_scale120;
+	int ev_last_scene_w, ev_last_scene_h;
+	FnlAntialias ev_last_aa;
+	bool ev_last_fullscreen, ev_last_maximized;
+	bool ev_last_captured;
+	char ev_last_output[OUTPUT_NAME_MAX];
+	int ev_last_out_w_pt, ev_last_out_h_pt;
 	/* The GPU in use as last reported, by name and renderer: not by
 	 * index, which the list can change around it, and not by how often it
 	 * changed, which a move and its way back count twice. */
-	char                  ev_last_gpu[GPU_NAME_MAX];
-	FnlRenderer           ev_last_gpu_renderer;
+	char ev_last_gpu[GPU_NAME_MAX];
+	FnlRenderer ev_last_gpu_renderer;
 	/* And the list's length, which grows once the other renderers' GPUs
 	 * are listed (app_gpu_list_others()). */
-	int                   ev_last_gpu_n;
+	int ev_last_gpu_n;
 
 	/* When the scene's clock started, so the first moving frame begins at
 	 * zero however long the window has been up. */
-	double                scene_motion_t0;
+	double scene_motion_t0;
 	/* The veil (veil_step() in frame.c): its phase, when that phase
 	 * began, and App::presents when the frame at full veil was latched or
 	 * the lift armed, so the phase after each waits for a present of it.
 	 * Render thread's. */
-	VeilPhase             veil_phase;
-	double                veil_t0;
-	uint64_t              veil_presents;
+	VeilPhase veil_phase;
+	double veil_t0;
+	uint64_t veil_presents;
 	/* The veil VEIL_SNAP draws: where a lift stood when a move was asked
 	 * for during it, held for the frame read back; 0 from no veil. */
-	float                 veil_snap;
+	float veil_snap;
 	/* The frame read back ahead of a move (app_snapshot_set()): rows of
 	 * snap_w * 4 bytes, the top row first, BGRA whatever the renderer's
 	 * order. The device built after the move draws it over its first
@@ -1579,25 +1606,25 @@ struct FnlApp {
 	 * in frame.c), so no later gap shows it. Render thread's, the block
 	 * and its size under App::lock as well for the Win32 window thread,
 	 * which paints from them. */
-	unsigned char        *snap_px;
-	int                   snap_w, snap_h;
-	bool                  snap_valid;
-	bool                  snap_owed;
-	bool                  snap_fresh;
-	uint32_t              snap_gen;
-	bool                  veil_black;
+	unsigned char *snap_px;
+	int snap_w, snap_h;
+	bool snap_valid;
+	bool snap_owed;
+	bool snap_fresh;
+	uint32_t snap_gen;
+	bool veil_black;
 	/* A backend showed the snapshot whole through a gap since the last
 	 * rebuild -- the KMS take-back, the Win32 erase or hold -- which a loss
 	 * during the lift answers by lifting again from it (device_recover()).
 	 * [App::lock] */
-	bool                  snap_shown;
-	double                fps_last_t;
+	bool snap_shown;
+	double fps_last_t;
 	/* When the last --frame-times line was written, or its sums started
 	 * again (FRAME_TIMES_WINDOW in frame.c). Render thread. */
-	double                fc_last_t;
+	double fc_last_t;
 	/* `presents` at the start of the window being measured: the rate counts
 	 * presents, not loop turns. */
-	uint64_t              fps_presents;
+	uint64_t fps_presents;
 
 	/* --frame-times: the phases that partition the loop between two
 	 * consecutive turns. See DESIGN *Where the time actually goes*.
@@ -1614,106 +1641,123 @@ struct FnlApp {
 	 *
 	 * The loop writes `pace` and the fence share, the renderer the rest.
 	 * Summed over the reporting window, not smoothed. */
-	bool                  frame_times;
+	bool frame_times;
 	/* Whether this turn times its phases: --frame-times, or a caller's
 	 * fnl_set_frame_stats(). The render thread's, set at the top of each
 	 * turn; every site that reads the clock for either reads this. */
-	bool                  timing;
-	bool                  counting;     /* and stats_on, for this turn */
+	bool timing;
+	bool counting; /* and stats_on, for this turn */
 	/* fnl_set_frame_stats(): whether to count, and whether ever counted
 	 * (the getter's false before). `st` is the render thread's running
 	 * totals, `pub_st` their copy under App::lock, once a frame. */
-	FnlAtomicBool         stats_on, stats_ever;
-	FnlFrameStats         st, pub_st;
+	FnlAtomicBool stats_on, stats_ever;
+	FnlFrameStats st, pub_st;
 	/* The last FRAME_RING drawn frames for fnl_frame_samples(), under
 	 * App::lock: `ring_head` is where the next goes, `ring_n` how many are
 	 * waiting, `ring_lost` how many were overwritten unread since the last
 	 * drain. Pushed with the totals' publish, once a drawn frame. */
-	FnlFrameSample        ring[FRAME_RING];
-	uint32_t              ring_head, ring_n;
-	uint64_t              ring_lost;
+	FnlFrameSample ring[FRAME_RING];
+	uint32_t ring_head, ring_n;
+	uint64_t ring_lost;
 	/* The loop has ended, so no frame waits for its GPU time any more
 	 * (GPU_HOLD_FRAMES); cleared as the next starts. Under App::lock. */
-	bool                  ring_done;
+	bool ring_done;
 	/* The GPU times read this turn for the frames in the ring, folded in
 	 * at the publish: the render thread's (app_gpu_time()). `gpu_timed`
 	 * is whether the frame being drawn was timed (app_gpu_timed()). */
-	struct { uint64_t index; float ms; } gpu_late[GPU_LATE_MAX];
-	uint32_t              gpu_late_n;
-	bool                  gpu_timed;
+	struct {
+		uint64_t index;
+		float ms;
+	} gpu_late[GPU_LATE_MAX];
+	uint32_t gpu_late_n;
+	bool gpu_timed;
 	/* Which timed frames stay out of the GPU's mean (App::cost_counts
 	 * false as they were drawn), in slot index % GPU_UNCOUNTED: the index
 	 * and the word, compared whole, so a slot a later frame took or none
 	 * wrote says "counts", as does an index no frame was timed at. Said
 	 * when the frame is timed, since its time is read frames later, when
 	 * cost_counts may say otherwise. Render thread. */
-	struct { uint64_t index; bool uncounted; } gpu_uncounted[GPU_UNCOUNTED];
+	struct {
+		uint64_t index;
+		bool uncounted;
+	} gpu_uncounted[GPU_UNCOUNTED];
 	/* The same for fnl_frame_shown(), from any thread the backend hears
 	 * its display on (app_frame_shown()). */
-	FnlFrameShown         shown[FRAME_RING];
-	uint32_t              shown_head, shown_n;
-	uint64_t              shown_lost;
+	FnlFrameShown shown[FRAME_RING];
+	uint32_t shown_head, shown_n;
+	uint64_t shown_lost;
 	/* The presents a swapchain numbered, newest at numbered_head - 1, and
 	 * the number last stamped (app_present_numbered()). Render thread. */
-	struct { uint32_t number; uint64_t index; double at; } numbered[16];
-	uint32_t              numbered_head, numbered_n;
-	uint32_t              number_stamped;
-	double                fc_wait, fc_record;               /* this frame */
-	double                fc_submit, fc_present;
-	double                fc_pace_sum, fc_wait_sum;          /* the window */
-	double                fc_fence_sum;
-	double                fc_record_sum, fc_submit_sum, fc_present_sum;
-	double                fc_draw_sum, fc_rebuild_sum;
-	int                   fc_frames;
+	struct {
+		uint32_t number;
+		uint64_t index;
+		double at;
+	} numbered[16];
+	uint32_t numbered_head, numbered_n;
+	uint32_t number_stamped;
+	double fc_wait, fc_record; /* this frame */
+	double fc_submit, fc_present;
+	double fc_pace_sum, fc_wait_sum; /* the window */
+	double fc_fence_sum;
+	double fc_record_sum, fc_submit_sum, fc_present_sum;
+	double fc_draw_sum, fc_rebuild_sum;
+	int fc_frames;
 	/* Of those frames, how many found the device already finished when they
 	 * began to wait on it -- what tells a busy GPU from a slow presentation
 	 * engine, which `wait` alone cannot. */
-	int                   fc_idle;
+	int fc_idle;
 	/* FNL_COST_PARTS's sums (src/core/parts.c), NULL when off. Set before
 	 * the render thread starts and freed after it is joined. */
-	struct PartsState    *parts;
+	struct PartsState *parts;
 
 	/* What the frame being drawn latched: the window's size in points and
 	 * its scale in 120ths. */
-	int                   draw_w, draw_h;
-	int                   draw_scale120;
+	int draw_w, draw_h;
+	int draw_scale120;
 	/* The scene resolution this frame's objects were last *asked* for, in
 	 * pixels, or SCENE_NATIVE. The request and not the answer: a device that
 	 * refuses the target leaves scene_extent zero while this stays, which
 	 * stops the render loop asking again on every frame. What exists is
 	 * always scene_extent. */
-	int                   draw_scene_w, draw_scene_h;
+	int draw_scene_w, draw_scene_h;
 	/* The grab ring in effect for the frame being drawn, in points (see
 	 * deco_margin). The swapchain is this much bigger than the window on
 	 * every side, and window coordinates are offset by it. */
-	int                   draw_margin;
-	int                   applied_scale120;
+	int draw_margin;
+	int applied_scale120;
 	/* The window geometry and opaque region last committed, sent with the
 	 * buffer they describe. */
-	int                   applied_geo_w, applied_geo_h, applied_geo_m;
+	int applied_geo_w, applied_geo_h, applied_geo_m;
 	/* The state of the configure last acked: what the compositor holds the
 	 * geometry against until the next ack (app_surface_sync). */
-	bool                  acked_fullscreen, acked_maximized;
+	bool acked_fullscreen, acked_maximized;
 
 	/* The claims this frame's on_overlay has made so far: filled by
 	 * fnl_claim() and fnl_titlebar_claim(), swapped into pub_claims under
 	 * App::lock when the callback returns, and cleared at the top of each
 	 * frame's overlay. */
-	FnlRect               claims[CLAIMS_MAX];
-	int                   claim_count;
-	bool                  claim_overflow_warned;
+	FnlRect claims[CLAIMS_MAX];
+	/* Which of those claims asked for the keyboard (fnl_claim_focus()), by
+	 * the same index. A claim that did not is never the focus, and the focus
+	 * that lands on one is the library's to move and the caller's to draw. */
+	bool claim_focus[CLAIMS_MAX];
+	int claim_count;
+	bool claim_overflow_warned;
+	/* The claim that has the keyboard focus, by this frame's claim index, or
+	 * -1 for none. The render thread's, like the claim list it indexes. */
+	int focus_claim;
 
 	/* Whether on_gpu_created has been delivered and not yet answered by
 	 * on_gpu_lost. It keeps the two strictly alternating when a recovery
 	 * fails and the loss flag stays set. Render thread after fnl_run()
 	 * starts it, main thread before and after -- every site is either side
 	 * of the join. */
-	bool                  cb_gpu_created;
+	bool cb_gpu_created;
 	/* Whether fnl_run() is on the main thread's stack, which alone writes
 	 * and reads it. The outermost on_gpu_created and on_gpu_lost run
 	 * there, so it is this and not the thread that refuses fnl_shutdown()
 	 * and fnl_run() from either. */
-	bool                  in_run;
+	bool in_run;
 
 	/* ---- what every renderer has ------------------------------------ */
 
@@ -1721,18 +1765,18 @@ struct FnlApp {
 	 * raised inside a frame and acted on at the top of the next one, where
 	 * nothing is half-recorded (see recover_from_loss). The two differ only
 	 * in whether the surface is replaced as well. */
-	bool                  device_lost;
-	bool                  surface_lost;
+	bool device_lost;
+	bool surface_lost;
 	/* Raised with surface_lost when the surface is replaced because the
 	 * backend asked (FnlRendererVtbl::remake_surface) and not because it
 	 * went: the same rebuild, said as what it is and not as an error. */
-	bool                  surface_remake;
+	bool surface_remake;
 
 	/* The swapchain's size, and the scene's -- zero when the scene is drawn
 	 * straight into the window. Both in pixels. `extent` is what a frame
 	 * draws, from the image's top-left corner. */
-	Extent                extent;
-	Extent                scene_extent;
+	Extent extent;
+	Extent scene_extent;
 	/* Where the window shows the top-left `extent` of a larger image, the
 	 * image's size, and zero where the image is `extent`: kept across the
 	 * sizes of a drag and made again when the window outgrows it (DESIGN
@@ -1744,21 +1788,21 @@ struct FnlApp {
 	 * from its corner, where an X11 Vulkan swapchain presents one to one
 	 * from its corner, and where Wayland OpenGL keeps a larger native
 	 * window. */
-	Extent                buffer;
-	bool                  buffer_crops;
+	Extent buffer;
+	bool buffer_crops;
 	/* When the size, scale or margin last changed (swapchain_adopt()), and
 	 * whether the rebuild that makes a larger image the window's own size
 	 * has been asked since: once a size, so an image that cannot be made
 	 * so is not asked for every frame. Render thread. */
-	double                size_at;
-	bool                  buffer_settled;
+	double size_at;
+	bool buffer_settled;
 
 	/* True when the surface encodes linear -> sRGB as fragments are written,
 	 * which is what the palette conversion and the text shader turn on. */
-	bool                  srgb_surface;
+	bool srgb_surface;
 
 	/* The overlay palette, converted once for that blend space. */
-	float                 pal[COL_COUNT][4];
+	float pal[COL_COUNT][4];
 
 	/* ---- the overlay's instance streams ------------------------------
 	 * Written by src/core/overlay.c, which names no graphics API. The
@@ -1778,73 +1822,79 @@ struct FnlApp {
 	 * overlay_end(). Every appender is gated on it: outside a recording the
 	 * two still name the image the *previous* recording used, whose command
 	 * buffer may be executing. */
-	bool                  overlay_open;
+	bool overlay_open;
 
 	/* Whether fnl_overlay_clip() has narrowed the scissor and not put it
 	 * back. A clip is command state and would reach every later draw of the
 	 * frame, so draw_overlay() takes it back when on_overlay returns. */
-	bool                  overlay_clipped;
+	bool overlay_clipped;
 
-	int                   font_si;       /* baked scale index, or -1 */
-	int                   font_atlas_w, font_atlas_h;
+	int font_si; /* baked scale index, or -1 */
+	int font_atlas_w, font_atlas_h;
 
-	GlyphInstance        *text_map[OVERLAY_MAX_IMAGES];
-	uint32_t              text_count;     /* glyphs appended this recording */
-	uint32_t              text_drawn;     /* of those, issued by text_end() */
-	uint32_t              text_img;       /* which buffer that is going into */
+	GlyphInstance *text_map[OVERLAY_MAX_IMAGES];
+	uint32_t text_count; /* glyphs appended this recording */
+	uint32_t text_drawn; /* of those, issued by text_end() */
+	uint32_t text_img;   /* which buffer that is going into */
 
-	unsigned char        *ovl_map[OVERLAY_MAX_IMAGES];
-	uint32_t              rect_count,  rect_drawn;
-	uint32_t              shape_count, shape_drawn;
-	uint32_t              ovl_img;
+	unsigned char *ovl_map[OVERLAY_MAX_IMAGES];
+	uint32_t rect_count, rect_drawn;
+	uint32_t shape_count, shape_drawn;
+	uint32_t ovl_img;
 
 	/* ---- shared: under App::lock -------------------------------------- */
-	_Alignas(64)
-	FnlMutex              lock;
-	FnlCond               cond;
-	int                   want_w, want_h;
-	int                   want_scale120;
-	bool                  quit;
-	Zone                  hovered_button;
+	_Alignas(64) FnlMutex lock;
+	FnlCond cond;
+	int want_w, want_h;
+	int want_scale120;
+	bool quit;
+	Zone hovered_button;
 
 	/* The newest configure the compositor has sent, and whether it is still
 	 * unanswered. The ack is deferred to the frame that actually commits a
 	 * buffer of that size (see surface_ack_configure), so the compositor's
 	 * resize handshake stays in step with what is on screen. */
-	uint32_t              cfg_serial;
-	bool                  cfg_pending;
+	uint32_t cfg_serial;
+	bool cfg_pending;
 	/* Latched by the render thread together with want_w/want_h, so a frame's
 	 * decoration state always matches the size it is drawn at. */
-	bool                  want_fullscreen;
-	bool                  want_active;     /* has the keyboard focus */
-	bool                  want_maximized;
+	bool want_fullscreen;
+	bool want_active; /* has the keyboard focus */
+	bool want_maximized;
 	/* Names of the outputs the surface currently covers, the one whose scale
 	 * is being followed first. Published for the status line. */
-	char                  want_output[OUTPUT_NAME_MAX];
-	int                   want_out_w_pt, want_out_h_pt;
+	char want_output[OUTPUT_NAME_MAX];
+	int want_out_w_pt, want_out_h_pt;
 	/* The followed output's own mode in pixels, where the backend knows it
 	 * apart from the room above -- Wayland, whose room is the compositor's
 	 * bounds for the window, which may be another output's -- and 0 by 0
 	 * where not. Published with the name (app_publish_output_mode()), so
 	 * the two are never read a pair apart; what rank.c names a display
 	 * by. */
-	int                   want_out_mode_w, want_out_mode_h;
+	int want_out_mode_w, want_out_mode_h;
 	/* A window server's monitors and the one the window is on, as its
 	 * backend last published them (app_publish_outputs()); what
 	 * backend_published_outputs() answers. KMS keeps its own. */
-	char                  out_names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
-	int                   out_count, out_current;
-	bool                  want_captured;
-	int                   want_cursor_x, want_cursor_y;
+	char out_names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
+	int out_count, out_current;
+	bool want_captured;
+	int want_cursor_x, want_cursor_y;
 	/* The scene size fnl_set_scene_size_px() asked for. The render thread
 	 * turns the pair into draw_scene_* once it knows the area it has to fit
 	 * (see scene_pin_applies). Under the lock rather than two atomics: a
 	 * width latched with a stale height is an image nobody asked for. */
-	int                   want_scene_w, want_scene_h;
+	int want_scene_w, want_scene_h;
 	/* Bumped by fnl_invalidate(), latched into FnlDrawState::user_gen. Under
 	 * the lock because the shim has no atomic add, and a lost bump is a
 	 * stale frame. */
-	uint32_t              want_user_gen;
+	uint32_t want_user_gen;
+	/* Bumped by every publish that can change the display the window is on:
+	 * a size, a mode, an output, or a refresh rate. What app_rank_tick() reads
+	 * instead of re-deriving the display through the backend every turn, so a
+	 * mode switch that keeps the size moves it too. Render thread's own: the
+	 * publishes are the pump's or the backend's, and only the ranking's tick
+	 * reads it back, on the render thread. */
+	uint32_t display_gen;
 	/* The images the caller made, newest first (fnl_image_create()). The
 	 * render thread's list, walked at fnl_shutdown() for what is left. */
 	struct FnlImage *images;
@@ -1854,32 +1904,32 @@ struct FnlApp {
 	 * without a lock of the caller's. Under App::lock, the caller's threads
 	 * writing and the render thread taking the lot. */
 	struct AppPost post[APP_POST_MAX];
-	int                   post_n;
+	int post_n;
 
 	/* fnl_invalidate_in(): when the next frame may be drawn even though
 	 * nothing moved, in now_seconds()'s base, or 0 for none. Under the lock
 	 * with the counter it spends -- the render thread takes it at the top of a
 	 * turn (src/core/frame.c) and rest_wait() does not wait past it. */
-	double                want_draw_at;
+	double want_draw_at;
 	/* The antialiasing mode the caller asked for (fnl_set_antialias()),
 	 * and the one in force: aa_asked as far as the device drawing now can
 	 * take it, worked out again at every device build (app_aa_settle()),
 	 * so a move to a GPU without FSAA drops it and a move back puts it
 	 * back. want_aa is what fnl_antialias() reports and the frame
 	 * latches. */
-	FnlAntialias          aa_asked;
-	FnlAntialias          want_aa;
+	FnlAntialias aa_asked;
+	FnlAntialias want_aa;
 	/* A change that has to be answered by the next frame rather than by the
 	 * next invitation to draw: a configure that changed the toplevel's states
 	 * or a present-mode toggle. Cleared by the render thread as it takes the
 	 * change on; such a frame is never paced -- see frame.c. */
-	bool                  want_urgent;
+	bool want_urgent;
 
 	/* When the last invitation to draw arrived, and 0 until the first one
 	 * ever does: a compositor that sends none cannot be told apart from one
 	 * that has stopped, so until then the render thread keeps drawing (see
 	 * frame.c). Written only by a backend that invites. */
-	double                frame_cb_at;
+	double frame_cb_at;
 
 	/* ---- the window as an [any]-thread caller sees it ----------------------
 	 * The [any] getters may not read the fields their answers derive from:
@@ -1890,56 +1940,56 @@ struct FnlApp {
 	 * itself.
 	 *
 	 * Points, except the two named _px. */
-	int                   pub_win_w, pub_win_h;
+	int pub_win_w, pub_win_h;
 	/* Whether the window is on screen -- shown, and neither covered nor
 	 * minimized -- as of the frame the rest of these describe. The render
 	 * thread parks a covered window and draws nothing, so a caller cannot
 	 * tell that from frames that stop: fnl_is_shown() reads this. */
-	FnlAtomicBool         pub_shown;
-	int                   pub_cx, pub_cy, pub_cw, pub_ch;
-	int                   pub_area_w_px, pub_area_h_px;
-	int                   pub_scene_w, pub_scene_h;
-	int                   pub_scale120;
+	FnlAtomicBool pub_shown;
+	int pub_cx, pub_cy, pub_cw, pub_ch;
+	int pub_area_w_px, pub_area_h_px;
+	int pub_scene_w, pub_scene_h;
+	int pub_scale120;
 	/* The output the window is on, in logical points. Published because the
 	 * titlebar controls filter their size list against it from *both*
 	 * threads, and the two have to filter to the same list. */
-	int                   pub_out_w_pt, pub_out_h_pt;
-	bool                  pub_csd;
+	int pub_out_w_pt, pub_out_h_pt;
+	bool pub_csd;
 	/* The titlebar band the published figures were measured against, in
 	 * points -- 0 in fullscreen. */
-	int                   pub_bar_h;
+	int pub_bar_h;
 
 	/* What the caller claimed, in a bar of its own or in the presentable
 	 * area, published for the input thread's hit test (claim_at() in
 	 * decor.c). Swapped in under the lock each frame from the list
 	 * on_overlay declared, so a control is hit-testable exactly where the
 	 * frame that declared it drew it. */
-	FnlRect               pub_claims[CLAIMS_MAX];
-	int                   pub_claim_count;
+	FnlRect pub_claims[CLAIMS_MAX];
+	int pub_claim_count;
 
 	/* ---- what the pump has been asked to do ------------------------------
 	 * The knobs that reach into the window server do not act where they are
 	 * called: they record here and app_drain_requests() spends them on the
 	 * pump's thread, which is what makes them [any]. Each flag is *latest
 	 * wins*, not a queue. */
-	PendingReq            req;
+	PendingReq req;
 	/* The last shape fnl_set_cursor() was given, under the same lock. Not
 	 * App::cursor, which is the pump's copy and one drain behind. */
-	FnlCursor             cursor_asked;
+	FnlCursor cursor_asked;
 	/* What fnl_clipboard_set() was given, on its way to the pump, which
 	 * takes it as clip_out when it drains the request. */
-	char                 *clip_pending;
+	char *clip_pending;
 
 	/* The device's name, written by pick_device() -- on the main thread at
 	 * startup and on the *render* thread when loss recovery re-picks a
 	 * device. fnl_gpu_name() is [any], so it hands back a copy taken under
 	 * App::lock, never a pointer into this buffer: a longer name written
 	 * over a shorter one is unterminated for an interval. */
-	char                  gpu_name[GPU_NAME_MAX];
+	char gpu_name[GPU_NAME_MAX];
 	/* What the frames go through, as GpuEntry::via says it for the entry in
 	 * use; written by the renderer once it has chosen, under App::lock for
 	 * fnl_renderer_via(), which copies it out as fnl_gpu_name() does. */
-	char                  gpu_via[GPU_VIA_MAX];
+	char gpu_via[GPU_VIA_MAX];
 	/* The GPUs the renderer found when it last picked one, how many, and the
 	 * one in use, -1 before there is any (app_gpu_list_publish()). All
 	 * written by the renderer's pick, on the thread that builds the device.
@@ -1947,11 +1997,11 @@ struct FnlApp {
 	 * none, and gpu_req_entry the entry it named then, spent by the render
 	 * loop (gpu_switch_owed()): the list may grow before it is, as the
 	 * other renderers' GPUs are listed, and the entry is found again. */
-	GpuEntry              gpu_list[GPU_LIST_MAX];
-	int                   gpu_list_n;
-	int                   gpu_list_cur;
-	int                   gpu_req;
-	GpuEntry              gpu_req_entry;
+	GpuEntry gpu_list[GPU_LIST_MAX];
+	int gpu_list_n;
+	int gpu_list_cur;
+	int gpu_req;
+	GpuEntry gpu_req_entry;
 	/* The list as the renderers it spans gave it: gpu_span[0] the one the
 	 * window started with, then each other the caller has a scene for, in
 	 * the order fnl_init() tries them; gpu_part[k] the GPUs gpu_span[k]
@@ -1966,14 +2016,14 @@ struct FnlApp {
 	 * for more than one, known before the first build, which the
 	 * inventory lines say. */
 	const FnlRendererVtbl *gpu_span[GPU_SPAN_MAX];
-	int                   gpu_span_n;
-	GpuEntry              gpu_part[GPU_SPAN_MAX][GPU_LIST_MAX];
-	int                   gpu_part_n[GPU_SPAN_MAX];
-	int                   gpu_part_cur;
-	bool                  gpu_spans;
+	int gpu_span_n;
+	GpuEntry gpu_part[GPU_SPAN_MAX][GPU_LIST_MAX];
+	int gpu_part_n[GPU_SPAN_MAX];
+	int gpu_part_cur;
+	bool gpu_spans;
 	/* The OpenGL renderer's profile at its last device build, 45 or 41,
 	 * for fnl_gl_version() on any thread; 0 before one. */
-	FnlAtomicU32          gl_version;
+	FnlAtomicU32 gl_version;
 	/* Where the renderers share a driver (FnlBackendVtbl::shared_driver),
 	 * or OpenGL draws, what each of gpu_early_r listed before the one
 	 * drawing was built, which app_gpu_list_others() publishes in place
@@ -1983,9 +2033,9 @@ struct FnlApp {
 	 * the lister, which is started after each and joined before the
 	 * second. */
 	const FnlRendererVtbl *gpu_early_r[GPU_SPAN_MAX];
-	GpuEntry              gpu_early[GPU_SPAN_MAX][GPU_LIST_MAX];
-	int                   gpu_early_c[GPU_SPAN_MAX];
-	int                   gpu_early_n;
+	GpuEntry gpu_early[GPU_SPAN_MAX][GPU_LIST_MAX];
+	int gpu_early_c[GPU_SPAN_MAX];
+	int gpu_early_n;
 
 	/* ---- shared: atomics -----------------------------------------------
 	 * Guarded by nothing but compiler.h's shim. Grouped by who stores: the
@@ -2000,7 +2050,7 @@ struct FnlApp {
 
 	/* Every held key, a bit per FnlKey. Stored by the pump only, which is
 	 * what lets a set bit be a load and a store rather than an atomic OR. */
-	FnlAtomicU32          keys_held[KEY_HELD_WORDS];
+	FnlAtomicU32 keys_held[KEY_HELD_WORDS];
 
 	/* The titlebar controls, owned by src/core/controls.c. The pump writes
 	 * them from a press and the render thread reads them to draw;
@@ -2011,42 +2061,42 @@ struct FnlApp {
 	 * re-ticking it spends the same size. ctl_check is the scaling box's
 	 * tick; the antialiasing boxes' entries are unused, since those two
 	 * show the mode in force (ctl_ticked()). */
-	FnlAtomicBool         ctl_check[CTL_CHECK_COUNT];
-	FnlAtomicU32          ctl_pin_w, ctl_pin_h;
+	FnlAtomicBool ctl_check[CTL_CHECK_COUNT];
+	FnlAtomicU32 ctl_pin_w, ctl_pin_h;
 	/* Which drop-down is open: none, the size box, the output box or the
 	 * GPU box (CTL_SHUT, CTL_OPEN_SIZE, CTL_OPEN_OUTPUT, CTL_OPEN_GPU in
 	 * controls.c). */
-	FnlAtomicU32          ctl_combo_open;
+	FnlAtomicU32 ctl_combo_open;
 	/* The row under the pointer, plus one, so that zero is "none". */
-	FnlAtomicU32          ctl_combo_hover1;
+	FnlAtomicU32 ctl_combo_hover1;
 
 	/* The refresh rate of the monitor the window is on, in millihertz, as
 	 * its window server reports the mode; zero where it reports none. The
 	 * pump writes it and the render thread's spacing reads it: a measured
 	 * period shorter than one refresh is a loop nothing throttles (see
 	 * pace_period() in frame.c). */
-	FnlAtomicU32          out_refresh_mhz;
+	FnlAtomicU32 out_refresh_mhz;
 
 	/* Set by the pump when the window is asked to close, and by
 	 * fnl_quit(). */
-	FnlAtomicBool         should_close;
+	FnlAtomicBool should_close;
 
 	/* How wide a run of the titlebar the caller has asked for, in logical
 	 * points; 0 for none. Stored by fnl_titlebar_reserve() and read by the
 	 * pump's hit test; the rectangle is recomputed on both sides from this
 	 * and the window width. */
-	FnlAtomicU32          titlebar_reserved;
+	FnlAtomicU32 titlebar_reserved;
 	/* On unless FNL_VSYNC says "0", set once in fnl_init() before any
 	 * thread reads it. */
-	FnlAtomicBool         vsync;
+	FnlAtomicBool vsync;
 	/* fnl_set_cost_sampling()'s: a window at rest draws a frame every
 	 * COST_WINDOW, to keep the cost figures measured. */
-	FnlAtomicBool         cost_sampling;
+	FnlAtomicBool cost_sampling;
 	/* fnl_set_metrics_panel()'s and fnl_set_metrics_key()'s; the key is an
 	 * FnlKey, FNL_KEY_F5 from fnl_init(), and read by app_key() on the
 	 * pump. */
-	FnlAtomicBool         metrics_shown;
-	FnlAtomicU32          metrics_key;
+	FnlAtomicBool metrics_shown;
+	FnlAtomicU32 metrics_key;
 	/* The process's figures the panel shows, as the draw state takes them
 	 * (METRICS_UNKNOWN where none); when the last sample was taken, 0
 	 * before the first; and what the two shares are measured from: the
@@ -2055,45 +2105,45 @@ struct FnlApp {
 	 * every frame read so far (app_gpu_time(), counted or not) and the
 	 * clock at the last sample, met_gpu_at 0 where there is none.
 	 * Render thread's. */
-	uint32_t              met_cpu_pm, met_ram_mib, met_vram_mib, met_gpu_pm;
-	double                met_at, met_cpu_s, met_wall_s;
-	double                met_gpu_s, met_gpu_base, met_gpu_at;
+	uint32_t met_cpu_pm, met_ram_mib, met_vram_mib, met_gpu_pm;
+	double met_at, met_cpu_s, met_wall_s;
+	double met_gpu_s, met_gpu_base, met_gpu_at;
 	/* fnl_set_transition_ms()'s: how long the veil takes to come down
 	 * ahead of a move and to lift after it, in milliseconds; 0 is none
 	 * that way. VEIL_MS until a caller says, and one figure for both. */
-	FnlAtomicU32          veil_out_ms, veil_in_ms;
+	FnlAtomicU32 veil_out_ms, veil_in_ms;
 	/* fnl_set_text_input(); read by the pump as each key arrives. */
-	FnlAtomicBool         text_input;
+	FnlAtomicBool text_input;
 	/* fnl_set_text_rect_pt(), as four words and a flag saying they were ever
 	 * written. Torn across a write it is a rectangle one caret-move stale in
 	 * one coordinate, for one commit, as a hint to somebody else's popup. */
-	FnlAtomicU32          text_rect[4];
-	FnlAtomicBool         text_rect_set;
+	FnlAtomicU32 text_rect[4];
+	FnlAtomicBool text_rect_set;
 	/* Whether the scene's animation clock runs. Off by default, so that a
 	 * still window re-records nothing (see FnlDrawState::scene_time). */
-	FnlAtomicBool         scene_motion;
+	FnlAtomicBool scene_motion;
 
 	/* The largest buffer this device will allocate for the surface, or zero
 	 * until there is a device to ask. It bounds the *scale* rather than the
 	 * buffer (see clamp_device_scale120). The render thread republishes it on
 	 * every rebuild and the pump reads it; a reader one build stale resolves
 	 * the scale the way it did a moment ago. */
-	FnlAtomicU32          max_extent_w, max_extent_h;
+	FnlAtomicU32 max_extent_w, max_extent_h;
 
 	/* What FSAA multisamples at, as a renderer-specific sample count: the best
 	 * the device will give for both colour and depth, or the one-sample
 	 * value when it will give neither. Written on the main thread before the
 	 * render thread exists, and by the render thread when loss recovery
 	 * re-picks a device; read by the pump. */
-	FnlAtomicU32          msaa_samples;
+	FnlAtomicU32 msaa_samples;
 	/* App::gpu_list_n again, for the titlebar's run: its width is the
 	 * floor's, and deco_min_window() is read with App::lock already held
 	 * (ctl_env()). Written with the list (app_gpu_list_publish()). */
-	FnlAtomicU32          gpu_count;
+	FnlAtomicU32 gpu_count;
 	/* App::renderer, for any thread but the render thread: stored where
 	 * that is written, before the render thread starts and by it at a
 	 * move to another renderer (renderer_any()). */
-	FnlAtomicPtr          renderer_pub;
+	FnlAtomicPtr renderer_pub;
 
 	/* The mode the swapchain that exists was built with, in the renderer's
 	 * own terms: the renderer sets it on the render thread at every
@@ -2106,41 +2156,41 @@ struct FnlApp {
 	 * either: it goes back to the renderer through present_mode_name and
 	 * present_mode_matches, and one renderer's value means nothing to
 	 * another's. */
-	FnlAtomicU32          present_mode;
+	FnlAtomicU32 present_mode;
 	/* Presents per second, as fnl_fps() reports it from [any]; the render
 	 * thread recomputes it once a COST_WINDOW. */
-	FnlAtomicU32          fps_display;
+	FnlAtomicU32 fps_display;
 	/* What a drawn frame costs, in microseconds, as fnl_frame_gpu_ms() and
 	 * fnl_frame_cpu_ms() report it from [any] and the draw state latches
 	 * it; COST_UNKNOWN before there is a figure. Written when published
 	 * (app_cost_publish()), not at every frame. The GPU's raw sample is a
 	 * renderer's, counted, so the render thread folds each into the mean
 	 * once (app_frame_cost(), app_cost_poll()). */
-	FnlAtomicU32          cost_gpu_us;
-	FnlAtomicU32          cost_cpu_us;
-	FnlAtomicU32          gpu_sample_us;
-	FnlAtomicU32          gpu_sample_seq;
+	FnlAtomicU32 cost_gpu_us;
+	FnlAtomicU32 cost_cpu_us;
+	FnlAtomicU32 gpu_sample_us;
+	FnlAtomicU32 gpu_sample_seq;
 	/* What fnl_input_latency_ms() reports, in microseconds, and the draw
 	 * state latches; COST_UNKNOWN before an input has reached the caller.
 	 * Written when published, as the two above are. */
-	FnlAtomicU32          input_lat_us;
+	FnlAtomicU32 input_lat_us;
 	/* How many times the machine has come back from a sleep, counted on the
 	 * pump thread (app_resumed()) and read by the render thread against
 	 * resumes_seen. */
-	FnlAtomicU32          resumes;
+	FnlAtomicU32 resumes;
 	/* How many times the backend has asked for its surface to be made
 	 * again (app_surface_remake()), against surface_remakes_seen. */
-	FnlAtomicU32          surface_remakes;
+	FnlAtomicU32 surface_remakes;
 	/* [render] Set by a backend's frame_cancel() that found the present
 	 * it is told to take back answered already by the server -- shown,
 	 * though the graphics API said it was refused (NVIDIA's out-of-date
 	 * present on X11) -- and spent by app_frame_take_back(). */
-	bool                  present_answered_anyway;
+	bool present_answered_anyway;
 	/* [render] Bumped each time the graphics API starts numbering its
 	 * presents afresh -- a Vulkan swapchain made (swapchain_make()) -- for
 	 * a backend that ties a server's answer to its frame by that number
 	 * (X11's Present, x11_frame_request()). */
-	uint32_t              present_chain;
+	uint32_t present_chain;
 
 	/* ---- the event queue -----------------------------------------------
 	 * A ring and its own mutex. src/core/events.c owns both; nothing else
@@ -2153,11 +2203,10 @@ struct FnlApp {
 	 * The lock and the indices start a cache line of their own, ahead of the
 	 * ring: the pump takes the lock per event, and the atomics before it are
 	 * stored by the render thread. */
-	_Alignas(64)
-	FnlMutex              ev_lock;
-	int                   ev_head, ev_tail;
-	unsigned              ev_lost;
-	FnlEvent              ev_ring[EVENT_QUEUE_MAX];
+	_Alignas(64) FnlMutex ev_lock;
+	int ev_head, ev_tail;
+	unsigned ev_lost;
+	FnlEvent ev_ring[EVENT_QUEUE_MAX];
 	/* Each slot's inputs as fnl_input_latency_ms() counts them: how many
 	 * the event carries -- more than one where motion coalesced, none for
 	 * a notification or a repeat -- how many of those by a stamp of the
@@ -2165,9 +2214,9 @@ struct FnlApp {
 	 * oldest, on FnlEvent::time's clock. And what handing them over has
 	 * added up since the figure was last published: the latencies' sum,
 	 * the longest, how many and how many stamped. */
-	EvBorn                ev_born[EVENT_QUEUE_MAX];
-	double                lat_sum, lat_worst;
-	uint32_t              lat_n, lat_stamped;
+	EvBorn ev_born[EVENT_QUEUE_MAX];
+	double lat_sum, lat_worst;
+	uint32_t lat_n, lat_stamped;
 
 	/* ---- shared: under text_lock ---------------------------------------
 	 * The strings too long for an event, and the lock that is theirs alone:
@@ -2176,10 +2225,10 @@ struct FnlApp {
 	 *
 	 *   compose   the composition, as last reported
 	 *   clip_in   the last answer a clipboard request got */
-	FnlMutex              text_lock;
-	char                  compose[256];
-	char                 *clip_in;
-	size_t                clip_in_len;
+	FnlMutex text_lock;
+	char compose[256];
+	char *clip_in;
+	size_t clip_in_len;
 };
 
 /* ---- inline helpers --------------------------------------------------------
@@ -2189,16 +2238,20 @@ struct FnlApp {
  * refused: everything past the framebuffer is clipped away anyway. */
 static inline int clamp_pt(int v)
 {
-	if (v >  OVERLAY_COORD_MAX) return  OVERLAY_COORD_MAX;
-	if (v < -OVERLAY_COORD_MAX) return -OVERLAY_COORD_MAX;
+	if (v > OVERLAY_COORD_MAX)
+		return OVERLAY_COORD_MAX;
+	if (v < -OVERLAY_COORD_MAX)
+		return -OVERLAY_COORD_MAX;
 	return v;
 }
 
 /* A surface scale, held inside SCALE120_MIN..SCALE120_MAX. */
 static inline int clamp_scale120(int s120)
 {
-	if (s120 < SCALE120_MIN) return SCALE120_MIN;
-	if (s120 > SCALE120_MAX) return SCALE120_MAX;
+	if (s120 < SCALE120_MIN)
+		return SCALE120_MIN;
+	if (s120 > SCALE120_MAX)
+		return SCALE120_MAX;
 	return s120;
 }
 
@@ -2222,15 +2275,17 @@ static inline int res_window_h_pt(int px, int s120, int bar_h)
  * other three sides. Takes the bar's height rather than a "has a bar" flag --
  * 0 in fullscreen, the caller's own under fnl_titlebar_custom() -- and every
  * caller gets it from deco_bar_h(). */
-static inline void content_rect(int win_w, int win_h, int bar_h,
-								int *x, int *y, int *w, int *h)
+static inline void content_rect(int win_w, int win_h, int bar_h, int *x, int *y,
+								int *w, int *h)
 {
 	*x = 0;
 	*y = bar_h > 0 ? bar_h : 0;
 	*w = win_w;
 	*h = win_h - *y;
-	if (*w < 1) *w = 1;
-	if (*h < 1) *h = 1;
+	if (*w < 1)
+		*w = 1;
+	if (*h < 1)
+		*h = 1;
 }
 
 /* Whether this window is wearing a client titlebar. Takes the flag rather
@@ -2352,14 +2407,16 @@ static inline void deco_default_window_pt(const App *a, int s120, int *w,
 										  int *h)
 {
 	const int bar = deco_bar_h(a, false);
-	*w = a->init_w_pt > 0 ? a->init_w_pt
-						  : res_window_w_pt(DEFAULT_AREA_W, s120);
+	*w =
+		a->init_w_pt > 0 ? a->init_w_pt : res_window_w_pt(DEFAULT_AREA_W, s120);
 	*h = a->init_h_pt > 0 ? a->init_h_pt + bar
 						  : res_window_h_pt(DEFAULT_AREA_H, s120, bar);
 	int min_w, min_h;
 	deco_min_window(a, false, &min_w, &min_h);
-	if (*w < min_w) *w = min_w;
-	if (*h < min_h) *h = min_h;
+	if (*w < min_w)
+		*w = min_w;
+	if (*h < min_h)
+		*h = min_h;
 }
 
 /* What the pointer wears over a zone. The order is the precedence: a capture
@@ -2369,13 +2426,15 @@ static inline void deco_default_window_pt(const App *a, int s120, int *w,
  * own tables. Pump thread only: it reads App::pointer_captured and
  * App::cursor. */
 typedef enum {
-	DECO_CURSOR_HIDDEN, DECO_CURSOR_EDGE, DECO_CURSOR_SHAPE
+	DECO_CURSOR_HIDDEN,
+	DECO_CURSOR_EDGE,
+	DECO_CURSOR_SHAPE
 } DecoCursorKind;
 
 typedef struct {
 	DecoCursorKind kind;
-	Edge           edge;      /* DECO_CURSOR_EDGE  */
-	FnlCursor      shape;     /* DECO_CURSOR_SHAPE */
+	Edge edge;       /* DECO_CURSOR_EDGE  */
+	FnlCursor shape; /* DECO_CURSOR_SHAPE */
 } DecoCursor;
 
 static inline DecoCursor deco_cursor(const App *a, Zone z, Edge edge)
@@ -2448,8 +2507,7 @@ void app_pointer_relative(App *a, double dx_pt, double dy_pt);
 void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
 						double y_pt, uint32_t time_ms);
 /* A scroll at the pointer, in notches (fenestal.h). */
-void app_pointer_scroll(App *a, double x_pt, double y_pt, double dx,
-						double dy);
+void app_pointer_scroll(App *a, double x_pt, double y_pt, double dx, double dy);
 /* Whether a held key repeats at all: false for the modifiers and the locks,
  * which are held to be held. app_key_repeat() drops the rest; a backend that
  * times its own repeats (Wayland) asks before arming the timer. */
@@ -2522,8 +2580,7 @@ void app_post_focus(App *a, bool focused);
 void app_publish_output(App *a, const char *name, int w_pt, int h_pt);
 /* The output's name and its own mode in pixels, under one lock, for a
  * backend whose room is not the output's own (Wayland's bounds). */
-void app_publish_output_mode(App *a, const char *name, int mode_w,
-							 int mode_h);
+void app_publish_output_mode(App *a, const char *name, int mode_w, int mode_h);
 /* The refresh rate of the window's monitor in millihertz, 0 for unknown. */
 void app_publish_refresh(App *a, unsigned int mhz);
 /* A window server's monitors, by the names fnl_output_name_at() gives, and
@@ -2621,8 +2678,8 @@ void deco_apply_custom(App *a, int height_pt, int min_width_pt);
  * thread to draw, the input thread to hit-test -- and they agree because they
  * compute the same function of the same two numbers rather than sharing an
  * answer. */
-void deco_button_rects(const App *a, int w, int *min_x, int *max_x,
-					   int *full_x, int *close_x, int *by, bool *visible);
+void deco_button_rects(const App *a, int w, int *min_x, int *max_x, int *full_x,
+					   int *close_x, int *by, bool *visible);
 /* The caller's run of the titlebar: right-to-left from the library's buttons,
  * granted only while it clears the title. */
 void deco_reserved_rect(const App *a, int w, int want_w, int *x, int *y,
@@ -2639,7 +2696,7 @@ bool deco_title_fits(const App *a, int w);
  * the display's stamp in seconds of CLOCK_MONOTONIC, now_seconds()'s
  * clock. Any thread; kept only while the caller counts. api_state.c. */
 void app_frame_shown(App *a, uint64_t index, double mono, bool vblank);
-void app_frame_take_back(App *a);                                  /* app.c */
+void app_frame_take_back(App *a); /* app.c */
 /* The same for a swapchain that numbers its presents and says when a
  * number was shown -- DXGI's present count and frame statistics, which
  * tell only the last shown, and Vulkan's present ids with
@@ -2651,8 +2708,7 @@ void app_frame_take_back(App *a);                                  /* app.c */
  * before it is not when the frame was shown and stamps nothing: WARP in a
  * Windows 11 guest reported frames shown minutes before they were drawn.
  * Render thread. api_state.c. */
-void app_present_numbered(App *a, uint64_t index, uint32_t number,
-						  double at);
+void app_present_numbered(App *a, uint64_t index, uint32_t number, double at);
 void app_present_number_shown(App *a, uint32_t number, double mono,
 							  bool vblank);
 /* The window server has answered for the frame with this FnlFrame::index,
@@ -2681,15 +2737,15 @@ void deco_drag(App *a, double px, double py);
  * deco_reserved_rect()'s reason. */
 /* The run's width as the floor holds it, and at window width w, which has
  * the output box beside it where there is room (ctl_output_in()). */
-int  ctl_run_w(const App *a);
-int  ctl_run_w_at(const App *a, int w);
+int ctl_run_w(const App *a);
+int ctl_run_w_at(const App *a, int w);
 /* Where the run starts at window width w, or -1 where the buttons beside it
  * are hidden or it would cross the bar's left margin. It does not give way
  * to the title, and deco_min_window() holds it, so -1 is a window a
  * compositor let below its floor. */
-int  ctl_run_x(const App *a, int w);
-void ctl_draw(App *a, const FnlDrawState *ds, int win_w,
-			  int area_w, int area_h);
+int ctl_run_x(const App *a, int w);
+void ctl_draw(App *a, const FnlDrawState *ds, int win_w, int area_w,
+			  int area_h);
 /* The drop-down's open list, drawn from the *end* of the frame rather than
  * with the box it belongs to: it floats over everything, and over is an
  * append order here. What issuing the glyphs before it said. */
@@ -2698,12 +2754,12 @@ FNL_MUST_USE FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds,
 /* Which control is at a point inside the bar: -1, a checkbox index,
  * CTL_CHECK_COUNT for the size box, one past it for the output box, two
  * past it for the GPU box. */
-int  ctl_hit(const App *a, int win_w, int x, int y);
+int ctl_hit(const App *a, int win_w, int x, int y);
 /* Which row of the open drop-down is at a point *anywhere in the window*, or
  * -1. Asked by deco_press() and ctl_motion(), and made modal by deco_hit()
  * ahead of the resize and content tests, because an open list floats over
  * the window and has to be hit where it is drawn. */
-int  ctl_popup_hit(const App *a, int win_w, int x, int y);
+int ctl_popup_hit(const App *a, int win_w, int x, int y);
 /* Whether the controls are holding the pointer: true while a drop-down is
  * open and the library's bar it drops from is shown, and then *every* press
  * belongs to them wherever it lands -- the one that picks a row, and the one
@@ -2725,7 +2781,7 @@ FNL_MUST_USE FnlResult text_load_cells(void);
  * would draw it wider than. It never reads the scale in force, so both
  * threads get the same answer. There is deliberately no measure in pixels;
  * see the foot of text_measure.c. */
-int  text_width(const char *s, TextSize sz);
+int text_width(const char *s, TextSize sz);
 /* Fit one line of `s` into max_w points in `dst` (cap bytes, terminator
  * included): unchanged where it fits, else cut on a code point boundary and
  * ended in "...", else "" where not even that fits. See fnl_text_elide(). */
@@ -2733,13 +2789,13 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz);
 /* Wrap `src` into `dst` at max_w points, breaking at spaces where it can and
  * inside a word where it must, and returning the lines written. See
  * fnl_text_wrap(). */
-int  text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz);
+int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz);
 /* The widest prefix of `s` (at most `n` bytes, on a code point boundary) that
  * fits max_w points: what a wrapper needs and text_width() cannot do, its
  * string being terminated. */
 size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz);
 /* Which baked atlas is nearest this surface scale. */
-int  scale_index(int s120);
+int scale_index(int s120);
 /* Decode one UTF-8 code point, returning the next position. utf8_decode()
  * says whether the sequence was well formed; utf8_next() is the same walk for
  * drawing, where malformed input is simply U+FFFD. */
@@ -2827,17 +2883,17 @@ bool overlay_clip(const App *a, int x, int y, int w, int h, FnlRect *out);
 void overlay_rect(App *a, int x, int y, int w, int h, const float color[4]);
 /* Four of them: a one-point outline just inside the rectangle. */
 void overlay_frame(App *a, int x, int y, int w, int h, const float color[4]);
-void overlay_stroke(App *a, float x0, float y0, float x1, float y1,
-					float width, const float color[4]);
+void overlay_stroke(App *a, float x0, float y0, float x1, float y1, float width,
+					const float color[4]);
 /* Two segments meeting at (x1,y1), as *one* stroke. Two arms drawn
  * separately blend their antialiased fringes over each other at the join,
  * which leaves a brighter pixel on its inner diagonal. */
-void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
-				   float x2, float y2, float width, const float color[4]);
+void overlay_elbow(App *a, float x0, float y0, float x1, float y1, float x2,
+				   float y2, float width, const float color[4]);
 /* A hollow rectangle through the opposite corners (x0,y0) and (x1,y1), as one
  * stroke, for overlay_elbow()'s reason: four corners are four joins. */
-void overlay_box(App *a, float x0, float y0, float x1, float y1,
-				 float width, const float color[4]);
+void overlay_box(App *a, float x0, float y0, float x1, float y1, float width,
+				 const float color[4]);
 /* Draw everything appended since the last flush of that kind, into whatever
  * the running renderer is recording into. A second flush picks up where the
  * first stopped rather than redrawing or rebinding anything. */
@@ -2855,27 +2911,27 @@ void overlay_scissor(App *a, const FnlRect *r);
 /* ---- draw.c ---------------------------------------------------------------
  * What the library draws for itself, and the geometry both the drawing and
  * the renderer's recording place things by. Render thread. */
-int  logical_w(const App *a);
-int  logical_h(const App *a);
+int logical_w(const App *a);
+int logical_h(const App *a);
 /* Recompute the pub_* block from what the render thread has just built, and
  * publish it under App::lock. Called once a frame, after the rebuild that
  * settles App::extent and before the frame is recorded, so on_overlay is
  * answered with this frame's figures. */
 void app_publish_window(App *a, const FnlDrawState *ds);
 
-void content_px(const App *a, const FnlDrawState *ds, int *x, int *y,
-				int *w, int *h);
+void content_px(const App *a, const FnlDrawState *ds, int *x, int *y, int *w,
+				int *h);
 /* What every renderer sizes the same way: the window's buffer, under the
  * renderer's own limits (a zero `max` axis is no limit), and where a scene
  * rendered smaller lands in the area. See draw.c. */
 Extent app_buffer_extent(App *a, Extent min, Extent max);
 Extent app_buffer_room(const App *a, Extent e, Extent max);
-bool   app_buffer_room_fits(const App *a, Extent e, Extent room);
+bool app_buffer_room_fits(const App *a, Extent e, Extent room);
 /* Whether the window's size has stood long enough for images its own size
  * (App::size_at). */
-bool   app_buffer_at_rest(const App *a);
-void scene_dst_rect(int scene_w, int scene_h, int area_w, int area_h,
-					int *x, int *y, int *w, int *h);
+bool app_buffer_at_rest(const App *a);
+void scene_dst_rect(int scene_w, int scene_h, int area_w, int area_h, int *x,
+					int *y, int *w, int *h);
 
 /* The whole overlay in one call, in the order the flush invariant requires.
  * The renderer sets where the drawing lands before calling and clears it
@@ -2905,4 +2961,4 @@ void app_snapshot_decline(App *a);
  * under the older configure. */
 void app_surface_sync(App *a, uint32_t cfg_serial, bool cfg_pending);
 
-#endif  /* APP_H */
+#endif /* APP_H */

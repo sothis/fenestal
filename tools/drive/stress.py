@@ -214,24 +214,30 @@ LIST_ROW_H = 18
 LAYOUT_TYPES = {
     ("de", ""): {
         "keys": [
-            ([((), "Y")], [0x7a]), ([((), "Z")], [0x79]),
-            ([((), "Minus")], [0xdf]), ([((), "Semicolon")], [0xf6]),
-            ([((), "Apostrophe")], [0xe4]), ([((), "LBracket")], [0xfc]),
-            ([(("LShift",), "Semicolon")], [0xd6]),
-            ([((), "IntlBackslash")], [0x3c]),
-            ([(("LShift",), "IntlBackslash")], [0x3e]),
-            ([(("RAlt",), "IntlBackslash")], [0x7c]),
-            ([(("RAlt",), "Q")], [0x40]), ([(("RAlt",), "E")], [0x20ac]),
-            ([(("RAlt",), "7")], [0x7b]), ([(("RAlt",), "Minus")], [0x5c]),
-            ([(("LShift",), "3")], [0xa7]), ([(("LShift",), "7")], [0x2f]),
-            ([(("LShift",), "Grave")], [0xb0]),
+            ([((), "Y")], [0x7A]),
+            ([((), "Z")], [0x79]),
+            ([((), "Minus")], [0xDF]),
+            ([((), "Semicolon")], [0xF6]),
+            ([((), "Apostrophe")], [0xE4]),
+            ([((), "LBracket")], [0xFC]),
+            ([(("LShift",), "Semicolon")], [0xD6]),
+            ([((), "IntlBackslash")], [0x3C]),
+            ([(("LShift",), "IntlBackslash")], [0x3E]),
+            ([(("RAlt",), "IntlBackslash")], [0x7C]),
+            ([(("RAlt",), "Q")], [0x40]),
+            ([(("RAlt",), "E")], [0x20AC]),
+            ([(("RAlt",), "7")], [0x7B]),
+            ([(("RAlt",), "Minus")], [0x5C]),
+            ([(("LShift",), "3")], [0xA7]),
+            ([(("LShift",), "7")], [0x2F]),
+            ([(("LShift",), "Grave")], [0xB0]),
         ],
         "dead": [
-            ([((), "Equal"), ((), "E")], [0xe9]),
-            ([(("LShift",), "Equal"), ((), "A")], [0xe0]),
-            ([((), "Grave"), ((), "O")], [0xf4]),
-            ([((), "Equal"), ((), "Space")], [0xb4]),
-            ([((), "Grave"), ((), "Grave")], [0x5e]),
+            ([((), "Equal"), ((), "E")], [0xE9]),
+            ([(("LShift",), "Equal"), ((), "A")], [0xE0]),
+            ([((), "Grave"), ((), "O")], [0xF4]),
+            ([((), "Equal"), ((), "Space")], [0xB4]),
+            ([((), "Grave"), ((), "Grave")], [0x5E]),
             ([((), "Grave"), ((), "X")], [0x78]),
         ],
     },
@@ -239,20 +245,27 @@ LAYOUT_TYPES = {
     # and grave key types them at once, and the circumflex key its sign.
     ("de", "nodeadkeys"): {
         "keys": [
-            ([((), "Y")], [0x7a]), ([((), "Z")], [0x79]),
-            ([((), "Minus")], [0xdf]), ([((), "Semicolon")], [0xf6]),
-            ([((), "Apostrophe")], [0xe4]), ([((), "LBracket")], [0xfc]),
-            ([(("LShift",), "Semicolon")], [0xd6]),
-            ([((), "IntlBackslash")], [0x3c]),
-            ([(("LShift",), "IntlBackslash")], [0x3e]),
-            ([(("RAlt",), "IntlBackslash")], [0x7c]),
-            ([(("RAlt",), "Q")], [0x40]), ([(("RAlt",), "E")], [0x20ac]),
-            ([(("RAlt",), "7")], [0x7b]), ([(("RAlt",), "Minus")], [0x5c]),
-            ([(("LShift",), "3")], [0xa7]), ([(("LShift",), "7")], [0x2f]),
-            ([(("LShift",), "Grave")], [0xb0]),
-            ([((), "Grave")], [0x5e]), ([((), "Equal")], [0xb4]),
+            ([((), "Y")], [0x7A]),
+            ([((), "Z")], [0x79]),
+            ([((), "Minus")], [0xDF]),
+            ([((), "Semicolon")], [0xF6]),
+            ([((), "Apostrophe")], [0xE4]),
+            ([((), "LBracket")], [0xFC]),
+            ([(("LShift",), "Semicolon")], [0xD6]),
+            ([((), "IntlBackslash")], [0x3C]),
+            ([(("LShift",), "IntlBackslash")], [0x3E]),
+            ([(("RAlt",), "IntlBackslash")], [0x7C]),
+            ([(("RAlt",), "Q")], [0x40]),
+            ([(("RAlt",), "E")], [0x20AC]),
+            ([(("RAlt",), "7")], [0x7B]),
+            ([(("RAlt",), "Minus")], [0x5C]),
+            ([(("LShift",), "3")], [0xA7]),
+            ([(("LShift",), "7")], [0x2F]),
+            ([(("LShift",), "Grave")], [0xB0]),
+            ([((), "Grave")], [0x5E]),
+            ([((), "Equal")], [0xB4]),
             ([(("LShift",), "Equal")], [0x60]),
-            ([((), "Equal"), ((), "E")], [0xb4, 0x65]),
+            ([((), "Equal"), ((), "E")], [0xB4, 0x65]),
         ],
         "dead": [],
     },
@@ -278,8 +291,9 @@ class Round:
         name += self.where
         line = "%-52s %s  %s" % (name, "ok " if cond else "FAIL", detail)
         print(line, flush=True)
-        (self.oks if cond else self.fails).append(name if cond
-                                                  else line.strip())
+        (self.oks if cond else self.fails).append(
+            name if cond else line.strip()
+        )
         return bool(cond)
 
     def skip(self, name, why):
@@ -296,8 +310,9 @@ class Round:
         if not self.capture or not self.shots_ok:
             return None
         self.shot_n += 1
-        path = os.path.join(OUT, "%s-%02d-%s.png"
-                            % (self.b.NAME, self.shot_n, tag))
+        path = os.path.join(
+            OUT, "%s-%02d-%s.png" % (self.b.NAME, self.shot_n, tag)
+        )
         try:
             return self.b.capture(path)
         except Exception as e:
@@ -316,7 +331,7 @@ class Round:
 
     def cpu_percent(self, secs=4.0):
         a, t0 = self.b.cpu_seconds(), time.monotonic()
-        time.sleep(secs)            # the window the sample is taken over
+        time.sleep(secs)  # the window the sample is taken over
         z, t1 = self.b.cpu_seconds(), time.monotonic()
         return (z - a) / (t1 - t0) * 100.0
 
@@ -381,6 +396,7 @@ def check_bar(r, name, st, present=True):
     sRGB here, so the bar authored at 0.16 reads 41; and the run has to be as
     wide as *this* window, or some other window's dark strip answers."""
     import numpy as np
+
     # The area's width in pixels, less the one-pixel window outline the
     # decorations draw down each side.
     want = st["px"][0] - 2
@@ -388,9 +404,11 @@ def check_bar(r, name, st, present=True):
     def find(im):
         a = np.asarray(im.convert("RGB")).astype(int)
         for shade, _focused in ((41, True), (31, False)):
-            m = ((np.abs(a[:, :, 0] - shade) <= 2) &
-                 (np.abs(a[:, :, 1] - shade) <= 2) &
-                 (np.abs(a[:, :, 2] - shade) <= 6))
+            m = (
+                (np.abs(a[:, :, 0] - shade) <= 2)
+                & (np.abs(a[:, :, 1] - shade) <= 2)
+                & (np.abs(a[:, :, 2] - shade) <= 6)
+            )
             for y in np.where(m.sum(axis=1) >= want - 8)[0]:
                 xs = np.where(m[y])[0]
                 if abs(int(xs.max() - xs.min() + 1) - want) <= 8:
@@ -404,14 +422,21 @@ def check_bar(r, name, st, present=True):
     for _ in range(3):
         im = r.shot("bar")
         if im is None:
-            return r.skip(name, "--capture is off" if not r.capture
-                                else "no composited capture")
+            return r.skip(
+                name,
+                "--capture is off"
+                if not r.capture
+                else "no composited capture",
+            )
         hit = find(im)
         if (hit is not None) == present:
             break
-        time.sleep(0.4)             # the animation, which nothing reports
-    return r.check(name, (hit is not None) == present,
-                   "%s (a %dpx run is one)" % (hit, want))
+        time.sleep(0.4)  # the animation, which nothing reports
+    return r.check(
+        name,
+        (hit is not None) == present,
+        "%s (a %dpx run is one)" % (hit, want),
+    )
 
 
 def arrived(b, there, timeout=3.0):
@@ -439,20 +464,28 @@ def cross_monitors(r):
     arithmetic. What is checked is that the library noticed."""
     b, check = r.b, r.check
     if not r.can("multi-output"):
-        return r.skip("the window follows a move to another monitor",
-                      "the window server shows this client one output")
+        return r.skip(
+            "the window follows a move to another monitor",
+            "the window server shows this client one output",
+        )
     mons = b.monitors()
     if len(mons) < 2:
-        return r.skip("the window follows a move to another monitor",
-                      "one monitor on this desktop")
+        return r.skip(
+            "the window follows a move to another monitor",
+            "one monitor on this desktop",
+        )
     tgt = b.target_monitor()
     if not tgt:
-        return r.skip("the window follows a move to another monitor",
-                      "the monitor it starts on is not known")
+        return r.skip(
+            "the window follows a move to another monitor",
+            "the monitor it starts on is not known",
+        )
     other = next((m for m in mons if m[0] != tgt[0]), None)
     if not other:
-        return r.skip("the window follows a move to another monitor",
-                      "no second output to move to")
+        return r.skip(
+            "the window follows a move to another monitor",
+            "no second output to move to",
+        )
     oname, _pri, ox, oy, ow, oh = other
 
     st = b.refresh()
@@ -465,15 +498,19 @@ def cross_monitors(r):
     b.move_window_by(dx, dy)
     st = arrived(b, lambda t: b.on_output(t["out"], oname, home))
     # In the environment's own words for a monitor; see on_output().
-    check("the window follows a move to another monitor",
-          b.on_output(st["out"], oname, home),
-          "%s -> %s, wanted %s" % (home, st["out"], oname))
+    check(
+        "the window follows a move to another monitor",
+        b.on_output(st["out"], oname, home),
+        "%s -> %s, wanted %s" % (home, st["out"], oname),
+    )
     # "output W H pt NAME": the event a caller is told by, not only the
     # state each line carries.
     told = [" ".join(e["parts"][4:]) for e in b.since(m, "output")]
-    check("and FNL_EVENT_OUTPUT says so",
-          any(b.on_output(n, oname, home) for n in told),
-          "told %s" % (told or "nothing"))
+    check(
+        "and FNL_EVENT_OUTPUT says so",
+        any(b.on_output(n, oname, home) for n in told),
+        "told %s" % (told or "nothing"),
+    )
     # Fits inside the new screen and is not still the old one's -- not
     # equality with anything. fnl_output_size_pt() is the room a window has
     # there: the mode, or the mode less what the shell reserves, depending on
@@ -482,17 +519,20 @@ def cross_monitors(r):
     # name above is then the whole answer.
     got = st["output"]
     same = (ow, oh) == (tgt[3], tgt[4])
-    check("and the output size follows with it",
-          0 < got[0] <= ow and 0 < got[1] <= oh and
-          (same or got != home_out),
-          "%s on %s %dx%d, was %s" % (got, oname, ow, oh, home_out))
+    check(
+        "and the output size follows with it",
+        0 < got[0] <= ow and 0 < got[1] <= oh and (same or got != home_out),
+        "%s on %s %dx%d, was %s" % (got, oname, ow, oh, home_out),
+    )
 
     b.move_window_by(-dx, -dy)
     st = arrived(b, lambda t: t["out"] == home)
     got = st["output"]
-    check("and both come back",
-          st["out"] == home and 0 < got[0] <= tgt[3] and 0 < got[1] <= tgt[4],
-          "%s %s, was %s %s" % (st["out"], got, home, home_out))
+    check(
+        "and both come back",
+        st["out"] == home and 0 < got[0] <= tgt[3] and 0 < got[1] <= tgt[4],
+        "%s %s, was %s %s" % (st["out"], got, home, home_out),
+    )
 
 
 def window_output_box(r):
@@ -506,17 +546,22 @@ def window_output_box(r):
     not shown there, and the Mac does not move one at all."""
     b, check = r.b, r.check
     if not r.can("multi-output"):
-        return r.skip("the output box moves the window",
-                      "one monitor, or a server that shows this client one")
+        return r.skip(
+            "the output box moves the window",
+            "one monitor, or a server that shows this client one",
+        )
     if not r.can("output-pick"):
-        return r.skip("the output box moves the window",
-                      "this backend places no window from the API")
+        return r.skip(
+            "the output box moves the window",
+            "this backend places no window from the API",
+        )
     tgt = b.target_monitor()
     mons = b.monitors()
     other = next((m for m in mons if tgt and m[0] != tgt[0]), None)
     if not tgt or not other:
-        return r.skip("the output box moves the window",
-                      "no second monitor to move to")
+        return r.skip(
+            "the output box moves the window", "no second monitor to move to"
+        )
     st = b.refresh()
     home = st["out"]
     out_dx = OUTPUT_BOX_DX + (GPU_BOX_SPAN if gpus_listed(b) else 0)
@@ -533,19 +578,24 @@ def window_output_box(r):
         # the list and moved nothing.
         time.sleep(NOT_A_DOUBLE_CLICK)
     st = b.refresh()
-    check("the output box moves the window", moved is not None,
-          "%s on %s, wanted %s" % (st["area"], st["out"], other[0]))
+    check(
+        "the output box moves the window",
+        moved is not None,
+        "%s on %s, wanted %s" % (st["area"], st["out"], other[0]),
+    )
     if moved is None:
         return
     time.sleep(2.0 * b.patience())
     pick_row(r, out_dx, 1 - moved)
     b.wait_for("output", mk, timeout=2.0)
-    b.until(lambda: is_output(b.refresh()["out"], home.split()[0]),
-            timeout=5.0)
+    b.until(lambda: is_output(b.refresh()["out"], home.split()[0]), timeout=5.0)
     time.sleep(2.0 * b.patience())
     st = b.refresh()
-    check("and the list puts it back", is_output(st["out"], home.split()[0]),
-          "%s on %s" % (st["area"], st["out"]))
+    check(
+        "and the list puts it back",
+        is_output(st["out"], home.split()[0]),
+        "%s on %s" % (st["area"], st["out"]),
+    )
 
 
 def drawn_pointer(r, name="the pointer is drawn where it is"):
@@ -564,6 +614,7 @@ def drawn_pointer(r, name="the pointer is drawn where it is"):
     if not r.capture:
         return r.skip(name, "--capture is off")
     import numpy as np
+
     st = b.refresh()
     s = st["scale"] / 120.0
     y = BAR_H + st["area"][1] // 2
@@ -574,9 +625,11 @@ def drawn_pointer(r, name="the pointer is drawn where it is"):
         the glyph is 12x19 with 69 of one and 50 of the other."""
         a = np.asarray(im.convert("RGB")).astype(int)
         x0, y0 = int(at[0] * s), int(at[1] * s)
-        box = a[y0:y0 + 19, x0:x0 + 12]
-        return (int((box == 255).all(axis=2).sum()),
-                int((box == 0).all(axis=2).sum()))
+        box = a[y0 : y0 + 19, x0 : x0 + 12]
+        return (
+            int((box == 255).all(axis=2).sum()),
+            int((box == 0).all(axis=2).sum()),
+        )
 
     seen = []
     for at in spots:
@@ -590,11 +643,12 @@ def drawn_pointer(r, name="the pointer is drawn where it is"):
     # is not.
     here = [seen[i][i] for i in range(2)]
     there = [seen[i][1 - i] for i in range(2)]
-    check(name,
-          all(w >= 65 and k >= 45 for w, k in here)
-          and all(w < 20 for w, _k in there),
-          "white/black at the pointer %s, at the other spot %s"
-          % (here, there))
+    check(
+        name,
+        all(w >= 65 and k >= 45 for w, k in here)
+        and all(w < 20 for w, _k in there),
+        "white/black at the pointer %s, at the other spot %s" % (here, there),
+    )
 
 
 def layout_types(r, typed):
@@ -610,8 +664,10 @@ def layout_types(r, typed):
     layout = b.known_layout()
     table = LAYOUT_TYPES.get(layout)
     if table is None:
-        return r.skip("the machine's layout types what its keys say",
-                      "no table for layout %r variant %r" % layout)
+        return r.skip(
+            "the machine's layout types what its keys say",
+            "no table for layout %r variant %r" % layout,
+        )
 
     def stroke(strokes):
         m = b.mark()
@@ -630,8 +686,10 @@ def layout_types(r, typed):
         return " ".join("U+%04X" % c for c in cs) or "none"
 
     label = "%s%s" % (layout[0], "(%s)" % layout[1] if layout[1] else "")
-    for what, title in (("keys", "the %s layout types what its keys say"),
-                        ("dead", "and its dead keys compose")):
+    for what, title in (
+        ("keys", "the %s layout types what its keys say"),
+        ("dead", "and its dead keys compose"),
+    ):
         if what == "dead" and not table[what]:
             r.skip(title, "the layout has no dead keys")
             continue
@@ -642,12 +700,17 @@ def layout_types(r, typed):
         for strokes, want in table[what]:
             got = stroke(strokes)
             if got != want:
-                wrong.append("%s typed %s, wanted %s"
-                             % (name(strokes), show(got), show(want)))
+                wrong.append(
+                    "%s typed %s, wanted %s"
+                    % (name(strokes), show(got), show(want))
+                )
                 b.press("Escape")
                 b.quiet()
-        check(title % label if "%s" in title else title, not wrong,
-              "; ".join(wrong) or "%d sequences" % len(table[what]))
+        check(
+            title % label if "%s" in title else title,
+            not wrong,
+            "; ".join(wrong) or "%d sequences" % len(table[what]),
+        )
 
 
 def layout_groups(r, typed):
@@ -659,11 +722,12 @@ def layout_groups(r, typed):
     b, check = r.b, r.check
     second = getattr(b, "SECOND_GROUP", "us")
     named = [ln for ln in b.dump(1 << 30) if ln.startswith("KMS: layout ")]
-    if not named or not re.match(r"^KMS: layout \S+,%s " % second,
-                                 named[0]):
-        r.skip("a group key switches the layout",
-               "the program was given no second group: the console's "
-               "layout has more than one, or is %s" % second)
+    if not named or not re.match(r"^KMS: layout \S+,%s " % second, named[0]):
+        r.skip(
+            "a group key switches the layout",
+            "the program was given no second group: the console's "
+            "layout has more than one, or is %s" % second,
+        )
         r.skip("and switches it back", "the same")
         return
 
@@ -680,20 +744,27 @@ def layout_groups(r, typed):
         b.quiet()
 
     def said(group):
-        return any(ln.startswith("KMS: typing in group %d of 2, " % group)
-                   for ln in b.dump(1 << 30))
+        return any(
+            ln.startswith("KMS: typing in group %d of 2, " % group)
+            for ln in b.dump(1 << 30)
+        )
 
     first = y()
     switch()
     other = y()
-    check("a group key switches the layout",
-          other == [0x79] and said(2),
-          "Y typed %s, then after Alt+Shift %s; logged: %s"
-          % (first, other, said(2)))
+    check(
+        "a group key switches the layout",
+        other == [0x79] and said(2),
+        "Y typed %s, then after Alt+Shift %s; logged: %s"
+        % (first, other, said(2)),
+    )
     switch()
     back = y()
-    check("and switches it back", back == first and said(1),
-          "Y typed %s again, %s before; logged: %s" % (back, first, said(1)))
+    check(
+        "and switches it back",
+        back == first and said(1),
+        "Y typed %s again, %s before; logged: %s" % (back, first, said(1)),
+    )
 
 
 def room_to_grow(r, dx, dy, spare=44):
@@ -721,8 +792,10 @@ def room_to_grow(r, dx, dy, spare=44):
     if back_x or back_y:
         b.move_window_by(-int(back_x), -int(back_y))
         (x, y, w, h), mon = b.placed(still=True)
-    return (max(0, min(dx, int((far_x - x - w) / g) - spare)),
-            max(0, min(dy, int((far_y - y - h) / g) - spare)))
+    return (
+        max(0, min(dx, int((far_x - x - w) / g) - spare)),
+        max(0, min(dy, int((far_y - y - h) / g) - spare)),
+    )
 
 
 def near(a, b, tol=2):
@@ -732,11 +805,13 @@ def near(a, b, tol=2):
 def rect_eq(a, b, tol=2):
     # Lengths first: zip() stops at the shorter, and a rectangle missing a
     # field would otherwise compare equal on the fields it has.
-    return len(a) == len(b) and all(near(x, y, tol)
-                                    for x, y in zip(a, b, strict=True))
+    return len(a) == len(b) and all(
+        near(x, y, tol) for x, y in zip(a, b, strict=True)
+    )
 
 
 # ---- the round --------------------------------------------------------------
+
 
 def pick_row(r, box_dx, row):
     """Open a titlebar list and click one of its rows; the mark taken
@@ -752,8 +827,12 @@ def pick_row(r, box_dx, row):
 
 # A renderer as the inventory names it, and as FNL_RENDERER and the echo
 # key it.
-RENDERER_KEYS = {"Vulkan": "vulkan", "OpenGL": "gl", "Direct3D 12": "d3d12",
-                 "Metal": "metal"}
+RENDERER_KEYS = {
+    "Vulkan": "vulkan",
+    "OpenGL": "gl",
+    "Direct3D 12": "d3d12",
+    "Metal": "metal",
+}
 # The line the library logs when it has listed another renderer's GPUs
 # (gpu_listed() in src/core/app.c).
 OTHER_LISTED = re.compile(r"(.+) lists \d+ GPUs? here, in \d+ ms$")
@@ -769,7 +848,7 @@ def drivers_pinned(lines):
     """The library's reason for offering no more moves to another kernel
     driver, if one of `lines` gives it."""
     said = [ln for ln in lines if ln.startswith(DRIVERS_PINNED)]
-    return said[-1][len(DRIVERS_PINNED):] if said else None
+    return said[-1][len(DRIVERS_PINNED) :] if said else None
 
 
 def gpu_rows(b):
@@ -786,15 +865,14 @@ def gpu_rows(b):
     got = {}
     lines = b.dump(1 << 30)
     pins = [i for i, ln in enumerate(lines) if ln.startswith(DRIVERS_PINNED)]
-    for ln in lines[pins[-1] + 1:] if pins else lines:
+    for ln in lines[pins[-1] + 1 :] if pins else lines:
         m = re.match(r"GPU (\d+): (.*) \(([^()]*)\)$", ln)
         if not m:
             continue
         # "Vulkan via D3D11" is a Vulkan row, presented another way
         # (fnl_gpu_via_at()).
         last = m.group(3).split(", ")[-1].split(" via ")[0]
-        got[int(m.group(1))] = (m.group(2),
-                                RENDERER_KEYS.get(last, b.RENDERER))
+        got[int(m.group(1))] = (m.group(2), RENDERER_KEYS.get(last, b.RENDERER))
     return got
 
 
@@ -807,10 +885,14 @@ def gpus_listed(b):
 def gpu_via_rows(b):
     """The numbers of the GPU box's rows that present another way, `(...,
     Vulkan via D3D11)` (fnl_gpu_via_at())."""
-    return {int(m.group(1)) for m in
-            (re.match(r"GPU (\d+): .* \(([^()]*)\)$", ln)
-             for ln in b.dump(1 << 30))
-            if m and " via " in m.group(2)}
+    return {
+        int(m.group(1))
+        for m in (
+            re.match(r"GPU (\d+): .* \(([^()]*)\)$", ln)
+            for ln in b.dump(1 << 30)
+        )
+        if m and " via " in m.group(2)
+    }
 
 
 def gpu_in_use(b, listed):
@@ -820,15 +902,22 @@ def gpu_in_use(b, listed):
     renderer's, which drew the window when it opened. A device listed
     twice is told by the way: `(via D3D11)` behind the name is its second
     row."""
-    said = [ln[len("GPU in use: "):] for ln in b.dump(1 << 30)
-            if ln.startswith("GPU in use: ")]
+    said = [
+        ln[len("GPU in use: ") :]
+        for ln in b.dump(1 << 30)
+        if ln.startswith("GPU in use: ")
+    ]
     own = [n for n, (_, rnd) in listed.items() if rnd == b.RENDERER]
     # A renderer that lists one GPU names none as in use: the list is the
     # answer, as ledger.device() reads it.
     if not said:
         return own[0] if len(own) == 1 else None
-    hits = [n for n, (name, rnd) in listed.items() if rnd == b.RENDERER
-            and (said[-1] == name or said[-1].startswith(name + " ("))]
+    hits = [
+        n
+        for n, (name, rnd) in listed.items()
+        if rnd == b.RENDERER
+        and (said[-1] == name or said[-1].startswith(name + " ("))
+    ]
     via = said[-1].endswith(" (via D3D11)")
     rows = gpu_via_rows(b)
     hits = [n for n in hits if (n in rows) == via] or hits
@@ -857,8 +946,9 @@ def await_move(b, logged, done, timeout):
     while b.alive() and time.time() < end:
         said = b.dump(1 << 30)[logged:]
         begun = [i for i, ln in enumerate(said) if ln.startswith(MOVE_BEGUN)]
-        if not begun or any(f in ln for ln in said[begun[-1]:]
-                            for f in MOVE_FAILED):
+        if not begun or any(
+            f in ln for ln in said[begun[-1] :] for f in MOVE_FAILED
+        ):
             break
         if b.until(done, timeout=5.0):
             return True
@@ -888,8 +978,11 @@ def unmovable(b, name, renderer):
     (_OnBare.start() says why) -- NVK names itself, and is Mesa's."""
     if renderer in b.NO_MOVE_TO:
         return b.NO_MOVE_TO[renderer]
-    if getattr(b, "variant", "") == "tsan" and "NVIDIA" in name and \
-            "(NVK " not in name:
+    if (
+        getattr(b, "variant", "") == "tsan"
+        and "NVIDIA" in name
+        and "(NVK " not in name
+    ):
         return "ThreadSanitizer cannot follow NVIDIA's own driver"
     return None
 
@@ -907,18 +1000,26 @@ def gpu_moves(r):
     # 300 ms at release, 23 to 29 s under ASan where NVIDIA's userspace is
     # not kept loaded (a round on a kernel driver, the laptops). Counted
     # before its line, the round moves to fewer GPUs than there are.
-    b.until(lambda: any(
-        m and RENDERER_KEYS.get(m.group(1)) != b.RENDERER
-        for m in (OTHER_LISTED.match(ln) for ln in b.dump(1 << 30))),
-        timeout=30.0)
+    b.until(
+        lambda: any(
+            m and RENDERER_KEYS.get(m.group(1)) != b.RENDERER
+            for m in (OTHER_LISTED.match(ln) for ln in b.dump(1 << 30))
+        ),
+        timeout=30.0,
+    )
     listed = gpus_listed(b)
     if len(listed) < 2:
-        r.skip("the GPU box moves the window to another GPU",
-               "%d GPU listed" % len(listed))
+        r.skip(
+            "the GPU box moves the window to another GPU",
+            "%d GPU listed" % len(listed),
+        )
         return
     home = gpu_in_use(b, listed)
-    if not check("the inventory names the GPU in use", home is not None,
-                 "%d listed" % len(listed)):
+    if not check(
+        "the inventory names the GPU in use",
+        home is not None,
+        "%d listed" % len(listed),
+    ):
         return
     dx = GPU_BOX_DX_OUTPUT if r.can("display-modes") else GPU_BOX_DX
     area0 = b.refresh()["area"]
@@ -928,42 +1029,63 @@ def gpu_moves(r):
         # Every other GPU declined leaves the window where it opened, and a
         # pick of that GPU is no move: the library says nothing of it.
         if back and not away:
-            r.skip("and back to the GPU it opened on",
-                   "no move away was made")
+            r.skip("and back to the GPU it opened on", "no move away was made")
             continue
         why = unmovable(b, *listed[n])
         if why:
-            r.skip("the GPU box moves the window to GPU %d, drawn with %s"
-                   % (n, listed[n][1]), why)
+            r.skip(
+                "the GPU box moves the window to GPU %d, drawn with %s"
+                % (n, listed[n][1]),
+                why,
+            )
             continue
         logged = len(b.dump(1 << 30))
         mk = pick_row(r, dx, n - 1)
         away = away or not back
-        await_move(b, logged, lambda: b.since(mk, "gpu"),
-                   20.0 * b.patience())
+        await_move(b, logged, lambda: b.since(mk, "gpu"), 20.0 * b.patience())
         got = b.since(mk, "gpu")
         parts = got[-1]["parts"] if got else []
-        name = "and back to the GPU it opened on" if back \
+        name = (
+            "and back to the GPU it opened on"
+            if back
             else "the GPU box moves the window to GPU %d" % n
+        )
         if not back and listed[n][1] != b.RENDERER:
             name += ", drawn with %s" % listed[n][1]
-        check(name, parts[1:3] == [str(n - 1), listed[n][1]],
-              " ".join(parts) if parts else "no EV gpu: %s" % listed[n][0])
+        check(
+            name,
+            parts[1:3] == [str(n - 1), listed[n][1]],
+            " ".join(parts) if parts else "no EV gpu: %s" % listed[n][0],
+        )
         time.sleep(2.0 * b.patience())
         said = b.dump(1 << 30)[logged:]
         moved = [ln for ln in said if ln.startswith("moving to GPU %d: " % n)]
         lost = [ln for ln in said if "lost -- rebuilding" in ln]
-        check("and says it as a move, not a loss" if not back
-              else "and says that as a move too", bool(moved) and not lost,
-              (lost or moved or ["nothing logged"])[-1])
+        check(
+            "and says it as a move, not a loss"
+            if not back
+            else "and says that as a move too",
+            bool(moved) and not lost,
+            (lost or moved or ["nothing logged"])[-1],
+        )
         # refresh() has no state to give once the program is gone, which
         # is this check failing and not the round.
         st = b.refresh()
         now = st["area"] if st else None
-        check("and is drawn there at its size" if not back
-              else "and is drawn there again", b.alive() and now == area0,
-              "%s, was %s" % (now if st else "no state: the program is "
-                              + ("running" if b.alive() else "gone"), area0))
+        check(
+            "and is drawn there at its size"
+            if not back
+            else "and is drawn there again",
+            b.alive() and now == area0,
+            "%s, was %s"
+            % (
+                now
+                if st
+                else "no state: the program is "
+                + ("running" if b.alive() else "gone"),
+                area0,
+            ),
+        )
         # Drawn and shown are two things: under wine on a bare Xorg with
         # no Xcomposite every frame after a move is drawn and the window
         # keeps the one the move left, which has no black in it. So the
@@ -973,27 +1095,43 @@ def gpu_moves(r):
             time.sleep(LIVE_APART)
             second = b.scene_row()
             if first is None or second is None:
-                r.skip("and what it draws there is shown" if not back
-                       else "and shown again", "no picture of the window")
+                r.skip(
+                    "and what it draws there is shown"
+                    if not back
+                    else "and shown again",
+                    "no picture of the window",
+                )
             else:
-                check("and what it draws there is shown" if not back
-                      else "and shown again", first != second,
-                      "the picture moves" if first != second else
-                      "the same picture %.1f s apart while the scene "
-                      "moves: a frozen frame" % LIVE_APART)
+                check(
+                    "and what it draws there is shown"
+                    if not back
+                    else "and shown again",
+                    first != second,
+                    "the picture moves"
+                    if first != second
+                    else "the same picture %.1f s apart while the scene "
+                    "moves: a frozen frame" % LIVE_APART,
+                )
         # The testbed names its renderer and GPU in the title again at
         # every FNL_EVENT_GPU: what the window server shows is the
         # caller's string, and the bar draws the same one.
         if r.can("wm-props"):
             title = b.until(lambda: title_names(b, parts), timeout=2.0)
-            check("and the title names the renderer and the GPU",
-                  bool(title), b.wm_name() or "no title")
+            check(
+                "and the title names the renderer and the GPU",
+                bool(title),
+                b.wm_name() or "no title",
+            )
         # Where the library draws the pointer, the move may have set the
         # output's mode the other way under it (kms.c,
         # kms_present_window_renew()).
         if r.can("drawn-pointer"):
-            drawn_pointer(r, "and the pointer is drawn after it" if not back
-                          else "and after the way back")
+            drawn_pointer(
+                r,
+                "and the pointer is drawn after it"
+                if not back
+                else "and after the way back",
+            )
         time.sleep(NOT_A_DOUBLE_CLICK)
         if not back and not sized:
             area0 = sizes_after_move(r, area0)
@@ -1028,21 +1166,33 @@ def gpu_driver_moves(r):
     the library then sent back, which with the window first on the NVIDIA
     GPU is a GPU called NVIDIA too."""
     b, check = r.b, r.check
-    drawn = {v: k for k, v in RENDERER_KEYS.items()}.get(b.RENDERER,
-                                                          b.RENDERER)
-    offered = [ln for ln in b.dump(1 << 30) if ln.startswith("GPU driver: ")
-               and ", and can be moved to " in ln]
-    m = re.match(r"GPU driver: (\S+) is on (\S+), and can be moved to (\S+)$",
-                 offered[-1]) if offered else None
+    drawn = {v: k for k, v in RENDERER_KEYS.items()}.get(b.RENDERER, b.RENDERER)
+    offered = [
+        ln
+        for ln in b.dump(1 << 30)
+        if ln.startswith("GPU driver: ") and ", and can be moved to " in ln
+    ]
+    m = (
+        re.match(
+            r"GPU driver: (\S+) is on (\S+), and can be moved to (\S+)$",
+            offered[-1],
+        )
+        if offered
+        else None
+    )
     if not m:
-        r.skip("the GPU box moves the GPU to its other kernel driver",
-               "no move offered (FNL_GPU_DRIVER)")
+        r.skip(
+            "the GPU box moves the GPU to its other kernel driver",
+            "no move offered (FNL_GPU_DRIVER)",
+        )
         return
     pci, bound, other = m.groups()
     pinned = drivers_pinned(b.dump(1 << 30))
     if pinned:
-        r.skip("the GPU box moves the GPU to its other kernel driver",
-               "the library offers no move now: %s" % pinned)
+        r.skip(
+            "the GPU box moves the GPU to its other kernel driver",
+            "the library offers no move now: %s" % pinned,
+        )
         return
     # Where the GPU is now, which is not where the line found it when a
     # ranking opened the window on its first entry on the other driver
@@ -1058,15 +1208,23 @@ def gpu_driver_moves(r):
     # The move only runs on a bare machine, which answers no_vulkan_on().
     # Each cycle lands on both drivers, so a driver the round does not move
     # to (NVIDIA's own under ThreadSanitizer) is the whole section's.
-    why = next((w for w in (row_unmovable(b, "GPU, on " + d, b.RENDERER)
-                            for d in (bound, other)) if w), None)
+    why = next(
+        (
+            w
+            for w in (
+                row_unmovable(b, "GPU, on " + d, b.RENDERER)
+                for d in (bound, other)
+            )
+            if w
+        ),
+        None,
+    )
     if why:
         r.skip("the GPU box moves the GPU to its other kernel driver", why)
         return
     missing = b.no_vulkan_on(other)
     if missing:
-        r.skip("the GPU box moves the GPU to its other kernel driver",
-               missing)
+        r.skip("the GPU box moves the GPU to its other kernel driver", missing)
         return
     dx = GPU_BOX_DX_OUTPUT if r.can("display-modes") else GPU_BOX_DX
     area0 = b.refresh()["area"]
@@ -1076,15 +1234,22 @@ def gpu_driver_moves(r):
     # named `on <other>` as the list opened, and the move back the GPU's
     # own row then, which the move entry takes while the GPU is away
     # (app_gpu_driver_entries()).
-    own = sorted(n for n, (name, rnd) in rows0.items()
-                 if rnd == b.RENDERER and "NVIDIA" in name
-                 and ", on " not in name)
-    move = sorted(n for n, (name, rnd) in rows0.items()
-                  if rnd == b.RENDERER and name.endswith(", on " + other))
+    own = sorted(
+        n
+        for n, (name, rnd) in rows0.items()
+        if rnd == b.RENDERER and "NVIDIA" in name and ", on " not in name
+    )
+    move = sorted(
+        n
+        for n, (name, rnd) in rows0.items()
+        if rnd == b.RENDERER and name.endswith(", on " + other)
+    )
     if not own or not move:
-        r.skip("the GPU box moves the GPU to its other kernel driver",
-               "no row of %s's on the NVIDIA GPU, or no move: %s"
-               % (b.RENDERER, sorted(rows0.items())))
+        r.skip(
+            "the GPU box moves the GPU to its other kernel driver",
+            "no row of %s's on the NVIDIA GPU, or no move: %s"
+            % (b.RENDERER, sorted(rows0.items())),
+        )
         return
     there, home = move[0] - 1, own[0] - 1
     moves = ((bound, other, False), (other, bound, True)) * GPU_DRIVER_CYCLES
@@ -1095,63 +1260,123 @@ def gpu_driver_moves(r):
         mk = pick_row(r, dx, row)
 
         def landed():
-            return [e for e in b.since(mk, "gpu")
-                    if e["parts"][2:3] == [b.RENDERER]
-                    and "NVIDIA" in " ".join(e["parts"][3:])
-                    and ("(NVK " in " ".join(e["parts"][3:]))
-                    == (to == "nouveau")]
+            return [
+                e
+                for e in b.since(mk, "gpu")
+                if e["parts"][2:3] == [b.RENDERER]
+                and "NVIDIA" in " ".join(e["parts"][3:])
+                and ("(NVK " in " ".join(e["parts"][3:])) == (to == "nouveau")
+            ]
+
         await_move(b, logged, lambda: bool(landed()), 30.0 * b.patience())
         got = landed()
         parts = got[-1]["parts"] if got else []
         said = b.dump(1 << 30)[logged:]
-        rebound = [ln for ln in said if ln.startswith(
-            "GPU driver: fenestal-gpu-driver: %s: %s to %s in "
-            % (pci, frm, to))]
-        undone = [ln for ln in said if ln.startswith(
-            "GPU driver: %s back from " % pci)]
-        name = ("and back to %s" if back
-                else "the GPU box moves the GPU to %s") % to + nth
-        check(name, bool(parts) and bool(rebound) and not undone,
-              undone[-1] if undone else
-              " ".join(parts[3:]) + ("; " + rebound[-1].split(": ", 2)[-1]
-                                     if rebound else "; the kernel driver "
-                                     "said nothing") if parts
-              else "no EV gpu on an NVIDIA GPU with %s on %s" % (drawn, to))
+        rebound = [
+            ln
+            for ln in said
+            if ln.startswith(
+                "GPU driver: fenestal-gpu-driver: %s: %s to %s in "
+                % (pci, frm, to)
+            )
+        ]
+        undone = [
+            ln
+            for ln in said
+            if ln.startswith("GPU driver: %s back from " % pci)
+        ]
+        name = (
+            "and back to %s" if back else "the GPU box moves the GPU to %s"
+        ) % to + nth
+        check(
+            name,
+            bool(parts) and bool(rebound) and not undone,
+            undone[-1]
+            if undone
+            else " ".join(parts[3:])
+            + (
+                "; " + rebound[-1].split(": ", 2)[-1]
+                if rebound
+                else "; the kernel driver said nothing"
+            )
+            if parts
+            else "no EV gpu on an NVIDIA GPU with %s on %s" % (drawn, to),
+        )
         time.sleep(2.0 * b.patience())
         said = b.dump(1 << 30)[logged:]
-        moved = [ln for ln in said if ln.startswith("moving to ")
-                 and ", on %s, the renderer built again on it" % to in ln]
+        moved = [
+            ln
+            for ln in said
+            if ln.startswith("moving to ")
+            and ", on %s, the renderer built again on it" % to in ln
+        ]
         lost = [ln for ln in said if "lost -- rebuilding" in ln]
-        check(("and says it as a move, not a loss" if not back
-               else "and says that as a move too") + nth,
-              bool(moved) and not lost,
-              (lost or moved or ["nothing logged"])[-1])
-        across = [ln for ln in said if ln.startswith("GPU driver: drawn on ")
-                  and " while %s moves to %s" % (pci, to) in ln]
+        check(
+            (
+                "and says it as a move, not a loss"
+                if not back
+                else "and says that as a move too"
+            )
+            + nth,
+            bool(moved) and not lost,
+            (lost or moved or ["nothing logged"])[-1],
+        )
+        across = [
+            ln
+            for ln in said
+            if ln.startswith("GPU driver: drawn on ")
+            and " while %s moves to %s" % (pci, to) in ln
+        ]
         paused = [ln for ln in said if "the frames pause for this move" in ln]
-        built = [ln for ln in said if ln.startswith("rebuilt on ")
-                 and ", drawn with %s in " % drawn in ln]
-        check("and is drawn across it, or says the frames pause" + nth,
-              bool(across or paused),
-              (across or paused or ["neither drawn across nor paused"])[-1]
-              + ("; " + built[-1].split(", drawn with ")[-1] if built else ""))
-        st = b.refresh()     # None once the program is gone, as above
+        built = [
+            ln
+            for ln in said
+            if ln.startswith("rebuilt on ")
+            and ", drawn with %s in " % drawn in ln
+        ]
+        check(
+            "and is drawn across it, or says the frames pause" + nth,
+            bool(across or paused),
+            (across or paused or ["neither drawn across nor paused"])[-1]
+            + ("; " + built[-1].split(", drawn with ")[-1] if built else ""),
+        )
+        st = b.refresh()  # None once the program is gone, as above
         now = st["area"] if st else None
-        check(("and is drawn there at its size" if not back
-               else "and is drawn there again") + nth,
-              b.alive() and now == area0,
-              "%s, was %s" % (now if st else "no state: the program is "
-                              + ("running" if b.alive() else "gone"), area0))
+        check(
+            (
+                "and is drawn there at its size"
+                if not back
+                else "and is drawn there again"
+            )
+            + nth,
+            b.alive() and now == area0,
+            "%s, was %s"
+            % (
+                now
+                if st
+                else "no state: the program is "
+                + ("running" if b.alive() else "gone"),
+                area0,
+            ),
+        )
         if r.can("drawn-pointer"):
-            drawn_pointer(r, ("and the pointer is drawn after it"
-                              if not back else "and after the way back")
-                          + nth)
+            drawn_pointer(
+                r,
+                (
+                    "and the pointer is drawn after it"
+                    if not back
+                    else "and after the way back"
+                )
+                + nth,
+            )
         # The moves withdrawn, the rows the rest would click are gone and
         # the ones behind them renumbered: each would fail for this one.
         pinned = drivers_pinned(said)
         if pinned:
-            r.skip("the moves to another kernel driver after this one",
-                   "the library offers no move now: %s" % pinned)
+            r.skip(
+                "the moves to another kernel driver after this one",
+                "the library offers no move now: %s" % pinned,
+            )
             return
         time.sleep(NOT_A_DOUBLE_CLICK)
 
@@ -1205,23 +1430,31 @@ def gpu_every_pair(r):
     rows = gpu_rows(b)
     pinned = drivers_pinned(b.dump(1 << 30))
     if pinned:
-        r.skip(title, "the library offers no move to another kernel driver "
-               "now: %s" % pinned)
+        r.skip(
+            title,
+            "the library offers no move to another kernel driver "
+            "now: %s" % pinned,
+        )
         return
     if not any(", on " in name for name, _ in rows.values()):
         r.skip(title, "no move to another kernel driver offered")
         return
-    out = {n: why for n, (name, rnd) in rows.items()
-           if (why := row_unmovable(b, name, rnd))}
+    out = {
+        n: why
+        for n, (name, rnd) in rows.items()
+        if (why := row_unmovable(b, name, rnd))
+    }
     for n, why in sorted(out.items()):
         r.skip("%s: GPU %d" % (title, n), why)
     nodes = sorted(n for n in rows if n not in out)
     evs = b.since(0, "gpu")
-    cur = int(evs[-1]["parts"][1]) + 1 if evs else \
-        gpu_in_use(b, gpus_listed(b))
+    cur = int(evs[-1]["parts"][1]) + 1 if evs else gpu_in_use(b, gpus_listed(b))
     if cur not in nodes or len(nodes) < 2:
-        r.skip(title, "the window is on GPU %s, %d rows to move between"
-               % (cur, len(nodes)))
+        r.skip(
+            title,
+            "the window is on GPU %s, %d rows to move between"
+            % (cur, len(nodes)),
+        )
         return
     walk = every_pair(nodes)
     lead = [cur] if cur != walk[0] else []
@@ -1238,8 +1471,12 @@ def gpu_every_pair(r):
         mk = pick_row(r, dx, to - 1)
 
         def landed(to=to):
-            return [e for e in b.since(mk, "gpu")
-                    if e["parts"][1:3] == [str(to - 1), rows[to][1]]]
+            return [
+                e
+                for e in b.since(mk, "gpu")
+                if e["parts"][1:3] == [str(to - 1), rows[to][1]]
+            ]
+
         await_move(b, logged, lambda: bool(landed()), 30.0 * b.patience())
         said = b.dump(1 << 30)[logged:]
         moved = any(ln.startswith("GPU driver: moving ") for ln in said)
@@ -1247,68 +1484,120 @@ def gpu_every_pair(r):
             driver_moves += 1
             # The whole list again, the other renderer's GPUs listed on
             # the new driver: as many `GPU n:` lines as rows.
-            b.until(lambda: sum(
-                1 for ln in b.dump(1 << 30)[logged:]
-                if re.match(r"GPU \d+: ", ln)) >= len(rows),
-                timeout=30.0 * b.patience())
+            b.until(
+                lambda: (
+                    sum(
+                        1
+                        for ln in b.dump(1 << 30)[logged:]
+                        if re.match(r"GPU \d+: ", ln)
+                    )
+                    >= len(rows)
+                ),
+                timeout=30.0 * b.patience(),
+            )
             said = b.dump(1 << 30)[logged:]
-        bad = [ln for ln in said if " back from " in ln
-               or "would not draw here" in ln or "lost -- rebuilding" in ln]
+        bad = [
+            ln
+            for ln in said
+            if " back from " in ln
+            or "would not draw here" in ln
+            or "lost -- rebuilding" in ln
+        ]
         # The moves withdrawn, the list is renumbered under the walk, and
         # every later step would click a row that is now another.
         pinned = drivers_pinned(said)
         if pinned:
             stopped = "%d->%d: the library offers no move now: %s" % (
-                frm, to, pinned)
+                frm,
+                to,
+                pinned,
+            )
             failed[frm].append(stopped)
             break
         # A ranked round opened on OpenGL owes the layer's proof to the
         # first Vulkan entry it lands on (_OnBare._validated()).
-        if getattr(b, "layer_owed", False) and rows[to][1] == "vulkan" \
-                and landed() and not bad and b.alive():
+        if (
+            getattr(b, "layer_owed", False)
+            and rows[to][1] == "vulkan"
+            and landed()
+            and not bad
+            and b.alive()
+        ):
             b.layer_owed = False
             mapped = b.layer_mapped()
-            check("the validation layer is in the program, at the first "
-                  "Vulkan entry (GPU %d)" % to, mapped,
-                  "mapped" if mapped else "asked for and not mapped")
+            check(
+                "the validation layer is in the program, at the first "
+                "Vulkan entry (GPU %d)" % to,
+                mapped,
+                "mapped" if mapped else "asked for and not mapped",
+            )
         if not landed() or bad or not b.alive():
             got = b.since(mk, "gpu")
-            failed[frm].append("%d->%d: %s" % (
-                frm, to, bad[-1] if bad else " ".join(got[-1]["parts"])
-                if got else "no EV gpu" if b.alive() else "the program "
-                "is gone"))
+            failed[frm].append(
+                "%d->%d: %s"
+                % (
+                    frm,
+                    to,
+                    bad[-1]
+                    if bad
+                    else " ".join(got[-1]["parts"])
+                    if got
+                    else "no EV gpu"
+                    if b.alive()
+                    else "the program is gone",
+                )
+            )
             if not b.alive():
                 break
         time.sleep(NOT_A_DOUBLE_CLICK)
     if getattr(b, "layer_owed", False):
-        r.skip("the validation layer is in the program",
-               "the ranking opened on OpenGL and the walk landed on no "
-               "Vulkan entry")
+        r.skip(
+            "the validation layer is in the program",
+            "the ranking opened on OpenGL and the walk landed on no "
+            "Vulkan entry",
+        )
     for n in nodes:
         name, rnd = rows[n]
         if stopped and not steps[n]:
-            r.skip("%s: from GPU %d (%s, %s)" % (title, n, rnd, name),
-                   "the walk stopped before it, at %s" % stopped)
+            r.skip(
+                "%s: from GPU %d (%s, %s)" % (title, n, rnd, name),
+                "the walk stopped before it, at %s" % stopped,
+            )
             continue
-        check("%s: from GPU %d (%s, %s)" % (title, n, rnd, name),
-              not failed[n], "; ".join(failed[n][:3])
-              or "%d switches" % steps[n])
+        check(
+            "%s: from GPU %d (%s, %s)" % (title, n, rnd, name),
+            not failed[n],
+            "; ".join(failed[n][:3]) or "%d switches" % steps[n],
+        )
     switches = len(walk) - 1
     lost = sum(len(f) for f in failed.values())
-    check("%s: %d switches%s, %d of them to another kernel driver, in one "
-          "process" % (title, switches, " after one to GPU %d" % walk[0]
-                       if lead else "", driver_moves),
-          lost == 0 and b.alive(), "the walk stopped at %s" % stopped
-          if stopped else "%d of %d did not land" % (lost, switches)
-          if lost else "every one landed")
+    check(
+        "%s: %d switches%s, %d of them to another kernel driver, in one "
+        "process"
+        % (
+            title,
+            switches,
+            " after one to GPU %d" % walk[0] if lead else "",
+            driver_moves,
+        ),
+        lost == 0 and b.alive(),
+        "the walk stopped at %s" % stopped
+        if stopped
+        else "%d of %d did not land" % (lost, switches)
+        if lost
+        else "every one landed",
+    )
 
 
 def outputs_offered(b):
     """The output the window opened on and the others connected, off the
     KMS backend's open line; (None, []) where it said none."""
     said = "\n".join(b.dump(1 << 30))
-    m = re.search(r"KMS: (\S+) on \S+, \d+x\d+ at [\d.]+ Hz, \d+ modes? "
-                  r"on offer; other outputs: (.*)", said)
+    m = re.search(
+        r"KMS: (\S+) on \S+, \d+x\d+ at [\d.]+ Hz, \d+ modes? "
+        r"on offer; other outputs: (.*)",
+        said,
+    )
     if not m:
         return None, []
     others = m.group(2).strip()
@@ -1353,21 +1642,31 @@ def gpu_on_other_outputs(r):
         return
     home, others = outputs_offered(b)
     if not home or not others:
-        r.skip("the GPU sections on another output",
-               "one output connected")
+        r.skip("the GPU sections on another output", "one output connected")
         return
     rows = 1 + len(others)
     for name in others:
         logged = len(b.dump(1 << 30))
-        if not check("the window is moved to %s for the GPU sections" % name,
-                     to_output(r, name, rows), b.refresh()["out"]):
+        if not check(
+            "the window is moved to %s for the GPU sections" % name,
+            to_output(r, name, rows),
+            b.refresh()["out"],
+        ):
             continue
         # A ranking orders the list for this display and says it again
         # (rank.c): the rows are read from that.
         if getattr(b, "ranked", False):
-            b.until(lambda: sum(1 for ln in b.dump(1 << 30)[logged:]
-                                if re.match(r"GPU \d+: ", ln))
-                    >= len(gpu_rows(b)), timeout=10.0 * b.patience())
+            b.until(
+                lambda: (
+                    sum(
+                        1
+                        for ln in b.dump(1 << 30)[logged:]
+                        if re.match(r"GPU \d+: ", ln)
+                    )
+                    >= len(gpu_rows(b))
+                ),
+                timeout=10.0 * b.patience(),
+            )
         time.sleep(2.0 * b.patience())
         r.where = " on %s" % name
         try:
@@ -1376,8 +1675,11 @@ def gpu_on_other_outputs(r):
             gpu_every_pair(r)
         finally:
             r.where = ""
-        check("and the window goes back to %s" % home,
-              to_output(r, home, rows), b.refresh()["out"])
+        check(
+            "and the window goes back to %s" % home,
+            to_output(r, home, rows),
+            b.refresh()["out"],
+        )
         time.sleep(2.0 * b.patience())
 
 
@@ -1392,23 +1694,31 @@ def sizes_after_move(r, area):
     f11 = lambda: b.tap("F11")
     r.transition(f11)
     st = b.refresh()
-    check("after the move, F11 goes fullscreen", st["fs"] is True,
-          str(st["area"]))
+    check(
+        "after the move, F11 goes fullscreen", st["fs"] is True, str(st["area"])
+    )
     r.transition(f11)
     st = b.refresh()
-    check("and leaves it at the area it had",
-          st["fs"] is False and st["area"] == area,
-          "%s -> %s" % (area, st["area"]))
+    check(
+        "and leaves it at the area it had",
+        st["fs"] is False and st["area"] == area,
+        "%s -> %s" % (area, st["area"]),
+    )
     if r.can("resizable"):
         r.transition(lambda: b.click(*r.btn("max", b.refresh()["area"][0])))
         st = b.refresh()
-        check("after the move, the maximize button maximizes",
-              st["max"] is True, str(st["area"]))
+        check(
+            "after the move, the maximize button maximizes",
+            st["max"] is True,
+            str(st["area"]),
+        )
         r.transition(lambda: b.click(*r.btn("max", b.refresh()["area"][0])))
         st = b.refresh()
-        check("and restore returns to the area it had",
-              st["max"] is False and st["area"] == area,
-              "%s -> %s" % (area, st["area"]))
+        check(
+            "and restore returns to the area it had",
+            st["max"] is False and st["area"] == area,
+            "%s -> %s" % (area, st["area"]),
+        )
     if r.can("edge-resize"):
         gx, gy = room_to_grow(r, 120, 80)
         w, h = area[0], area[1] + BAR_H
@@ -1418,17 +1728,23 @@ def sizes_after_move(r, area):
         b.quiet(PAUSE)
         grown = b.refresh()["area"]
         # Grown both ways, by however much the screen had room for.
-        check("after the move, the bottom-right edge resizes",
-              grown[0] > area[0] and grown[1] > area[1],
-              "%dx%d -> %dx%d" % (area + grown))
+        check(
+            "after the move, the bottom-right edge resizes",
+            grown[0] > area[0] and grown[1] > area[1],
+            "%dx%d -> %dx%d" % (area + grown),
+        )
         if r.can("read-pixels"):
             black = b.content_black_pct()
             if black is None:
-                r.skip("and the frame fills the window",
-                       "no picture of the window")
+                r.skip(
+                    "and the frame fills the window", "no picture of the window"
+                )
             else:
-                check("and the frame fills the window", black < 40.0,
-                      "%.0f%% black" % black)
+                check(
+                    "and the frame fills the window",
+                    black < 40.0,
+                    "%.0f%% black" % black,
+                )
         area = grown
     return area
 
@@ -1440,10 +1756,16 @@ def display_modes(r):
     the lists are largest first, so the first row is the largest mode."""
     b, check = r.b, r.check
     said = "\n".join(b.dump(1 << 30))
-    m = re.search(r"KMS: (\S+) on \S+, \d+x\d+ at [\d.]+ Hz, (\d+) "
-                  r"modes? on offer; other outputs: (.*)", said)
-    if not check("the open line names the modes and the outputs", bool(m),
-                 m.group(0) if m else "none"):
+    m = re.search(
+        r"KMS: (\S+) on \S+, \d+x\d+ at [\d.]+ Hz, (\d+) "
+        r"modes? on offer; other outputs: (.*)",
+        said,
+    )
+    if not check(
+        "the open line names the modes and the outputs",
+        bool(m),
+        m.group(0) if m else "none",
+    ):
         return
     home, modes, others = m.group(1), int(m.group(2)), m.group(3).strip()
     area0 = b.refresh()["area"]
@@ -1454,36 +1776,55 @@ def display_modes(r):
         # after the switch may have run past by then.
         before = len(b.dump(1 << 30))
         pick_row(r, MODE_BOX_DX, 1)
-        b.until(lambda: any("KMS: %s at" % home in ln
-                            for ln in b.dump(1 << 30)[before:]),
-                timeout=10.0)
+        b.until(
+            lambda: any(
+                "KMS: %s at" % home in ln for ln in b.dump(1 << 30)[before:]
+            ),
+            timeout=10.0,
+        )
         time.sleep(2.0 * b.patience())
         st = b.refresh()
-        set_to = [ln for ln in b.dump(1 << 30)[before:]
-                  if ("KMS: %s at" % home) in ln]
-        check("the second row sets that mode", bool(set_to),
-              set_to[-1] if set_to else "nothing logged")
-        check("and the window is still the output's",
-              is_output(st["out"], home) and b.alive(),
-              "%s on %s" % (st["area"], st["out"]))
+        set_to = [
+            ln for ln in b.dump(1 << 30)[before:] if ("KMS: %s at" % home) in ln
+        ]
+        check(
+            "the second row sets that mode",
+            bool(set_to),
+            set_to[-1] if set_to else "nothing logged",
+        )
+        check(
+            "and the window is still the output's",
+            is_output(st["out"], home) and b.alive(),
+            "%s on %s" % (st["area"], st["out"]),
+        )
         # The first row is the largest, which is the one the window opened
         # at only where that is the output's preferred mode: the size is
         # held against the mode the library says it set.
         before = len(b.dump(1 << 30))
         pick_row(r, MODE_BOX_DX, 0)
-        b.until(lambda: any("KMS: %s at" % home in ln
-                            for ln in b.dump(1 << 30)[before:]),
-                timeout=10.0)
+        b.until(
+            lambda: any(
+                "KMS: %s at" % home in ln for ln in b.dump(1 << 30)[before:]
+            ),
+            timeout=10.0,
+        )
         time.sleep(2.0 * b.patience())
-        set_to = [re.search(r"at (\d+)x(\d+),", ln)
-                  for ln in b.dump(1 << 30)[before:]
-                  if ("KMS: %s at" % home) in ln]
+        set_to = [
+            re.search(r"at (\d+)x(\d+),", ln)
+            for ln in b.dump(1 << 30)[before:]
+            if ("KMS: %s at" % home) in ln
+        ]
         st = b.refresh()
-        mw, mh = (int(set_to[-1].group(1)), int(set_to[-1].group(2))) \
-            if set_to and set_to[-1] else (0, 0)
-        check("the first row sets the largest",
-              st["area"][0] == mw and 0 < mh - st["area"][1] <= BAR_H + 8,
-              "%s for %dx%d" % (st["area"], mw, mh))
+        mw, mh = (
+            (int(set_to[-1].group(1)), int(set_to[-1].group(2)))
+            if set_to and set_to[-1]
+            else (0, 0)
+        )
+        check(
+            "the first row sets the largest",
+            st["area"][0] == mw and 0 < mh - st["area"][1] <= BAR_H + 8,
+            "%s for %dx%d" % (st["area"], mw, mh),
+        )
     if others == "none":
         r.skip("the window moved to another output", "one output connected")
         return
@@ -1501,8 +1842,11 @@ def display_modes(r):
         # Home's row: the pick shut the list and moved nothing.
         time.sleep(NOT_A_DOUBLE_CLICK)
     st = b.refresh()
-    check("the output list moves the window", moved is not None,
-          "%s on %s" % (st["area"], st["out"]))
+    check(
+        "the output list moves the window",
+        moved is not None,
+        "%s on %s" % (st["area"], st["out"]),
+    )
     if moved is None:
         return
     time.sleep(2.0 * b.patience())
@@ -1511,13 +1855,18 @@ def display_modes(r):
     b.until(lambda: is_output(b.refresh()["out"], home), timeout=10.0)
     time.sleep(2.0 * b.patience())
     st = b.refresh()
-    check("and goes back", is_output(st["out"], home) and
-          st["area"] == area0, "%s on %s" % (st["area"], st["out"]))
+    check(
+        "and goes back",
+        is_output(st["out"], home) and st["area"] == area0,
+        "%s on %s" % (st["area"], st["out"]),
+    )
     if r.can("forced-hotplug"):
         hotplug(r, home, others.split(",")[0].strip(), area0)
     else:
-        r.skip("the window leaves an output unplugged",
-               "nothing here can unplug one")
+        r.skip(
+            "the window leaves an output unplugged",
+            "nothing here can unplug one",
+        )
 
 
 def hotplug(r, home, other, area0):
@@ -1528,16 +1877,21 @@ def hotplug(r, home, other, area0):
     b, check = r.b, r.check
 
     def moved_to(name, mark):
-        b.until(lambda: any(is_output(e["parts"][-1], name)
-                            for e in b.since(mark, "output")),
-                timeout=10.0)
+        b.until(
+            lambda: any(
+                is_output(e["parts"][-1], name) for e in b.since(mark, "output")
+            ),
+            timeout=10.0,
+        )
         time.sleep(2.0 * b.patience())
         return is_output(b.refresh()["out"], name)
 
-    titles = ("an unplugged output sends the window to another",
-              "and plugged back it is listed again, as the one it was",
-              "without the window moving",
-              "the other unplugged, it comes home")
+    titles = (
+        "an unplugged output sends the window to another",
+        "and plugged back it is listed again, as the one it was",
+        "without the window moving",
+        "the other unplugged, it comes home",
+    )
     try:
         m = b.mark()
         # The force first, listened for: where the kernel sends nothing for
@@ -1545,30 +1899,40 @@ def hotplug(r, home, other, area0):
         # kernel's to fail, not the library's (Bare.force_output_heard()).
         if not b.force_output_heard(home, "off"):
             for title in titles:
-                r.skip(title, "a forced unplug sends no hotplug uevent on "
-                       "this machine's kernel, so nothing tells the program")
+                r.skip(
+                    title,
+                    "a forced unplug sends no hotplug uevent on "
+                    "this machine's kernel, so nothing tells the program",
+                )
             return
-        check("an unplugged output sends the window to another",
-              moved_to(other, m) and b.alive(),
-              "%s on %s" % (b.refresh()["area"], b.refresh()["out"]))
+        check(
+            "an unplugged output sends the window to another",
+            moved_to(other, m) and b.alive(),
+            "%s on %s" % (b.refresh()["area"], b.refresh()["out"]),
+        )
         before = len(b.dump(1 << 30))
         b.force_output(home, "detect")
         said = "KMS: %s plugged in" % home
-        b.until(lambda: any(said in ln for ln in b.dump(1 << 30)[before:]),
-                timeout=10.0)
+        b.until(
+            lambda: any(said in ln for ln in b.dump(1 << 30)[before:]),
+            timeout=10.0,
+        )
         back = [ln for ln in b.dump(1 << 30)[before:] if said in ln]
-        check("and plugged back it is listed again, as the one it was",
-              bool(back) and "again" in back[-1],
-              back[-1] if back else "nothing logged")
-        check("without the window moving",
-              is_output(b.refresh()["out"], other))
+        check(
+            "and plugged back it is listed again, as the one it was",
+            bool(back) and "again" in back[-1],
+            back[-1] if back else "nothing logged",
+        )
+        check("without the window moving", is_output(b.refresh()["out"], other))
         m = b.mark()
         b.force_output(other, "off")
         came = moved_to(home, m)
         st = b.refresh()
-        check("the other unplugged, it comes home",
-              came and st["area"] == area0,
-              "%s on %s" % (st["area"], st["out"]))
+        check(
+            "the other unplugged, it comes home",
+            came and st["area"] == area0,
+            "%s on %s" % (st["area"], st["out"]),
+        )
     finally:
         # Each put back whatever the one before did.
         failed = None
@@ -1594,36 +1958,56 @@ def maximize_and_restore(r, st, area0, base, mon, f11):
     maxarea = st["area"]
     if mon:
         mx = b.rect()
-        check("maximized fits inside its monitor",
-              mx[0] >= mon[0] - 2 and mx[1] >= mon[1] - 2 and
-              mx[0] + mx[2] <= mon[0] + mon[2] + 2 and
-              mx[1] + mx[3] <= mon[1] + mon[3] + 2, "%s in %s" % (mx, mon))
-        check("maximized fills all but the panels",
-              mx[2] * mx[3] > 0.85 * mon[2] * mon[3], str(mx))
-        check("maximized is larger than the restored size",
-              mx[2] > base[2], str(mx))
+        check(
+            "maximized fits inside its monitor",
+            mx[0] >= mon[0] - 2
+            and mx[1] >= mon[1] - 2
+            and mx[0] + mx[2] <= mon[0] + mon[2] + 2
+            and mx[1] + mx[3] <= mon[1] + mon[3] + 2,
+            "%s in %s" % (mx, mon),
+        )
+        check(
+            "maximized fills all but the panels",
+            mx[2] * mx[3] > 0.85 * mon[2] * mon[3],
+            str(mx),
+        )
+        check(
+            "maximized is larger than the restored size",
+            mx[2] > base[2],
+            str(mx),
+        )
     r.shot("maximized")
 
     if b.MAXIMIZED_LOST_IN_FULLSCREEN:
-        for name in ("fullscreen from maximized goes fullscreen",
-                     "leaving fullscreen returns to maximized"):
+        for name in (
+            "fullscreen from maximized goes fullscreen",
+            "leaving fullscreen returns to maximized",
+        ):
             r.skip(name, b.MAXIMIZED_LOST_IN_FULLSCREEN)
     else:
         r.transition(f11)
         st = b.refresh()
-        check("fullscreen from maximized goes fullscreen", st["fs"] is True,
-              str(st["area"]))
+        check(
+            "fullscreen from maximized goes fullscreen",
+            st["fs"] is True,
+            str(st["area"]),
+        )
         r.transition(f11)
         st = b.refresh()
-        check("leaving fullscreen returns to maximized",
-              st["max"] is True and st["area"] == maxarea,
-              "%s -> %s" % (maxarea, st["area"]))
+        check(
+            "leaving fullscreen returns to maximized",
+            st["max"] is True and st["area"] == maxarea,
+            "%s -> %s" % (maxarea, st["area"]),
+        )
 
     w = st["area"][0]
     r.transition(lambda: b.click(*r.btn("max", w)))
     st = b.refresh()
-    check("restore returns to the original area", st["area"] == area0,
-          "%s -> %s" % (area0, st["area"]))
+    check(
+        "restore returns to the original area",
+        st["area"] == area0,
+        "%s -> %s" % (area0, st["area"]),
+    )
 
 
 def picture(r):
@@ -1647,14 +2031,18 @@ def picture(r):
     b.quiet(PAUSE)
     again = b.white_share()
     for name, share, want in (
-            ("a picture in the overlay draws", drawn, True),
-            ("I takes it away", gone, False),
-            ("and it is made again after its destroy", again, True)):
+        ("a picture in the overlay draws", drawn, True),
+        ("I takes it away", gone, False),
+        ("and it is made again after its destroy", again, True),
+    ):
         if share is None:
             r.skip(name, "no picture of the window")
         else:
-            check(name, share > 0.03 if want else share < 0.01,
-                  "%.1f%% of the row white" % (100.0 * share))
+            check(
+                name,
+                share > 0.03 if want else share < 0.01,
+                "%.1f%% of the row white" % (100.0 * share),
+            )
 
 
 def run(r):
@@ -1662,8 +2050,11 @@ def run(r):
 
     check("the testbed started", b.alive())
     st = b.refresh()
-    check("events reach the harness", st is not None,
-          str(st["area"]) if st else "none")
+    check(
+        "events reach the harness",
+        st is not None,
+        str(st["area"]) if st else "none",
+    )
     if not st:
         return
     area0 = st["area"]
@@ -1675,16 +2066,24 @@ def run(r):
         if r.can("server-rect"):
             g = st["scale"] / 120.0
             work = b.work_area()
-            want = (min(AREA0[0], int(work[2] / g)),
-                    min(AREA0[1], int(work[3] / g) - BAR_H))
-        check("opens at the default area", near(area0[0], want[0])
-              and near(area0[1], want[1]), "%s, wanted %s" % (area0, want))
+            want = (
+                min(AREA0[0], int(work[2] / g)),
+                min(AREA0[1], int(work[3] / g) - BAR_H),
+            )
+        check(
+            "opens at the default area",
+            near(area0[0], want[0]) and near(area0[1], want[1]),
+            "%s, wanted %s" % (area0, want),
+        )
     else:
         # The output whole, less the bar, and maximized from the start: the
         # one size there is.
         want = (st["output"][0], st["output"][1] - BAR_H)
-        check("opens at the size of its output", area0 == want,
-              "%s, wanted %s" % (area0, want))
+        check(
+            "opens at the size of its output",
+            area0 == want,
+            "%s, wanted %s" % (area0, want),
+        )
         check("and is maximized from the start", st["max"] is True)
     r.shot("base")
 
@@ -1696,50 +2095,71 @@ def run(r):
         # The rectangle is the server's, in pixels; the area and the bar
         # are points.
         g = st["scale"] / 120.0
-        check("opens at the size the area implies",
-              near(base[2], area0[0] * g)
-              and near(base[3], (area0[1] + BAR_H) * g), str(base))
+        check(
+            "opens at the size the area implies",
+            near(base[2], area0[0] * g)
+            and near(base[3], (area0[1] + BAR_H) * g),
+            str(base),
+        )
         if not check("the window took the input focus", b.has_focus()):
             # A window without the focus is handed nothing, so the rest of
             # the round would be one fact about the desktop restated as a
             # dozen plausible findings about window management.
-            print("  (stopping here -- the window never took the focus, so "
-                  "nothing below would be about the library)", flush=True)
+            print(
+                "  (stopping here -- the window never took the focus, so "
+                "nothing below would be about the library)",
+                flush=True,
+            )
             return
         # A window that opened at all the room there is has none to be
         # dragged, grown or maximized into, and the rest of the round is
         # those. Taken in by its own border first, which is a check too.
         work = b.work_area()
-        short = (ROOM[0] - (work[2] / g - area0[0]),
-                 ROOM[1] - (work[3] / g - area0[1] - BAR_H))
+        short = (
+            ROOM[0] - (work[2] / g - area0[0]),
+            ROOM[1] - (work[3] / g - area0[1] - BAR_H),
+        )
         if short[0] > 0 or short[1] > 0:
             w, h = area0[0], area0[1] + BAR_H
             m = b.mark()
-            b.drag(w - 2, h - 2, w - 2 - max(0, int(short[0])),
-                   h - 2 - max(0, int(short[1])), steps=12)
+            b.drag(
+                w - 2,
+                h - 2,
+                w - 2 - max(0, int(short[0])),
+                h - 2 - max(0, int(short[1])),
+                steps=12,
+            )
             b.settle("resize", m, 1.5)
             b.quiet(PAUSE)
             st = b.refresh()
-            check("a window with no room is taken in by its border",
-                  st["area"][0] <= area0[0] and st["area"][1] <= area0[1]
-                  and st["area"] != area0,
-                  "%dx%d -> %dx%d" % (area0 + st["area"]))
+            check(
+                "a window with no room is taken in by its border",
+                st["area"][0] <= area0[0]
+                and st["area"][1] <= area0[1]
+                and st["area"] != area0,
+                "%dx%d -> %dx%d" % (area0 + st["area"]),
+            )
             area0 = st["area"]
             base = b.rect_still()
             print("  taken in to %s, rect %s" % (area0, base), flush=True)
     else:
         base = mon = None
-        r.skip("the window's rectangle on screen",
-               "a Wayland client is never told where it is")
+        r.skip(
+            "the window's rectangle on screen",
+            "a Wayland client is never told where it is",
+        )
         # The same room, made by a harness that can find the window on the
         # screen without a server to ask (Environment.make_room()).
         if r.can("resizable") and b.make_room(ROOM):
             b.quiet(PAUSE)
             st = b.refresh()
-            check("a window with no room is taken in by its border",
-                  st["area"][0] <= area0[0] and st["area"][1] <= area0[1]
-                  and st["area"] != area0,
-                  "%dx%d -> %dx%d" % (area0 + st["area"]))
+            check(
+                "a window with no room is taken in by its border",
+                st["area"][0] <= area0[0]
+                and st["area"][1] <= area0[1]
+                and st["area"] != area0,
+                "%dx%d -> %dx%d" % (area0 + st["area"]),
+            )
             area0 = st["area"]
 
     if r.can("wm-props"):
@@ -1766,26 +2186,31 @@ def run(r):
     # The only way the Wayland environment can answer it at all.
     tgt = b.target_monitor()
     if tgt and b.PIN_UNHELD:
-        r.skip("fullscreen is the monitor the round is pinned to",
-               b.PIN_UNHELD)
+        r.skip("fullscreen is the monitor the round is pinned to", b.PIN_UNHELD)
     elif tgt:
         px = st["px"]
         want = b.fullscreen_px(tgt)
-        check("fullscreen is the monitor the round is pinned to",
-              px == want,
-              "%s wanted %s %dx%d" % (px, tgt[0], want[0], want[1]))
+        check(
+            "fullscreen is the monitor the round is pinned to",
+            px == want,
+            "%s wanted %s %dx%d" % (px, tgt[0], want[0], want[1]),
+        )
     if mon:
         fs = b.rect()
         check("fullscreen covers the monitor", rect_eq(fs, mon), str(fs))
     if r.can("composited"):
-        check_bar(r, "no titlebar on screen while fullscreen", st,
-                  present=False)
+        check_bar(
+            r, "no titlebar on screen while fullscreen", st, present=False
+        )
 
     r.transition(f11)
     st = b.refresh()
     check("F11 leaves fullscreen", st["fs"] is False, str(st["area"]))
-    check("and the area comes back exactly", st["area"] == area0,
-          "%s -> %s" % (area0, st["area"]))
+    check(
+        "and the area comes back exactly",
+        st["area"] == area0,
+        "%s -> %s" % (area0, st["area"]),
+    )
     if r.can("composited"):
         check_bar(r, "the titlebar is back after fullscreen", st)
 
@@ -1797,8 +2222,11 @@ def run(r):
         r.transition(f11)
         r.transition(f11)
     st = b.refresh()
-    check("four fullscreen cycles do not drift", st["area"] == area0,
-          "%s -> %s" % (area0, st["area"]))
+    check(
+        "four fullscreen cycles do not drift",
+        st["area"] == area0,
+        "%s -> %s" % (area0, st["area"]),
+    )
 
     # ---- the titlebar's own buttons ---------------------------------------
     if r.can("resizable"):
@@ -1822,16 +2250,20 @@ def run(r):
     b.drag(grip, BTN_ROW_Y, grip + 180, BTN_ROW_Y + 120, steps=14)
     if was:
         moved = b.rect_still()
-        check("the titlebar drags the window",
-              abs(moved[0] - was[0]) > 60 and abs(moved[1] - was[1]) > 40,
-              "%s -> %s" % (was[:2], moved[:2]))
+        check(
+            "the titlebar drags the window",
+            abs(moved[0] - was[0]) > 60 and abs(moved[1] - was[1]) > 40,
+            "%s -> %s" % (was[:2], moved[:2]),
+        )
     b.quiet(PAUSE)
     st = b.refresh()
     sizes = sorted({tuple(e["parts"][1:3]) for e in b.since(m, "resize")})
-    check("dragging does not resize",
-          st["area"] == area0 and not sizes,
-          "%dx%d -> %dx%d%s" % (area0 + st["area"]
-                               + (", through %s" % sizes if sizes else "",)))
+    check(
+        "dragging does not resize",
+        st["area"] == area0 and not sizes,
+        "%dx%d -> %dx%d%s"
+        % (area0 + st["area"] + (", through %s" % sizes if sizes else "",)),
+    )
     r.shot("dragged")
 
     # ---- resizing ---------------------------------------------------------
@@ -1858,9 +2290,11 @@ def run(r):
         m = b.mark()
         b.drag(w - 2, h - 2, w - 2 + gx, h - 2 + gy, steps=12)
         grown = sized(m)
-        check("the bottom-right edge resizes",
-              grown[0] > before[0] + 60 and grown[1] > before[1] + 40,
-              "%dx%d -> %dx%d" % (before + grown))
+        check(
+            "the bottom-right edge resizes",
+            grown[0] > before[0] + 60 and grown[1] > before[1] + 40,
+            "%dx%d -> %dx%d" % (before + grown),
+        )
 
         # Eight back to back, which is what a swapchain rebuild per
         # configure is stressed by, and then a look at what is on the screen:
@@ -1876,23 +2310,26 @@ def run(r):
             area = sized(m, QUIET)
         # The frames for the last one presented.
         b.quiet(PAUSE)
-        check("alive after eight drag-resizes", b.alive(),
-              "%dx%d" % area)
+        check("alive after eight drag-resizes", b.alive(), "%dx%d" % area)
         if r.can("read-pixels"):
             black = b.content_black_pct()
             if black is None:
-                r.skip("the frame still fills the window after a resize",
-                       "no picture of the window")
+                r.skip(
+                    "the frame still fills the window after a resize",
+                    "no picture of the window",
+                )
             else:
-                check("the frame still fills the window after a resize",
-                      black < 40.0, "%.0f%% black" % black)
+                check(
+                    "the frame still fills the window after a resize",
+                    black < 40.0,
+                    "%.0f%% black" % black,
+                )
 
         # The floor from below: the corner carried to the window's own left
         # edge, inside the window so that no screen has to have room for
         # it, and the width the window stops at. Then back.
         if b.FLOOR_UNHELD:
-            r.skip("the window goes no narrower than its floor",
-                   b.FLOOR_UNHELD)
+            r.skip("the window goes no narrower than its floor", b.FLOOR_UNHELD)
         else:
             # The corner on the screen first: the drags above may have left
             # it past the monitor's edge, where no pointer can take it, or
@@ -1910,15 +2347,19 @@ def run(r):
                 g = b.refresh()["scale"] / 120.0
                 px = -(-round(FLOOR_W * g) // b.FLOOR_STEP) * b.FLOOR_STEP
                 floor = round(px / g)
-            check("the window goes no narrower than its floor",
-                  near(least[0], floor), "%d wide, the floor %d" % (
-                      least[0], floor))
+            check(
+                "the window goes no narrower than its floor",
+                near(least[0], floor),
+                "%d wide, the floor %d" % (least[0], floor),
+            )
             m = b.mark()
-            b.drag(least[0] - 2, least[1] + BAR_H - 2, w - 2, h - 2,
-                   steps=12)
+            b.drag(least[0] - 2, least[1] + BAR_H - 2, w - 2, h - 2, steps=12)
             back = sized(m)
-            check("and grows back from it", near(back[0], before[0], 4),
-                  "%dx%d -> %dx%d" % (before + back))
+            check(
+                "and grows back from it",
+                near(back[0], before[0], 4),
+                "%dx%d -> %dx%d" % (before + back),
+            )
 
     if r.can("grab-ring"):
         # The transparent margin outside the window, which is the Wayland
@@ -1929,17 +2370,26 @@ def run(r):
         b.drag(-3, st["area"][1] // 2, -160, st["area"][1] // 2, steps=10)
         b.quiet(PAUSE)
         st = b.refresh()
-        check("dragging the left grab ring resizes",
-              st["area"][0] > before[0] + 60,
-              "%s -> %s" % (before, st["area"]))
+        check(
+            "dragging the left grab ring resizes",
+            st["area"][0] > before[0] + 60,
+            "%s -> %s" % (before, st["area"]),
+        )
         before = st["area"]
-        b.drag(st["area"][0] // 2, st["area"][1] + BAR_H + 3,
-               st["area"][0] // 2, st["area"][1] + BAR_H + 130, steps=10)
+        b.drag(
+            st["area"][0] // 2,
+            st["area"][1] + BAR_H + 3,
+            st["area"][0] // 2,
+            st["area"][1] + BAR_H + 130,
+            steps=10,
+        )
         b.quiet(PAUSE)
         st = b.refresh()
-        check("dragging the bottom grab ring resizes",
-              st["area"][1] > before[1] + 40,
-              "%s -> %s" % (before, st["area"]))
+        check(
+            "dragging the bottom grab ring resizes",
+            st["area"][1] > before[1] + 40,
+            "%s -> %s" % (before, st["area"]),
+        )
 
     # Back to a known size for everything below, whatever the drags left.
     st = b.refresh()
@@ -1953,8 +2403,11 @@ def run(r):
     mid = (st["area"][0] // 2, BAR_H + st["area"][1] // 2)
     r.transition(lambda: b.click(*mid), "capture", timeout=2.0)
     st = b.refresh()
-    captured = check("a click in the scene captures the pointer",
-                     st["cap"] is True, str(st["cap"]))
+    captured = check(
+        "a click in the scene captures the pointer",
+        st["cap"] is True,
+        str(st["cap"]),
+    )
 
     if captured:
         # By a delta and not to a place, which is the only thing that means
@@ -1964,8 +2417,11 @@ def run(r):
         b.move_by(40, 30)
         b.until(lambda: b.since(m, "relative"))
         rel = b.since(m, "relative")
-        check("captured motion arrives as relative", bool(rel),
-              " ".join(rel[-1]["parts"][:3]) if rel else "none")
+        check(
+            "captured motion arrives as relative",
+            bool(rel),
+            " ".join(rel[-1]["parts"][:3]) if rel else "none",
+        )
 
         # A captured pointer's click is the scene's wherever its hidden
         # cursor has drifted. Pushed to the top-left -- on Win32, where it is
@@ -1980,15 +2436,20 @@ def run(r):
         got = b.since(m, "button")
         st = b.refresh()
         moved = before is not None and b.rect() != before
-        check("a captured click at the bar's corner is the scene's",
-              bool(got) and st["cap"] is True and not moved,
-              "%d button events, captured %s%s" % (
-                  len(got), st["cap"], ", the window moved" if moved else ""))
+        check(
+            "a captured click at the bar's corner is the scene's",
+            bool(got) and st["cap"] is True and not moved,
+            "%d button events, captured %s%s"
+            % (len(got), st["cap"], ", the window moved" if moved else ""),
+        )
 
         r.transition(f11)
         st = b.refresh()
-        check("still captured across fullscreen", st["cap"] is True,
-              str(st["cap"]))
+        check(
+            "still captured across fullscreen",
+            st["cap"] is True,
+            str(st["cap"]),
+        )
         r.transition(f11)
         st = b.refresh()
         check("still captured coming back", st["cap"] is True, str(st["cap"]))
@@ -2000,22 +2461,28 @@ def run(r):
         if r.can("server-rect"):
             px, py = b.pointer_pos()
             wx, wy, ww, wh = b.rect()
-            check("the released cursor is inside the window",
-                  wx <= px < wx + ww and wy <= py < wy + wh,
-                  "pointer %s window %s" % ((px, py), (wx, wy, ww, wh)))
+            check(
+                "the released cursor is inside the window",
+                wx <= px < wx + ww and wy <= py < wy + wh,
+                "pointer %s window %s" % ((px, py), (wx, wy, ww, wh)),
+            )
         r.shot("released")
     else:
         # Reported and not dropped: a block that simply vanishes shrinks the
         # round's total, which reads as a smaller round and not a broken one.
-        for name in ("captured motion arrives as relative",
-                     "a captured click at the bar's corner is the scene's",
-                     "still captured across fullscreen",
-                     "still captured coming back",
-                     "F9 releases the pointer"):
+        for name in (
+            "captured motion arrives as relative",
+            "a captured click at the bar's corner is the scene's",
+            "still captured across fullscreen",
+            "still captured coming back",
+            "F9 releases the pointer",
+        ):
             r.skip(name, "the pointer was never captured")
         if r.can("server-rect"):
-            r.skip("the released cursor is inside the window",
-                   "the pointer was never captured")
+            r.skip(
+                "the released cursor is inside the window",
+                "the pointer was never captured",
+            )
 
     # ---- keys the library binds, and keys it does not ---------------------
     # Twice, so the scene clock behind F2 ends where it started: the
@@ -2035,16 +2502,22 @@ def run(r):
     b.press("F5")
     b.press("F5")
     got = [e["parts"][1] for e in b.since(m, "key")]
-    check("a key beyond the first sixteen is named", got.count("F5") >= 4,
-          " ".join(got) or "none")
+    check(
+        "a key beyond the first sixteen is named",
+        got.count("F5") >= 4,
+        " ".join(got) or "none",
+    )
 
     m = b.mark()
     h = b.key_down("W")
     time.sleep(HOLD)
     b.let_go(h)
     edges = [e["parts"][2] for e in b.since(m, "key")]
-    check("a held key delivers both edges",
-          "press" in edges and "release" in edges, " ".join(edges))
+    check(
+        "a held key delivers both edges",
+        "press" in edges and "release" in edges,
+        " ".join(edges),
+    )
 
     # Four keys held in turn, as a hand flies a camera. The testbed drains
     # at the top of on_record and again in on_overlay, so each edge is
@@ -2057,12 +2530,16 @@ def run(r):
         time.sleep(HOLD)
         b.let_go(h)
     b.quiet()
-    edges = [e["parts"][2] for e in b.since(m, "key")
-             if e["parts"][1] in flight]
-    check("keys held in turn are each polled once, by one of two drains",
-          edges.count("press") == len(flight)
-          and edges.count("release") == len(flight)
-          and "repeat" not in edges, " ".join(edges))
+    edges = [
+        e["parts"][2] for e in b.since(m, "key") if e["parts"][1] in flight
+    ]
+    check(
+        "keys held in turn are each polled once, by one of two drains",
+        edges.count("press") == len(flight)
+        and edges.count("release") == len(flight)
+        and "repeat" not in edges,
+        " ".join(edges),
+    )
 
     st = b.refresh()
     b.move_to(st["area"][0] // 2, BAR_H + st["area"][1] // 2)
@@ -2077,13 +2554,19 @@ def run(r):
     # of a pair the window server split comes a frame later.
     b.until(lambda: abs(notches() + 2.0) < 0.01)
     got = b.since(m, "scroll")
-    check("scroll reaches the caller", bool(got),
-          " ".join(got[-1]["parts"][:3]) if got else "none")
+    check(
+        "scroll reaches the caller",
+        bool(got),
+        " ".join(got[-1]["parts"][:3]) if got else "none",
+    )
     # In notches on every platform (fenestal.h): two wheel steps up are -2,
     # summed over however many events the window server split them into.
     dy = notches()
-    check("and it is counted in notches", abs(dy + 2.0) < 0.01,
-          "dy %.2f for two steps" % dy)
+    check(
+        "and it is counted in notches",
+        abs(dy + 2.0) < 0.01,
+        "dy %.2f for two steps" % dy,
+    )
 
     # ---- a picture in the overlay -----------------------------------------
     picture(r)
@@ -2103,11 +2586,17 @@ def run(r):
     b.click(combo_x, BTN_ROW_Y)
     b.until(lambda: b.since(m, "button"))
     got = b.since(m, "button")
-    check("a press on the titlebar controls reaches the caller", bool(got),
-          " ".join(got[-1]["parts"][:4]) if got else "none")
+    check(
+        "a press on the titlebar controls reaches the caller",
+        bool(got),
+        " ".join(got[-1]["parts"][:4]) if got else "none",
+    )
     st = b.refresh()
-    check("and did not resize the window", st["area"] == before,
-          "%s -> %s" % (before, st["area"]))
+    check(
+        "and did not resize the window",
+        st["area"] == before,
+        "%s -> %s" % (before, st["area"]),
+    )
 
     # And shut the list again: while it is open ctl_modal() makes *every*
     # press the controls', and the minimize click below would land on a
@@ -2120,8 +2609,10 @@ def run(r):
     if r.can("display-modes"):
         display_modes(r)
     else:
-        r.skip("a display mode picked from the titlebar",
-               "a window server sizes and places the window")
+        r.skip(
+            "a display mode picked from the titlebar",
+            "a window server sizes and places the window",
+        )
 
     # ---- another GPU, from the titlebar ------------------------------------
     # Every switch with the scene moving (F2), as the window is used: a
@@ -2162,11 +2653,14 @@ def run(r):
 
     def delivered(lat):
         return "%d/8 delivered, median %s ms" % (
-            len(lat), "%.0f" % statistics.median(lat) if lat else "n/a")
+            len(lat),
+            "%.0f" % statistics.median(lat) if lat else "n/a",
+        )
 
     lat = timed_f1(STILL)
-    check("the event queue is drained every frame", len(lat) >= 7,
-          delivered(lat))
+    check(
+        "the event queue is drained every frame", len(lat) >= 7, delivered(lat)
+    )
 
     # And on a window that is drawing, where a still one now draws nothing
     # and is woken by the key itself: the frame loop's own pacing is then in
@@ -2206,34 +2700,52 @@ def run(r):
     type_key("A")
     low = typed(m)
     kinds = [e["kind"] for e in b.since(m) if e["kind"] in ("key", "text")]
-    check("a key types one character under text entry", len(low) == 1,
-          " ".join("U+%04X" % c for c in low) or "none")
-    check("and the key arrives before what it typed",
-          kinds[:2] == ["key", "text"], " ".join(kinds))
+    check(
+        "a key types one character under text entry",
+        len(low) == 1,
+        " ".join("U+%04X" % c for c in low) or "none",
+    )
+    check(
+        "and the key arrives before what it typed",
+        kinds[:2] == ["key", "text"],
+        " ".join(kinds),
+    )
 
     m = b.mark()
     chord("LShift", "A")
     up = typed(m)
     # The other case of the same letter, whichever way round: with Caps Lock
     # on, Shift is what types the lower one.
-    check("Shift types the other case of it",
-          len(low) == 1 and len(up) == 1 and up != low and
-          chr(up[0]).lower() == chr(low[0]).lower(),
-          "%s -> %s" % (" ".join("U+%04X" % c for c in low),
-                        " ".join("U+%04X" % c for c in up)))
+    check(
+        "Shift types the other case of it",
+        len(low) == 1
+        and len(up) == 1
+        and up != low
+        and chr(up[0]).lower() == chr(low[0]).lower(),
+        "%s -> %s"
+        % (
+            " ".join("U+%04X" % c for c in low),
+            " ".join("U+%04X" % c for c in up),
+        ),
+    )
 
     m = b.mark()
     type_key("Space")
     got = typed(m)
-    check("Space types a space", got == [0x20],
-          " ".join("U+%04X" % c for c in got) or "none")
+    check(
+        "Space types a space",
+        got == [0x20],
+        " ".join("U+%04X" % c for c in got) or "none",
+    )
 
     m = b.mark()
     chord("LCtrl", "A")
     got = typed(m)
-    check("a key under Ctrl types nothing", got == [] and
-          len(b.since(m, "key")) >= 4,
-          "%d typed, %d key events" % (len(got), len(b.since(m, "key"))))
+    check(
+        "a key under Ctrl types nothing",
+        got == [] and len(b.since(m, "key")) >= 4,
+        "%d typed, %d key events" % (len(got), len(b.since(m, "key"))),
+    )
 
     # A held key, which is three different mechanisms: the server's repeat on
     # X11, the system's on Win32, and a timer of the backend's own on Wayland
@@ -2250,24 +2762,31 @@ def run(r):
     # the counts alone cannot tell a server that sent no repeats from a hold
     # something interrupted -- the focus leaving, a release ahead of the
     # key-up, another key.
-    rest = [" ".join(e["parts"][:3]) for e in b.since(m)
-            if e["kind"] != "text" and e not in reps]
+    rest = [
+        " ".join(e["parts"][:3])
+        for e in b.since(m)
+        if e["kind"] != "text" and e not in reps
+    ]
     odd = [] if rest == ["key A press", "key A release"] else rest
     if not released:
         odd.append("no release after the key-up")
-    check("a held key repeats, and types each time",
-          len(reps) >= 3 and len(got) == len(reps) + 1,
-          "%d repeats, %d typed" % (len(reps), len(got))
-          + ("; with " + ", ".join(odd) if odd else ""))
+    check(
+        "a held key repeats, and types each time",
+        len(reps) >= 3 and len(got) == len(reps) + 1,
+        "%d repeats, %d typed" % (len(reps), len(got))
+        + ("; with " + ", ".join(odd) if odd else ""),
+    )
 
     m = b.mark()
     # That it did *not* close the window has no event to wait for; what
     # there is to wait for is the key, and the echo going quiet after it.
     b.press("Escape")
     b.quiet(PAUSE)
-    check("Escape is only a key while text entry is on",
-          b.alive() and len(b.since(m, "key")) >= 2,
-          "alive=%s, %d key events" % (b.alive(), len(b.since(m, "key"))))
+    check(
+        "Escape is only a key while text entry is on",
+        b.alive() and len(b.since(m, "key")) >= 2,
+        "alive=%s, %d key events" % (b.alive(), len(b.since(m, "key"))),
+    )
 
     # ---- composing ---------------------------------------------------------
     #
@@ -2282,22 +2801,30 @@ def run(r):
         # keycode for the duration -- which also asks whether the environment
         # notices its keymap being changed under it, since an answer read
         # from the layout it started with is no answer.
-        undo = b.remap_spare(0xfe51, 0xfe57)    # dead_acute, dead_diaeresis
+        undo = b.remap_spare(0xFE51, 0xFE57)  # dead_acute, dead_diaeresis
         try:
             m = b.mark()
             b.tap_spare()
             b.until(lambda: composing(m))
             b.quiet()
             held = composing(m)
-            check("a dead key types nothing and is reported as held",
-                  typed(m) == [] and held == ["\u00b4"],
-                  "typed %s, composing %r" % (typed(m), held))
+            check(
+                "a dead key types nothing and is reported as held",
+                typed(m) == [] and held == ["\u00b4"],
+                "typed %s, composing %r" % (typed(m), held),
+            )
             type_key("E")
             got = typed(m)
-            check("and the letter after it arrives accented", got == [0xe9],
-                  " ".join("U+%04X" % c for c in got) or "none")
-            check("and the composition is over", composing(m)[-1:] == [""],
-                  repr(composing(m)))
+            check(
+                "and the letter after it arrives accented",
+                got == [0xE9],
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
+            check(
+                "and the composition is over",
+                composing(m)[-1:] == [""],
+                repr(composing(m)),
+            )
 
             m = b.mark()
             h = b.key_down("LShift")
@@ -2305,24 +2832,31 @@ def run(r):
             b.let_go(h)
             type_key("U")
             got = typed(m)
-            check("Shift picks the dead key's other accent", got == [0xfc],
-                  " ".join("U+%04X" % c for c in got) or "none")
+            check(
+                "Shift picks the dead key's other accent",
+                got == [0xFC],
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
 
             m = b.mark()
             b.tap_spare()
             type_key("Space")
             got = typed(m)
-            check("a dead key and a space type the accent itself",
-                  got == [0xb4],
-                  " ".join("U+%04X" % c for c in got) or "none")
+            check(
+                "a dead key and a space type the accent itself",
+                got == [0xB4],
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
 
             m = b.mark()
             b.tap_spare()
             type_key("X")
             got = typed(m)
-            check("a letter the accent does not go on arrives bare",
-                  got == [ord("x")] or got == [ord("X")],
-                  " ".join("U+%04X" % c for c in got) or "none")
+            check(
+                "a letter the accent does not go on arrives bare",
+                got == [ord("x")] or got == [ord("X")],
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
         finally:
             undo()
 
@@ -2339,55 +2873,68 @@ def run(r):
         if not plain:
             # Held, then: let go of, before anything else is typed.
             type_key("Space")
-            r.skip("a layout switched under the window is typed through",
-                   "the layout it starts with has a dead key there already")
+            r.skip(
+                "a layout switched under the window is typed through",
+                "the layout it starts with has a dead key there already",
+            )
         else:
             undo = b.dead_layout()
             try:
                 m = b.mark()
                 type_key(b.DEAD_KEY)
-                check("a layout switched under the window is typed through",
-                      typed(m) == [],
-                      "typed %s before and %s after, composing %r"
-                      % (plain, typed(m), composing(m)))
+                check(
+                    "a layout switched under the window is typed through",
+                    typed(m) == [],
+                    "typed %s before and %s after, composing %r"
+                    % (plain, typed(m), composing(m)),
+                )
                 type_key("E")
                 got = typed(m)
-                check("and the letter after a dead key arrives accented",
-                      got == [0xe9],
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "and the letter after a dead key arrives accented",
+                    got == [0xE9],
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
 
                 m = b.mark()
                 chord("LShift", b.DEAD_KEY)
                 type_key("U")
                 got = typed(m)
-                check("Shift picks the dead key's other accent",
-                      got == [0xfc],
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "Shift picks the dead key's other accent",
+                    got == [0xFC],
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
 
                 m = b.mark()
                 type_key(b.DEAD_KEY)
                 type_key("Space")
                 got = typed(m)
-                check("a dead key and a space type the accent itself",
-                      got == [b.DEAD_ALONE],
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "a dead key and a space type the accent itself",
+                    got == [b.DEAD_ALONE],
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
 
                 m = b.mark()
                 type_key(b.DEAD_KEY)
                 type_key("X")
                 got = typed(m)
-                check("a letter the accent does not go on arrives after it",
-                      got in ([b.DEAD_ALONE, ord("x")],
-                              [b.DEAD_ALONE, ord("X")]),
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "a letter the accent does not go on arrives after it",
+                    got in ([b.DEAD_ALONE, ord("x")], [b.DEAD_ALONE, ord("X")]),
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
             finally:
                 undo()
             m = b.mark()
             type_key(b.DEAD_KEY)
             got = typed(m)
-            check("and the key types as it did once the layout is back",
-                  got == plain,
-                  " ".join("U+%04X" % c for c in got) or "none")
+            check(
+                "and the key types as it did once the layout is back",
+                got == plain,
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
 
     if r.can("desk-layout"):
         # A real dead key from a real layout, on whatever composer this
@@ -2411,70 +2958,85 @@ def run(r):
         m = b.mark()
         plain = [] if why else strike(b.DESK_DEAD_KEY, m)
         if why or not plain:
-            r.skip("a dead key from the desk's own layout",
-                   why or "the desk's layout has a dead key there already")
+            r.skip(
+                "a dead key from the desk's own layout",
+                why or "the desk's layout has a dead key there already",
+            )
             if not why:
-                strike("Space", b.mark())       # let go of the one held
+                strike("Space", b.mark())  # let go of the one held
         else:
             # A desk whose layouts cannot be read is left as it is, and
             # the section is the desk's to skip, not the program's to fail.
             try:
                 undo = b.desk_dead_layout()
-            except (RuntimeError, OSError,
-                    subprocess.TimeoutExpired) as e:
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
                 undo = None
-                r.skip("a layout switched on the desk has its dead key",
-                       str(e))
+                r.skip("a layout switched on the desk has its dead key", str(e))
         if not why and plain and undo is not None:
             try:
                 # The keymap's arrival is echoed by nothing, so the key
                 # is asked until it has stopped typing: that is the
                 # evidence the switch has reached the window.
-                b.until(lambda: strike(b.DESK_DEAD_KEY, b.mark()) == [],
-                        timeout=4.0)
+                b.until(
+                    lambda: strike(b.DESK_DEAD_KEY, b.mark()) == [], timeout=4.0
+                )
                 strike("Space", b.mark())
                 m = b.mark()
                 dead = strike(b.DESK_DEAD_KEY, m)
-                check("a layout switched on the desk has its dead key",
-                      dead == [], "typed %s before and %s after, composing %r"
-                      % (plain, dead, composing(m)))
+                check(
+                    "a layout switched on the desk has its dead key",
+                    dead == [],
+                    "typed %s before and %s after, composing %r"
+                    % (plain, dead, composing(m)),
+                )
                 got = strike("E", m)
-                check("and the letter after it arrives accented",
-                      got == [0xe9],
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "and the letter after it arrives accented",
+                    got == [0xE9],
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
 
                 m = b.mark()
                 h = b.key_down("LShift")
                 b.tap(b.DESK_DEAD_KEY, confirm=False)
                 b.let_go(h)
                 got = strike("U", m)
-                check("Shift picks the dead key's other accent",
-                      got == [0xf9],
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "Shift picks the dead key's other accent",
+                    got == [0xF9],
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
 
                 m = b.mark()
                 strike(b.DESK_DEAD_KEY, m)
                 got = strike("Space", m)
-                check("a dead key and a space type one accent",
-                      got in ([0xb4], [0x27]),
-                      " ".join("U+%04X" % c for c in got) or "none")
+                check(
+                    "a dead key and a space type one accent",
+                    got in ([0xB4], [0x27]),
+                    " ".join("U+%04X" % c for c in got) or "none",
+                )
                 # With the compositor's input method left unbound, what
                 # answered is the library's composer in a window, and the
                 # accent is how the two are told apart.
                 if r.can("input-method") and UNBOUND:
-                    check("and it is the library's composer that typed it",
-                          got == [0xb4],
-                          " ".join("U+%04X" % c for c in got) or "none")
+                    check(
+                        "and it is the library's composer that typed it",
+                        got == [0xB4],
+                        " ".join("U+%04X" % c for c in got) or "none",
+                    )
             finally:
                 undo()
             # Not merely typing again: the switched layout's dead key types
             # too, every second strike, with the accent.
-            b.until(lambda: strike(b.DESK_DEAD_KEY, b.mark()) == plain,
-                    timeout=4.0)
+            b.until(
+                lambda: strike(b.DESK_DEAD_KEY, b.mark()) == plain, timeout=4.0
+            )
             got = strike(b.DESK_DEAD_KEY, b.mark())
-            check("and the key types as it did once the layout is back",
-                  got == plain,
-                  " ".join("U+%04X" % c for c in got) or "none")
+            check(
+                "and the key types as it did once the layout is back",
+                got == plain,
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
 
     if r.can("input-method"):
         # The compositor's. Ctrl+Shift+U is the Unicode entry every IBus
@@ -2496,9 +3058,12 @@ def run(r):
         # The timeout is how long a desktop with no input method is given
         # to say nothing.
         if not b.until(lambda: composing(m), timeout=1.0):
-            r.skip("the input method composes a character",
-                   "FNL_NO_INPUT_METHOD left it unbound" if UNBOUND else
-                   "no input method answered Ctrl+Shift+U on this desktop")
+            r.skip(
+                "the input method composes a character",
+                "FNL_NO_INPUT_METHOD left it unbound"
+                if UNBOUND
+                else "no input method answered Ctrl+Shift+U on this desktop",
+            )
             b.press("Escape")
             b.quiet()
         else:
@@ -2509,21 +3074,32 @@ def run(r):
             b.until(lambda: len(composing(m)) >= 3)
             b.quiet()
             grown = composing(m)
-            check("the input method reports what is being composed",
-                  len(grown) >= 3 and typed(m) == [],
-                  "%r, typed %s" % (grown, typed(m)))
+            check(
+                "the input method reports what is being composed",
+                len(grown) >= 3 and typed(m) == [],
+                "%r, typed %s" % (grown, typed(m)),
+            )
             b.tap("Space")
             b.until(lambda: typed(m))
             b.quiet()
             got = typed(m)
-            check("the input method composes a character", got == [0xe9],
-                  " ".join("U+%04X" % c for c in got) or "none")
-            check("and its composition ends with the commit",
-                  composing(m)[-1:] == [""], repr(composing(m)[-2:]))
+            check(
+                "the input method composes a character",
+                got == [0xE9],
+                " ".join("U+%04X" % c for c in got) or "none",
+            )
+            check(
+                "and its composition ends with the commit",
+                composing(m)[-1:] == [""],
+                repr(composing(m)[-2:]),
+            )
             m = b.mark()
             type_key("A")
-            check("and plain keys type through the layout again",
-                  len(typed(m)) == 1, str(typed(m)))
+            check(
+                "and plain keys type through the layout again",
+                len(typed(m)) == 1,
+                str(typed(m)),
+            )
 
     if r.can("known-layout"):
         layout_types(r, typed)
@@ -2534,8 +3110,11 @@ def run(r):
     m = b.mark()
     type_key("A")
     got, keys = typed(m), b.since(m, "key")
-    check("and nothing is typed once it is off", got == [] and len(keys) >= 2,
-          "%d typed, %d key events" % (len(got), len(keys)))
+    check(
+        "and nothing is typed once it is off",
+        got == [] and len(keys) >= 2,
+        "%d typed, %d key events" % (len(got), len(keys)),
+    )
 
     # ---- the clipboard ------------------------------------------------------
     #
@@ -2556,7 +3135,7 @@ def run(r):
             end = time.time() + timeout * b.patience()
             seen = held()
             while seen != data and time.time() < end:
-                time.sleep(0.05)        # poll: each look is a process
+                time.sleep(0.05)  # poll: each look is a process
                 seen = held()
             return seen
 
@@ -2571,8 +3150,9 @@ def run(r):
 
         def pasted(mark, wait=3.0):
             ev = b.wait_for("clipboard", mark, timeout=wait)
-            return (int(ev["parts"][1]), " ".join(ev["parts"][2:])) if ev \
-                else None
+            return (
+                (int(ev["parts"][1]), " ".join(ev["parts"][2:])) if ev else None
+            )
 
         try:
             b.press("F4")
@@ -2586,8 +3166,11 @@ def run(r):
             b.tap("F6")
             got = pasted(m)
             # In bytes, which is what the event counts: the last letter is two.
-            check("a paste arrives from another program",
-                  got == (len(word.encode("utf-8")), word), repr(got))
+            check(
+                "a paste arrives from another program",
+                got == (len(word.encode("utf-8")), word),
+                repr(got),
+            )
 
             # Past what one X property or one pipe buffer holds, so the
             # incremental transfer on X11 and the read loop on Wayland are
@@ -2598,9 +3181,11 @@ def run(r):
             m = b.mark()
             b.tap("F6")
             got = pasted(m, wait=8.0)
-            check("and a long one arrives whole",
-                  got is not None and got[0] == len(big),
-                  "%s of %d bytes" % (got[0] if got else None, len(big)))
+            check(
+                "and a long one arrives whole",
+                got is not None and got[0] == len(big),
+                "%s of %d bytes" % (got[0] if got else None, len(big)),
+            )
         finally:
             b.clipboard_done()
 
@@ -2624,11 +3209,12 @@ def run(r):
             b.click(*r.btn("min", st["area"][0]))
             end = time.time() + 3.0
             while not b.minimized() and time.time() < end:
-                time.sleep(0.05)        # poll
+                time.sleep(0.05)  # poll
             if b.minimized():
                 break
-            print("  (the minimize click did not land; aiming again)",
-                  flush=True)
+            print(
+                "  (the minimize click did not land; aiming again)", flush=True
+            )
             st = b.refresh()
         check("the minimize button minimizes", b.minimized())
         time.sleep(HIDDEN_LEAD)
@@ -2640,10 +3226,12 @@ def run(r):
         fm = r.frames_mark()
         idle = r.cpu_percent(HIDDEN_SAMPLE)
         hidden_fps = r.frame_rate(fm) or 0.0
-        check("a minimized window draws nothing",
-              drawing and hidden_fps < HIDDEN_FPS,
-              "%s minimized, %s visible"
-              % (fps_said(hidden_fps), fps_said(visible_fps)))
+        check(
+            "a minimized window draws nothing",
+            drawing and hidden_fps < HIDDEN_FPS,
+            "%s minimized, %s visible"
+            % (fps_said(hidden_fps), fps_said(visible_fps)),
+        )
         # Both halves, because the drop is the claim and a drop from nothing
         # is not one: with the F2 above never having arrived, `idle < 5`
         # holds without anything having been measured. So the visible
@@ -2651,11 +3239,14 @@ def run(r):
         # -- a fast GPU at 60 Hz leaves a few per cent of a core, lavapipe
         # most of one -- or rest's own figure where drawing is so cheap
         # that the ratio asks for less.
-        check("a minimized window costs no CPU",
-              drawing and idle < 5.0
-              and (idle < visible / 5.0 or idle <= AT_REST),
-              "visible %.1f%% at %s -> minimized %.1f%%"
-              % (visible, fps_said(visible_fps), idle))
+        check(
+            "a minimized window costs no CPU",
+            drawing
+            and idle < 5.0
+            and (idle < visible / 5.0 or idle <= AT_REST),
+            "visible %.1f%% at %s -> minimized %.1f%%"
+            % (visible, fps_said(visible_fps), idle),
+        )
         check("and it comes back when activated", b.unminimize())
         check("alive after restore from minimize", b.alive())
         # Guarded on its own capability: asking the server who holds the
@@ -2663,15 +3254,18 @@ def run(r):
         if r.can("server-rect"):
             check("keyboard focus returns after a restore", b.has_focus())
         fm = r.frames_mark()
-        time.sleep(3.0)             # the window the rate is taken over
+        time.sleep(3.0)  # the window the rate is taken over
         back = r.frame_rate(fm)
         # Against what it was, for the same reason: full rate is this
         # device's and no figure of ours.
-        check("and goes back to full rate when restored",
-              drawing and back is not None
-              and back >= visible_fps * RESTORED_SHARE,
-              "%s, %s before" % (fps_said(back), fps_said(visible_fps)))
-        b.press("F2")           # the clock stopped again
+        check(
+            "and goes back to full rate when restored",
+            drawing
+            and back is not None
+            and back >= visible_fps * RESTORED_SHARE,
+            "%s, %s before" % (fps_said(back), fps_said(visible_fps)),
+        )
+        b.press("F2")  # the clock stopped again
     else:
         r.skip("minimize and restore", b.NO_UNMINIMIZE)
 
@@ -2679,7 +3273,7 @@ def run(r):
     b.tap("Escape")
     end = time.time() + 3.0
     while b.alive() and time.time() < end:
-        time.sleep(0.05)            # poll
+        time.sleep(0.05)  # poll
     # Whether it went *on its own*, asked before anything is sent to make it
     # go. The exit code cannot say: the library turns a terminating signal
     # into the ordinary shutdown path, so the stop() below answers 0 whether
@@ -2701,19 +3295,28 @@ def complaints(b):
     lines = b.dump(1 << 30)
     table = set()
     for i, l in enumerate(lines):
-        if (l != "Suppressions used:" or i == 0
-                or not DASHES.match(lines[i - 1])):
+        if (
+            l != "Suppressions used:"
+            or i == 0
+            or not DASHES.match(lines[i - 1])
+        ):
             continue
         j = i + 1
-        while j < len(lines) and (lines[j] == "  count      bytes template"
-                                  or re.match(r"\s+\d+\s+\d+\s+\S+$",
-                                              lines[j])):
+        while j < len(lines) and (
+            lines[j] == "  count      bytes template"
+            or re.match(r"\s+\d+\s+\d+\s+\S+$", lines[j])
+        ):
             j += 1
         if j < len(lines) and DASHES.match(lines[j]):
             table.update(range(i - 1, j + 1))
-    return [l for i, l in enumerate(lines)
-            if l.strip() and i not in table and not expected(l)
-            and not b.expected_line(l)]
+    return [
+        l
+        for i, l in enumerate(lines)
+        if l.strip()
+        and i not in table
+        and not expected(l)
+        and not b.expected_line(l)
+    ]
 
 
 DASHES = re.compile(r"-{20,}$")
@@ -2724,7 +3327,8 @@ FRAME_TIMES = re.compile(
     r"submit [\d.]+ present [\d.]+ rebuild [\d.]+ other [\d.]+ "
     r"\(draw [\d.]+, "
     r"hold [\d.]+, \d+ fps, gpu idle \d+/\d+, miss \d+/\d+, "
-    r"period [\d.]+\)$")
+    r"period [\d.]+\)$"
+)
 # The same lines read for a rate (Round.frame_rate()): a window's mean
 # frame time and its frame count, and frame.c's line for a window at rest,
 # written once a FRAME_TIMES_WINDOW (0.5 s there) with nothing drawn, or
@@ -2732,7 +3336,8 @@ FRAME_TIMES = re.compile(
 FRAME_COUNT = re.compile(r"frame ([\d.]+) ms: .* gpu idle \d+/(\d+), ")
 FRAME_AT_REST = re.compile(
     r"frame at rest: (?:0 fps, nothing drawn|(\d+) drawn to show the "
-    r"figures, none for a change)$")
+    r"figures, none for a change)$"
+)
 FRAME_TIMES_WINDOW = 0.5
 # A --frame-times line spanning more than this holds time the window drew
 # nothing in: four of its windows, past any device's frame (frame_rate()).
@@ -2745,7 +3350,8 @@ def fps_said(rate):
 
 # events_latency_publish()'s, beside it: fnl_input_latency_ms()'s figure.
 INPUT_LATENCY = re.compile(
-    r"input [\d.]+ ms over \d+ inputs, \d+ stamped, longest [\d.]+$")
+    r"input [\d.]+ ms over \d+ inputs, \d+ stamped, longest [\d.]+$"
+)
 
 
 def expected(line):
@@ -2757,115 +3363,171 @@ def expected(line):
     library saying which backend it opened, which renderer it draws with,
     which devices it found, how it ranked them and which it took; the frame
     lines are its statistics, which the round turns on."""
-    return (line.startswith("EV ") and not line.startswith("EV lost")
-            # The testbed's own diagnostics: the scene's motion said on
-            # every run, and the footprint, frame-CPU and titlebar-reserve
-            # readouts when a measurement asks for them.
-            or re.match(r"scene motion: (on|off)$", line) is not None
-            or line.startswith("frame cpu: ")
-            or line.startswith("frame stats: ")
-            or line.startswith("reserve: ")
-            or line.startswith("footprint: ")
-            or line.startswith("backend: ")
-            or line.startswith("renderer: ")
-            or line.startswith("Vulkan on")
-            or re.match(r"EGL \d+\.\d+, .+$", line) is not None
-            or re.match(r"GPU \d+: .* \(.*\)$", line) is not None
-            or line.startswith("GPU in use: ")
-            # The GL renderer on a device with no 4.5, drawing through its
-            # 4.1 profile (DESIGN *OpenGL 4.1*): which profile, as the line
-            # above says which device.
-            or re.match(r"no OpenGL 4\.5 core context here \(\S+\); "
-                        r"drawing with 4\.1 core$", line) is not None
-            # And OpenGL's way onto a Mac's window (cgl.m), said once.
-            or re.match(r"OpenGL draws into an IOSurface, which Metal "
-                        r"copies onto .+$", line) is not None
-            or re.match(r"moving to GPU \d+: ", line) is not None
-            # A move to another kernel driver, as the library and the
-            # helper narrate one that goes right (gpu_driver_moves()); a
-            # refusal, a hold or a fallback is said otherwise and stays a
-            # complaint.
-            or re.match(r"GPU driver: \S+ is on \S+(, and can be moved to "
-                        r"\S+)?$", line) is not None
-            or re.match(r"GPU driver: drawn on .*, built in \d+ ms, while "
-                        r"\S+ moves to \S+$", line) is not None
-            or re.match(r"GPU driver: moving \S+ from \S+ to \S+$", line)
-            is not None
-            # NVIDIA's module loaded at the start by a move there and back
-            # (app_gpu_drivers_start()), on a machine booted on nouveau.
-            or line.startswith("GPU driver: NVIDIA's module is not loaded, "
-                               "which NVIDIA's userspace then tries ")
-            or re.match(r"GPU driver: fenestal-gpu-driver: \S+: \S+ to \S+ "
-                        r"in \d+ ms \(let go \d+, bound \d+, nodes \d+\)$",
-                        line) is not None
-            or re.match(r"moving to .*, on \S+, the renderer built again on "
-                        r"it \([^()]+\)$", line) is not None
-            # The machine's GPU ranking read, and the entry opened on
-            # (src/core/rank.c).
-            or re.match(r"GPU rank: \d+ figures kept, from \S+; the window "
-                        r"on \S+ \d+x\d+@\d+(, the list ordered alone)?$",
-                        line)
-            is not None
-            or re.match(r"GPU rank: opening on rank \d+, \S+\|.+$",
-                        line) is not None
-            # The renderer drawn across such a move taking the copy path,
-            # which is what keeps the output from going dark (DESIGN *The
-            # veil*).
-            or re.match(r"KMS: drawn across the move by the copy path onto "
-                        r"\S+, so the output is not handed over for the "
-                        r"landing$", line) is not None
-            # Mesa's loader, shown a card it has no driver for -- NVIDIA's
-            # own module has it -- whenever EGL's devices are listed.
-            or re.match(r"pci id for fd \d+: [0-9a-f]{4}:[0-9a-f]{4}, "
-                        r"driver \(null\)$", line) is not None
-            or line.startswith("rebuilt on ")
-            # FNL_X11_PRESENT_LOG's diagnostic, which a round asked for.
-            or line.startswith("X11 present: ")
-            # Vulkan on Win32 saying its frames go through DXGI
-            # (present_dxgi.c).
-            or line == ("the frames go through a DXGI swapchain, copied by "
-                        "Direct3D 11")
-            # Direct3D 12 on Win32 taking its frames through a Direct3D 11
-            # swapchain where DWM composes its own, and back where that
-            # is composed too (present_d3d11.c).
-            or line in ("the frames go through a Direct3D 11 swapchain, "
-                        "copied there",
-                        "DWM composes this window's frames; they go through "
-                        "a Direct3D 11 swapchain instead",
-                        "DWM composes the Direct3D 11 swapchain's frames "
-                        "too; back to this device's own")
-            # The other renderers' GPUs, listed after the first frame.
-            or re.match(r"\S.* lists \d+ GPUs? here, in \d+ ms$", line)
-            is not None
-            # A GPU whose VRAM its runtime suspend loses (NVK before
-            # Turing), and the GPUs OpenGL left out: no 4.5, or a software
-            # device whose display Mesa opens on the hardware one.
-            or line.startswith("the glyph atlas is in system memory: ")
-            or re.match(r"GPU left out: .*, which makes no OpenGL 4\.5 "
-                        r"core context$", line) is not None
-            or re.match(r"GPU left out: .*, whose display for this window "
-                        r"EGL opens on another device$", line) is not None
-            or line.startswith("EGL's own GPU makes no OpenGL 4.5 core "
-                               "context; drawing on ")
-            or re.match(r".+ is ranked below an integrated one: ",
-                        line) is not None
-            or FRAME_TIMES.match(line) is not None
-            or INPUT_LATENCY.match(line) is not None
-            or re.match(r"raw input: \d+ inputs matched to their reports, "
-                        r"\d+ messages left to the tick$", line) is not None
-            or FRAME_AT_REST.match(line) is not None
-            # The display period put right where the swap did not block at
-            # first (frame.c's PERIOD_RELEARN_RUN): OpenGL on a bare Xorg.
-            or re.match(r"display period learnt again: [\d.]+ ms, where "
-                        r"[\d.]+ stood -- ", line) is not None
-            or "MESA" in line
-            or "screenshot" in line.lower())
+    return (
+        line.startswith("EV ")
+        and not line.startswith("EV lost")
+        # The testbed's own diagnostics: the scene's motion said on
+        # every run, and the footprint, frame-CPU and titlebar-reserve
+        # readouts when a measurement asks for them.
+        or re.match(r"scene motion: (on|off)$", line) is not None
+        or line.startswith("frame cpu: ")
+        or line.startswith("frame stats: ")
+        or line.startswith("reserve: ")
+        or line.startswith("footprint: ")
+        or line.startswith("backend: ")
+        or line.startswith("renderer: ")
+        or line.startswith("Vulkan on")
+        or re.match(r"EGL \d+\.\d+, .+$", line) is not None
+        or re.match(r"GPU \d+: .* \(.*\)$", line) is not None
+        or line.startswith("GPU in use: ")
+        # The GL renderer on a device with no 4.5, drawing through its
+        # 4.1 profile (DESIGN *OpenGL 4.1*): which profile, as the line
+        # above says which device.
+        or re.match(
+            r"no OpenGL 4\.5 core context here \(\S+\); "
+            r"drawing with 4\.1 core$",
+            line,
+        )
+        is not None
+        # And OpenGL's way onto a Mac's window (cgl.m), said once.
+        or re.match(
+            r"OpenGL draws into an IOSurface, which Metal "
+            r"copies onto .+$",
+            line,
+        )
+        is not None
+        or re.match(r"moving to GPU \d+: ", line) is not None
+        # A move to another kernel driver, as the library and the
+        # helper narrate one that goes right (gpu_driver_moves()); a
+        # refusal, a hold or a fallback is said otherwise and stays a
+        # complaint.
+        or re.match(
+            r"GPU driver: \S+ is on \S+(, and can be moved to "
+            r"\S+)?$",
+            line,
+        )
+        is not None
+        or re.match(
+            r"GPU driver: drawn on .*, built in \d+ ms, while "
+            r"\S+ moves to \S+$",
+            line,
+        )
+        is not None
+        or re.match(r"GPU driver: moving \S+ from \S+ to \S+$", line)
+        is not None
+        # NVIDIA's module loaded at the start by a move there and back
+        # (app_gpu_drivers_start()), on a machine booted on nouveau.
+        or line.startswith(
+            "GPU driver: NVIDIA's module is not loaded, "
+            "which NVIDIA's userspace then tries "
+        )
+        or re.match(
+            r"GPU driver: fenestal-gpu-driver: \S+: \S+ to \S+ "
+            r"in \d+ ms \(let go \d+, bound \d+, nodes \d+\)$",
+            line,
+        )
+        is not None
+        or re.match(
+            r"moving to .*, on \S+, the renderer built again on "
+            r"it \([^()]+\)$",
+            line,
+        )
+        is not None
+        # The machine's GPU ranking read, and the entry opened on
+        # (src/core/rank.c).
+        or re.match(
+            r"GPU rank: \d+ figures kept, from \S+; the window "
+            r"on \S+ \d+x\d+@\d+(, the list ordered alone)?$",
+            line,
+        )
+        is not None
+        or re.match(r"GPU rank: opening on rank \d+, \S+\|.+$", line)
+        is not None
+        # The renderer drawn across such a move taking the copy path,
+        # which is what keeps the output from going dark (DESIGN *The
+        # veil*).
+        or re.match(
+            r"KMS: drawn across the move by the copy path onto "
+            r"\S+, so the output is not handed over for the "
+            r"landing$",
+            line,
+        )
+        is not None
+        # Mesa's loader, shown a card it has no driver for -- NVIDIA's
+        # own module has it -- whenever EGL's devices are listed.
+        or re.match(
+            r"pci id for fd \d+: [0-9a-f]{4}:[0-9a-f]{4}, "
+            r"driver \(null\)$",
+            line,
+        )
+        is not None
+        or line.startswith("rebuilt on ")
+        # FNL_X11_PRESENT_LOG's diagnostic, which a round asked for.
+        or line.startswith("X11 present: ")
+        # Vulkan on Win32 saying its frames go through DXGI
+        # (present_dxgi.c).
+        or line
+        == ("the frames go through a DXGI swapchain, copied by Direct3D 11")
+        # Direct3D 12 on Win32 taking its frames through a Direct3D 11
+        # swapchain where DWM composes its own, and back where that
+        # is composed too (present_d3d11.c).
+        or line
+        in (
+            "the frames go through a Direct3D 11 swapchain, copied there",
+            "DWM composes this window's frames; they go through "
+            "a Direct3D 11 swapchain instead",
+            "DWM composes the Direct3D 11 swapchain's frames "
+            "too; back to this device's own",
+        )
+        # The other renderers' GPUs, listed after the first frame.
+        or re.match(r"\S.* lists \d+ GPUs? here, in \d+ ms$", line) is not None
+        # A GPU whose VRAM its runtime suspend loses (NVK before
+        # Turing), and the GPUs OpenGL left out: no 4.5, or a software
+        # device whose display Mesa opens on the hardware one.
+        or line.startswith("the glyph atlas is in system memory: ")
+        or re.match(
+            r"GPU left out: .*, which makes no OpenGL 4\.5 "
+            r"core context$",
+            line,
+        )
+        is not None
+        or re.match(
+            r"GPU left out: .*, whose display for this window "
+            r"EGL opens on another device$",
+            line,
+        )
+        is not None
+        or line.startswith(
+            "EGL's own GPU makes no OpenGL 4.5 core context; drawing on "
+        )
+        or re.match(r".+ is ranked below an integrated one: ", line) is not None
+        or FRAME_TIMES.match(line) is not None
+        or INPUT_LATENCY.match(line) is not None
+        or re.match(
+            r"raw input: \d+ inputs matched to their reports, "
+            r"\d+ messages left to the tick$",
+            line,
+        )
+        is not None
+        or FRAME_AT_REST.match(line) is not None
+        # The display period put right where the swap did not block at
+        # first (frame.c's PERIOD_RELEARN_RUN): OpenGL on a bare Xorg.
+        or re.match(
+            r"display period learnt again: [\d.]+ ms, where "
+            r"[\d.]+ stood -- ",
+            line,
+        )
+        is not None
+        or "MESA" in line
+        or "screenshot" in line.lower()
+    )
 
 
 def lavapipe_lib():
     """Lavapipe's library as its ICD file names it here, or None."""
     import glob
     import json
+
     for icd in glob.glob("/usr/share/vulkan/icd.d/lvp_icd*.json"):
         with open(icd) as f:
             lib = json.load(f).get("ICD", {}).get("library_path")
@@ -2882,11 +3544,15 @@ def lavapipe_pinned():
     as leaked from an unknown module. A bare round puts its own (Bare.
     run_argv()); nothing where this desktop has no lavapipe."""
     import subprocess
+
     lib = lavapipe_lib()
     try:
-        runtime = subprocess.run(["gcc", "-print-file-name=libasan.so"],
-                                 capture_output=True, text=True,
-                                 timeout=10).stdout.strip()
+        runtime = subprocess.run(
+            ["gcc", "-print-file-name=libasan.so"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return {}
     # A name alone is the linker's to find, as the loader finds it.
@@ -2911,13 +3577,15 @@ def given_back(hold):
     """Whether a hand took the machine's input back during the round: it
     wants the machine, so no round runs after this one."""
     if hold.by_hand:
-        print("\ninput given back by hand on %s: the rounds stop here"
-              % hold.where, flush=True)
+        print(
+            "\ninput given back by hand on %s: the rounds stop here"
+            % hold.where,
+            flush=True,
+        )
     return hold.by_hand
 
 
-def run_rounds(run, description, program=None, pictures=False,
-               program_args=()):
+def run_rounds(run, description, program=None, pictures=False, program_args=()):
     """Parse the command line, run `run` against each environment asked for,
     print the totals, and return the exit status.
 
@@ -2925,23 +3593,35 @@ def run_rounds(run, description, program=None, pictures=False,
     `program_args` are what it is started with. `pictures` adds --capture,
     for a round that has checks to spend one on."""
     ap = argparse.ArgumentParser(description=description)
-    ap.add_argument("targets", nargs="*",
-                    help="environments to drive, each with as much of "
-                         "@machine:device as narrows it; default is every "
-                         "one")
-    ap.add_argument("--variant", default="release",
-                    help="build variant under build/<target> (default release)")
+    ap.add_argument(
+        "targets",
+        nargs="*",
+        help="environments to drive, each with as much of "
+        "@machine:device as narrows it; default is every "
+        "one",
+    )
+    ap.add_argument(
+        "--variant",
+        default="release",
+        help="build variant under build/<target> (default release)",
+    )
     if pictures:
-        ap.add_argument("--capture", action="store_true",
-                        help="take pictures; on Wayland whether one costs a "
-                             "consent dialog is the desktop's stored "
-                             "permission and the harness cannot persist it, "
-                             "which is why it is off")
-    ap.add_argument("--validation", choices=("auto", "on", "off"),
-                    default="auto",
-                    help="put the Vulkan validation layer in front, with "
-                         "sync and best-practices checks; auto is on for "
-                         "the checker variants and off for release")
+        ap.add_argument(
+            "--capture",
+            action="store_true",
+            help="take pictures; on Wayland whether one costs a "
+            "consent dialog is the desktop's stored "
+            "permission and the harness cannot persist it, "
+            "which is why it is off",
+        )
+    ap.add_argument(
+        "--validation",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help="put the Vulkan validation layer in front, with "
+        "sync and best-practices checks; auto is on for "
+        "the checker variants and off for release",
+    )
     args = ap.parse_args()
 
     wanted = B.select(args.targets)
@@ -2951,7 +3631,8 @@ def run_rounds(run, description, program=None, pictures=False,
     # unless declined, and the round proves it loaded (layer_check below)
     # rather than trusting the variable.
     validate = args.validation == "on" or (
-        args.validation == "auto" and args.variant in ("asan", "tsan", "gc"))
+        args.validation == "auto" and args.variant in ("asan", "tsan", "gc")
+    )
     # The library's instance alone (FNL_VK_VALIDATION), not the loader's
     # every instance: Zink's and vkd3d-proton's are Mesa's and wine's, and
     # the layer's own lock order in Zink's failed rounds that were ours.
@@ -2981,8 +3662,9 @@ def run_rounds(run, description, program=None, pictures=False,
 
     rounds, skipped = [], []
     for b in wanted:
-        print("\n======== %s / %s ========" % (b.NAME, args.variant),
-              flush=True)
+        print(
+            "\n======== %s / %s ========" % (b.NAME, args.variant), flush=True
+        )
         if program:
             b.program = program
         b.variant = args.variant
@@ -2990,22 +3672,31 @@ def run_rounds(run, description, program=None, pictures=False,
         # finally below however the round ends (input_hold.py). Before the
         # program where the hold needs nothing of it, so that what the
         # program opens of the machine's devices is already the hold's.
-        hold = b.input_hold() if input_hold.wanted() else \
-            input_hold.NoHold(b.NAME)
+        hold = (
+            b.input_hold() if input_hold.wanted() else input_hold.NoHold(b.NAME)
+        )
         if hold.EARLY:
             hold.begin()
         try:
-            b.start(args.variant, args=program_args,
-                    env=env if isinstance(b, B._OnBare) else
-                    dict(env, **desk))
+            b.start(
+                args.variant,
+                args=program_args,
+                env=env if isinstance(b, B._OnBare) else dict(env, **desk),
+            )
         except B.Unavailable as e:
             hold.end()
             print("skipped -- %s" % e, flush=True)
             skipped.append((b.NAME, str(e)))
-            ledger.record(instrument, ledger.place(b.NAME), args.variant,
-                          asked=b.gpu, skipped=str(e),
-                          layer=ledger.layer() and b.RENDERER == "vulkan",
-                          **ledger.bound(b), **ledger.wine(b))
+            ledger.record(
+                instrument,
+                ledger.place(b.NAME),
+                args.variant,
+                asked=b.gpu,
+                skipped=str(e),
+                layer=ledger.layer() and b.RENDERER == "vulkan",
+                **ledger.bound(b),
+                **ledger.wine(b),
+            )
             if given_back(hold):
                 break
             continue
@@ -3018,20 +3709,36 @@ def run_rounds(run, description, program=None, pictures=False,
                 said = [ln for ln in b.dump(12) if not ln.startswith("EV ")]
             except Exception:
                 said = []
-            r.check("the program started", False, "%s: %s%s"
-                    % (type(e).__name__, e,
-                       "".join("\n      " + ln for ln in said)))
+            r.check(
+                "the program started",
+                False,
+                "%s: %s%s"
+                % (
+                    type(e).__name__,
+                    e,
+                    "".join("\n      " + ln for ln in said),
+                ),
+            )
             for stop in (hold.end, b.stop, b.close):
                 try:
                     stop()
                 except Exception:
                     pass
             rounds.append(r)
-            ledger.record(instrument, ledger.place(b.NAME), args.variant,
-                          asked=b.gpu, layer=False, checks=1, failed=1,
-                          na=0, fails=["the program started"],
-                          **kept_log(b, r), **ledger.bound(b),
-                          **ledger.wine(b))
+            ledger.record(
+                instrument,
+                ledger.place(b.NAME),
+                args.variant,
+                asked=b.gpu,
+                layer=False,
+                checks=1,
+                failed=1,
+                na=0,
+                fails=["the program started"],
+                **kept_log(b, r),
+                **ledger.bound(b),
+                **ledger.wine(b),
+            )
             if given_back(hold):
                 break
             continue
@@ -3055,11 +3762,15 @@ def run_rounds(run, description, program=None, pictures=False,
             # monitor is its own, and this desktop's would be named for
             # every round.
             tgt = b.target_monitor()
-            print("monitor: %s" % ("%s %dx%d+%d+%d"
-                                   % (tgt[0], tgt[3], tgt[4], tgt[1], tgt[2])
-                                   if tgt
-                                   else "unknown -- xrandr said nothing"),
-                  flush=True)
+            print(
+                "monitor: %s"
+                % (
+                    "%s %dx%d+%d+%d" % (tgt[0], tgt[3], tgt[4], tgt[1], tgt[2])
+                    if tgt
+                    else "unknown -- xrandr said nothing"
+                ),
+                flush=True,
+            )
             if not hold.EARLY:
                 hold.begin()
             backend_check(r, b)
@@ -3072,13 +3783,18 @@ def run_rounds(run, description, program=None, pictures=False,
             elif layered:
                 layer_check(r, b)
             elif ledger.layer():
-                r.skip("the validation layer is in the program",
-                       "a Vulkan layer, and this program draws with %s"
-                       % b.RENDERER)
+                r.skip(
+                    "the validation layer is in the program",
+                    "a Vulkan layer, and this program draws with %s"
+                    % b.RENDERER,
+                )
             run(r)
         except Exception as e:
-            r.check("the round ran to the end", False, "%s: %s"
-                    % (type(e).__name__, e))
+            r.check(
+                "the round ran to the end",
+                False,
+                "%s: %s" % (type(e).__name__, e),
+            )
         finally:
             try:
                 hold.end()
@@ -3091,18 +3807,25 @@ def run_rounds(run, description, program=None, pictures=False,
         try:
             said = b.dump(1 << 30)
         except Exception:
-            said = []           # a program that never started said nothing
+            said = []  # a program that never started said nothing
         # Where a monitor was named: the default is no fact about the round.
         ledger.record(
-            instrument, ledger.place(b.NAME), args.variant, asked=b.gpu,
-            layer=layered, **ledger.bound(b), **ledger.wine(b),
-            checks=len(r.oks) + len(r.fails), failed=len(r.fails),
+            instrument,
+            ledger.place(b.NAME),
+            args.variant,
+            asked=b.gpu,
+            layer=layered,
+            **ledger.bound(b),
+            **ledger.wine(b),
+            checks=len(r.oks) + len(r.fails),
+            failed=len(r.fails),
             na=len(r.skips),
             fails=[f.split(" FAIL")[0].strip() for f in r.fails[:8]],
-            capture=bool(r.capture), device=ledger.device(said),
-            output=os.environ.get(getattr(b, "WANT_OUTPUT", B.OUTPUT_ENV),
-                                  ""),
-            **kept_log(b, r))
+            capture=bool(r.capture),
+            device=ledger.device(said),
+            output=os.environ.get(getattr(b, "WANT_OUTPUT", B.OUTPUT_ENV), ""),
+            **kept_log(b, r),
+        )
         if given_back(hold):
             break
 
@@ -3111,8 +3834,10 @@ def run_rounds(run, description, program=None, pictures=False,
     for r in rounds:
         n = len(r.oks) + len(r.fails)
         print("==== %s/%s ====" % (r.b.NAME, args.variant))
-        print("%d checks, %d failed, %d not applicable"
-              % (n, len(r.fails), len(r.skips)))
+        print(
+            "%d checks, %d failed, %d not applicable"
+            % (n, len(r.fails), len(r.skips))
+        )
         for f in r.fails:
             print("  " + f)
         failed += len(r.fails)
@@ -3135,8 +3860,10 @@ def keep_log(b):
     src = getattr(getattr(b, "testbed", None), "log_path", None)
     if not src or not os.path.exists(src):
         return None
-    dst = "%s.failed-%s.log" % (os.path.splitext(src)[0],
-                                time.strftime("%Y%m%d-%H%M%S"))
+    dst = "%s.failed-%s.log" % (
+        os.path.splitext(src)[0],
+        time.strftime("%Y%m%d-%H%M%S"),
+    )
     try:
         shutil.copyfile(src, dst)
     except OSError as e:
@@ -3163,10 +3890,14 @@ def backend_check(r, b):
     if not b.BACKEND:
         return
     want = "backend: %s, named by FNL_BACKEND" % b.BACKEND_NAMES.get(
-        b.BACKEND, b.BACKEND)
+        b.BACKEND, b.BACKEND
+    )
     said = [ln for ln in b.dump(1 << 30) if ln.startswith("backend: ")]
-    r.check("the program opened the backend it was named", want in said,
-            "said %s" % (said[0] if said else "nothing"))
+    r.check(
+        "the program opened the backend it was named",
+        want in said,
+        "said %s" % (said[0] if said else "nothing"),
+    )
 
 
 def renderer_check(r, b):
@@ -3182,20 +3913,32 @@ def renderer_check(r, b):
         # (Environment.gpu_sent()): its renderer is the one it opened with
         # from here on, and the check is that it opened on the ranked
         # first entry -- the library's line, and that entry's renderer.
-        opening = [ln for ln in b.dump(1 << 30)
-                   if ln.startswith("GPU rank: opening on rank 1, ")]
+        opening = [
+            ln
+            for ln in b.dump(1 << 30)
+            if ln.startswith("GPU rank: opening on rank 1, ")
+        ]
         key = opening[0].split(", ", 1)[1].split("|")[0] if opening else ""
-        drew = said[0][len("renderer: "):].split(";")[0] if said else ""
+        drew = said[0][len("renderer: ") :].split(";")[0] if said else ""
         b.RENDERER = RENDERER_KEYS.get(drew, b.RENDERER)
-        r.check("the program opened on the ranked first entry",
-                bool(opening) and key == b.RENDERER,
-                "%s; %s" % (opening[0] if opening else "no ranking said",
-                            said[0] if said else "no renderer said"))
+        r.check(
+            "the program opened on the ranked first entry",
+            bool(opening) and key == b.RENDERER,
+            "%s; %s"
+            % (
+                opening[0] if opening else "no ranking said",
+                said[0] if said else "no renderer said",
+            ),
+        )
         return
     want = "renderer: %s, named by FNL_RENDERER" % b.RENDERER_NAMES.get(
-        b.RENDERER, b.RENDERER)
-    r.check("the program drew with the renderer it was named", want in said,
-            "said %s" % (said[0] if said else "nothing"))
+        b.RENDERER, b.RENDERER
+    )
+    r.check(
+        "the program drew with the renderer it was named",
+        want in said,
+        "said %s" % (said[0] if said else "nothing"),
+    )
 
 
 def layer_check(r, b):
@@ -3211,16 +3954,22 @@ def layer_check(r, b):
     except OSError as e:
         r.check("the validation layer is in the program", False, str(e))
         return
-    r.check("the validation layer is in the program", loaded,
-            "" if loaded else "asked for and not mapped; is it installed?")
+    r.check(
+        "the validation layer is in the program",
+        loaded,
+        "" if loaded else "asked for and not mapped; is it installed?",
+    )
 
 
 def main():
     # --frame-times for the rate a restored window draws at, which is
     # counted and not read off the CPU (DRAWING_FPS).
     return run_rounds(
-        run, "One stress round, against every environment that runs here.",
-        pictures=True, program_args=("--frame-times",))
+        run,
+        "One stress round, against every environment that runs here.",
+        pictures=True,
+        program_args=("--frame-times",),
+    )
 
 
 if __name__ == "__main__":

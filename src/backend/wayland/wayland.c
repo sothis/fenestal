@@ -2346,6 +2346,10 @@ static FNL_MUST_USE FnlResult create_epoll(App *a)
 	if (a->backend_state->repeat_fd < 0)
 		fnl_log(FNL_LOG_WARN, "no timer for key repeat; a held key will type "
 							  "once");
+	/* A GPU that came or went: the same netlink group KMS reads, opened
+	 * here so the window servers' backends hear a hotplug too. */
+	FNL_TRY(loop_uevent_open(&a->backend_state->uevent_fd,
+							 a->backend_state->epoll_fd));
 	return FNL_OK;
 }
 
@@ -2382,9 +2386,9 @@ static FnlResult wl_open(App *a)
 	a->backend_state = p;
 	/* Not the calloc's zero, which is stdin: wl_close() closes whatever is not
 	 * negative. */
-	p->wake_fd = p->epoll_fd = p->repeat_fd = -1;
-	p->clip_fd                              = -1;
-	p->feedback_cur                         = -1;
+	p->wake_fd = p->epoll_fd = p->repeat_fd = p->uevent_fd = -1;
+	p->clip_fd                                             = -1;
+	p->feedback_cur                                        = -1;
 	snprintf(p->clip_marker, sizeof p->clip_marker,
 			 "application/x-fenestal-owner-%ld", (long)getpid());
 	p->repeat_rate  = REPEAT_RATE_DEFAULT;
@@ -2458,6 +2462,8 @@ static void wl_pump(App *a, int timeout_ms)
 			repeat = true;
 		else if (evs[i].data.fd == p->clip_fd)
 			paste = true;
+		else if (evs[i].data.fd == p->uevent_fd)
+			loop_uevent_drain(a, p->uevent_fd);
 		else
 			display_ev |= evs[i].events;
 	}
@@ -2823,11 +2829,13 @@ static void wl_close(App *a)
 			close(p->epoll_fd);
 		if (p->wake_fd >= 0)
 			close(p->wake_fd);
+		if (p->uevent_fd >= 0)
+			close(p->uevent_fd);
 	}
 	/* The repeat timer is the pump's alone, so it closes either way. */
 	if (p->repeat_fd >= 0)
 		close(p->repeat_fd);
-	p->epoll_fd = p->wake_fd = p->repeat_fd = -1;
+	p->epoll_fd = p->wake_fd = p->repeat_fd = p->uevent_fd = -1;
 
 	free(p);
 	a->backend_state = NULL;

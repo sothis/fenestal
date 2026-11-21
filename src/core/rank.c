@@ -55,25 +55,25 @@
 #include <sys/stat.h>
 #include <time.h>
 #if defined(_WIN32)
-#  include <direct.h>
-#  include <process.h>
+#include <direct.h>
+#include <process.h>
 #else
-#  include <unistd.h>
+#include <unistd.h>
 #endif
 
-#define CAL_SETTLE   1.5     /* seconds drawn at most before sampling */
-#define CAL_SAMPLE   2.0     /* seconds sampled at most */
-#define CAL_SETTLE_MIN 0.5   /* drawn at least, before a figure is believed */
-#define CAL_SAMPLE_MIN 0.5   /* and sampled at least */
-#define CAL_BIN      0.25    /* the span the figure is watched over */
-#define CAL_STEADY   0.05    /* two spans this close: the clocks have risen */
-#define CAL_CONVERGE 0.03    /* the running mean moving less: measured */
-#define CAL_OUTCLASS 0.5     /* settled under this of the best: not sampled */
-#define CAL_SWITCH   0.2     /* what a switch is guessed at, before one ran */
-#define CAL_MOVE     1.8     /* and a move to another kernel driver, more */
-#define CAL_LIMIT   30.0     /* an entry not drawn on in this is left out */
-#define RANK_QUIET   1.0     /* seconds on one output, unmoved, to act */
-#define CAL_PANEL_W  640     /* the panel's least width, points, padding out */
+#define CAL_SETTLE 1.5     /* seconds drawn at most before sampling */
+#define CAL_SAMPLE 2.0     /* seconds sampled at most */
+#define CAL_SETTLE_MIN 0.5 /* drawn at least, before a figure is believed */
+#define CAL_SAMPLE_MIN 0.5 /* and sampled at least */
+#define CAL_BIN 0.25       /* the span the figure is watched over */
+#define CAL_STEADY 0.05    /* two spans this close: the clocks have risen */
+#define CAL_CONVERGE 0.03  /* the running mean moving less: measured */
+#define CAL_OUTCLASS 0.5   /* settled under this of the best: not sampled */
+#define CAL_SWITCH 0.2     /* what a switch is guessed at, before one ran */
+#define CAL_MOVE 1.8       /* and a move to another kernel driver, more */
+#define CAL_LIMIT 30.0     /* an entry not drawn on in this is left out */
+#define RANK_QUIET 1.0     /* seconds on one output, unmoved, to act */
+#define CAL_PANEL_W 640    /* the panel's least width, points, padding out */
 
 enum { CAL_OFF, CAL_NEXT, CAL_LANDING, CAL_SETTLING, CAL_SAMPLING };
 enum { RANK_AUTO, RANK_CALIBRATE, RANK_KEEP, RANK_ORDER, RANK_OFF };
@@ -89,7 +89,7 @@ static void program_name(char *out, size_t size)
 #elif defined(__APPLE__)
 	snprintf(path, sizeof path, "%s", getprogname());
 #else
-	const ssize_t k = readlink("/proc/self/exe", path, sizeof path - 1);
+	const ssize_t k     = readlink("/proc/self/exe", path, sizeof path - 1);
 	path[k > 0 ? k : 0] = '\0';
 #endif
 	const char *base = path;
@@ -160,7 +160,7 @@ static bool cache_dir(char *out, size_t size)
  * renderer and no snapshot's copy, the CPU half the render thread's CPU
  * time to the present's return (DESIGN *What a frame costs, compared*). */
 #define RANK_VERSION "v2"
-#define RANK_HEAD    "# fenestal GPU ranking " RANK_VERSION ":"
+#define RANK_HEAD "# fenestal GPU ranking " RANK_VERSION ":"
 
 /* The ranking file: one line a figure, "<fps>\t<display>\t<key>", 0 for an
  * entry that would not draw there, after a line saying what it is and its
@@ -175,9 +175,11 @@ static void rank_load(App *a)
 	if (!fgets(line, sizeof line, f) ||
 		strncmp(line, RANK_HEAD, strlen(RANK_HEAD)) != 0) {
 		fclose(f);
-		fnl_log(FNL_LOG_INFO, "GPU rank: %s is from before the figures "
+		fnl_log(FNL_LOG_INFO,
+				"GPU rank: %s is from before the figures "
 				"meant what they mean now (" RANK_VERSION "); every entry "
-				"is measured again", a->rank_path);
+				"is measured again",
+				a->rank_path);
 		return;
 	}
 	int n = 0;
@@ -227,13 +229,14 @@ static bool rank_save(const App *a)
 	FILE *f = fopen(tmp, "w");
 	if (!f)
 		return false;
-	const time_t now = time(NULL);
-	char when[32] = "";
+	const time_t now   = time(NULL);
+	char when[32]      = "";
 	const struct tm *t = gmtime(&now);
 	if (t)
 		strftime(when, sizeof when, "%Y-%m-%d %H:%M UTC", t);
-	fprintf(f, RANK_HEAD " %s, last measured %s; <fps> "
-			"<display> <entry>, 0 where it would not draw\n",
+	fprintf(f,
+			RANK_HEAD " %s, last measured %s; <fps> "
+					  "<display> <entry>, 0 where it would not draw\n",
 			BACKEND(a)->name, when);
 	for (int i = 0; i < a->rank_n; i++)
 		fprintf(f, "%.1f\t%s\t%s\n", a->rank[i].fps, a->rank[i].display,
@@ -242,9 +245,9 @@ static bool rank_save(const App *a)
 	 * and may leave fclose() nothing to fail on: renamed, the short file
 	 * would stand for the whole ranking. */
 	const bool wrote = !ferror(f);
-	const bool ok = fclose(f) == 0 && wrote;
+	const bool ok    = fclose(f) == 0 && wrote;
 	if (!ok) {
-		const int e = errno;        /* what the callers' line says */
+		const int e = errno; /* what the callers' line says */
 		(void)remove(tmp);
 		errno = e;
 		return false;
@@ -264,7 +267,7 @@ static bool rank_save(const App *a)
  * the other outputs a window straddles after " + ". */
 static size_t output_name_len(const char *name)
 {
-	size_t len = strlen(name);
+	size_t len      = strlen(name);
 	const char *cut = strstr(name, " + ");
 	if (cut && (size_t)(cut - name) < len)
 		len = (size_t)(cut - name);
@@ -293,13 +296,12 @@ static void display_now(App *a, char *out, size_t size)
 {
 	char name[OUTPUT_NAME_MAX];
 	fnl_mutex_lock(&a->lock);
-	snprintf(name, sizeof name, "%s", a->want_output[0] ? a->want_output
-														: "-");
+	snprintf(name, sizeof name, "%s", a->want_output[0] ? a->want_output : "-");
 	const int w_pt = a->want_out_w_pt, h_pt = a->want_out_h_pt;
 	const int mode_w = a->want_out_mode_w, mode_h = a->want_out_mode_h;
 	fnl_mutex_unlock(&a->lock);
 	FnlMode modes[OUTPUT_MODES_MAX];
-	int cur = -1;
+	int cur     = -1;
 	const int n = BACKEND(a)->modes(a, modes, OUTPUT_MODES_MAX, &cur);
 	/* Where the backend says the mode, the output's name from the same
 	 * selection: the name published lags a switch between outputs, and
@@ -307,9 +309,8 @@ static void display_now(App *a, char *out, size_t size)
 	 * has (KMS's sel_want, which both of these read). */
 	char outs[OUTPUTS_MAX][OUTPUT_NAME_MAX];
 	int out_cur = -1;
-	const int k = n > 0 ? BACKEND(a)->outputs(a, outs, OUTPUTS_MAX,
-											  &out_cur)
-						: 0;
+	const int k =
+		n > 0 ? BACKEND(a)->outputs(a, outs, OUTPUTS_MAX, &out_cur) : 0;
 	if (k > 0 && out_cur >= 0 && out_cur < k)
 		snprintf(name, sizeof name, "%s", outs[out_cur]);
 	/* The output followed and nothing else. A straddle is no display of
@@ -319,8 +320,8 @@ static void display_now(App *a, char *out, size_t size)
 	int w, h;
 	unsigned int mhz;
 	if (n > 0 && cur >= 0 && cur < n) {
-		w = modes[cur].w_px;
-		h = modes[cur].h_px;
+		w   = modes[cur].w_px;
+		h   = modes[cur].h_px;
 		mhz = modes[cur].refresh_mhz;
 	} else if (mode_w > 0 && mode_h > 0) {
 		/* The output's own mode, where the backend publishes one apart from
@@ -328,14 +329,14 @@ static void display_now(App *a, char *out, size_t size)
 		 * window, another output's while it straddles two, and the mode
 		 * itself after a move until bounds come -- three names for two
 		 * monitors, each measured. */
-		w = mode_w;
-		h = mode_h;
+		w   = mode_w;
+		h   = mode_h;
 		mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
 	} else {
 		const int s = fnl_scale120(a);
-		w = w_pt * s / 120;
-		h = h_pt * s / 120;
-		mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
+		w           = w_pt * s / 120;
+		h           = h_pt * s / 120;
+		mhz         = fnl_atomic_load_u32(&a->out_refresh_mhz);
 	}
 	snprintf(out, size, "%s %dx%d@%u", name, w, h, (mhz + 500) / 1000);
 	/* A rate not said yet -- X11 reads it a pump turn after the window
@@ -365,7 +366,7 @@ static void display_now(App *a, char *out, size_t size)
 		return;
 	char unrated[RANK_DISPLAY_MAX];
 	memcpy(unrated, pre, len);
-	unrated[len] = '0';
+	unrated[len]     = '0';
 	unrated[len + 1] = '\0';
 	/* Under the lock: the lister thread orders the list by these names
 	 * (gpu_merge()). */
@@ -375,14 +376,15 @@ static void display_now(App *a, char *out, size_t size)
 		rated = strcmp(a->rank[i].display, out) == 0;
 	for (int i = 0; i < a->rank_n && !rated; i++)
 		if (strcmp(a->rank[i].display, unrated) == 0) {
-			snprintf(a->rank[i].display, sizeof a->rank[i].display, "%s",
-					 out);
+			snprintf(a->rank[i].display, sizeof a->rank[i].display, "%s", out);
 			renamed = true;
 		}
 	fnl_mutex_unlock(&a->lock);
 	if (renamed) {
-		fnl_log(FNL_LOG_INFO, "GPU rank: the figures for %s are %s's, its "
-				"rate now known", unrated, out);
+		fnl_log(FNL_LOG_INFO,
+				"GPU rank: the figures for %s are %s's, its "
+				"rate now known",
+				unrated, out);
 		if ((a->rank_mode == RANK_AUTO || a->rank_mode == RANK_CALIBRATE) &&
 			!rank_save(a))
 			fnl_log(FNL_LOG_WARN, "GPU rank: %s could not be written (%s)",
@@ -395,7 +397,7 @@ static double figure(const App *a, const char *display, const char *id)
 {
 	for (int i = 0; i < a->rank_n; i++)
 		if (strcmp(a->rank[i].id, id) == 0 &&
-				strcmp(a->rank[i].display, display) == 0)
+			strcmp(a->rank[i].display, display) == 0)
 			return a->rank[i].fps;
 	return -1.0;
 }
@@ -403,8 +405,7 @@ static double figure(const App *a, const char *display, const char *id)
 /* What orders entry `id` on `display`: its figure there, or where none is
  * kept yet -- a display the window has not been measured on -- its best
  * on any other, so a new display starts from what is known. */
-static double order_figure(const App *a, const char *display,
-						   const char *id)
+static double order_figure(const App *a, const char *display, const char *id)
 {
 	const double here = figure(a, display, id);
 	if (here >= 0.0)
@@ -441,18 +442,18 @@ static bool makeable(const App *a, const char *id, bool offered,
 	if (!bar)
 		return false;
 	const char *name = bar + 1;
-	const char *d = app_gpu_driver_of(name);
+	const char *d    = app_gpu_driver_of(name);
 	if (d)
-		return offered && (strcmp(d, g->bound) == 0 ||
-						   strcmp(d, g->other) == 0);
+		return offered &&
+			   (strcmp(d, g->bound) == 0 || strcmp(d, g->other) == 0);
 	if (!offered)
 		return true;
 	const size_t len = strlen(name);
 	for (int i = 0; i < a->rank_n; i++) {
-		const char *b = strchr(a->rank[i].id, '|');
+		const char *b  = strchr(a->rank[i].id, '|');
 		const char *kd = b ? app_gpu_driver_of(b + 1) : NULL;
 		if (kd && (size_t)(kd - 4 - (b + 1)) == len &&
-				strncmp(b + 1, name, len) == 0)
+			strncmp(b + 1, name, len) == 0)
 			return false;
 	}
 	return true;
@@ -523,52 +524,56 @@ static void open_on(App *a, int k, const char *id)
 
 void app_rank_start(App *a)
 {
-	a->cal.state = CAL_OFF;
-	a->cal.at = 0.0;
-	a->rank_target = 0;
+	a->cal.state    = CAL_OFF;
+	a->cal.at       = 0.0;
+	a->rank_target  = 0;
 	a->rank_land[0] = '\0';
 	/* What the caller asked for, before the ranking or a move spends it:
 	 * a name stands for the window's life, and an index counts the ranked
 	 * list whenever the window is aimed again (aim()). */
-	a->rank_asked_name = a->gpu_want[0] != '\0';
+	a->rank_asked_name  = a->gpu_want[0] != '\0';
 	a->rank_asked_index = a->gpu_index;
-	a->rank_dirty = true;
-	a->rank_display[0] = '\0';
+	a->rank_dirty       = true;
+	a->rank_display[0]  = '\0';
 	fnl_atomic_store_bool(&a->calibrating, false);
 	const char *v = getenv("FNL_GPU_RANK");
-	a->rank_mode = !v || !v[0]                   ? RANK_AUTO
-				 : strcmp(v, "calibrate") == 0   ? RANK_CALIBRATE
-				 : strcmp(v, "keep") == 0        ? RANK_KEEP
-				 : strcmp(v, "order") == 0       ? RANK_ORDER
-				 : strcmp(v, "off") == 0         ? RANK_OFF
-														 : RANK_AUTO;
+	a->rank_mode  = !v || !v[0]                   ? RANK_AUTO
+					: strcmp(v, "calibrate") == 0 ? RANK_CALIBRATE
+					: strcmp(v, "keep") == 0      ? RANK_KEEP
+					: strcmp(v, "order") == 0     ? RANK_ORDER
+					: strcmp(v, "off") == 0       ? RANK_OFF
+												  : RANK_AUTO;
 	/* FnlInitDesc::no_gpu_ranking means what unset now does not: nothing
 	 * measured with the window up, for a program a person starts to use. The
 	 * environment still decides where it speaks. */
 	if (a->rank_no_measure && (!v || !v[0]))
 		a->rank_mode = RANK_OFF;
 	if (v && v[0] && a->rank_mode == RANK_AUTO)
-		fnl_log(FNL_LOG_WARN, "FNL_GPU_RANK is '%s': calibrate, keep, "
-				"order, off, or unset", v);
+		fnl_log(FNL_LOG_WARN,
+				"FNL_GPU_RANK is '%s': calibrate, keep, "
+				"order, off, or unset",
+				v);
 	if (a->rank_mode == RANK_OFF)
 		return;
 	char dir[512], prog[96];
 	if (!cache_dir(dir, sizeof dir)) {
 		fnl_log(FNL_LOG_INFO, "GPU rank: no cache directory, so no ranking "
-				"is kept");
+							  "is kept");
 		a->rank_mode = RANK_OFF;
 		return;
 	}
 	program_name(prog, sizeof prog);
-	snprintf(a->rank_path, sizeof a->rank_path, "%s/gpu-rank-%s-%s.txt",
-			 dir, prog, BACKEND(a)->key);
+	snprintf(a->rank_path, sizeof a->rank_path, "%s/gpu-rank-%s-%s.txt", dir,
+			 prog, BACKEND(a)->key);
 	rank_load(a);
 	if (a->rank_n == 0)
 		return;
 	char display[RANK_DISPLAY_MAX];
 	display_now(a, display, sizeof display);
-	fnl_log(FNL_LOG_INFO, "GPU rank: %d figures kept, from %s; the window "
-			"on %s%s", a->rank_n, a->rank_path, display,
+	fnl_log(FNL_LOG_INFO,
+			"GPU rank: %d figures kept, from %s; the window "
+			"on %s%s",
+			a->rank_n, a->rank_path, display,
 			a->rank_mode == RANK_ORDER ? ", the list ordered alone" : "");
 	if (a->rank_mode == RANK_ORDER)
 		return;
@@ -579,7 +584,7 @@ void app_rank_start(App *a)
 	if (a->gpu_want[0])
 		return;
 	a->rank_target = a->gpu_index > 0 ? a->gpu_index : 1;
-	a->gpu_index = 0;
+	a->gpu_index   = 0;
 	char id[RANK_ID_MAX];
 	if (ranked_id(a, display, a->rank_target, id, sizeof id))
 		open_on(a, a->rank_target, id);
@@ -593,8 +598,7 @@ void app_rank_start(App *a)
  * that ranked was moved onto the GPU's own swapchain, which a frame's cost
  * does not show is a refresh or three later on screen and, on Intel, 33 to
  * 44 fps through a drag (DESIGN *Vulkan through DXGI*). */
-void app_gpu_entry_id(const App *a, const GpuEntry *e, char *out,
-					  size_t size)
+void app_gpu_entry_id(const App *a, const GpuEntry *e, char *out, size_t size)
 {
 	char cut[GPU_NAME_MAX];
 	/* A renderer's software rasteriser by its kind: OpenGL lists Mesa's as
@@ -604,8 +608,7 @@ void app_gpu_entry_id(const App *a, const GpuEntry *e, char *out,
 		snprintf(out, size, "%s|software", app_renderer_key(e->renderer));
 	else if (e->driver[0] && a->gpu_driver_gpu[0])
 		snprintf(out, size, "%s|%s on %s", app_renderer_key(e->renderer),
-				 app_gpu_short(cut, sizeof cut, a->gpu_driver_gpu),
-				 e->driver);
+				 app_gpu_short(cut, sizeof cut, a->gpu_driver_gpu), e->driver);
 	else
 		snprintf(out, size, "%s|%s", app_renderer_key(e->renderer),
 				 app_gpu_short(cut, sizeof cut, e->name));
@@ -631,7 +634,7 @@ void app_rank_sort(const App *a, GpuEntry *list, int n)
 	 * moves the window (app_rank_tick()). */
 	for (int i = 1; i < n; i++) {
 		const GpuEntry e = list[i];
-		int j = i;
+		int j            = i;
 		while (j > 0 && (list[j - 1].fps < e.fps ||
 						 (list[j - 1].fps == e.fps && e.way_default &&
 						  list[j - 1].renderer == e.renderer &&
@@ -676,8 +679,7 @@ static int entry_of(App *a, const char *id, int *cur)
 	for (int i = 0; i < a->gpu_list_n; i++) {
 		char k[RANK_ID_MAX];
 		app_gpu_entry_id(a, &a->gpu_list[i], k, sizeof k);
-		if (strcmp(k, id) == 0 &&
-			(found < 0 || a->gpu_list[i].way_default))
+		if (strcmp(k, id) == 0 && (found < 0 || a->gpu_list[i].way_default))
 			found = i;
 	}
 	*cur = a->gpu_list_cur;
@@ -690,7 +692,7 @@ static void request(App *a, int i)
 {
 	fnl_mutex_lock(&a->lock);
 	if (i >= 0 && i < a->gpu_list_n && i != a->gpu_list_cur) {
-		a->gpu_req = i + 1;
+		a->gpu_req       = i + 1;
 		a->gpu_req_entry = a->gpu_list[i];
 	}
 	fnl_mutex_unlock(&a->lock);
@@ -715,18 +717,20 @@ static void order_plan(App *a, const char *display)
 	double key[GPU_LIST_MAX * 2];
 	for (int j = 0; j < a->cal.n; j++)
 		key[j] = software_id(a->cal.ids[j])
-			   ? -1.0 : order_figure(a, display, a->cal.ids[j]) + 1.0;
+					 ? -1.0
+					 : order_figure(a, display, a->cal.ids[j]) + 1.0;
 	/* Insertion sort, stable, within each run of one group. */
 	for (int j = 1; j < a->cal.n; j++) {
 		for (int k = j; k > 0 && a->cal.group[k - 1] == a->cal.group[k] &&
-						key[k - 1] < key[k]; k--) {
+						key[k - 1] < key[k];
+			 k--) {
 			char id[RANK_ID_MAX];
 			memcpy(id, a->cal.ids[k], sizeof id);
 			memcpy(a->cal.ids[k], a->cal.ids[k - 1], sizeof id);
 			memcpy(a->cal.ids[k - 1], id, sizeof id);
 			const double t = key[k];
-			key[k] = key[k - 1];
-			key[k - 1] = t;
+			key[k]         = key[k - 1];
+			key[k - 1]     = t;
 		}
 	}
 }
@@ -777,16 +781,17 @@ static void begin(App *a, const char *why)
 	a->cal.started = a->cal.entry_at = now_seconds();
 	a->cal.dur_sum[0] = a->cal.dur_sum[1] = 0.0;
 	a->cal.dur_k[0] = a->cal.dur_k[1] = 0;
-	a->cal.back[0] = '\0';
+	a->cal.back[0]                    = '\0';
 	fnl_mutex_lock(&a->lock);
 	if (a->gpu_list_cur >= 0 && a->gpu_list_cur < a->gpu_list_n)
 		app_gpu_entry_id(a, &a->gpu_list[a->gpu_list_cur], a->cal.back,
 						 sizeof a->cal.back);
 	fnl_mutex_unlock(&a->lock);
 	fnl_atomic_store_bool(&a->calibrating, true);
-	fnl_log(FNL_LOG_INFO, "GPU rank: calibrating %d entries on %s, %.1f to "
-			"%.1f s each, the window taking no input: %s", a->cal.n,
-			a->cal.display, CAL_SETTLE_MIN + CAL_SAMPLE_MIN,
+	fnl_log(FNL_LOG_INFO,
+			"GPU rank: calibrating %d entries on %s, %.1f to "
+			"%.1f s each, the window taking no input: %s",
+			a->cal.n, a->cal.display, CAL_SETTLE_MIN + CAL_SAMPLE_MIN,
 			CAL_SETTLE + CAL_SAMPLE, why);
 }
 
@@ -798,7 +803,7 @@ static void keep(App *a, const char *display, const char *id, double fps)
 	int at = -1;
 	for (int i = 0; i < a->rank_n && at < 0; i++)
 		if (strcmp(a->rank[i].id, id) == 0 &&
-				strcmp(a->rank[i].display, display) == 0)
+			strcmp(a->rank[i].display, display) == 0)
 			at = i;
 	if (at < 0 && a->rank_n < RANK_MAX)
 		at = a->rank_n++;
@@ -810,8 +815,10 @@ static void keep(App *a, const char *display, const char *id, double fps)
 	}
 	fnl_mutex_unlock(&a->lock);
 	if (at < 0)
-		fnl_log(FNL_LOG_WARN, "GPU rank: %d figures kept already; %s on %s "
-				"is not", RANK_MAX, id, display);
+		fnl_log(FNL_LOG_WARN,
+				"GPU rank: %d figures kept already; %s on %s "
+				"is not",
+				RANK_MAX, id, display);
 }
 
 /* Where the window goes once the ranking has said something new -- a
@@ -885,8 +892,8 @@ static void measured(App *a, const char *why)
 	const double gpu = a->cal.gpu_k ? a->cal.gpu_sum / a->cal.gpu_k : 0.0;
 	const double cpu = a->cal.cpu_k ? a->cal.cpu_sum / a->cal.cpu_k : 0.0;
 	const double fps = rate_of(gpu, cpu);
-	const char *id = a->cal.ids[a->cal.i];
-	const int g = a->cal.group[a->cal.i];
+	const char *id   = a->cal.ids[a->cal.i];
+	const int g      = a->cal.group[a->cal.i];
 	a->cal.dur_sum[g] += now_seconds() - a->cal.entry_at;
 	a->cal.dur_k[g]++;
 	if (why || !(fps > 0.0)) {
@@ -894,9 +901,10 @@ static void measured(App *a, const char *why)
 				why ? why : "no frame cost measured");
 	} else {
 		a->cal.fps[a->cal.i] = fps;
-		fnl_log(FNL_LOG_INFO, "GPU rank: %s: %.0f fps (GPU %.2f ms, CPU "
-				"%.2f ms) in %.1f s", id, fps, gpu * 1e3, cpu * 1e3,
-				now_seconds() - a->cal.entry_at);
+		fnl_log(FNL_LOG_INFO,
+				"GPU rank: %s: %.0f fps (GPU %.2f ms, CPU "
+				"%.2f ms) in %.1f s",
+				id, fps, gpu * 1e3, cpu * 1e3, now_seconds() - a->cal.entry_at);
 	}
 	a->cal.i++;
 	a->cal.state = CAL_NEXT;
@@ -943,18 +951,18 @@ static double bin_tick(App *a, double now)
 	a->cal.span_cpu = a->cal.bin_ck ? a->cal.bin_cpu / a->cal.bin_ck : 0.0;
 	a->cal.bin_gpu = a->cal.bin_cpu = 0.0;
 	a->cal.bin_gk = a->cal.bin_ck = 0;
-	a->cal.bin_at = now;
+	a->cal.bin_at                 = now;
 	return rate_of(a->cal.span_gpu, a->cal.span_cpu);
 }
 
 static void enter(App *a, int state, double now)
 {
 	a->cal.state = state;
-	a->cal.at = now;
+	a->cal.at    = now;
 	/* Each of the two watched states starts its spans afresh. */
 	a->cal.bin_gpu = a->cal.bin_cpu = 0.0;
 	a->cal.bin_gk = a->cal.bin_ck = 0;
-	a->cal.bin_at = now;
+	a->cal.bin_at                 = now;
 	a->cal.bin_last = a->cal.mean_last = 0.0;
 }
 
@@ -1020,15 +1028,15 @@ static void recalibrate(App *a, const char *display)
 		k = 0;
 	/* A key is "<name> WxH@R" and a name may hold spaces (Cocoa's): the
 	 * name is what comes before the last. */
-	const char *sp = strrchr(display, ' ');
+	const char *sp    = strrchr(display, ' ');
 	const size_t here = sp ? (size_t)(sp - display) : strlen(display);
 	fnl_mutex_lock(&a->lock);
 	int n = 0;
 	for (int i = 0; i < a->rank_n; i++) {
-		const char *d = a->rank[i].display;
-		sp = strrchr(d, ' ');
+		const char *d    = a->rank[i].display;
+		sp               = strrchr(d, ' ');
 		const size_t len = sp ? (size_t)(sp - d) : strlen(d);
-		bool drop = len == here && strncmp(d, display, here) == 0;
+		bool drop        = len == here && strncmp(d, display, here) == 0;
 		for (int j = 0; j < k && !drop; j++)
 			drop = output_name_len(names[j]) == len &&
 				   strncmp(d, names[j], len) == 0;
@@ -1036,10 +1044,12 @@ static void recalibrate(App *a, const char *display)
 			a->rank[n++] = a->rank[i];
 	}
 	const int dropped = a->rank_n - n;
-	a->rank_n = n;
+	a->rank_n         = n;
 	fnl_mutex_unlock(&a->lock);
-	fnl_log(FNL_LOG_INFO, "GPU rank: %d figures of the displays connected "
-			"dropped, asked for from the GPU box", dropped);
+	fnl_log(FNL_LOG_INFO,
+			"GPU rank: %d figures of the displays connected "
+			"dropped, asked for from the GPU box",
+			dropped);
 	plan(a, display, true);
 	if (a->cal.n == 0)
 		return;
@@ -1082,8 +1092,8 @@ static bool quiet(App *a, const char *display, double now)
 	if (strcmp(display, a->rank_seen) != 0 || w != a->rank_seen_w ||
 		h != a->rank_seen_h) {
 		snprintf(a->rank_seen, sizeof a->rank_seen, "%s", display);
-		a->rank_seen_w = w;
-		a->rank_seen_h = h;
+		a->rank_seen_w  = w;
+		a->rank_seen_h  = h;
 		a->rank_seen_at = now;
 	}
 	return !straddles && now - a->rank_seen_at >= RANK_QUIET;
@@ -1097,33 +1107,46 @@ void app_rank_tick(App *a)
 			return;
 		/* The window on another display: the list ordered for it, and
 		 * measured there where nothing is kept. A list with entries it
-		 * had not -- a GPU added -- is asked about the same way. */
+		 * had not -- a GPU added -- is asked about the same way. The
+		 * display stamp gates the derivation: it moves on every publish
+		 * that can change the display, so a mode switch that keeps the
+		 * size moves it too, while a turn that changes nothing costs a
+		 * compare instead of two round trips through the backend. */
 		char display[RANK_DISPLAY_MAX];
-		display_now(a, display, sizeof display);
-		const unsigned long hash = list_hash(a);
-		if (strcmp(display, a->rank_display) != 0 ||
+		if (a->rank_gen_seen != a->display_gen) {
+			a->rank_gen_seen = a->display_gen;
+			display_now(a, display, sizeof display);
+			const unsigned long hash = list_hash(a);
+			if (strcmp(display, a->rank_display) != 0 ||
 				hash != a->rank_list_hash) {
-			/* Moved to another display, not opened on one: to its first
-			 * entry, or the caller's index, as the start would be -- once
-			 * anything missing there is measured, after which the
-			 * calibration sends it anyway; left where it is on a GPU the
-			 * caller named. Not where the ranking is only kept, as a
-			 * harness round's is, whose own moves between displays are
-			 * checked as such. */
-			const bool moved = a->rank_display[0] &&
-							   strcmp(display, a->rank_display) != 0;
-			if (moved && a->rank_mode == RANK_AUTO)
-				aim(a, "");
+				/* Moved to another display, not opened on one: to its first
+				 * entry, or the caller's index, as the start would be -- once
+				 * anything missing there is measured, after which the
+				 * calibration sends it anyway; left where it is on a GPU the
+				 * caller named. Not where the ranking is only kept, as a
+				 * harness round's is, whose own moves between displays are
+				 * checked as such. */
+				const bool moved =
+					a->rank_display[0] && strcmp(display, a->rank_display) != 0;
+				if (moved && a->rank_mode == RANK_AUTO)
+					aim(a, "");
+				fnl_mutex_lock(&a->lock);
+				snprintf(a->rank_display, sizeof a->rank_display, "%s",
+						 display);
+				fnl_mutex_unlock(&a->lock);
+				a->rank_list_hash = hash;
+				a->rank_dirty     = true;
+				app_gpu_list_merge(a);
+				/* Ordered for this display now: its numbers are said again. */
+				if (moved && a->rank_n > 0)
+					app_gpu_list_say(a);
+			}
+		} else {
+			/* The display the last derivation settled on: the recalibration
+			 * below is the only reader that runs with the gate closed. */
 			fnl_mutex_lock(&a->lock);
-			snprintf(a->rank_display, sizeof a->rank_display, "%s",
-					 display);
+			snprintf(display, sizeof display, "%s", a->rank_display);
 			fnl_mutex_unlock(&a->lock);
-			a->rank_list_hash = hash;
-			a->rank_dirty = true;
-			app_gpu_list_merge(a);
-			/* Ordered for this display now: its numbers are said again. */
-			if (moved && a->rank_n > 0)
-				app_gpu_list_say(a);
 		}
 		if (fnl_atomic_load_bool(&a->rank_recal_owed)) {
 			fnl_atomic_store_bool(&a->rank_recal_owed, false);
@@ -1147,8 +1170,10 @@ void app_rank_tick(App *a)
 			int cur;
 			const int at = entry_of(a, a->rank_land, &cur);
 			if (at < 0)
-				fnl_log(FNL_LOG_WARN, "GPU rank: %s, the GPU named, is no "
-						"longer in the list", a->rank_land);
+				fnl_log(FNL_LOG_WARN,
+						"GPU rank: %s, the GPU named, is no "
+						"longer in the list",
+						a->rank_land);
 			else if (at != cur)
 				request(a, at);
 			a->rank_land[0] = '\0';
@@ -1161,26 +1186,27 @@ void app_rank_tick(App *a)
 		 * entries alone where one was named, since a move to another
 		 * renderer's would draw with one that was not asked for. */
 		const int want = a->rank_target;
-		int k = want - 1;
+		int k          = want - 1;
 		a->rank_target = 0;
 		fnl_mutex_lock(&a->lock);
 		if (a->renderer_named != FNL_RENDERER_DEFAULT) {
 			int seen = 0;
-			k = -1;
+			k        = -1;
 			for (int i = 0; i < a->gpu_list_n && k < 0; i++)
 				if (a->gpu_list[i].renderer == a->renderer_named &&
 					++seen == want)
 					k = i;
 		}
-		const bool ranked = k >= 0 && k < a->gpu_list_n &&
-							a->gpu_list[k].fps > 0.0f;
+		const bool ranked =
+			k >= 0 && k < a->gpu_list_n && a->gpu_list[k].fps > 0.0f;
 		fnl_mutex_unlock(&a->lock);
 		if (ranked)
 			request(a, k);
 		else
-			fnl_log(FNL_LOG_WARN, "GPU rank: no entry %d%s measured here",
-					want, a->renderer_named != FNL_RENDERER_DEFAULT
-						  ? " of the named renderer's" : "");
+			fnl_log(FNL_LOG_WARN, "GPU rank: no entry %d%s measured here", want,
+					a->renderer_named != FNL_RENDERER_DEFAULT
+						? " of the named renderer's"
+						: "");
 		return;
 	}
 	/* The window taken to another display meanwhile -- its own unplugged,
@@ -1191,9 +1217,10 @@ void app_rank_tick(App *a)
 	char display[RANK_DISPLAY_MAX];
 	display_now(a, display, sizeof display);
 	if (strcmp(display, a->cal.display) != 0) {
-		fnl_log(FNL_LOG_INFO, "GPU rank: the window left %s for %s with %d "
-				"of %d entries measured; those kept", a->cal.display,
-				display, a->cal.i, a->cal.n);
+		fnl_log(FNL_LOG_INFO,
+				"GPU rank: the window left %s for %s with %d "
+				"of %d entries measured; those kept",
+				a->cal.display, display, a->cal.i, a->cal.n);
 		a->cal.n = a->cal.i;
 		finish(a);
 		/* And to the first entry on the display it is on now, once
@@ -1220,9 +1247,11 @@ void app_rank_tick(App *a)
 		/* What the panel says against what it comes to: the elapsed
 		 * time and the estimate at each entry, and the whole at the end
 		 * (finish()). */
-		fnl_log(FNL_LOG_INFO, "GPU rank: entry %d of %d at %.1f s, %.0f s "
-				"left by the estimate", a->cal.i + 1, a->cal.n,
-				now - a->cal.started, time_left(a, now));
+		fnl_log(FNL_LOG_INFO,
+				"GPU rank: entry %d of %d at %.1f s, %.0f s "
+				"left by the estimate",
+				a->cal.i + 1, a->cal.n, now - a->cal.started,
+				time_left(a, now));
 		at = entry_of(a, a->cal.ids[a->cal.i], &cur);
 		if (at < 0) {
 			measured(a, "not in the list");
@@ -1253,12 +1282,12 @@ void app_rank_tick(App *a)
 		 * whatever they say: a GPU that ramps slowly gets the time it
 		 * always had. */
 		const double fps = bin_tick(a, now);
-		const double in = now - a->cal.at;
-		bool steady = false;
+		const double in  = now - a->cal.at;
+		bool steady      = false;
 		if (fps > 0.0) {
-			steady = in >= CAL_SETTLE_MIN && a->cal.bin_last > 0.0 &&
-					 fabs(fps - a->cal.bin_last) <=
-						 CAL_STEADY * a->cal.bin_last;
+			steady =
+				in >= CAL_SETTLE_MIN && a->cal.bin_last > 0.0 &&
+				fabs(fps - a->cal.bin_last) <= CAL_STEADY * a->cal.bin_last;
 			a->cal.bin_last = fps;
 		}
 		if (!steady && in < CAL_SETTLE)
@@ -1269,13 +1298,14 @@ void app_rank_tick(App *a)
 		 * that loses either way. */
 		const double best = best_here(a);
 		if (steady && best > 0.0 && fps < CAL_OUTCLASS * best) {
-			fnl_log(FNL_LOG_INFO, "GPU rank: %s settled under half of the "
-					"best here (%.0f fps); not sampled", a->cal.ids[a->cal.i],
-					best);
+			fnl_log(FNL_LOG_INFO,
+					"GPU rank: %s settled under half of the "
+					"best here (%.0f fps); not sampled",
+					a->cal.ids[a->cal.i], best);
 			a->cal.gpu_sum = a->cal.span_gpu;
 			a->cal.cpu_sum = a->cal.span_cpu;
-			a->cal.gpu_k = a->cal.span_gpu > 0.0;
-			a->cal.cpu_k = a->cal.span_cpu > 0.0;
+			a->cal.gpu_k   = a->cal.span_gpu > 0.0;
+			a->cal.cpu_k   = a->cal.span_cpu > 0.0;
 			measured(a, NULL);
 			return;
 		}
@@ -1300,19 +1330,17 @@ void app_rank_tick(App *a)
 		if (now - a->cal.bin_at < CAL_BIN)
 			return;
 		a->cal.bin_at = now;
-		const double mean = rate_of(
-			a->cal.gpu_k ? a->cal.gpu_sum / a->cal.gpu_k : 0.0,
-			a->cal.cpu_k ? a->cal.cpu_sum / a->cal.cpu_k : 0.0);
+		const double mean =
+			rate_of(a->cal.gpu_k ? a->cal.gpu_sum / a->cal.gpu_k : 0.0,
+					a->cal.cpu_k ? a->cal.cpu_sum / a->cal.cpu_k : 0.0);
 		if (now - a->cal.at >= CAL_SAMPLE_MIN && a->cal.mean_last > 0.0 &&
-			fabs(mean - a->cal.mean_last) <=
-				CAL_CONVERGE * a->cal.mean_last)
+			fabs(mean - a->cal.mean_last) <= CAL_CONVERGE * a->cal.mean_last)
 			measured(a, NULL);
 		else
 			a->cal.mean_last = mean;
 		return;
 	}
-	default:
-		return;
+	default: return;
 	}
 }
 
@@ -1344,17 +1372,17 @@ static double time_left(const App *a, double now)
 	 * 3.7 on schenker, 2026-10-26, when every entry took the whole settle
 	 * and sample). */
 	double each[2];
-	each[0] = a->cal.dur_k[0] ? a->cal.dur_sum[0] / a->cal.dur_k[0]
-							  : CAL_SETTLE_MIN + CAL_SAMPLE_MIN +
-								2.0 * CAL_BIN + CAL_SWITCH;
-	each[1] = a->cal.dur_k[1] ? a->cal.dur_sum[1] / a->cal.dur_k[1]
-							  : each[0] + CAL_MOVE;
+	each[0]     = a->cal.dur_k[0] ? a->cal.dur_sum[0] / a->cal.dur_k[0]
+								  : CAL_SETTLE_MIN + CAL_SAMPLE_MIN +
+                                    2.0 * CAL_BIN + CAL_SWITCH;
+	each[1]     = a->cal.dur_k[1] ? a->cal.dur_sum[1] / a->cal.dur_k[1]
+								  : each[0] + CAL_MOVE;
 	double left = 0.0;
 	for (int j = a->cal.i; j < a->cal.n; j++)
 		left += each[a->cal.group[j]];
 	if (a->cal.i < a->cal.n) {
 		const double cur = each[a->cal.group[a->cal.i]];
-		double into = now - a->cal.entry_at;
+		double into      = now - a->cal.entry_at;
 		if (into > cur * 0.95)
 			into = cur * 0.95;
 		left -= into;
@@ -1387,8 +1415,8 @@ FnlResult app_rank_draw(App *a, int w, int h)
 	 * name. Narrower than the window only where that is narrow. */
 	const int pad = 20, gap = 12, bar_h = 8;
 	const int lh = text_height(TEXT_LARGE), uh = text_height(TEXT_UI);
-	const int sw = text_width(secs, TEXT_LARGE);
-	int pw = CAL_PANEL_W;
+	const int sw       = text_width(secs, TEXT_LARGE);
+	int pw             = CAL_PANEL_W;
 	const int fixed[3] = { text_width(head, TEXT_UI),
 						   text_width("88888", TEXT_LARGE) + gap +
 							   text_width(unit, TEXT_UI),
@@ -1407,8 +1435,7 @@ FnlResult app_rank_draw(App *a, int w, int h)
 	pw += 2 * pad;
 	if (pw > w - 16)
 		pw = w - 16;
-	const int ph = 2 * pad + uh + gap + lh + gap + bar_h + gap + uh + gap +
-				   uh;
+	const int ph = 2 * pad + uh + gap + lh + gap + bar_h + gap + uh + gap + uh;
 	const int x = (w - pw) / 2, y = (h - ph) / 2;
 
 	overlay_flush_rects(a);
@@ -1427,13 +1454,13 @@ FnlResult app_rank_draw(App *a, int w, int h)
 	ty += uh + gap;
 	/* The unit on the digits' baseline: both sit on their cap heights. */
 	text_draw(a, x + pad, ty, TEXT_LARGE, a->pal[COL_ICON_ON], secs);
-	text_draw(a, x + pad + sw + gap, ty + lh - uh, TEXT_UI,
-			  a->pal[COL_ICON_ON], unit);
+	text_draw(a, x + pad + sw + gap, ty + lh - uh, TEXT_UI, a->pal[COL_ICON_ON],
+			  unit);
 	ty += lh + gap;
 	/* How far it has come, by time: what the figure above says. */
 	const double total = (now - a->cal.started) + time_left(a, now);
-	const double part = total > 0.0 ? (now - a->cal.started) / total : 0.0;
-	const int track = pw - 2 * pad;
+	const double part  = total > 0.0 ? (now - a->cal.started) / total : 0.0;
+	const int track    = pw - 2 * pad;
 	overlay_rect(a, x + pad, ty, track, bar_h, a->pal[COL_CTL_DIM]);
 	overlay_rect(a, x + pad, ty, (int)(track * part), bar_h,
 				 a->pal[COL_CTL_LIVE]);

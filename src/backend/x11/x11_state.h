@@ -455,6 +455,9 @@ struct BackendState {
 	 * pump with, and the epoll set watching it beside the connection. */
 	int wake_fd;
 	int epoll_fd;
+	/* The uevent socket (loop_uevent_open()), in the epoll set: a GPU that
+	 * came or went. -1 where the kernel has no such group. */
+	int uevent_fd;
 };
 
 /* ---- what the backend's files ask of one another ---------------------------

@@ -98,6 +98,7 @@ offset FnlEvent.button.x 16
 offset FnlEvent.button.y 24
 offset FnlEvent.button.button 32
 offset FnlEvent.button.pressed 36
+offset FnlEvent.button.clicks 40
 offset FnlEvent.motion.x 16
 offset FnlEvent.motion.y 24
 offset FnlEvent.relative.dx 16
@@ -127,6 +128,8 @@ offset FnlEvent.output.w_pt 16
 offset FnlEvent.output.h_pt 20
 offset FnlEvent.gpu.index 16
 offset FnlEvent.gpu.renderer 20
+offset FnlEvent.image_lost.lost 16
+offset FnlEvent.claim_focus.claim 16
 sizeof FnlVulkanGpu 56
 offset FnlVulkanGpu.instance 0
 offset FnlVulkanGpu.physical_device 8

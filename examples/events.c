@@ -8,8 +8,8 @@
  *
  * Shows: fnl_poll_event fnl_key_down fnl_invalidate fnl_quit fnl_text_line
  *        fnl_set_fullscreen fnl_is_fullscreen fnl_overlay_flush
- *        fnl_output_name fnl_key_name fnl_key_from_name fnl_is_shown
- *        fnl_set_log_level fnl_post
+ *        fnl_overlay_text_in fnl_output_name fnl_key_name fnl_key_from_name
+ *        fnl_is_shown fnl_set_log_level fnl_post
  */
 
 #include <fenestal/fenestal.h>
@@ -111,6 +111,10 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		case FNL_EVENT_BUTTON:
 			if (ev.button.pressed && ev.button.button == FNL_BUTTON_LEFT)
 				s->clicks++;
+			/* The library's own count: 2 on the second press of a
+			 * double-click, without a clock here. */
+			if (ev.button.pressed && ev.button.clicks > 1)
+				s->clicks += ev.button.clicks - 1;
 			fnl_invalidate(app);
 			break;
 		case FNL_EVENT_SCROLL:
@@ -146,6 +150,20 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	if (s->output[0])
 		fnl_overlay_text(app, 16, 48 + fnl_text_line(FNL_TEXT_BODY),
 						 FNL_TEXT_BODY, ink, s->output);
+
+	/* A line placed by its right edge instead of its left: the count of
+	 * clicks, against the window's right margin, so figures of any width
+	 * line up -- fnl_overlay_text() with a subtraction at every call site
+	 * otherwise, and the subtraction is wrong the moment a figure changes. */
+	{
+		char count[32];
+		int w_pt, h_pt;
+		snprintf(count, sizeof count, "%d clicks", s->clicks);
+		fnl_window_size_pt(app, &w_pt, &h_pt);
+		fnl_overlay_text_in(app, 16, 48 + 2 * fnl_text_line(FNL_TEXT_BODY),
+							w_pt - 32, FNL_TEXT_ALIGN_RIGHT, FNL_TEXT_BODY, ink,
+							count);
+	}
 
 	/* A marker over the text, so drawn after a flush: without it the
 	 * rectangle would go under, every filled rectangle being a background. */

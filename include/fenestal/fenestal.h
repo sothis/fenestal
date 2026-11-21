@@ -616,6 +616,20 @@ typedef enum {
 	 * and a bare display has no outside to leave -- KMS posts neither. */
 	FNL_EVENT_ENTER = 19, /* ev.presence */
 	FNL_EVENT_LEAVE = 20, /* ev.presence */
+
+	/* A caller's image is not drawable until the device that replaced the
+	 * lost one is up: fnl_image_valid() answers false between the two, and
+	 * this says the gap opened, so a caller that keeps a picture across a
+	 * loss redraws rather than polls. The gap closes with FNL_EVENT_GPU,
+	 * which is posted when the device is back. Since 0.9. */
+	FNL_EVENT_IMAGE_LOST = 21, /* ev.image_lost */
+
+	/* The keyboard focus moved to another of the caller's claims: Tab or
+	 * Shift+Tab from inside a claim that asked for the keyboard, or
+	 * fnl_claim_focus() by hand. The focus is the library's to move and the
+	 * caller's to draw: a focus ring is the caller's rectangle, the same as
+	 * every other it draws. Since 0.9. */
+	FNL_EVENT_CLAIM_FOCUS = 22, /* ev.claim_focus */
 } FnlEventType;
 
 /* Each event's own fields, one struct a kind, named so that FnlEvent's union
@@ -639,6 +653,14 @@ typedef struct {
 	double x, y;
 	FnlButton button;
 	bool pressed;
+	/* How many presses of this button this is in the run it belongs to: 1 for
+	 * a lone press, 2 for the second press of a double-click, and so on while
+	 * the presses keep coming within the library's double-click time (400 ms)
+	 * of each other. Only ever set on a press; 0 on a release. The library
+	 * counts it for every button, not only the titlebar's, so a caller's
+	 * double-click needs no clock of its own -- and a press that lands too far
+	 * from the last one, or too long after it, starts the count again. */
+	int clicks;
 } FnlButtonEvent;
 
 typedef struct {
@@ -695,6 +717,12 @@ typedef struct {
 typedef struct {
 	bool fullscreen, maximized;
 } FnlWindowEvent;
+typedef struct {
+	bool lost; /* the images are not drawable until FNL_EVENT_GPU */
+} FnlImageLostEvent;
+typedef struct {
+	int claim; /* the claim's index this frame, or -1 for none */
+} FnlClaimFocusEvent;
 typedef struct {
 	FnlAntialias aa;
 } FnlAntialiasEvent;
@@ -786,6 +814,8 @@ typedef struct {
 		FnlOutputEvent output;
 		FnlGpuEvent gpu;
 		FnlPresenceEvent presence;
+		FnlImageLostEvent image_lost;
+		FnlClaimFocusEvent claim_focus;
 	};
 } FnlEvent;
 
@@ -835,6 +865,12 @@ FNL_STATIC_ASSERT(sizeof(FnlEvent) == 48 || sizeof(FnlEvent) == 40,
  * There is never more than one thread inside a callback. Any of them may use
  * the knobs and fnl_poll_event(); none may call fnl_run() or
  * fnl_shutdown(). */
+/* The two device callbacks, strictly alternating: on_gpu_created on the
+ * thread that called fnl_run() for the outermost pair and on the render
+ * thread for every pair in between (see above). on_gpu_created is where
+ * fnl_image_create() belongs after a loss: the device a caller's images were
+ * uploaded to is gone, and the library re-uploads a surviving image on the
+ * first draw after this returns. */
 typedef struct {
 	size_t size;
 	void *ud;
@@ -1119,6 +1155,33 @@ FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src, int max_w,
 FNL_API int fnl_text_wrap(char *dst, size_t cap, const char *src, int max_w,
 						  FnlTextSize sz); /* [any] */
 
+/* Which end of the rectangle a line of text is placed against: LEFT keeps
+ * `x` as the pen's start, RIGHT makes `x + w` the string's right edge, and
+ * CENTER centres the string on `x + w / 2`. Placement only -- the library's
+ * glyphs are one draw for the frame and are not clipped, so a line wider than
+ * `w` runs past it rather than being cut (fnl_text_elide() is what fits one
+ * to a width). Appended to, never inserted; grows if a placement is added. */
+typedef enum {
+	FNL_TEXT_ALIGN_LEFT   = 0,
+	FNL_TEXT_ALIGN_RIGHT  = 1,
+	FNL_TEXT_ALIGN_CENTER = 2,
+} FnlTextAlign;
+
+/* Place one line of `utf8` inside the rectangle `x, y, w` (logical points, the
+ * same space every fnl_overlay_* call is in) at `sz` and colour `c`, with
+ * `y` still the top of the glyph box and `w` ignored where it is <= 0.
+ *
+ * What it buys over fnl_overlay_text() is the ends: a column of figures that
+ * has to line up on its right edge, or a caption centred on a card, is a
+ * subtraction at every call site otherwise -- and the subtraction is wrong
+ * the moment the string changes. The measurement is fnl_text_width()'s, so a
+ * string the library has already measured costs nothing.
+ *
+ * [overlay]. */
+FNL_API void fnl_overlay_text_in(FnlApp *app, int x, int y, int w,
+								 FnlTextAlign align, FnlTextSize sz, FnlColor c,
+								 const char *utf8); /* [overlay] */
+
 /* `y` is the top of the glyph box, not the baseline, so a line of text and a
  * rectangle behind it take the same y. */
 FNL_API void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz,
@@ -1161,6 +1224,22 @@ typedef enum {
 } FnlImageFormat;
 
 FNL_API bool fnl_image_supported(const FnlApp *app); /* [overlay] */
+
+/* Whether `img` is one the renderer drawing now can draw: true from the
+ * moment fnl_image_create() returns it until fnl_image_destroy(), false
+ * between the loss of a device and the first frame drawn on the device that
+ * replaced it -- the interval on_gpu_lost/on_gpu_created brackets.
+ *
+ * The library keeps an image's pixels and re-uploads them after a loss, a
+ * move to another GPU or another renderer (on_gpu_created), so an image
+ * survives everything a window survives here. What this answers is whether
+ * it is drawable *now*: a caller that gates a draw on it can skip a frame
+ * rather than wait for the notification, and a caller that keeps a picture
+ * across a loss can tell the moment it may draw it again.
+ *
+ * [overlay]: inside on_overlay, on_gpu_created, or a fnl_post(). */
+FNL_API bool fnl_image_valid(const FnlApp *app, const FnlImage *img);
+
 FNL_API FnlImage *fnl_image_create(FnlApp *app, int w, int h,
 								   FnlImageFormat fmt,
 								   const void *pixels); /* [overlay] */
@@ -1373,6 +1452,17 @@ FNL_API bool fnl_titlebar_claim(FnlApp *app, int x, int y, int w,
  *
  * The pointer's shape over a claim is yours, fnl_set_cursor()'s. */
 FNL_API bool fnl_claim(FnlApp *app, int x, int y, int w, int h); /* [overlay] */
+
+/* Claim a rectangle that also asks for the keyboard, on fnl_claim()'s terms
+ * and with one addition: the library moves the focus to it on Tab or
+ * Shift+Tab from inside a claim that already has it, and FNL_EVENT_CLAIM_FOCUS
+ * says where the focus landed -- the caller draws the ring, the same as every
+ * other rectangle. The claim is an ordinary one for the pointer (fnl_claim_at()
+ * answers for it), so a caller that wants both calls both.
+ *
+ * [overlay]. */
+FNL_API bool fnl_claim_focus(FnlApp *app, int x, int y, int w,
+							 int h); /* [overlay] */
 
 /* Which of the claims the point is in, counting from 0 in the order this
  * frame's fnl_claim() and fnl_titlebar_claim() calls were made, or -1 for

@@ -182,6 +182,27 @@ void fnl_window_size_pt(const FnlApp *app, int *w, int *h)
 
 /* ---- drawing ------------------------------------------------------------- */
 
+void fnl_overlay_text_in(FnlApp *app, int x, int y, int w, FnlTextAlign align,
+						 FnlTextSize sz, FnlColor c, const char *utf8)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a) || !utf8 || !size_ok(sz))
+		return;
+	/* The end the rectangle's edge lands on, measured before the string is
+	 * drawn: the width is fnl_text_width()'s, so a string measured once a
+	 * frame is free, and a string the memo holds costs a compare. */
+	if (w > 0 && align != FNL_TEXT_ALIGN_LEFT) {
+		const int tw = text_width(utf8, sz);
+		if (align == FNL_TEXT_ALIGN_RIGHT)
+			x += w - tw;
+		else
+			x += (w - tw) / 2;
+	}
+	float col[4];
+	to_surface(a, c, col);
+	text_draw(a, clamp_pt(x), clamp_pt(y), sz, col, utf8);
+}
+
 void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz, FnlColor c,
 					  const char *utf8)
 {
@@ -213,6 +234,21 @@ bool fnl_image_supported(const FnlApp *app)
 	if (!a || !a->renderer || !RENDERER(a)->image_supported)
 		return false;
 	return RENDERER(a)->image_supported(a);
+}
+
+bool fnl_image_valid(const FnlApp *app, const FnlImage *img)
+{
+	App *a = (App *)app;
+	if (!a || !img || !img->pixels)
+		return false;
+	/* An image is drawable when the renderer drawing now can draw one and a
+	 * device has been handed back since the last loss. App::cb_gpu_created
+	 * is true from the frame on_gpu_created is delivered until the next loss,
+	 * so a caller gating a draw on this skips the frame a loss would
+	 * otherwise take. */
+	if (!fnl_image_supported(a))
+		return false;
+	return a->cb_gpu_created;
 }
 
 FnlImage *fnl_image_create(FnlApp *app, int w, int h, FnlImageFormat fmt,
@@ -603,4 +639,22 @@ bool fnl_claim(FnlApp *app, int x, int y, int w, int h)
 	if (!overlay_here(a))
 		return false;
 	return claim_add(a, x, y, w, h);
+}
+
+bool fnl_claim_focus(FnlApp *app, int x, int y, int w, int h)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a))
+		return false;
+	/* A claim that asks for the keyboard: the library moves the focus to it
+	 * on Tab or Shift+Tab from inside a claim that already has it, and the
+	 * caller draws the ring (FNL_EVENT_CLAIM_FOCUS says where the focus
+	 * landed). The claim is an ordinary one for the pointer -- fnl_claim_at()
+	 * answers for it the same way -- so a caller that wants both calls both,
+	 * or this once with the rectangle it drew the control in. */
+	const int at = a->claim_count;
+	if (!claim_add(a, x, y, w, h))
+		return false;
+	a->claim_focus[at] = true;
+	return true;
 }

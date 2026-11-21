@@ -1947,17 +1947,20 @@ static void gfx_drain(App *a)
 	}
 }
 
-/* Block until the connection or the wakeup has something, or the timeout runs
- * out; negative waits indefinitely. */
+/* Block until the connection, the wakeup or the uevent socket has something,
+ * or the timeout runs out; negative waits indefinitely. */
 static void wait_fds(App *a, int timeout_ms)
 {
 	struct BackendState *p = a->backend_state;
-	struct epoll_event evs[2];
+	struct epoll_event evs[3];
 
-	const int n = epoll_wait(p->epoll_fd, evs, 2, timeout_ms);
-	for (int i = 0; i < n; i++)
+	const int n = epoll_wait(p->epoll_fd, evs, 3, timeout_ms);
+	for (int i = 0; i < n; i++) {
 		if (evs[i].data.fd == p->wake_fd)
 			loop_wake_drain(p->wake_fd);
+		else if (evs[i].data.fd == p->uevent_fd)
+			loop_uevent_drain(a, p->uevent_fd);
+	}
 }
 
 /* One turn. This is also where every request made on the pump's thread is
@@ -2580,7 +2583,8 @@ static FnlResult x11_open(App *a)
 	/* Not left at the calloc's zero, which is stdin: x11_close() decides
 	 * whether to close these, and "never made" has to be a value that is not
 	 * somebody else's descriptor. */
-	a->backend_state->wake_fd = a->backend_state->epoll_fd = -1;
+	a->backend_state->wake_fd       = a->backend_state->epoll_fd =
+		a->backend_state->uevent_fd = -1;
 
 	/* The wakeup first: everything after this can fail, and x11_close() -- the
 	 * failure path out of here -- is written to cope with any prefix. */
@@ -2590,6 +2594,10 @@ static FnlResult x11_open(App *a)
 	FNL_TRY(loop_epoll_create(&a->backend_state->epoll_fd,
 							  xcb_get_file_descriptor(a->backend_state->conn),
 							  a->backend_state->wake_fd));
+	/* A GPU that came or went: the same netlink group KMS reads, opened
+	 * here so the window servers' backends hear a hotplug too. */
+	FNL_TRY(loop_uevent_open(&a->backend_state->uevent_fd,
+							 a->backend_state->epoll_fd));
 	wait_for_map(a);
 	return FNL_OK;
 }
@@ -2636,8 +2644,10 @@ static void x11_close(App *a)
 			close(p->epoll_fd);
 		if (p->wake_fd >= 0)
 			close(p->wake_fd);
+		if (p->uevent_fd >= 0)
+			close(p->uevent_fd);
 	}
-	p->epoll_fd = p->wake_fd = -1;
+	p->epoll_fd = p->wake_fd = p->uevent_fd = -1;
 
 	clip_in_free(&a->backend_state->clip);
 	fnl_mutex_destroy(&a->backend_state->sync_lock);
