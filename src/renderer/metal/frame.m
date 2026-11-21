@@ -57,6 +57,14 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 	return ds->aa == FNL_AA_MLAA && MT(a)->mlaa && !scene_mlaa_direct(a, ds);
 }
 
+/* TAAU in force: the mode asked for, the offscreen path under it, and the
+ * resolve built -- the device may have refused the images it needs. */
+static bool scene_taau(const App *a, const FnlDrawState *ds)
+{
+	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) &&
+		   MT(a)->taau != nil;
+}
+
 int mt_active_samples(const App *a, const FnlDrawState *ds)
 {
 	return scene_msaa(a, ds) ? (int)fnl_atomic_load_u32(&a->msaa_samples)
@@ -175,6 +183,47 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 		mt_fetch(a, enc, g->pso_mlaa, g->scene.color);
 		[enc endEncoding];
 	}
+
+	/* The resolve, then the blit that carries its result into this slot's
+	 * history for the frame after it -- not into the image it read, which a
+	 * pass may not do. The history is mixed in only where this frame follows
+	 * the one that wrote it: App::presents moved by one and the slot's history
+	 * has been written, so a rest, a pause, a dropped present and a rebuilt
+	 * device all read as no history. */
+	if (scene_taau(a, ds)) {
+		enc = begin_pass(a, cb, g->taau, nil, g->scene.depth, false);
+		if (!enc)
+			return false;
+		const bool prev = app_taau_follows(a, g->taau_present,
+									   g->taau_hist_ok[a->frame]);
+		const TaauPush pc = {
+			.jitter = { ds->jitter_x, ds->jitter_y,
+						prev ? TAAU_HISTORY : 0.0f, 0.0f },
+			.texel  = { 1.0f / (float)a->scene_extent.w,
+						1.0f / (float)a->scene_extent.h, 0.0f, 0.0f },
+		};
+		mt_fetch2(a, enc, g->pso_taau, g->scene.color,
+				  g->taau_hist[a->frame], &pc);
+		[enc endEncoding];
+
+		id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+		if (!blit)
+			return false;
+		[blit copyFromTexture:g->taau
+				  sourceSlice:0
+				  sourceLevel:0
+				 sourceOrigin:MTLOriginMake(0, 0, 0)
+				   sourceSize:MTLSizeMake((NSUInteger)a->scene_extent.w,
+										  (NSUInteger)a->scene_extent.h, 1)
+					toTexture:g->taau_hist[a->frame]
+			 destinationSlice:0
+			 destinationLevel:0
+			destinationOrigin:MTLOriginMake(0, 0, 0)];
+		[blit endEncoding];
+
+		g->taau_hist_ok[a->frame] = true;
+		g->taau_present           = a->presents;
+	}
 	return true;
 }
 
@@ -206,7 +255,8 @@ static void draw_scene(App *a, const FnlDrawState *ds,
 		mt_fetch(a, enc, g->pso_mlaa, g->scene.color);
 	else
 		mt_fetch(a, enc, g->pso_blit,
-				 scene_mlaa(a, ds) ? g->mlaa : g->scene.color);
+				 scene_mlaa(a, ds) ? g->mlaa
+								   : scene_taau(a, ds) ? g->taau : g->scene.color);
 }
 
 /* Everything drawn this frame into `target`, the drawable's texture. False
@@ -462,7 +512,8 @@ bool mt_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		if (scene_offscreen(a, ds))
 			(void)mt_scene_ensure_aa(a, ds->aa == FNL_AA_MSAA,
 									 ds->aa == FNL_AA_MLAA &&
-										 !scene_mlaa_direct(a, ds));
+										 !scene_mlaa_direct(a, ds),
+									 ds->aa == FNL_AA_TAAU);
 
 		const double t_rec = now_seconds();
 		app_frame_mark(a, FRAME_MARK_REC);

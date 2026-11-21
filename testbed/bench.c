@@ -62,8 +62,7 @@ static double utc_now(void)
 {
 	FILETIME ft;
 	GetSystemTimeAsFileTime(&ft);
-	const ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) |
-						ft.dwLowDateTime;
+	const ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
 	return (double)t * 1e-7 - 11644473600.0;      /* from 1601 to 1970 */
 }
 
@@ -77,8 +76,14 @@ static void nap(double s)
 
 typedef HANDLE BenchThread;
 static SRWLOCK g_log_lock = SRWLOCK_INIT;
-static void log_lock(void)   { AcquireSRWLockExclusive(&g_log_lock); }
-static void log_unlock(void) { ReleaseSRWLockExclusive(&g_log_lock); }
+static void log_lock(void)
+{
+	AcquireSRWLockExclusive(&g_log_lock);
+}
+static void log_unlock(void)
+{
+	ReleaseSRWLockExclusive(&g_log_lock);
+}
 
 static void set_env(const char *name, const char *value)
 {
@@ -121,8 +126,14 @@ static void nap(double s)
 
 typedef pthread_t BenchThread;
 static pthread_mutex_t g_log_lock = PTHREAD_MUTEX_INITIALIZER;
-static void log_lock(void)   { pthread_mutex_lock(&g_log_lock); }
-static void log_unlock(void) { pthread_mutex_unlock(&g_log_lock); }
+static void log_lock(void)
+{
+	pthread_mutex_lock(&g_log_lock);
+}
+static void log_unlock(void)
+{
+	pthread_mutex_unlock(&g_log_lock);
+}
 
 static void set_env(const char *name, const char *value)
 {
@@ -146,7 +157,12 @@ static unsigned long process_id(void)
  * fnl_run() returns, the driving thread joined. */
 
 typedef enum {
-	PH_WAIT, PH_SETTLE, PH_WARMUP, PH_MEASURE, PH_COOLDOWN, PH_DONE,
+	PH_WAIT,
+	PH_SETTLE,
+	PH_WARMUP,
+	PH_MEASURE,
+	PH_COOLDOWN,
+	PH_DONE,
 } Phase;
 
 static const char *const PHASE_NAMES[] = {
@@ -233,8 +249,8 @@ static void bench_log(void *ud, FnlLogLevel lvl, const char *msg)
 	char line[2048];
 	const int n = snprintf(line, sizeof line, "%s\n", msg);
 	if (n > 0)
-		fwrite(line, 1, (size_t)n < sizeof line ? (size_t)n
-												: sizeof line - 1, stderr);
+		fwrite(line, 1, (size_t)n < sizeof line ? (size_t)n : sizeof line - 1,
+			   stderr);
 	fflush(stderr);
 
 	/* A calibration ends on one of two lines: "calibrated on" once it has
@@ -243,8 +259,7 @@ static void bench_log(void *ud, FnlLogLevel lvl, const char *msg)
 	if (strstr(msg, "GPU rank: calibrating")) {
 		atomic_store(&R.calibrating, true);
 		atomic_store(&R.calibrated, true);
-	} else if (strstr(msg, "GPU rank:") &&
-			   (strstr(msg, "calibrated on") ||
+	} else if (strstr(msg, "GPU rank:") && (strstr(msg, "calibrated on") ||
 				strstr(msg, "the window left"))) {
 		atomic_store(&R.calibrating, false);
 	}
@@ -252,8 +267,8 @@ static void bench_log(void *ud, FnlLogLevel lvl, const char *msg)
 	log_lock();
 	if (R.logging && R.r && n > 0) {
 		BenchResult *r = R.r;
-		const size_t len = (size_t)n < sizeof line ? (size_t)n
-												   : sizeof line - 1;
+		const size_t len =
+			(size_t)n < sizeof line ? (size_t)n : sizeof line - 1;
 		if (r->log_len + len < LOG_KEEP_MAX) {
 			char *p = realloc(r->log, r->log_len + len + 1);
 			if (p) {
@@ -286,12 +301,10 @@ static void read_platform(FnlApp *app, const FnlFrame *f, bool driver)
 	snprintf(r->backend, sizeof r->backend, "%s", fnl_backend_name(app));
 	snprintf(r->renderer, sizeof r->renderer, "%s", fnl_renderer_name(app));
 	snprintf(r->gpu, sizeof r->gpu, "%s", fnl_gpu_name(app));
-	snprintf(r->gpu_short, sizeof r->gpu_short, "%s",
-			 fnl_gpu_short_name(app));
+	snprintf(r->gpu_short, sizeof r->gpu_short, "%s", fnl_gpu_short_name(app));
 	snprintf(r->present_mode, sizeof r->present_mode, "%s",
 			 fnl_present_mode(app));
-	snprintf(r->window_host, sizeof r->window_host, "%s",
-			 fnl_window_host(app));
+	snprintf(r->window_host, sizeof r->window_host, "%s", fnl_window_host(app));
 	const char *o = fnl_output_name(app);
 	snprintf(r->output, sizeof r->output, "%s", o ? o : "");
 	fnl_output_size_pt(app, &r->output_w_pt, &r->output_h_pt);
@@ -359,8 +372,8 @@ static void take_sample(FnlApp *app, double now)
 	const double cpu = known(fnl_frame_cpu_ms(app));
 	/* The getter keeps its last mean while no input arrives, so it counts
 	 * only for an interval that had some. */
-	const double input = inputs > 0 ? known(fnl_input_latency_ms(app))
-									: BENCH_NAN;
+	const double input =
+		inputs > 0 ? known(fnl_input_latency_ms(app)) : BENCH_NAN;
 	double user, sys, pct = BENCH_NAN;
 	if (testbed_proc_times(&user, &sys)) {
 		if (R.sample_cpu >= 0.0)
@@ -380,8 +393,16 @@ static void take_sample(FnlApp *app, double now)
 	bench_series_add(&r->rss_mib, rss);
 	bench_series_add(&r->vram_mib, vram);
 	const double row[BENCH_SERIES_COLUMNS] = {
-		now - R.measure_t0, (double)frames, rate, lib_fps, gpu, cpu, input,
-		pct, rss, vram,
+		now - R.measure_t0,
+		(double)frames,
+		rate,
+		lib_fps,
+		gpu,
+		cpu,
+		input,
+		pct,
+		rss,
+		vram,
 	};
 	for (int i = 0; i < BENCH_SERIES_COLUMNS; i++)
 		bench_series_add(&r->rows, row[i]);
@@ -419,8 +440,8 @@ static void drain_frames(FnlApp *app)
 		const unsigned long long hi = r->stats ? r->st1.frames : ULLONG_MAX;
 		/* The lost that fall inside the measure: [first - lost, first)
 		 * against (lo, hi]. */
-		const unsigned long long l0 = first - lost > lo + 1 ? first - lost
-															: lo + 1;
+		const unsigned long long l0 =
+			first - lost > lo + 1 ? first - lost : lo + 1;
 		const unsigned long long l1 = first - 1 < hi ? first - 1 : hi;
 		if (lost && l1 >= l0)
 			R.r->lframes_lost += l1 - l0 + 1;
@@ -430,11 +451,17 @@ static void drain_frames(FnlApp *app)
 				continue;
 			const FnlFrameSample *s = &buf[i];
 			const double row[BENCH_LFRAME_COLUMNS] = {
-				(double)s->index, s->time, (double)s->pace_ms,
-				(double)s->fence_ms, (double)s->acquire_ms,
-				(double)s->record_ms, (double)s->submit_ms,
-				(double)s->present_ms, (double)s->rebuild_ms,
-				(double)s->draw_ms, s->presented ? 1.0 : 0.0,
+				(double)s->index,
+				s->time,
+				(double)s->pace_ms,
+				(double)s->fence_ms,
+				(double)s->acquire_ms,
+				(double)s->record_ms,
+				(double)s->submit_ms,
+				(double)s->present_ms,
+				(double)s->rebuild_ms,
+				(double)s->draw_ms,
+				s->presented ? 1.0 : 0.0,
 				s->gpu_ms >= 0.0f ? (double)s->gpu_ms : BENCH_NAN,
 			};
 			for (int k = 0; k < BENCH_LFRAME_COLUMNS; k++)
@@ -498,8 +525,7 @@ static bool is_input(FnlEventType t)
 
 /* What the events say about the run: inputs counted, and anything that
  * changes what is being measured under it named as a disqualifier. */
-static void run_event(FnlApp *app, const FnlEvent *ev, int ph,
-					  uint64_t frame)
+static void run_event(FnlApp *app, const FnlEvent *ev, int ph, uint64_t frame)
 {
 	BenchResult *r = R.r;
 	const bool counting = ph == PH_WARMUP || ph == PH_MEASURE;
@@ -511,8 +537,7 @@ static void run_event(FnlApp *app, const FnlEvent *ev, int ph,
 			 * the library read it, and when it happened. */
 			bench_series_add(&r->inputs_at, (double)frame);
 			bench_series_add(&r->inputs_at, ev->time);
-			bench_series_add(&r->inputs_at,
-							 ev->time - (double)ev->input_age);
+			bench_series_add(&r->inputs_at, ev->time - (double)ev->input_age);
 		}
 	}
 	switch (ev->type) {
@@ -525,8 +550,7 @@ static void run_event(FnlApp *app, const FnlEvent *ev, int ph,
 		 * the scene's clock started or stopped changes whether a frame
 		 * records again, the option scene-motion holds for the run -- from
 		 * before the warm-up too, whose state the measure inherits. */
-		if (ph <= PH_MEASURE && ev->key.pressed &&
-			ev->key.key == FNL_KEY_F2)
+		if (ph <= PH_MEASURE && ev->key.pressed && ev->key.key == FNL_KEY_F2)
 			invalid("the scene's motion was toggled (F2)");
 		break;
 	case FNL_EVENT_FOCUS:
@@ -553,11 +577,8 @@ static void run_event(FnlApp *app, const FnlEvent *ev, int ph,
 		if (counting)
 			invalid("the window moved to another GPU");
 		break;
-	case FNL_EVENT_LOST:
-		invalid("events were lost");
-		break;
-	default:
-		break;
+	case FNL_EVENT_LOST: invalid("events were lost"); break;
+	default: break;
 	}
 }
 
@@ -569,16 +590,17 @@ static void draw_hud(FnlApp *app, int ph)
 	int cx, cy, cw, ch;
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
 	char text[160];
-	double left = atomic_load(&R.phase_t0) + atomic_load(&R.phase_len)
-				- bench_now();
+	double left =
+		atomic_load(&R.phase_t0) + atomic_load(&R.phase_len) - bench_now();
 	if (left < 0.0)
 		left = 0.0;
 	if (atomic_load(&R.calibrating))
 		snprintf(text, sizeof text, "bench: waiting for the GPU ranking");
 	else
-		snprintf(text, sizeof text, "bench: %s, %.0f s left, run %d of %d"
-				 "   Esc aborts", PHASE_NAMES[ph], ceil(left),
-				 R.r->repeat + 1, R.r->repeats);
+		snprintf(text, sizeof text,
+				 "bench: %s, %.0f s left, run %d of %d"
+				 "   Esc aborts",
+				 PHASE_NAMES[ph], ceil(left), R.r->repeat + 1, R.r->repeats);
 	const int pad = 6;
 	const int w = fnl_text_width(text, FNL_TEXT_BODY) + 2 * pad;
 	const int h = fnl_text_line(FNL_TEXT_BODY) + 2 * pad;
@@ -653,8 +675,7 @@ static void run_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 	/* Every frame asked for: from in here, "the frame after this one
 	 * differs" (fnl_invalidate()), so the window draws as fast as its
 	 * pacing lets it and never rests. */
-	if (bench_opt_int(R.cfg, OPT_REDRAW) == REDRAW_EVERY_FRAME &&
-		ph != PH_DONE)
+	if (bench_opt_int(R.cfg, OPT_REDRAW) == REDRAW_EVERY_FRAME && ph != PH_DONE)
 		fnl_invalidate(app);
 
 	if (ph == PH_MEASURE)
@@ -678,8 +699,7 @@ static bool hold(Phase ph, double s)
 			if (ph != PH_SETTLE) {
 				atomic_store(&R.calibrated_late, true);
 			} else {
-				while (atomic_load(&R.calibrating) &&
-					   !atomic_load(&R.abort))
+				while (atomic_load(&R.calibrating) && !atomic_load(&R.abort))
 					nap(0.1);
 				atomic_store(&R.phase_t0, bench_now());
 			}
@@ -795,8 +815,10 @@ static void new_id(char out[17])
 						   ((unsigned long long)process_id() << 40) ^
 						   (++counter * 0x9e3779b97f4a7c15ull);
 	/* splitmix64's finaliser: neighbouring inputs, unrelated outputs */
-	x ^= x >> 30; x *= 0xbf58476d1ce4e5b9ull;
-	x ^= x >> 27; x *= 0x94d049bb133111ebull;
+	x ^= x >> 30;
+	x *= 0xbf58476d1ce4e5b9ull;
+	x ^= x >> 27;
+	x *= 0x94d049bb133111ebull;
 	x ^= x >> 31;
 	snprintf(out, 17, "%016llx", x);
 }
@@ -813,7 +835,9 @@ static void name_bench_window(FnlApp *app, const char *what)
 
 static FnlAntialias antialias_of(int aa)
 {
-	return aa == AA_MSAA ? FNL_AA_MSAA : aa == AA_MLAA ? FNL_AA_MLAA
+	return aa == AA_MSAA   ? FNL_AA_MSAA
+		   : aa == AA_MLAA ? FNL_AA_MLAA
+		   : aa == AA_TAAU ? FNL_AA_TAAU
 														: FNL_AA_NONE;
 }
 
@@ -860,9 +884,10 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	d.scale_override120 = bench_opt_scale120(c);
 	d.no_late_latch = bench_opt_int(c, OPT_LATE_LATCH) == LATE_OFF;
 	d.late_latch_fixed = bench_opt_int(c, OPT_LATE_LATCH) == LATE_FIXED
-					   ? bench_opt_num(c, OPT_LATE_LATCH_MS) * 1e-3 : 0.0;
-	d.gpu_name = bench_opt_text(c, OPT_GPU)[0] ? bench_opt_text(c, OPT_GPU)
-											   : NULL;
+							  ? bench_opt_num(c, OPT_LATE_LATCH_MS) * 1e-3
+							  : 0.0;
+	d.gpu_name =
+		bench_opt_text(c, OPT_GPU)[0] ? bench_opt_text(c, OPT_GPU) : NULL;
 	d.frame_times = bench_opt_bool(c, OPT_FRAME_TIMES);
 	d.log = bench_log;
 	d.log_ud = NULL;
@@ -935,8 +960,8 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 		fprintf(stderr, "bench: could not start the driving thread\n");
 
 	/* The window is going: closed by hand, by Esc, or by the driver. */
-	const bool finished = atomic_load(&R.phase) == PH_DONE &&
-						  !atomic_load(&R.abort);
+	const bool finished =
+		atomic_load(&R.phase) == PH_DONE && !atomic_load(&R.abort);
 	atomic_store(&R.abort, true);
 	if (started) {
 #if defined(_WIN32)
@@ -990,8 +1015,7 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 		invalid("no sample was taken");
 	if (atomic_load(&R.calibrated_late))
 		invalid("the GPU ranking was measured during the run");
-	r->status = !finished ? "aborted" : r->invalid[0] ? "invalid"
-													 : "complete";
+	r->status = !finished ? "aborted" : r->invalid[0] ? "invalid" : "complete";
 	if (atomic_load(&R.calibrated))
 		note("the GPU ranking was measured first, before the settle");
 	if (r->inputs == 0)
@@ -1004,8 +1028,9 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 		 * whole. */
 		const BenchSeries *all[] = {
 			&r->interval_ms, &r->record_ms, &r->overlay_ms, &r->fps,
-			&r->gpu_ms, &r->cpu_ms, &r->input_ms, &r->cpu_pct, &r->rss_mib,
-			&r->vram_mib, &r->rows, &r->lframes, &r->shown, &r->inputs_at,
+			&r->gpu_ms,      &r->cpu_ms,    &r->input_ms,   &r->cpu_pct,
+			&r->rss_mib,     &r->vram_mib,  &r->rows,       &r->lframes,
+			&r->shown,       &r->inputs_at,
 		};
 		for (size_t i = 0; i < sizeof all / sizeof all[0]; i++)
 			if (all[i]->capped) {
@@ -1018,8 +1043,9 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	{
 		const bool vsync = bench_opt_bool(c, OPT_VSYNC);
 		const char *pm = r->present_mode;
-		const bool says_off = strstr(pm, "IMMEDIATE") || strstr(pm, "MAILBOX")
-						   || strstr(pm, "off") || strstr(pm, "interval 0");
+		const bool says_off = strstr(pm, "IMMEDIATE") ||
+							  strstr(pm, "MAILBOX") || strstr(pm, "off") ||
+							  strstr(pm, "interval 0");
 		if (!vsync && !says_off)
 			note("vsync was asked off and the present mode is still "
 				 "synchronised");
@@ -1119,7 +1145,8 @@ int testbed_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
 			continue;
 		Replay rp = { c, true };
 		if (!bench_json_options(args[i] + sizeof REPLAY - 1, replay_member,
-								&rp) || !rp.ok) {
+								&rp) ||
+			!rp.ok) {
 			free(c);
 			return 1;
 		}
@@ -1145,8 +1172,10 @@ int testbed_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
 		bool known;
 		if (!bench_opt_arg(c, a, &known)) {
 			if (!known)
-				fprintf(stderr, "unknown option \"%s\"; --bench-list names "
-						"the benchmark's\n", a);
+				fprintf(stderr,
+						"unknown option \"%s\"; --bench-list names "
+						"the benchmark's\n",
+						a);
 			free(c);
 			return 1;
 		}

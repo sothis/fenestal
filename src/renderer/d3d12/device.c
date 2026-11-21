@@ -733,6 +733,8 @@ const FnlRendererVtbl fnl_renderer_d3d12 = {
 	.key              = "d3d12",
 	.draws_overlay    = true,
 	.offscreen_scene  = true,
+	/* The resolve and its history, drawn here as on the other three. */
+	.temporal_upscale = true,
 	.create_instance  = d3d_create_instance,
 	.destroy_instance = d3d_destroy_instance,
 	.create_surface   = d3d_create_surface,

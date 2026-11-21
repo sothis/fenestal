@@ -36,6 +36,7 @@
 #include "msl/fullscreen.vert.h"
 #include "msl/blit.frag.h"
 #include "msl/mlaa.frag.h"
+#include "msl/taau.frag.h"
 #include "font_data.h"
 #include "font_codec.h"
 
@@ -302,7 +303,7 @@ FnlResult mt_create_overlay(App *a)
 	const size_t text[3] = { offsetof(GlyphInstance, rect),
 							 offsetof(GlyphInstance, uv),
 							 offsetof(GlyphInstance, color) };
-	const PsoDesc descs[7] = {
+	const PsoDesc descs[8] = {
 		{ "rectangle", rect_vert_msl, rect_frag_msl, rect, 2,
 		  sizeof(RectInstance), BLEND_NONE },
 		{ "stroke", shape_vert_msl, shape_frag_msl, shape, 5,
@@ -319,16 +320,21 @@ FnlResult mt_create_overlay(App *a)
 		  BLEND_NONE },
 		{ "MLAA", fullscreen_vert_msl, mlaa_frag_msl, NULL, 0, 0,
 		  BLEND_NONE },
+		/* The resolve: the fetch's shaders with two images read, and the
+		 * same pass shape as the filter's, so the one depth attachment
+		 * serves both. */
+		{ "TAAU", fullscreen_vert_msl, taau_frag_msl, NULL, 0, 0,
+		  BLEND_NONE },
 		/* The cover: the fetch once more, blended by a constant, for the
 		 * frame read back before a move (mt_overlay_cover()). */
 		{ "cover", fullscreen_vert_msl, blit_frag_msl, NULL, 0, 0,
 		  BLEND_CONSTANT },
 	};
-	__strong id<MTLRenderPipelineState> *out[7] = {
+	__strong id<MTLRenderPipelineState> *out[8] = {
 		&g->pso_rect, &g->pso_shape, &g->pso_image, &g->pso_text,
-		&g->pso_blit, &g->pso_mlaa, &g->pso_cover,
+		&g->pso_blit, &g->pso_mlaa, &g->pso_taau, &g->pso_cover,
 	};
-	for (int i = 0; i < 7; i++) {
+	for (int i = 0; i < 8; i++) {
 		*out[i] = make_pso(a, &descs[i]);
 		if (!*out[i])
 			return fnl_fail(FNL_ERR_SYSTEM,
@@ -370,7 +376,7 @@ void mt_destroy_overlay(App *a)
 	destroy_arenas(g->text_buf, (void **)a->text_map);
 	destroy_arenas(g->ovl_buf, (void **)a->ovl_map);
 	g->pso_rect = g->pso_shape = g->pso_image = g->pso_text = nil;
-	g->pso_blit = g->pso_mlaa = g->pso_cover = nil;
+	g->pso_blit = g->pso_mlaa = g->pso_taau = g->pso_cover = nil;
 	g->cover_tex = nil;
 	g->cover_gen = 0;
 	g->snap_buf = nil;
@@ -395,6 +401,24 @@ void mt_fetch(App *a, id<MTLRenderCommandEncoder> enc,
 	[enc setRenderPipelineState:pso];
 	[enc setFragmentTexture:tex atIndex:0];
 	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:0];
+	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+			vertexCount:3];
+}
+
+/* TAAU's resolve: the scene at unit 0 and the history at unit 1, and the
+ * frame's offset and weight in the `Push` block the shader reads at buffer 0
+ * (shaders/taau.frag, and FNL_MSL_FLAGS's conventions). */
+void mt_fetch2(App *a, id<MTLRenderCommandEncoder> enc,
+			   id<MTLRenderPipelineState> pso, id<MTLTexture> combined,
+			   id<MTLTexture> history, const TaauPush *pc)
+{
+	mt_own_state(a, enc);
+	[enc setRenderPipelineState:pso];
+	[enc setFragmentTexture:combined atIndex:0];
+	[enc setFragmentTexture:history atIndex:1];
+	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:0];
+	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:1];
+	[enc setFragmentBytes:pc length:sizeof *pc atIndex:0];
 	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
 			vertexCount:3];
 }

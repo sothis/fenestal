@@ -71,6 +71,8 @@ int main(void)
 	F(FnlFrame, target);
 	F(FnlFrame, samples);
 	F(FnlFrame, scene_time);
+	F(FnlFrame, jitter_x);
+	F(FnlFrame, jitter_y);
 	S(FnlCallbacks);
 	F(FnlCallbacks, size);
 	F(FnlCallbacks, ud);
@@ -227,6 +229,7 @@ int main(void)
 	E(FNL_AA_NONE);
 	E(FNL_AA_MSAA);
 	E(FNL_AA_MLAA);
+	E(FNL_AA_TAAU);
 	E(FNL_KEY_UNKNOWN);
 	E(FNL_KEY_W);
 	E(FNL_KEY_A);

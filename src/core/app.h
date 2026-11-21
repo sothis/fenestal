@@ -206,7 +206,7 @@ static inline int text_height(TextSize sz)
 /* The smallest presentable area worth *offering*, in logical points: what
  * fnl_min_content_size_pt() reports. Advisory; the size the window refuses to
  * go below is deco_min_window()'s. */
-#define CONTENT_MIN_W 640
+#define CONTENT_MIN_W 700
 #define CONTENT_MIN_H 480
 
 /* ---- the hard floor -------------------------------------------------------
@@ -270,7 +270,13 @@ typedef FnlEdge Edge;
  * Three checkboxes and the output, GPU and size drop-downs, in
  * src/core/controls.c. The indices are here because App carries their
  * state. */
-enum { CTL_CHECK_FSAA = 0, CTL_CHECK_MLAA, CTL_CHECK_SCALE, CTL_CHECK_COUNT };
+enum {
+	CTL_CHECK_FSAA = 0,
+	CTL_CHECK_MLAA,
+	CTL_CHECK_TAAU,
+	CTL_CHECK_SCALE,
+	CTL_CHECK_COUNT
+};
 
 /* ---- the caller's run of the titlebar -------------------------------------
  * How tall a control in the titlebar is -- the buttons' height, since a
@@ -795,6 +801,12 @@ typedef struct {
 	/* Seconds into the scene's animation, or 0 while motion is off. Being in
 	 * here is what re-records a moving scene. */
 	float scene_time;
+	/* This frame's subpixel offset in pixels of the scene
+	 * (FNL_AA_TAAU; see FnlFrame::jitter_x). Advanced only while the scene
+	 * moves, which is the gate scene_time has and for the same reason: a
+	 * jitter that moved on a still frame would be a draw state that always
+	 * differs, and a window that never rests. */
+	float jitter_x, jitter_y;
 	/* The veil over a move to another GPU, renderer or kernel driver: 0
 	 * for none, 1 for black, in steps of 1/255 so that each step of a fade
 	 * is one re-record and a veil that stands is none (veil_step() in
@@ -810,7 +822,7 @@ typedef struct {
  * overlay that stops refreshing when that field alone changes, so the size is
  * pinned and adding a field fails the build here. Update the comparison,
  * then the number. */
-_Static_assert(sizeof(FnlDrawState) == 380,
+_Static_assert(sizeof(FnlDrawState) == 388,
 			   "FnlDrawState changed -- keep "
 			   "fnl_draw_state_eq() in step, then update this size");
 
@@ -833,8 +845,36 @@ static inline bool fnl_draw_state_eq(const FnlDrawState *x,
 		   x->met_gpu_pm == y->met_gpu_pm && x->scene_w == y->scene_w &&
 		   x->scene_h == y->scene_h && x->aa == y->aa &&
 		   x->scene_time == y->scene_time && x->veil == y->veil &&
+		   x->jitter_x == y->jitter_x && x->jitter_y == y->jitter_y &&
 		   x->user_gen == y->user_gen;
 }
+
+/* How much of the frame before a temporal accumulation (FNL_AA_TAAU) keeps:
+ * high enough to gather eight subpixel samples within a few frames, low enough
+ * that the shader's neighbourhood clamp has the last word on anything that
+ * moved. */
+#define TAAU_HISTORY 0.85f
+
+/* FNL_AA_TAAU's `Push` block (shaders/taau.frag): the subpixel offset this
+ * frame's scene was rasterised at, in scene pixels, the weight the history is
+ * mixed in at, and one scene texel in normalised units. Here rather than in a
+ * renderer's header because all four draw it, and each binds the same bytes:
+ * std430 push constants on Vulkan, a `Push` uniform block on GL, a cbuffer on
+ * Direct3D 12 and `constant Push&` on Metal. Two vec4s so every one of those
+ * puts the same field at the same offset, which the asserts pin. */
+typedef struct {
+	float jitter[4]; /* xy: offset in scene pixels, z: history weight */
+	float texel[4];  /* xy: 1 / the scene's extent                   */
+} TaauPush;
+
+/* Whether a temporal accumulation may mix its history in this frame: the
+ * frame slot's history has been written, and this frame's scene is the scene
+ * that history holds. The present before this one wrote it in the ordinary
+ * case, and nothing has moved since in the other -- a still window redrawing
+ * for the figures, where starting the accumulation over would throw away the
+ * image it had converged on. Renderers hold the two numbers; the rule is one
+ * function, in frame.c, so it reads the same on all four. */
+bool app_taau_follows(const App *a, uint64_t last, bool written);
 
 /* The metrics panel (fnl_set_metrics_panel()). The process's figures -- CPU,
  * resident memory, GPU memory, the GPU's share -- sampled on the render thread
@@ -1618,6 +1658,9 @@ struct FnlApp {
 	/* When the scene's clock started, so the first moving frame begins at
 	 * zero however long the window has been up. */
 	double scene_motion_t0;
+	/* Where FNL_AA_TAAU's subpixel sequence stands (draw_state_update() in
+	 * frame.c). Render thread's. */
+	uint32_t jitter_n;
 	/* The veil (veil_step() in frame.c): its phase, when that phase
 	 * began, and App::presents when the frame at full veil was latched or
 	 * the lift armed, so the phase after each waits for a present of it.

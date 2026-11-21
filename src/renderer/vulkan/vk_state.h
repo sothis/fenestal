@@ -156,6 +156,13 @@ struct RendererState {
 	 * every buffer on first use. */
 	VkCommandBuffer       img_cmd[OVERLAY_MAX_IMAGES];
 	uint32_t              img_cmd_gen[OVERLAY_MAX_IMAGES];
+	/* The slot a recording was made in, and whether it was made with TAAU
+	 * on. The resolve reads a history image per slot, so a recording reused
+	 * in another slot would read the wrong one: under TAAU the slot is part
+	 * of what a recording is for, and frame_record() re-records rather than
+	 * submit one elsewhere. */
+	uint32_t img_slot[OVERLAY_MAX_IMAGES];
+	bool img_taau[OVERLAY_MAX_IMAGES];
 
 	/* Two timestamps per image, at the first command of its buffer and
 	 * after the copy path's readback, ahead of a snapshot's copy
@@ -310,6 +317,32 @@ struct RendererState {
 	TargetImage           mlaa;
 	VkFramebuffer         mlaa_fb;
 	bool                  mlaa_refused;
+	/* TAAU's resolve (FNL_AA_TAAU): what the pass writes, at the scene's own
+	 * resolution and the same format, so the fetch then reads it as it reads
+	 * the filter's -- and the image it mixes in, which is the resolved frame
+	 * from before, per frame slot so that a frame of one slot never touches
+	 * a history the other is writing (each slot's own fence is what orders
+	 * its uses). frame_record() re-records rather than reusing a command
+	 * buffer in another slot, which is what keeps a set's history and the
+	 * slot it is submitted in the same one. */
+	TargetImage taau;
+	VkFramebuffer taau_fb;
+	TargetImage taau_hist[MAX_FRAMES_IN_FLIGHT];
+	bool taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
+	bool taau_refused;
+	/* App::presents when a frame last recorded with TAAU: what
+	 * app_taau_follows() reads to say whether this frame's history is the one
+	 * before it. */
+	uint64_t taau_present;
+	/* The resolve's own pipeline, layout and set layout -- two samplers and a
+	 * push block, which the fetch's layout has room for neither of -- and the
+	 * sets: one per frame slot reading the scene and that slot's history,
+	 * plus the fetch's set that reads the resolve. */
+	VkPipeline taau_pipeline;
+	VkPipelineLayout taau_layout;
+	VkDescriptorSetLayout taau_set_layout;
+	VkDescriptorSet taau_set[MAX_FRAMES_IN_FLIGHT];
+	VkDescriptorSet blit_set_taau;
 
 	/* The snapshot a move takes (App::snap_owed): whether the window's
 	 * images may be copied from -- TRANSFER_SRC among the surface's usage,

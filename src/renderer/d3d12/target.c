@@ -109,6 +109,7 @@ FnlResult d3d_make_heaps(App *a)
 	const D3D12_FILTER filters[SMP_COUNT] = {
 		[SMP_NEAREST] = D3D12_FILTER_MIN_MAG_MIP_POINT,
 		[SMP_LINEAR]  = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+		[SMP_LINEAR2] = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
 	};
 	for (int i = 0; i < SMP_COUNT; i++) {
 		const D3D12_SAMPLER_DESC s = {
@@ -341,11 +342,13 @@ static void destroy_target(D3dTarget *t)
 static bool make_target(App *a, D3dTarget *t, int w, int h, int samples,
 						int rtv, int dsv, int srv)
 {
-	t->state = srv >= 0 ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
-						: D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+	t->state = (rtv >= 0 && srv < 0)
+		? D3D12_RESOURCE_STATE_RESOLVE_SOURCE
+		: D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 	t->color = make_image(a, D3D_COLOR_FORMAT, w, h, samples, false, t->state);
 	if (!t->color)
 		return false;
+	if (rtv >= 0)
 	color_view(a, t->color, rtv, samples);
 	if (srv >= 0)
 		sampled_view(a, t->color, srv);
@@ -364,14 +367,20 @@ static void destroy_scene_target(App *a)
 	destroy_target(&D3D(a)->scene);
 	destroy_target(&D3D(a)->scene_ms);
 	destroy_target(&D3D(a)->mlaa);
+	destroy_target(&D3D(a)->taau);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		destroy_target(&D3D(a)->taau_hist[i]);
+		D3D(a)->taau_hist_ok[i] = false;
+	}
 	D3D(a)->scene_ms_refused = false;
 	D3D(a)->mlaa_refused     = false;
+	D3D(a)->taau_refused     = false;
 	a->scene_extent          = (Extent){ 0, 0 };
 }
 
 /* As Vulkan's scene_ensure_aa(): only what a mode asks for, once it does,
  * and a refusal remembered. Nothing to drain: these are new. */
-bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
+bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 {
 	struct RendererState *g = D3D(a);
 	if (!g->scene.color)
@@ -406,6 +415,35 @@ bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 					w, h);
 		}
 	}
+	if (want_taau && !g->taau.color && !g->taau_refused) {
+		bool all = false;
+		if (!FNL_FAULT("scene-taau")) {
+			all = make_target(a, &g->taau, w, h, 1, RTV_TAAU, -1, SRV_TAAU);
+			for (int i = 0; all && i < MAX_FRAMES_IN_FLIGHT; i++)
+				all = make_target(a, &g->taau_hist[i], w, h, 1, -1, -1, -1);
+			if (all) {
+				/* The resolve's two-descriptor table reads consecutive
+				 * descriptors, so the pairs are: {scene, history 0} and
+				 * {scene, history 1}. */
+				sampled_view(a, g->scene.color, SRV_PAIR0);
+				sampled_view(a, g->taau_hist[0].color, SRV_PAIR0_H);
+				sampled_view(a, g->scene.color, SRV_PAIR1);
+				sampled_view(a, g->taau_hist[1].color, SRV_PAIR1_H);
+			}
+		}
+		if (all) {
+			built = true;
+		} else {
+			destroy_target(&g->taau);
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				destroy_target(&g->taau_hist[i]);
+			g->taau_refused = true;
+			fnl_log(FNL_LOG_WARN,
+					"no room for a %dx%d resolved scene image and its "
+					"history; TAAU is off at this size",
+					w, h);
+		}
+	}
 	return built;
 }
 
@@ -434,6 +472,10 @@ void d3d_scene_set_size(App *a, int w, int h)
 				w, h);
 		return;
 	}
+	/* The pairs the resolve's two-descriptor table reads: the scene's view in
+	 * each, made wherever the image is. */
+	sampled_view(a, D3D(a)->scene.color, SRV_PAIR0);
+	sampled_view(a, D3D(a)->scene.color, SRV_PAIR1);
 	a->scene_extent = (Extent){ w, h };
 }
 

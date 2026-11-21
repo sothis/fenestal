@@ -2470,15 +2470,19 @@ window alone. A fullscreen window on the Mac is a Space of its own, entered
 and left through AppKit's animation, and is not moved.
 
 Under a window server the box is **the one control that gives way.** Its
-109 points on the run would put the floor at 734, past `CONTENT_MIN_W`,
-and empty the size list of 640x480 (*The size floor*); so it joins the run
-where the window is 734 wide or more (`ctl_output_in()`), and the floor is
-the run without it. On KMS it is always there, and in the floor.
-Like every rectangle here it is a function of the window width alone.
+109 points on the run would put the floor at 792, past `CONTENT_MIN_W`;
+so it joins the run where the window is 792 wide or more
+(`ctl_output_in()`), and the floor is the run without it. On KMS it is
+always there, and in the floor. Like every rectangle here it is a function
+of the window width alone.
 
 Measured on 2026-11-05 on X11, captured at three widths: the box is drawn
 between the checkboxes and `GPU 1` at 740 points, is still drawn at 734,
-and is gone at 732, where the GPU box has taken its place.
+and is gone at 732, where the GPU box has taken its place. The fourth
+checkbox (TAAU, 2026-11-21) is 58 points of run -- measured in
+`deco_min_window()`, and 614 against the 556 it was -- so those three widths
+move to 798, 792 and 790 by the same difference; the screen's own
+re-measure is owed (TODO *The output box under a window server*).
 
 **The size list is derived, not shipped.** A hand-written list of resolutions
 would be a product decision, and the library has no business having one. What
@@ -2679,16 +2683,16 @@ the grab.
 
 ### The size floor: two figures, one enforced
 
-**Advisory.** `CONTENT_MIN_W` x `CONTENT_MIN_H` is 640x480 logical points of
+**Advisory.** `CONTENT_MIN_W` x `CONTENT_MIN_H` is 700x480 logical points of
 presentable area: the smallest size worth *offering*. It is what
 `fnl_min_content_size_pt()` reports and what a caller filtering a list of sizes
 should filter against. It is not a size the window refuses to go below.
 
-**Enforced.** `deco_min_window()` is **556x34** points of window geometry (583
+**Enforced.** `deco_min_window()` is **614x34** points of window geometry (641
 wide where the window is the output, whose run has an output box and a wider
 mode box; each with the GPU box's 69 in it once a renderer has listed its GPUs:
-625 and 652; under a window server the output box is not in it, and gives way
-below 734 instead -- *The titlebar controls*), and both figures come straight
+683 and 710; under a window server the output box is not in it, and gives way
+below 792 instead -- *The titlebar controls*), and both figures come straight
 off the decorations they protect:
 the width is one point above where `ctl_run_x()` drops the controls' run — the
 button strip (`DECO_MIN_W`, 157), the group gap and the run — and the height is
@@ -2706,13 +2710,13 @@ no constant, so `deco_min_window()` asserts at run time, in a Debug tree,
 that the floor stays under `CONTENT_MIN_W` — above it the size list, which
 is filtered against the floor, would offer nothing. Not where the window is
 the output: its list is the output's modes, which the floor does not
-filter, and its 652 is past 640.
+filter, and its 710 is past 700.
 
 The floor grows once after `open()`: the GPU box joins the run when the
 renderer's first pick publishes its list, and the window server, told the
 floor at open, is told it again then (`apply_size_bounds()` from
 `fnl_init()`); missed, X11's manager held the window to 556. Measured by the
-round (`stress.py`, the corner carried to the window's own left edge): 625
+round (`stress.py`, the corner carried to the window's own left edge): 683
 on X11 for both renderers, on Win32 on both laptops and under wine's X11
 driver. Wine's Wayland driver lets the compositor take the window to 119,
 below what the Win32 backend arms after a resize, and is declared
@@ -2721,7 +2725,7 @@ its own window in steps of 16 pixels and keeps the floor to the step,
 640 (`FLOOR_STEP`). On the Mac the borderless window is resizable, which
 fullscreen needs, and AppKit's own edge resize took it to 43 points: it
 holds the window's `minSize` and nothing else, which `hold_floor()` now
-sets at open, with the scale and whenever the floor moves; 625 since.
+sets at open, with the scale and whenever the floor moves; 683 since.
 
 The floor applies only where this library draws the titlebar, which is every
 windowed frame. In fullscreen there is nothing to keep grabbable, the size is
@@ -2732,7 +2736,7 @@ the monitor's, and no floor is asked for.
 | | mechanism | behaviour |
 |---|---|---|
 | Wayland | `xdg_toplevel.set_min_size`, enforced again on the configure | the drag stops |
-| X11 | `WM_NORMAL_HINTS`, honoured by the manager during the drag | the drag stops at exactly the floor (625x34 once the GPUs are listed) |
+| X11 | `WM_NORMAL_HINTS`, honoured by the manager during the drag | the drag stops at exactly the floor (683x34 once the GPUs are listed) |
 | Win32 | a timer grows the window back after the drag, armed from `WM_SIZE` and again from `apply_size_bounds` when the floor itself moves | the drag goes below and springs back |
 
 `ptMinTrackSize` is deliberately **not** set on Win32. Bounding the resize means
@@ -4556,7 +4560,8 @@ nothing else:
   size (which `FNL_EVENT_OUTPUT` also reports), the reticle, the figures the
   metrics panel shows;
 * what the frame is drawn from — the scene's size and antialiasing, its
-  animation time, the veil.
+  animation time, the temporal offset a jittered frame is accumulated at, and
+  the veil.
 
 Everything a caller *can* observe is covered by `user_gen`, which
 `fnl_invalidate()` bumps. A field added here for the sake of a caller's widget
@@ -7232,17 +7237,17 @@ pixel instead — around 33 MB of writes at 4K.
 
 ### Antialiasing
 
-Two modes, set with `fnl_set_antialias()`, and the difference between them is
-the point of having both. Both are built on the offscreen target, so asking for
-either turns it on even at the window's own resolution — there has to be an
-image to resolve into or to read.
+Three modes, set with `fnl_set_antialias()`, and the difference between them
+is the point of having all three. Each is built on the offscreen target, so
+asking for one turns it on even at the window's own resolution — there has to
+be an image to resolve into or to read.
 
 Two calls tell before asking, and they are not the same question.
-`fnl_offscreen_supported()` covers the render scale and both modes together:
-false means none of the three can run on this GPU at all.
+`fnl_offscreen_supported()` covers the render scale and the three modes
+together: false means none of the four can run on this GPU at all.
 `fnl_max_samples()` is FSAA's further condition — 1 means this device offers no
-sample count worth having, even where the target exists. A caller's control for
-either mode should be drawn dim rather than left to fail quietly.
+sample count worth having, even where the target exists. A caller's control
+for any of the three should be drawn dim rather than left to fail quietly.
 
 **`FSAA` — multisampling.** The scene is rendered into a 4× multisampled colour
 and depth pair and *resolved* into the image the rest of the frame reads. The
@@ -7334,6 +7339,55 @@ maximum with an absolute floor under it, and that is the change to make if the
 filter is ever wanted on darker content. It is not made here because it changes
 what the filter produces.
 
+**TAAU — temporal upscaling.** The mode that makes a render scale worth having.
+The scene is rasterised every frame at a subpixel offset that walks a fixed
+Halton sequence -- `FnlDrawState::jitter_x`, reported to the caller as
+`FnlFrame::jitter_x` because only the caller can put it in its projection -- and
+a pass of its own resolves the frame against the frame before it, at the
+scene's resolution and ahead of the fetch, as MLAA's does. Eight offsets is
+where a 60 Hz accumulation has the detail back; the sequence is a table rather
+than a running Halton because it is part of what the picture is, and a still
+window keeps the image it converged on rather than gathering samples for ever.
+
+The history is *clamped* to the range its 3x3 neighbourhood holds in this frame
+before it is mixed, and that clamp is the whole of the motion handling: there
+are no motion vectors here, because the scene is the caller's and the library
+never sees a camera, so moving content contributes only what it left inside
+the box and an edge the box cannot hold is dropped rather than smeared. So this
+is temporal antialiasing that happens to sit at a smaller grid than the window;
+it is not a reprojecting upscale, and what moves fast is resolved at the
+scene's resolution and no better. FSR 2's and DLSS's answer -- motion vectors,
+depth and a jittered projection handed back by the caller -- is the feature,
+and it wants an `FnlSceneTarget` of its own for the attachment, a depth that is
+kept rather than transient, and an interop entry for each renderer.
+
+Three of its consequences are frame-policy decisions and not details. The
+jitter is in `FnlDrawState`, so a moving frame is *never* a cached recording
+(DESIGN *Recording*): the accumulation's whole input is new each frame. It
+advances only while the scene moves, since a jitter that moved on a still frame
+would be a draw state that always differs -- a window that never rests, which
+*At rest* spends a whole section preventing. And the history is mixed in only
+where `App::presents` moved by exactly one, so a rest, a pause, a dropped
+present and a rebuilt device each start the accumulation again rather than
+blending across the gap.
+
+The history is one image per frame slot rather than one for the device: a
+shared image would be written by the copy that fills it while another slot's
+resolve read it, and nothing orders those two -- a slot's fence covers its own
+submissions and no others. For the same reason a recording made under this mode
+is only reused in the slot it was made in (`RendererState::img_slot`), where
+nothing else in the renderer cares which slot a recording is submitted in. The
+fill itself is a `vkCmdCopyImage` and not a second colour attachment: the pass
+reads the image it would have to write, which is the one feedback loop the API
+rejects.
+
+What it costs is owed rather than measured -- TODO *Temporal upscaling,
+measured*. What is expected of it, from the parts it is made of: the resolve is
+one full-screen pass at the scene's resolution and the fill is one image copy,
+both of which the table below prices at a fraction of the fetch they replace,
+against an accumulation that a moving frame was already paying for in
+re-recording.
+
 **What they cost.** AMD Radeon RX 590 GME (RADV POLARIS10), the Wayland build
 at `--scale=2` — a 2584x1532 buffer over a 2560x1440 presentable area —
 uncapped on `MAILBOX`, motion off, command buffer reused (`record 0.00`). The
@@ -7353,7 +7407,7 @@ agreeing to within 0.01 ms:
 | held at 640x480, multisampled | 0.197 | −0.044 |
 | held at 640x480, filtered | 0.230 | −0.011 |
 
-The two modes are one setting with three values, so there is no row with both.
+The three modes are one setting with four values, so no row has two of them.
 The 1:1 rows that go through the fetch are pinned a pixel short of the area,
 2560x1439: an equal pin is refused (see *Render scale*) and would measure the
 direct path twice. The fifth row is that pin with MLAA on, which is the only
@@ -10055,7 +10109,7 @@ two Direct3D 12 ones once on vkd3d-proton and once on wine's own vkd3d
   pass both.
 * **11.0's Wayland driver** opens the window where 10.0's did, on DVI-D-1
   with the pointer on DP-1, and lets the compositor's resize take it to
-  119 points under the 625 floor, as 10.0's did: both declarations hold
+  119 points under the 683 floor, as 10.0's did: both declarations hold
   for 11.0. It now says the window changed monitor, which 10.0's never
   did, `DISPLAY1` to `DISPLAY2`; but the output size it gives is no
   monitor's -- 1920x1041 points before the move, 1920x2160 on DVI-D-1's

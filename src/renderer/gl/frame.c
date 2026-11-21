@@ -39,8 +39,7 @@ static const float DEPTH_FAR = 1.0f;
 static bool scene_offscreen(const App *a, const FnlDrawState *ds)
 {
 	return ds->scene_w > 0 && GLS(a)->scene.fbo &&
-		   a->scene_extent.w == ds->scene_w &&
-		   a->scene_extent.h == ds->scene_h;
+		   a->scene_extent.w == ds->scene_w && a->scene_extent.h == ds->scene_h;
 }
 
 static bool scene_msaa(const App *a, const FnlDrawState *ds)
@@ -65,10 +64,16 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 		   !scene_mlaa_direct(a, ds);
 }
 
+/* TAAU in force: the mode asked for, the offscreen path under it, and the
+ * resolve built -- the device may have refused the images it needs. */
+static bool scene_taau(const App *a, const FnlDrawState *ds)
+{
+	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) && GLS(a)->taau.fbo;
+}
+
 int gl_active_samples(const App *a, const FnlDrawState *ds)
 {
-	return scene_msaa(a, ds) ? (int)fnl_atomic_load_u32(&a->msaa_samples)
-							 : 1;
+	return scene_msaa(a, ds) ? (int)fnl_atomic_load_u32(&a->msaa_samples) : 1;
 }
 
 /* ---- the scene ----------------------------------------------------------- */
@@ -92,7 +97,8 @@ static void record_scene(App *a, const FnlDrawState *ds, unsigned fbo,
 		.scene_h_px = h,
 		.target     = t,
 		.samples    = t == FNL_TARGET_OFFSCREEN_MS
-						  ? (int)fnl_atomic_load_u32(&a->msaa_samples) : 1,
+						  ? (int)fnl_atomic_load_u32(&a->msaa_samples)
+						  : 1,
 		.scene_time = ds->scene_time,
 	};
 	GLS(a)->scene_fbo_now = fbo;
@@ -125,6 +131,26 @@ static void fetch(App *a, unsigned prog, unsigned tex)
 	gl.DrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+/* The fetch with two images read: the resolve, at unit 0 the scene and at
+ * unit 1 the history, with the frame's offset and weight in the `Push` block
+ * that every program of the overlay's has at point 0. The units are set on
+ * the program when it is linked (overlay.c): the 4.1 translation loses its
+ * bindings, so a sampler left unset reads unit 0 and would mix the frame with
+ * itself. */
+static void fetch2(App *a, unsigned prog, unsigned tex0, unsigned tex1,
+				   const TaauPush *pc)
+{
+	gl.UseProgram(prog);
+	gl.BindVertexArray(GLS(a)->vao_empty);
+	gl.BindTextureUnit(0, tex0);
+	gl.BindSampler(0, GLS(a)->sampler_linear);
+	gl.BindTextureUnit(1, tex1);
+	gl.BindSampler(1, GLS(a)->sampler_linear);
+	gl_push(a, pc, sizeof *pc);
+	gl.Disable(GL_BLEND);
+	gl.DrawArrays(GL_TRIANGLES, 0, 3);
+}
+
 /* The offscreen scene: rendered at its own resolution, resolved where it was
  * multisampled, and filtered into MLAA's image where it is then scaled. */
 static void scene_pass(App *a, const FnlDrawState *ds)
@@ -142,13 +168,39 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		/* A blit obeys the scissor too. With GL_FRAMEBUFFER_SRGB on, the
 		 * samples are averaged in linear light. */
 		gl.Disable(GL_SCISSOR_TEST);
-		gl.BlitNamedFramebuffer(GLS(a)->scene_ms.fbo, GLS(a)->scene.fbo,
-								0, 0, w, h, 0, 0, w, h,
-								GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		gl.BlitNamedFramebuffer(GLS(a)->scene_ms.fbo, GLS(a)->scene.fbo, 0, 0,
+								w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT,
+								GL_NEAREST);
 	}
 	if (scene_mlaa(a, ds)) {
 		begin_target(a, &GLS(a)->mlaa, w, h);
 		fetch(a, GLS(a)->prog_mlaa, GLS(a)->scene.color);
+	}
+
+	/* The resolve, then the blit that carries its result into this slot's
+	 * history for the frame after it. The pass cannot write the image it
+	 * reads, which is why the history is a second target and a blit. The
+	 * history is mixed in only where this frame follows the one that wrote
+	 * it: App::presents moved by one and the slot's history has been
+	 * written, so a rest, a pause, a dropped present and a rebuilt context
+	 * all read as no history. */
+	if (scene_taau(a, ds)) {
+		const bool prev = app_taau_follows(a, GLS(a)->taau_present,
+									   GLS(a)->taau_hist_ok[a->frame]);
+		const TaauPush pc = {
+			.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
+						0.0f },
+			.texel  = { 1.0f / (float)w, 1.0f / (float)h, 0.0f, 0.0f },
+		};
+		begin_target(a, &GLS(a)->taau, w, h);
+		fetch2(a, GLS(a)->prog_taau, GLS(a)->scene.color,
+			   GLS(a)->taau_hist[a->frame].color, &pc);
+		gl.Disable(GL_SCISSOR_TEST);
+		gl.BlitNamedFramebuffer(GLS(a)->taau.fbo,
+								GLS(a)->taau_hist[a->frame].fbo, 0, 0, w, h, 0,
+								0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		GLS(a)->taau_hist_ok[a->frame] = true;
+		GLS(a)->taau_present           = a->presents;
 	}
 }
 
@@ -177,8 +229,9 @@ static void draw_scene(App *a, const FnlDrawState *ds)
 	if (scene_mlaa_direct(a, ds))
 		fetch(a, GLS(a)->prog_mlaa, GLS(a)->scene.color);
 	else
-		fetch(a, GLS(a)->prog_blit, scene_mlaa(a, ds)
-										? GLS(a)->mlaa.color
+		fetch(a, GLS(a)->prog_blit,
+			  scene_mlaa(a, ds)   ? GLS(a)->mlaa.color
+			  : scene_taau(a, ds) ? GLS(a)->taau.color
 										: GLS(a)->scene.color);
 }
 
@@ -239,12 +292,11 @@ static bool wait_slot(App *a, uint32_t slot)
 	GLsync f = (GLsync)GLS(a)->fence[slot];
 	if (!f)
 		return true;
-	if (a->timing &&
-		gl.ClientWaitSync(f, 0, 0) == GL_ALREADY_SIGNALED)
+	if (a->timing && gl.ClientWaitSync(f, 0, 0) == GL_ALREADY_SIGNALED)
 		a->fc_idle++;
 	for (;;) {
-		const GLenum r = gl.ClientWaitSync(f, GL_SYNC_FLUSH_COMMANDS_BIT,
-										   FENCE_WAIT_NS);
+		const GLenum r =
+			gl.ClientWaitSync(f, GL_SYNC_FLUSH_COMMANDS_BIT, FENCE_WAIT_NS);
 		if (r == GL_ALREADY_SIGNALED || r == GL_CONDITION_SATISFIED)
 			break;
 		if (gl_reset_lost(a))
@@ -278,8 +330,8 @@ static GlSwap read_window(App *a)
 	if (need > GLS(a)->readback_bytes) {
 		void *grown = realloc(GLS(a)->readback, need);
 		if (!grown) {
-			fnl_log(FNL_LOG_WARN, "out of memory reading back a %dx%d frame",
-					w, h);
+			fnl_log(FNL_LOG_WARN, "out of memory reading back a %dx%d frame", w,
+					h);
 			return GL_SWAP_FAILED;
 		}
 		GLS(a)->readback = grown;
@@ -380,8 +432,7 @@ static GlSwap gl_present_pixels(App *a)
 		const int w = GLS(a)->pack_w, h = GLS(a)->pack_h;
 		const size_t pitch = (size_t)w * 4u;
 		const void *px = gl.MapNamedBufferRange(GLS(a)->pack_buf, 0,
-												(GLsizeiptr)(pitch *
-															 (size_t)h),
+													(GLsizeiptr)(pitch * (size_t)h),
 												GL_MAP_READ_BIT);
 		if (px) {
 			BACKEND(a)->present_pixels(a, px, w, h, pitch, true);
@@ -394,8 +445,8 @@ static GlSwap gl_present_pixels(App *a)
 	const GlSwap r = read_window(a);
 	if (r != GL_SWAP_OK)
 		return r;
-	BACKEND(a)->present_pixels(a, GLS(a)->readback, a->extent.w,
-							   a->extent.h, (size_t)a->extent.w * 4u, true);
+	BACKEND(a)->present_pixels(a, GLS(a)->readback, a->extent.w, a->extent.h,
+							   (size_t)a->extent.w * 4u, true);
 	return GL_SWAP_OK;
 }
 
@@ -423,8 +474,8 @@ static void snapshot(App *a)
 static void gl_choose_interval(App *a)
 {
 	const bool resizing = now_seconds() - GLS(a)->resized_at < GL_RESIZE_HOLD;
-	const int give = GLS(a)->interval_asked && !gl_bridge_pacer(a) &&
-					 !resizing ? 1 : 0;
+	const int give =
+		GLS(a)->interval_asked && !gl_bridge_pacer(a) && !resizing ? 1 : 0;
 	/* Kept only once the driver took it, so a refusal is asked again --
 	 * on Wayland, 0 refused would leave Mesa's untimed wait in place. */
 	if (give != GLS(a)->interval && gl_bridge_interval(a, give))
@@ -492,7 +543,8 @@ bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	if (scene_offscreen(a, ds))
 		(void)gl_scene_ensure_aa(a, ds->aa == FNL_AA_MSAA,
 								 ds->aa == FNL_AA_MLAA &&
-									 !scene_mlaa_direct(a, ds));
+									 !scene_mlaa_direct(a, ds),
+								 ds->aa == FNL_AA_TAAU);
 
 	const double t_rec = now_seconds();
 	app_frame_mark(a, FRAME_MARK_REC);
@@ -547,10 +599,9 @@ bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		 * probe found none in 36 captures. */
 		const int bh = a->buffer.h > 0 ? a->buffer.h : a->extent.h;
 		gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-		gl.BlitNamedFramebuffer(GLS(a)->window.fbo, 0,
-								0, 0, a->extent.w, a->extent.h,
-								0, bh, a->extent.w, bh - a->extent.h,
-								GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		gl.BlitNamedFramebuffer(
+			GLS(a)->window.fbo, 0, 0, 0, a->extent.w, a->extent.h, 0, bh,
+			a->extent.w, bh - a->extent.h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	}
 	if (GLS(a)->ts_query[slot][1]) {
 		gl.QueryCounter(GLS(a)->ts_query[slot][1], GL_TIMESTAMP);
@@ -585,8 +636,7 @@ bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	BACKEND(a)->flush(a);
 
 	switch (sw) {
-	case GL_SWAP_OK:
-		break;
+	case GL_SWAP_OK: break;
 	case GL_SWAP_DEVICE_LOST:
 		a->device_lost = true;
 		app_frame_take_back(a);
@@ -595,9 +645,7 @@ bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		a->surface_lost = true;
 		app_frame_take_back(a);
 		break;
-	case GL_SWAP_FAILED:
-		app_frame_take_back(a);
-		break;
+	case GL_SWAP_FAILED: app_frame_take_back(a); break;
 	}
 
 	if (FNL_FAULT("device-lost"))

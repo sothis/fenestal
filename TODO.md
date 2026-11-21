@@ -4,6 +4,63 @@ What is owed, as opposed to what is known. `DESIGN.md` is the record of
 what was measured; an item answered there, with its measurement, comes off
 this list.
 
+## Temporal upscaling, measured
+
+Built on 2026-11-21 in all three trees -- `build/linux` (Vulkan and OpenGL),
+`build/win64` (Direct3D 12 and Vulkan) and `build/macos` (Metal) -- warning
+clean, the one shader through SPIR-V, GLSL 4.50, GLSL 4.10, DXIL and MSL.
+
+The same day, eight environments drew resolved frames in
+`tools/drive/bench.py` with `--bench-antialias=taau --bench-scene-motion=1`,
+every record `complete`: this desk's `x11-vulkan` (59.5 fps, p99 25.4 ms) and
+`x11-gl` (60.9, 19.2), `win64-vulkan` under wine (59.4), schenker's Windows
+`win64-vulkan-native@nvidia` (60.0), its CachyOS `x11-vulkan-bare` (60.0),
+`wayland-vulkan-bare` (59.8), `kms-vulkan-bare:nvidia` (58.9) and
+`:nouveau` (29.9), and `macos-metal-native` (60.0). What the resolve costs,
+motion on and on this desk: a direct frame 0.190 ms of GPU, TAAU 0.583, MLAA
+0.691 -- +0.393 on a direct frame and 0.108 cheaper than the filter; the CPU
+side +0.049 ms, the re-record the jitter forces. A captured frame
+(`FNL_BACKEND=x11`, 2560x1508) is a drawn picture rather than a blank one.
+
+Owed, in this order:
+
+- **Does Direct3D 12 draw it** -- the one of the four that has not. Every
+  environment it has here is shut, and shut without this change: the laptop's
+  `win64-d3d12-native` times out and `win64-d3d12` under wine stops after
+  "GPU in use" with *both* this tree and the tree at HEAD
+  (`git checkout -- src/renderer/d3d12/` and a rebuild gives the same
+  timeout and the same silence), while the guests that last passed on
+  2026-11-05 (`9f6f184`, 91 checks) cannot start here for want of the vboxdrv
+  module. So the debug layer's opinion of the resolve's
+  `RENDER_TARGET -> COPY_SOURCE -> PIXEL_SHADER_RESOURCE` round trip, and of a
+  one-texture pipeline binding a two-descriptor table, is still owed.
+- **The Vulkan and GL barriers, under the validation layer**, in a checker
+  tree: the two around `vkCmdCopyImage`, the copy's write-after-write on a
+  history image the frame before wrote, and the GL blit's source and its
+  destination.
+- **What it costs**, by the table's own method (DESIGN *Antialiasing*): a
+  pinned scene at 640x480 and at half the area, `--antialias=taau` against the
+  same pin with no mode, on the RX 590 and on lavapipe, uncapped on `MAILBOX`,
+  `--frame-times` and the median of six seconds. The resolve and the copy are
+  the two costs, and the accumulation's re-record is a third figure that only
+  `record` shows.
+- **What it looks like**: the testbed's star (geometry, so a jitter has
+  something to gather) at 60 and at 30 sizes a second, against MSAA and MLAA;
+  and the moving cube of `demos/motion` where the clamp, not the accumulation,
+  decides -- the case this mode is worst at, and the one a caller will hit.
+- **Whether a resting window keeps it**: the image a still scene converged on
+  has to stay on screen through the rest, which is `rest_owed()` reading a
+  draw state whose jitter has stopped moving. Nothing in the code asks for a
+  draw to keep converging, and that is the intent -- but it has not been
+  looked at on a screen.
+- **The titlebar control**: the fourth checkbox (TAAU) is 58 points of run,
+  measured in `deco_min_window()` on 2026-11-21 -- the floor 556 to 614, and
+  683 with the GPU box in it; that 683 is `environment.py`'s `FLOOR_W`, and
+  `stress.py`'s floor check agrees with it. The three widths the output box
+  gives way at were measured on a screen with three boxes and are now derived
+  from the two measurements above (798, 792, 790); that capture is owed, as is
+  a look at the bar at a narrow width.
+
 ## Windows laptops
 
 Each needs a hand on the machine or hardware the two laptops do not have.

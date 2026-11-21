@@ -30,6 +30,7 @@
 #include "dxil/fullscreen.vert.h"
 #include "dxil/blit.frag.h"
 #include "dxil/mlaa.frag.h"
+#include "dxil/taau.frag.h"
 #include "font_data.h"
 #include "font_codec.h"
 
@@ -98,14 +99,21 @@ enum { ROOT_PUSH = 0, ROOT_SRV, ROOT_SAMPLER, ROOT_COUNT };
 static HRESULT root_make(ID3D12Device *dev, ID3D12RootSignature **out)
 {
 	const D3D12_DESCRIPTOR_RANGE srv = {
-		.RangeType      = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		.NumDescriptors = 1,
+		.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		/* Two, because TAAU's resolve reads two images in one draw and a
+		 * table reads consecutive descriptors; a shader that declares one
+		 * (every other pipeline here) reads the first and ignores the
+		 * second. */
+		.NumDescriptors = 2,
 		.OffsetInDescriptorsFromTableStart =
 			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
 	};
 	const D3D12_DESCRIPTOR_RANGE smp = {
-		.RangeType      = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
-		.NumDescriptors = 1,
+		.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+		/* Two, for the resolve's second texture's sampler: s0 and s1 are
+		 * registers of their own, and both want the scene's linear filter
+		 * (SMP_LINEAR and SMP_LINEAR2). */
+		.NumDescriptors = 2,
 		.OffsetInDescriptorsFromTableStart =
 			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
 	};
@@ -185,8 +193,14 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 									 const PsoDesc *s, bool quiet)
 {
 	static const char *const SEMANTIC = "TEXCOORD";
-	D3D12_INPUT_ELEMENT_DESC in[3];
-	FNL_ASSERT(s->n_inputs <= 3);
+	/* The most any pipeline here takes: the stroke's five (p0, p2, colour,
+	 * second colour, kind), where the text takes three and the rest none. An
+	 * array too small is not a compile error and is an out-of-bounds write the
+	 * moment a pipeline grows an input -- the stroke's did, and release builds
+	 * carried it until a driver refused the corrupted input layout. */
+#define PSO_INPUTS_MAX 5
+	D3D12_INPUT_ELEMENT_DESC in[PSO_INPUTS_MAX];
+	FNL_ASSERT(s->n_inputs <= PSO_INPUTS_MAX);
 	for (int i = 0; i < s->n_inputs; i++)
 		in[i] = (D3D12_INPUT_ELEMENT_DESC){
 			.SemanticName      = SEMANTIC,
@@ -523,7 +537,7 @@ FnlResult d3d_create_overlay(App *a)
 	const size_t text[3]   = { offsetof(GlyphInstance, rect),
 							   offsetof(GlyphInstance, uv),
 							   offsetof(GlyphInstance, color) };
-	const PsoDesc descs[7] = {
+	const PsoDesc descs[8] = {
 		{ "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
 		  BLEND_NONE },
 		{ "stroke", BYTES(shape_vert_dxil), BYTES(shape_frag_dxil), shape, 5,
@@ -540,15 +554,19 @@ FnlResult d3d_create_overlay(App *a)
 		  BLEND_NONE },
 		{ "MLAA", BYTES(fullscreen_vert_dxil), BYTES(mlaa_frag_dxil), NULL, 0,
 		  BLEND_NONE },
+		/* The resolve: the fetch's vertex stage with a fragment stage that
+		 * reads two images. */
+		{ "TAAU", BYTES(fullscreen_vert_dxil), BYTES(taau_frag_dxil), NULL, 0,
+		  BLEND_NONE },
 		/* The cover: the fetch once more, blended by a constant, for the
 		 * frame read back before a move (d3d_overlay_cover()). */
 		{ "cover", BYTES(fullscreen_vert_dxil), BYTES(blit_frag_dxil), NULL, 0,
 		  BLEND_CONSTANT },
 	};
-	ID3D12PipelineState **out[7] = { &g->pso_rect, &g->pso_shape, &g->pso_image,
+	ID3D12PipelineState **out[8] = { &g->pso_rect, &g->pso_shape, &g->pso_image,
 									 &g->pso_text, &g->pso_blit,  &g->pso_mlaa,
-									 &g->pso_cover };
-	for (int i = 0; i < 7; i++) {
+									 &g->pso_taau, &g->pso_cover };
+	for (int i = 0; i < 8; i++) {
 		*out[i] = make_pso(a, &descs[i]);
 		if (!*out[i])
 			return fnl_fail(FNL_ERR_SYSTEM,
@@ -603,6 +621,7 @@ void d3d_destroy_overlay(App *a)
 	D3D_RELEASE(g->pso_text);
 	D3D_RELEASE(g->pso_blit);
 	D3D_RELEASE(g->pso_mlaa);
+	D3D_RELEASE(g->pso_taau);
 	D3D_RELEASE(g->root);
 }
 
@@ -627,6 +646,27 @@ void d3d_fetch(App *a, ID3D12PipelineState *pso, int srv)
 		l, ROOT_SRV, d3d_srv_gpu(a, srv));
 	ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(
 		l, ROOT_SAMPLER, d3d_smp_gpu(a, SMP_LINEAR));
+	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
+		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	ID3D12GraphicsCommandList_DrawInstanced(l, 3, 1, 0, 0);
+	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
+		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+}
+
+/* TAAU's resolve: both tables two descriptors wide, from the pair `srv` names
+ * and the two linear samplers, and the frame's offset and weight pushed as the
+ * eight words the shader's `Push` block is (shaders/taau.frag, and
+ * TaauPush's asserts). */
+void d3d_fetch2(App *a, ID3D12PipelineState *pso, int srv, const TaauPush *pc)
+{
+	ID3D12GraphicsCommandList *l = D3D(a)->list;
+	ID3D12GraphicsCommandList_SetPipelineState(l, pso);
+	ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(
+		l, ROOT_SRV, d3d_srv_gpu(a, srv));
+	ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(
+		l, ROOT_SAMPLER, d3d_smp_gpu(a, SMP_LINEAR));
+	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(
+		l, ROOT_PUSH, (UINT)(sizeof *pc / 4), pc, 0);
 	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	ID3D12GraphicsCommandList_DrawInstanced(l, 3, 1, 0, 0);

@@ -13,7 +13,7 @@
  * mingw-w64's headers and the Windows SDK's alike.
  *
  * Fenestal owns the window, the device, the swapchain, the present schedule,
- * the render scale, both antialiasing modes and the text overlay; the scene
+ * the render scale, the three antialiasing modes and the text overlay; the scene
  * is yours. Everything up to "here is a command list, with the render target
  * bound and the viewport set" is portable, and what you record into it is
  * not.

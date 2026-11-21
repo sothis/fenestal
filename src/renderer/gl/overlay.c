@@ -31,6 +31,7 @@
 #include "gl/fullscreen.vert.h"
 #include "gl/blit.frag.h"
 #include "gl/mlaa.frag.h"
+#include "gl/taau.frag.h"
 #include "gl41/rect.vert.h"
 #include "gl41/rect.frag.h"
 #include "gl41/shape.vert.h"
@@ -42,6 +43,7 @@
 #include "gl41/fullscreen.vert.h"
 #include "gl41/blit.frag.h"
 #include "gl41/mlaa.frag.h"
+#include "gl41/taau.frag.h"
 #include "font_data.h"
 #include "font_codec.h"
 
@@ -318,10 +320,20 @@ FnlResult gl_create_overlay(App *a)
 	g->prog_text  = gl_program("text", SRC(text_vert), SRC(text_lcd_frag));
 	g->prog_blit  = gl_program("fetch", SRC(fullscreen_vert), SRC(blit_frag));
 	g->prog_mlaa  = gl_program("MLAA", SRC(fullscreen_vert), SRC(mlaa_frag));
+	g->prog_taau = gl_program("TAAU", SRC(fullscreen_vert), SRC(taau_frag));
+	/* The resolve reads two images, and the 4.1 translation loses the
+	 * `layout(binding = N)` the 4.50 one keeps: an unset sampler reads unit 0,
+	 * which would make the history the scene and the mix a still. Set by name,
+	 * which both profiles keep. */
+	if (g->prog_taau) {
+		gl.UseProgram(g->prog_taau);
+		gl.Uniform1i(gl.GetUniformLocation(g->prog_taau, "u_scene"), 0);
+		gl.Uniform1i(gl.GetUniformLocation(g->prog_taau, "u_history"), 1);
+	}
 	g->prog_image = gl_program("image", SRC(image_vert), SRC(image_frag));
 #undef SRC
 	if (!g->prog_rect || !g->prog_shape || !g->prog_text || !g->prog_blit ||
-		!g->prog_mlaa || !g->prog_image)
+		!g->prog_mlaa || !g->prog_taau || !g->prog_image)
 		return fnl_fail(FNL_ERR_SYSTEM, "the overlay's programs did not build");
 
 	gl.CreateBuffers(1, &g->push);
@@ -389,9 +401,10 @@ void gl_destroy_overlay(App *a)
 			img->gpu = NULL;
 		}
 	}
-	const unsigned progs[6] = { g->prog_rect, g->prog_shape, g->prog_text,
-								g->prog_blit, g->prog_mlaa,  g->prog_image };
-	for (int i = 0; i < 6; i++)
+	const unsigned progs[7] = { g->prog_rect, g->prog_shape, g->prog_text,
+								g->prog_blit, g->prog_mlaa,  g->prog_taau,
+								g->prog_image };
+	for (int i = 0; i < 7; i++)
 		if (progs[i])
 			gl.DeleteProgram(progs[i]);
 	const unsigned vaos[4] = { g->vao_rect, g->vao_shape, g->vao_text,
@@ -403,7 +416,7 @@ void gl_destroy_overlay(App *a)
 		gl.DeleteBuffers(1, &g->push);
 
 	g->prog_rect = g->prog_shape = g->prog_text = 0;
-	g->prog_blit = g->prog_mlaa = g->prog_image = 0;
+	g->prog_blit = g->prog_mlaa = g->prog_taau = g->prog_image = 0;
 	g->vao_rect = g->vao_shape = g->vao_text = g->vao_empty = 0;
 	g->sampler_nearest = g->sampler_linear = 0;
 	g->push                                = 0;

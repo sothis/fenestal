@@ -134,6 +134,15 @@ struct RendererState {
 	bool scene_ms_refused;
 	GlTarget mlaa;
 	bool mlaa_refused;
+	/* TAAU's resolve and the history it mixes in, one per frame slot: the
+	 * fetch samples the resolve, the resolve samples the history, and the
+	 * history is filled by a blit from the resolve -- not by the pass, which
+	 * would be reading the image it writes. */
+	GlTarget taau;
+	GlTarget taau_hist[MAX_FRAMES_IN_FLIGHT];
+	bool taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
+	bool taau_refused;
+	uint64_t taau_present;
 
 	/* The framebuffer on_record is drawing into, while it runs, and 0
 	 * outside it; fnl_gl_scene_framebuffer() reads it back. */
@@ -147,6 +156,9 @@ struct RendererState {
 	unsigned prog_text;
 	unsigned prog_blit;
 	unsigned prog_mlaa;
+	/* The resolve: the fetch's vertex stage and a fragment stage reading two
+	 * images, so a program of its own. */
+	unsigned prog_taau;
 	/* The picture placed at a rectangle (fnl_overlay_image()); its texture is
 	 * the caller's, behind FnlImage::gpu. */
 	unsigned prog_image;

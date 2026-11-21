@@ -49,8 +49,7 @@ static const float CLEAR[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 static bool scene_offscreen(const App *a, const FnlDrawState *ds)
 {
 	return ds->scene_w > 0 && D3D(a)->scene.color &&
-		   a->scene_extent.w == ds->scene_w &&
-		   a->scene_extent.h == ds->scene_h;
+		   a->scene_extent.w == ds->scene_w && a->scene_extent.h == ds->scene_h;
 }
 
 static bool scene_msaa(const App *a, const FnlDrawState *ds)
@@ -75,10 +74,17 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 		   !scene_mlaa_direct(a, ds);
 }
 
+/* TAAU in force: the mode asked for, the offscreen path under it, and the
+ * resolve built -- the device may have refused the images it needs. */
+static bool scene_taau(const App *a, const FnlDrawState *ds)
+{
+	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) &&
+		   D3D(a)->taau.color;
+}
+
 int d3d_active_samples(const App *a, const FnlDrawState *ds)
 {
-	return scene_msaa(a, ds) ? (int)fnl_atomic_load_u32(&a->msaa_samples)
-							 : 1;
+	return scene_msaa(a, ds) ? (int)fnl_atomic_load_u32(&a->msaa_samples) : 1;
 }
 
 /* ---- binding ------------------------------------------------------------ */
@@ -86,8 +92,8 @@ int d3d_active_samples(const App *a, const FnlDrawState *ds)
 static void set_rect(App *a, int x, int y, int w, int h)
 {
 	ID3D12GraphicsCommandList *l = D3D(a)->list;
-	const D3D12_VIEWPORT v = { (float)x, (float)y, (float)w, (float)h,
-							   0.0f, 1.0f };
+	const D3D12_VIEWPORT v       = { (float)x, (float)y, (float)w,
+									 (float)h, 0.0f,     1.0f };
 	const D3D12_RECT s = { x, y, x + w, y + h };
 	ID3D12GraphicsCommandList_RSSetViewports(l, 1, &v);
 	ID3D12GraphicsCommandList_RSSetScissorRects(l, 1, &s);
@@ -97,8 +103,7 @@ static void set_rect(App *a, int x, int y, int w, int h)
  * the whole of it -- what a Vulkan pass's load-op clear leaves. A null
  * `dsv` binds no depth. */
 static void begin_target(App *a, const D3D12_CPU_DESCRIPTOR_HANDLE *rtv,
-						 const D3D12_CPU_DESCRIPTOR_HANDLE *dsv, int w,
-						 int h)
+						 const D3D12_CPU_DESCRIPTOR_HANDLE *dsv, int w, int h)
 {
 	ID3D12GraphicsCommandList *l = D3D(a)->list;
 	d3d_own_state(a);
@@ -141,7 +146,8 @@ static void record_scene(App *a, const FnlDrawState *ds,
 		.scene_h_px = h,
 		.target     = t,
 		.samples    = t == FNL_TARGET_OFFSCREEN_MS
-						  ? (int)fnl_atomic_load_u32(&a->msaa_samples) : 1,
+						  ? (int)fnl_atomic_load_u32(&a->msaa_samples)
+						  : 1,
 		.scene_time = ds->scene_time,
 	};
 	struct RendererState *g = D3D(a);
@@ -170,8 +176,8 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 	target_to(a, t, D3D12_RESOURCE_STATE_RENDER_TARGET);
 	begin_target(a, &rtv, &dsv, w, h);
 	record_scene(a, ds, rtv, dsv,
-				 ms ? FNL_TARGET_OFFSCREEN_MS : FNL_TARGET_OFFSCREEN, 0, 0,
-				 w, h);
+				 ms ? FNL_TARGET_OFFSCREEN_MS : FNL_TARGET_OFFSCREEN, 0, 0, w,
+				 h);
 	d3d_own_state(a);
 
 	if (ms) {
@@ -180,8 +186,7 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		target_to(a, &g->scene_ms, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
 		target_to(a, &g->scene, D3D12_RESOURCE_STATE_RESOLVE_DEST);
 		ID3D12GraphicsCommandList_ResolveSubresource(
-			g->list, g->scene.color, 0, g->scene_ms.color, 0,
-			D3D_COLOR_FORMAT);
+			g->list, g->scene.color, 0, g->scene_ms.color, 0, D3D_COLOR_FORMAT);
 	}
 	target_to(a, &g->scene, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	if (scene_mlaa(a, ds)) {
@@ -190,6 +195,36 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		begin_target(a, &mrtv, NULL, w, h);
 		d3d_fetch(a, g->pso_mlaa, SRV_SCENE);
 		target_to(a, &g->mlaa, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	}
+
+	/* The resolve, then the copy that carries its result into this slot's
+	 * history for the frame after it. The history is mixed in only where
+	 * this frame follows the one that wrote it: App::presents moved by one
+	 * and the slot's history has been written, so a rest, a pause, a dropped
+	 * present and a rebuilt device all read as no history. */
+	if (scene_taau(a, ds)) {
+		const bool prev = app_taau_follows(a, D3D(a)->taau_present,
+									   D3D(a)->taau_hist_ok[a->frame]);
+		const TaauPush pc = {
+			.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
+						0.0f },
+			.texel  = { 1.0f / (float)w, 1.0f / (float)h, 0.0f, 0.0f },
+		};
+		const D3D12_CPU_DESCRIPTOR_HANDLE trtv = d3d_rtv(a, RTV_TAAU);
+		const int pair = a->frame ? SRV_PAIR1 : SRV_PAIR0;
+
+		target_to(a, &g->taau, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		begin_target(a, &trtv, NULL, w, h);
+		d3d_fetch2(a, g->pso_taau, pair, &pc);
+		target_to(a, &g->taau, D3D12_RESOURCE_STATE_COPY_SOURCE);
+		target_to(a, &g->taau_hist[a->frame], D3D12_RESOURCE_STATE_COPY_DEST);
+		ID3D12GraphicsCommandList_CopyResource(
+			g->list, g->taau_hist[a->frame].color, g->taau.color);
+		target_to(a, &g->taau_hist[a->frame],
+				  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		target_to(a, &g->taau, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		g->taau_hist_ok[a->frame] = true;
+		g->taau_present           = a->presents;
 	}
 }
 
@@ -221,12 +256,14 @@ static void draw_scene(App *a, const FnlDrawState *ds,
 	 * against them is a mismatch the debug layer reports. The window's
 	 * depth is for a scene drawn straight in; the overlay after binds
 	 * none either (draw()). */
-	ID3D12GraphicsCommandList_OMSetRenderTargets(g->list, 1, &rtv, FALSE,
-												 NULL);
+	ID3D12GraphicsCommandList_OMSetRenderTargets(g->list, 1, &rtv, FALSE, NULL);
 	if (scene_mlaa_direct(a, ds))
 		d3d_fetch(a, g->pso_mlaa, SRV_SCENE);
 	else
-		d3d_fetch(a, g->pso_blit, scene_mlaa(a, ds) ? SRV_MLAA : SRV_SCENE);
+		d3d_fetch(a, g->pso_blit,
+				  scene_mlaa(a, ds)   ? SRV_MLAA
+				  : scene_taau(a, ds) ? SRV_TAAU
+									  : SRV_SCENE);
 }
 
 /* The transparent grab ring, as the four strips the window rectangle leaves
@@ -275,8 +312,7 @@ static bool draw(App *a, const FnlDrawState *ds, uint32_t slot, UINT img)
 	/* The overlay over the whole image, in a state of the library's own:
 	 * on_record may have left anything set. No depth. */
 	d3d_own_state(a);
-	ID3D12GraphicsCommandList_OMSetRenderTargets(g->list, 1, &rtv, FALSE,
-												 NULL);
+	ID3D12GraphicsCommandList_OMSetRenderTargets(g->list, 1, &rtv, FALSE, NULL);
 	set_rect(a, 0, 0, a->extent.w, a->extent.h);
 	g->overlay_on = true;
 	const FnlResult orc = draw_overlay(a, ds, slot);
@@ -348,8 +384,10 @@ static bool submit(App *a, uint32_t slot)
 	HRESULT hr = ID3D12GraphicsCommandList_Close(g->list);
 	if (FAILED(hr)) {
 		if (!d3d_hr_lost(a, hr))
-			fnl_log(FNL_LOG_ERROR, "the frame's list did not close "
-					"(0x%08lx)", (unsigned long)hr);
+			fnl_log(FNL_LOG_ERROR,
+					"the frame's list did not close "
+					"(0x%08lx)",
+					(unsigned long)hr);
 		return false;
 	}
 	ID3D12CommandList *lists[1] = { (ID3D12CommandList *)g->list };
@@ -363,8 +401,10 @@ static bool submit(App *a, uint32_t slot)
 		 * The list just submitted is behind no fence, so that is as near
 		 * idle as can be waited for (d3d_wait_idle()). */
 		if (!d3d_hr_lost(a, hr)) {
-			fnl_log(FNL_LOG_ERROR, "the frame's fence was not signalled "
-					"(0x%08lx); rebuilding", (unsigned long)hr);
+			fnl_log(FNL_LOG_ERROR,
+					"the frame's fence was not signalled "
+					"(0x%08lx); rebuilding",
+					(unsigned long)hr);
 			(void)d3d_wait_idle(a);
 			a->device_lost = true;
 		}
@@ -417,8 +457,8 @@ static ShownSaid wait_shown(App *a, UINT want, IDXGIOutput *out)
 	bool seen = false;
 	for (int blanks = 0;; ) {
 		DXGI_FRAME_STATISTICS st;
-		const HRESULT hr = IDXGISwapChain3_GetFrameStatistics(g->swapchain,
-															  &st);
+		const HRESULT hr =
+			IDXGISwapChain3_GetFrameStatistics(g->swapchain, &st);
 		if (SUCCEEDED(hr)) {
 			seen = true;
 			/* Signed, so a count that wrapped still orders. */
@@ -430,7 +470,8 @@ static ShownSaid wait_shown(App *a, UINT want, IDXGIOutput *out)
 			seen = true;            /* nothing to count against the stats */
 			break;
 		} else if (hr != DXGI_ERROR_FRAME_STATISTICS_DISJOINT) {
-			fnl_log(FNL_LOG_INFO, "no frame statistics (0x%08lx): a frame "
+			fnl_log(FNL_LOG_INFO,
+					"no frame statistics (0x%08lx): a frame "
 					"that answers a size is not waited for until shown",
 					(unsigned long)hr);
 			return SHOWN_REFUSED;
@@ -448,8 +489,7 @@ static ShownSaid wait_shown(App *a, UINT want, IDXGIOutput *out)
 /* What one wait said, kept for the next: a swapchain that refuses the
  * statistics, or gives none in DISJOINT_GIVE_UP waits, is not asked
  * again. */
-static void shown_note(App *a, ShownSaid said)
-	FNL_REQUIRES(D3D(a)->shown_lock)
+static void shown_note(App *a, ShownSaid said) FNL_REQUIRES(D3D(a)->shown_lock)
 {
 	struct RendererState *g = D3D(a);
 	if (said == SHOWN_SEEN) {
@@ -458,7 +498,8 @@ static void shown_note(App *a, ShownSaid said)
 		g->no_stats = true;
 	} else if (!g->no_stats && ++g->stats_unseen >= DISJOINT_GIVE_UP) {
 		g->no_stats = true;
-		fnl_log(FNL_LOG_INFO, "no frame statistics in %d waits: a frame "
+		fnl_log(FNL_LOG_INFO,
+				"no frame statistics in %d waits: a frame "
 				"that answers a size is not waited for until shown",
 				DISJOINT_GIVE_UP);
 	}
@@ -572,8 +613,8 @@ static void via11_measure(App *a)
 		g->via11_late++;
 	if (g->via11_seen < VIA11_MEASURE)
 		return;
-	const bool composed = g->via11_late >= VIA11_LATE ||
-						  FNL_FAULT("d3d12-composed");
+	const bool composed =
+		g->via11_late >= VIA11_LATE || FNL_FAULT("d3d12-composed");
 	g->via11_seen = g->via11_late = 0;
 	if (!g->via11_on && composed) {
 		fnl_log(FNL_LOG_INFO, "DWM composes this window's frames; they go "
@@ -611,8 +652,7 @@ static bool via11_remake(App *a)
 		D3D_RELEASE(g->swapchain);
 		if (!g->via11_on)
 			d3d_via11_end(a);
-		if (d3d_bridge_swapchain(a) == FNL_OK &&
-			d3d_window_images(a) == FNL_OK)
+		if (d3d_bridge_swapchain(a) == FNL_OK && d3d_window_images(a) == FNL_OK)
 			return true;
 		if (!g->via11_on)
 			break;
@@ -647,16 +687,14 @@ static void shown_stamp(App *a, uint64_t index, double at)
 	}
 	DXGI_FRAME_STATISTICS st;
 	LARGE_INTEGER freq;
-	if (!ask || FAILED(IDXGISwapChain3_GetFrameStatistics(g->swapchain,
-														  &st)) ||
+	if (!ask || FAILED(IDXGISwapChain3_GetFrameStatistics(g->swapchain, &st)) ||
 		!QueryPerformanceFrequency(&freq) || !freq.QuadPart)
 		return;
-	app_present_number_shown(a, st.PresentCount,
-							 (double)st.SyncQPCTime.QuadPart /
-								 (double)freq.QuadPart,
+	app_present_number_shown(
+		a, st.PresentCount,
+		(double)st.SyncQPCTime.QuadPart / (double)freq.QuadPart,
 							 !(g->interval == 0 &&
-							   (g->sc_flags &
-								DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)));
+		  (g->sc_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)));
 }
 
 /* The frame just presented answers a size: handed to the waiter, or waited
@@ -735,8 +773,8 @@ static bool snapshot_record(App *a, ID3D12Resource *back)
 {
 	struct RendererState *g = D3D(a);
 	const size_t row = (size_t)a->extent.w * 4u;
-	const size_t pitch = (row + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)
-					   & ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+	const size_t pitch      = (row + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+						 ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
 	const size_t need = pitch * (size_t)a->extent.h;
 	if (need > g->snap_read_bytes) {
 		if (g->snap_read && !d3d_wait_idle(a)) {
@@ -792,10 +830,9 @@ static bool snapshot_record(App *a, ID3D12Resource *back)
 		.SubresourceIndex = 0,
 	};
 	/* The window's part: the buffer can be larger (d3d_window_images()). */
-	const D3D12_BOX box = { 0, 0, 0, (UINT)a->extent.w, (UINT)a->extent.h,
-							1 };
-	ID3D12GraphicsCommandList_CopyTextureRegion(g->list, &dst, 0, 0, 0,
-												&src, &box);
+	const D3D12_BOX box = { 0, 0, 0, (UINT)a->extent.w, (UINT)a->extent.h, 1 };
+	ID3D12GraphicsCommandList_CopyTextureRegion(g->list, &dst, 0, 0, 0, &src,
+												&box);
 	d3d_barrier(a, back, D3D12_RESOURCE_STATE_COPY_SOURCE,
 				D3D12_RESOURCE_STATE_RENDER_TARGET);
 	return true;
@@ -821,8 +858,7 @@ static void snapshot_take(App *a, uint32_t slot)
 		app_snapshot_decline(a);
 		return;
 	}
-	app_snapshot_set(a, map, a->extent.w, a->extent.h, g->snap_pitch,
-					 false);
+	app_snapshot_set(a, map, a->extent.w, a->extent.h, g->snap_pitch, false);
 	const D3D12_RANGE none = { 0, 0 };
 	ID3D12Resource_Unmap(g->snap_read, 0, &none);
 }
@@ -882,8 +918,8 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * to screen after five seconds at two, as without. */
 	const UINT latency = app_buffer_at_rest(a) ? 1 : 2;
 	if (latency != g->latency &&
-		SUCCEEDED(IDXGISwapChain3_SetMaximumFrameLatency(g->swapchain,
-														 latency)))
+		SUCCEEDED(
+			IDXGISwapChain3_SetMaximumFrameLatency(g->swapchain, latency)))
 		g->latency = latency;
 	const double t_lat = now_seconds();
 	a->device_block = t_lat - t_fence;
@@ -923,7 +959,8 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	if (scene_offscreen(a, ds))
 		(void)d3d_scene_ensure_aa(a, ds->aa == FNL_AA_MSAA,
 								  ds->aa == FNL_AA_MLAA &&
-									  !scene_mlaa_direct(a, ds));
+									  !scene_mlaa_direct(a, ds),
+								  ds->aa == FNL_AA_TAAU);
 
 	const double t_rec = now_seconds();
 	app_frame_mark(a, FRAME_MARK_REC);
@@ -932,19 +969,20 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		hr = ID3D12GraphicsCommandList_Reset(g->list, g->alloc[slot], NULL);
 	if (FAILED(hr)) {
 		if (!d3d_hr_lost(a, hr))
-			fnl_log(FNL_LOG_ERROR, "the frame's list did not reset "
-					"(0x%08lx)", (unsigned long)hr);
+			fnl_log(FNL_LOG_ERROR,
+					"the frame's list did not reset "
+					"(0x%08lx)",
+					(unsigned long)hr);
 		return false;
 	}
 	g->recording = true;
 	gpu_time_read(a, slot);
 	if (g->ts_heap)
-		ID3D12GraphicsCommandList_EndQuery(g->list, g->ts_heap,
-										   D3D12_QUERY_TYPE_TIMESTAMP,
-										   2 * slot);
+		ID3D12GraphicsCommandList_EndQuery(
+			g->list, g->ts_heap, D3D12_QUERY_TYPE_TIMESTAMP, 2 * slot);
 
-	const UINT img = g->via11
-		? d3d_via11_next(a)
+	const UINT img =
+		g->via11 ? d3d_via11_next(a)
 		: IDXGISwapChain3_GetCurrentBackBufferIndex(g->swapchain);
 	ID3D12Resource *back = g->back[img];
 	d3d_barrier(a, back, D3D12_RESOURCE_STATE_PRESENT,
@@ -954,9 +992,8 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * part of drawing it, as Vulkan's readback is not (DESIGN *What a
 	 * frame costs, compared*). */
 	if (g->ts_heap)
-		ID3D12GraphicsCommandList_EndQuery(g->list, g->ts_heap,
-										   D3D12_QUERY_TYPE_TIMESTAMP,
-										   2 * slot + 1);
+		ID3D12GraphicsCommandList_EndQuery(
+			g->list, g->ts_heap, D3D12_QUERY_TYPE_TIMESTAMP, 2 * slot + 1);
 	/* The frame read back for the snapshot a move takes: copied here,
 	 * where the back buffer is still this list's, and handed over once
 	 * the list has run (snapshot_take()). */
@@ -1007,9 +1044,10 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 
 	/* Tearing only with an interval of 0 and a swapchain made for it;
 	 * DXGI refuses the flag otherwise. */
-	const UINT flags = g->interval == 0 &&
-					   (g->sc_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)
-						   ? DXGI_PRESENT_ALLOW_TEARING : 0;
+	const UINT flags =
+		g->interval == 0 && (g->sc_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)
+			? DXGI_PRESENT_ALLOW_TEARING
+			: 0;
 	hr = IDXGISwapChain3_Present(g->swapchain, (UINT)g->interval, flags);
 	a->present_calls++;
 	const double t_presented = now_seconds();

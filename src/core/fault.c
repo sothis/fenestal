@@ -47,6 +47,7 @@ static const char *const SITES[] = {
 	"scene-target",         /* create_scene_target: no offscreen target */
 	"scene-ms",             /* create_scene_ms: no multisampled pair */
 	"scene-mlaa",           /* create_scene_mlaa: no MLAA image */
+	"scene-taau",           /* create_scene_taau: no resolve or history */
 	"x11-refresh",          /* x11_refresh_read: no refresh rate known */
 	"x11-sync-at-swap",     /* x11_flush: the sync value not kept for Present */
 	"x11-clip-unstamped",   /* clip_stamp: copy and paste at CurrentTime */

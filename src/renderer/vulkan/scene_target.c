@@ -18,6 +18,7 @@
 #include "fullscreen.vert.h"
 #include "blit.frag.h"
 #include "mlaa.frag.h"
+#include "taau.frag.h"
 
 /* ---- built once with the device ----------------------------------------- */
 
@@ -29,11 +30,13 @@ FnlResult create_scene_objects(App *a)
 	 * writes every pixel. */
 	const VkSampleCountFlagBits ms = scene_samples(a);
 	const PassDesc scene = { .samples = VK_SAMPLE_COUNT_1_BIT,
-							 .depth = true, .clear = true, .sampled = true };
-	const PassDesc scene_ms = { .samples = ms,
-								.depth = true, .clear = true, .sampled = true };
-	const PassDesc post = { .samples = VK_SAMPLE_COUNT_1_BIT,
+									   .depth   = true,
+									   .clear   = true,
 							.sampled = true };
+	const PassDesc scene_ms        = {
+			   .samples = ms, .depth = true, .clear = true, .sampled = true
+	};
+	const PassDesc post = { .samples = VK_SAMPLE_COUNT_1_BIT, .sampled = true };
 	VK(a)->scene_pass = make_render_pass(a, &scene);
 	if (ms != VK_SAMPLE_COUNT_1_BIT)
 		VK(a)->scene_pass_ms = make_render_pass(a, &scene_ms);
@@ -69,78 +72,137 @@ FnlResult create_scene_objects(App *a)
 	};
 	VkDescriptorSetLayoutCreateInfo dlci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = 1, .pBindings = &b,
+		.bindingCount = 1,
+		.pBindings    = &b,
 	};
 	VK_TRY(vkCreateDescriptorSetLayout(VK(a)->device, &dlci, NULL,
 										 &VK(a)->blit_set_layout));
 
-	/* Three sets for the life of the device, each pointed at its image
-	 * when that image is built (see write_scene_set) and chosen between at
-	 * record time, so toggling MLAA never rewrites a descriptor a command
-	 * buffer in flight names. MLAA's own input is the first of them; the
-	 * third is the cover's, the frame read back before a move. */
-	VkDescriptorPoolSize ps = {
-		.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		.descriptorCount = 3 };
+	/* TAAU's resolve reads two images through one set: the scene this frame
+	 * drew and the history it is mixed with. Its own layout rather than the
+	 * fetch's, because the fetch has one sampler and no push range, and both
+	 * of those would be a change to every pipeline that binds it. */
+	VkDescriptorSetLayoutBinding tb[2] = {
+		{ .binding         = 0,
+		  .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		  .descriptorCount = 1,
+		  .stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT },
+		{ .binding         = 1,
+		  .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		  .descriptorCount = 1,
+		  .stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT },
+	};
+	VkDescriptorSetLayoutCreateInfo tdlci = {
+		.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 2,
+		.pBindings    = tb,
+	};
+	VK_TRY(vkCreateDescriptorSetLayout(VK(a)->device, &tdlci, NULL,
+									   &VK(a)->taau_set_layout));
+
+	/* Six sets for the life of the device: the fetch's three, one reading
+	 * TAAU's resolve, and the resolve's own one per frame slot -- each
+	 * pointed at its image when that image is built (see write_scene_set and
+	 * write_taau_sets) and chosen between at record time, so toggling a mode
+	 * never rewrites a descriptor a command buffer in flight names. MLAA's
+	 * own input is the second of the fetch's; the third is the cover's, the
+	 * frame read back before a move. Eight descriptors: the resolve's sets
+	 * hold two apiece. */
+	VkDescriptorPoolSize ps        = { .type =
+										   VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+									   .descriptorCount = 8 };
 	VkDescriptorPoolCreateInfo pci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.maxSets = 3, .poolSizeCount = 1, .pPoolSizes = &ps,
+		.maxSets       = 6,
+		.poolSizeCount = 1,
+		.pPoolSizes    = &ps,
 	};
-	VK_TRY(vkCreateDescriptorPool(VK(a)->device, &pci, NULL,
-								  &VK(a)->blit_pool));
+	VK_TRY(
+		vkCreateDescriptorPool(VK(a)->device, &pci, NULL, &VK(a)->blit_pool));
 
-	VkDescriptorSetLayout set_layouts[3] = { VK(a)->blit_set_layout,
-											 VK(a)->blit_set_layout,
-											 VK(a)->blit_set_layout };
-	VkDescriptorSet sets[3] = { VK_NULL_HANDLE, VK_NULL_HANDLE,
-								VK_NULL_HANDLE };
+	VkDescriptorSetLayout set_layouts[6] = {
+		VK(a)->blit_set_layout, VK(a)->blit_set_layout, VK(a)->blit_set_layout,
+		VK(a)->blit_set_layout, VK(a)->taau_set_layout, VK(a)->taau_set_layout,
+	};
+	VkDescriptorSet sets[6] = {
+		VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE,
+		VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE
+	};
 	VkDescriptorSetAllocateInfo dai = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		.descriptorPool = VK(a)->blit_pool,
-		.descriptorSetCount = 3, .pSetLayouts = set_layouts,
+		.descriptorSetCount = 6,
+		.pSetLayouts        = set_layouts,
 	};
 	VK_TRY(vkAllocateDescriptorSets(VK(a)->device, &dai, sets));
 	VK(a)->blit_set_scene = sets[0];
 	VK(a)->blit_set_mlaa  = sets[1];
 	VK(a)->blit_set_cover = sets[2];
+	VK(a)->blit_set_taau  = sets[3];
+	VK(a)->taau_set[0]    = sets[4];
+	VK(a)->taau_set[1]    = sets[5];
 
 	VkPipelineLayoutCreateInfo blci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1, .pSetLayouts = &VK(a)->blit_set_layout };
+		.setLayoutCount = 1,
+		.pSetLayouts    = &VK(a)->blit_set_layout
+	};
 	VK_TRY(vkCreatePipelineLayout(VK(a)->device, &blci, NULL,
 								  &VK(a)->blit_layout));
 
-	VkShaderModule vert = make_shader(a, fullscreen_vert_spv,
-									  sizeof fullscreen_vert_spv);
+	/* The resolve's own: its two samplers, and the push block it is told the
+	 * frame's offset and its history's weight through -- the fetch's layout
+	 * has no push range at all, which is why it cannot be the one. */
+	VkPushConstantRange pr = {
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+		.offset     = 0,
+		.size       = sizeof(TaauPush),
+	};
+	VkPipelineLayoutCreateInfo tlci = {
+		.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount         = 1,
+		.pSetLayouts            = &VK(a)->taau_set_layout,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges    = &pr,
+	};
+	VK_TRY(vkCreatePipelineLayout(VK(a)->device, &tlci, NULL,
+								  &VK(a)->taau_layout));
+
+	VkShaderModule vert =
+		make_shader(a, fullscreen_vert_spv, sizeof fullscreen_vert_spv);
 	VkShaderModule blit = make_shader(a, blit_frag_spv, sizeof blit_frag_spv);
 	VkShaderModule mlaa = make_shader(a, mlaa_frag_spv, sizeof mlaa_frag_spv);
+	VkShaderModule taau = make_shader(a, taau_frag_spv, sizeof taau_frag_spv);
 
 	/* The fetch, and the filter twice: for the pass that writes its own
 	 * image, and for the window's, where it runs when the scene is already
 	 * the size it lands at. None of them blends. */
-	VK(a)->blit_pipeline =
-		make_overlay_pipeline(a, VK(a)->render_pass, vert, blit,
-							  VK(a)->blit_layout, 0, NULL, 0,
+	VK(a)->blit_pipeline = make_overlay_pipeline(a, VK(a)->render_pass, vert,
+												 blit, VK(a)->blit_layout, 0,
+												 NULL, 0, OVERLAY_BLEND_NONE);
+	VK(a)->mlaa_pipeline = make_overlay_pipeline(a, VK(a)->post_pass, vert,
+												 mlaa, VK(a)->blit_layout, 0,
+												 NULL, 0, OVERLAY_BLEND_NONE);
+	VK(a)->mlaa_win_pipeline = make_overlay_pipeline(
+		a, VK(a)->render_pass, vert, mlaa, VK(a)->blit_layout, 0, NULL, 0,
 							  OVERLAY_BLEND_NONE);
-	VK(a)->mlaa_pipeline =
-		make_overlay_pipeline(a, VK(a)->post_pass, vert, mlaa,
-							  VK(a)->blit_layout, 0, NULL, 0,
-							  OVERLAY_BLEND_NONE);
-	VK(a)->mlaa_win_pipeline =
-		make_overlay_pipeline(a, VK(a)->render_pass, vert, mlaa,
-							  VK(a)->blit_layout, 0, NULL, 0,
-							  OVERLAY_BLEND_NONE);
+	/* The resolve, against the same pass the filter uses: it writes every
+	 * pixel of its own image and reads two, so it needs neither a clear nor a
+	 * depth attachment. */
+	VK(a)->taau_pipeline = make_overlay_pipeline(a, VK(a)->post_pass, vert,
+												 taau, VK(a)->taau_layout, 0,
+												 NULL, 0, OVERLAY_BLEND_NONE);
 	/* The cover: the fetch's shaders once more, blended by a constant, for
 	 * the frame read back before a move over the first frames after it
 	 * (vk_overlay_cover()). */
-	VK(a)->cover_pipeline =
-		make_overlay_pipeline(a, VK(a)->render_pass, vert, blit,
-							  VK(a)->blit_layout, 0, NULL, 0,
+	VK(a)->cover_pipeline = make_overlay_pipeline(
+		a, VK(a)->render_pass, vert, blit, VK(a)->blit_layout, 0, NULL, 0,
 							  OVERLAY_BLEND_CONSTANT);
 
 	vkDestroyShaderModule(VK(a)->device, vert, NULL);
 	vkDestroyShaderModule(VK(a)->device, blit, NULL);
 	vkDestroyShaderModule(VK(a)->device, mlaa, NULL);
+	vkDestroyShaderModule(VK(a)->device, taau, NULL);
 
 	/* make_shader() and make_overlay_pipeline() report failure as
 	 * VK_NULL_HANDLE, so these are tested: the frame gates on the *image*
@@ -148,9 +210,12 @@ FnlResult create_scene_objects(App *a)
 	if (VK(a)->blit_pipeline == VK_NULL_HANDLE ||
 		VK(a)->mlaa_pipeline == VK_NULL_HANDLE ||
 		VK(a)->mlaa_win_pipeline == VK_NULL_HANDLE ||
-		VK(a)->cover_pipeline == VK_NULL_HANDLE)
-		return fnl_fail(FNL_ERR_SYSTEM,
-						"the scene's fetch and filter pipelines did not build");
+		VK(a)->cover_pipeline == VK_NULL_HANDLE ||
+		VK(a)->taau_pipeline == VK_NULL_HANDLE)
+		return fnl_fail(
+			FNL_ERR_SYSTEM,
+			"the scene's fetch, filter and resolve pipelines did not "
+			"build");
 	return FNL_OK;
 }
 
@@ -171,7 +236,9 @@ static void write_scene_set(App *a, VkDescriptorSet set, VkImageView view)
 	};
 	VkWriteDescriptorSet wd = {
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		.dstSet = set, .dstBinding = 0, .descriptorCount = 1,
+		.dstSet          = set,
+		.dstBinding      = 0,
+		.descriptorCount = 1,
 		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		.pImageInfo = &ii,
 	};
@@ -225,15 +292,127 @@ static bool create_scene_mlaa(App *a)
 	const uint32_t h = (uint32_t)a->scene_extent.h;
 
 	if (FNL_FAULT("scene-mlaa") ||
-		!create_target_image(a, w, h, VK(a)->surf_format.format,
-							 VK_SAMPLE_COUNT_1_BIT,
-							 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-							 VK_IMAGE_USAGE_SAMPLED_BIT, false, &VK(a)->mlaa))
+		!create_target_image(
+			a, w, h, VK(a)->surf_format.format, VK_SAMPLE_COUNT_1_BIT,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			false, &VK(a)->mlaa))
 		return false;
 	if (make_framebuffer(a, VK(a)->post_pass, 1, &VK(a)->mlaa.view, w, h,
 						 &VK(a)->mlaa_fb) != VK_SUCCESS)
 		return false;
 	write_scene_set(a, VK(a)->blit_set_mlaa, VK(a)->mlaa.view);
+	return true;
+}
+
+/* The two sets the resolve reads through, one per frame slot: the scene this
+ * frame draws and the history that slot owns. Written once when the images are
+ * built and never while they live -- a set a command buffer in flight names is
+ * not rewritten. The sets are left naming views that are gone only until the
+ * target is built again, and no recording that named them is submitted in
+ * between, the size or mode it was recorded for having changed.
+ *
+ * Pointing binding 1 at the scene is the set for a slot whose history has not
+ * been written yet; the pass weighs the history at nought until it has, so
+ * what that binding holds is only ever read into a value that is thrown
+ * away. */
+static void write_taau_sets(App *a)
+{
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		const VkImageView view      = VK(a)->taau_hist[i].view != VK_NULL_HANDLE
+										  ? VK(a)->taau_hist[i].view
+										  : VK(a)->scene.view;
+		VkDescriptorImageInfo ii[2] = {
+			{ .sampler     = VK(a)->scene_sampler,
+			  .imageView   = VK(a)->scene.view,
+			  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+			{ .sampler     = VK(a)->scene_sampler,
+			  .imageView   = view,
+			  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+		};
+		VkWriteDescriptorSet wd = {
+			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet          = VK(a)->taau_set[i],
+			.dstBinding      = 0,
+			.descriptorCount = 2,
+			.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.pImageInfo      = ii,
+		};
+		vkUpdateDescriptorSets(VK(a)->device, 1, &wd, 0, NULL);
+	}
+}
+
+static void destroy_scene_taau(App *a)
+{
+	vkDestroyFramebuffer(VK(a)->device, VK(a)->taau_fb, NULL);
+	VK(a)->taau_fb = VK_NULL_HANDLE;
+	destroy_target_image(a, &VK(a)->taau);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		destroy_target_image(a, &VK(a)->taau_hist[i]);
+		VK(a)->taau_hist_ok[i] = false;
+	}
+}
+
+/* A history is read at the top of the resolve, before anything has written it,
+ * so it is put in the layout that read declares at birth rather than left
+ * UNDEFINED: what it holds is nothing until the first copy -- which the shader
+ * weighs at nought -- but the layout is the API's to check. */
+static bool taau_history_ready(App *a)
+{
+	const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
+											1 };
+	VkImageMemoryBarrier b[MAX_FRAMES_IN_FLIGHT];
+
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		b[i] = (VkImageMemoryBarrier){
+			.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+			.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image               = VK(a)->taau_hist[i].image,
+			.subresourceRange    = range,
+			.srcAccessMask       = 0,
+			.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
+		};
+	VkCommandBuffer cb = begin_oneshot(a);
+	if (cb == VK_NULL_HANDLE)
+		return false;
+	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0,
+						 NULL, MAX_FRAMES_IN_FLIGHT, b);
+	return end_oneshot(a, cb) >= 0;
+}
+
+/* What the resolve writes and what it mixes in. The history is written by a
+ * copy rather than by the pass, so it takes TRANSFER_DST and no attachment
+ * bit: the resolve has one output and the whole point of the copy is that the
+ * image it reads is not the image it writes. */
+static bool create_scene_taau(App *a)
+{
+	const uint32_t w   = (uint32_t)a->scene_extent.w;
+	const uint32_t h   = (uint32_t)a->scene_extent.h;
+	const VkFormat fmt = VK(a)->surf_format.format;
+
+	if (FNL_FAULT("scene-taau") ||
+		!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
+							 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+								 VK_IMAGE_USAGE_SAMPLED_BIT |
+								 VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+							 false, &VK(a)->taau))
+		return false;
+	if (make_framebuffer(a, VK(a)->post_pass, 1, &VK(a)->taau.view, w, h,
+						 &VK(a)->taau_fb) != VK_SUCCESS)
+		return false;
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		if (!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
+								 VK_IMAGE_USAGE_SAMPLED_BIT |
+									 VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+								 false, &VK(a)->taau_hist[i]))
+			return false;
+	if (!taau_history_ready(a))
+		return false;
+	write_taau_sets(a);
+	write_scene_set(a, VK(a)->blit_set_taau, VK(a)->taau.view);
 	return true;
 }
 
@@ -245,7 +424,7 @@ static bool create_scene_mlaa(App *a)
  * A refusal costs the mode and nothing else, since the predicates in frame.c
  * ask the framebuffers. It is remembered, so a device with no room is asked
  * once per target rather than once per frame. */
-bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
+bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 {
 	bool built = false;
 
@@ -261,8 +440,9 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			VK(a)->scene_ms_refused = true;
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d %dx multisampled scene target; "
-					"FSAA is off at this size", a->scene_extent.w,
-					a->scene_extent.h, (int)scene_samples(a));
+					"FSAA is off at this size",
+					a->scene_extent.w, a->scene_extent.h,
+					(int)scene_samples(a));
 		}
 	}
 	if (want_mlaa && VK(a)->mlaa_fb == VK_NULL_HANDLE && !VK(a)->mlaa_refused) {
@@ -273,8 +453,20 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			VK(a)->mlaa_refused = true;
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d filtered scene image; "
-					"MLAA is off at this size", a->scene_extent.w,
-					a->scene_extent.h);
+					"MLAA is off at this size",
+					a->scene_extent.w, a->scene_extent.h);
+		}
+	}
+	if (want_taau && VK(a)->taau_fb == VK_NULL_HANDLE && !VK(a)->taau_refused) {
+		if (create_scene_taau(a)) {
+			built = true;
+		} else {
+			destroy_scene_taau(a);
+			VK(a)->taau_refused = true;
+			fnl_log(FNL_LOG_WARN,
+					"no room for a %dx%d resolved scene image and its history; "
+					"TAAU is off at this size",
+					a->scene_extent.w, a->scene_extent.h);
 		}
 	}
 	return built;
@@ -285,11 +477,10 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 static bool create_scene_target(App *a, uint32_t w, uint32_t h)
 {
 	if (FNL_FAULT("scene-target") ||
-		!create_target_image(a, w, h, VK(a)->surf_format.format,
-							 VK_SAMPLE_COUNT_1_BIT,
-							 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-							 VK_IMAGE_USAGE_SAMPLED_BIT, false,
-							 &VK(a)->scene) ||
+		!create_target_image(
+			a, w, h, VK(a)->surf_format.format, VK_SAMPLE_COUNT_1_BIT,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			false, &VK(a)->scene) ||
 		!create_target_image(a, w, h, VK(a)->depth_format,
 							 VK_SAMPLE_COUNT_1_BIT,
 							 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, true,
@@ -313,6 +504,7 @@ static void destroy_scene_target(App *a)
 {
 	destroy_scene_ms(a);
 	destroy_scene_mlaa(a);
+	destroy_scene_taau(a);
 	vkDestroyFramebuffer(VK(a)->device, VK(a)->scene_fb, NULL);
 	VK(a)->scene_fb = VK_NULL_HANDLE;
 	destroy_target_image(a, &VK(a)->scene_depth);
@@ -321,6 +513,7 @@ static void destroy_scene_target(App *a)
 	/* A new target is a new question for the device. */
 	VK(a)->scene_ms_refused = false;
 	VK(a)->mlaa_refused     = false;
+	VK(a)->taau_refused     = false;
 	a->scene_extent     = (Extent){ 0, 0 };
 }
 
@@ -355,7 +548,8 @@ void scene_set_size(App *a, int w, int h)
 		destroy_scene_target(a);
 		fnl_log(FNL_LOG_WARN,
 				"no room for a %dx%d scene target; drawing the scene at the "
-				"window's own resolution", w, h);
+				"window's own resolution",
+				w, h);
 	}
 }
 
@@ -375,8 +569,8 @@ static bool cover_upload(App *a)
 			return false;
 		destroy_target_image(a, &VK(a)->cover);
 	}
-	const VkFormat fmt = a->srgb_surface ? VK_FORMAT_B8G8R8A8_SRGB
-										 : VK_FORMAT_B8G8R8A8_UNORM;
+	const VkFormat fmt =
+		a->srgb_surface ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
 	const uint32_t w = (uint32_t)a->snap_w, h = (uint32_t)a->snap_h;
 	if (!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
 							 VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -388,8 +582,8 @@ static bool cover_upload(App *a)
 	VkDeviceMemory smem;
 	void          *smap[1];
 	const VkDeviceSize bytes = (VkDeviceSize)w * 4u * (VkDeviceSize)h;
-	if (create_instance_buffers(a, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-								0, 1, stage, &smem, smap) < 0) {
+	if (create_instance_buffers(a, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0,
+								1, stage, &smem, smap) < 0) {
 		destroy_target_image(a, &VK(a)->cover);
 		return false;
 	}
@@ -417,16 +611,15 @@ static bool cover_upload(App *a)
 			.imageExtent = { w, h, 1 },
 		};
 		vkCmdCopyBufferToImage(cb, stage[0], VK(a)->cover.image,
-							   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-							   &copy);
+							   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 		VkImageMemoryBarrier to_read = to_dst;
 		to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-							 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
-							 NULL, 0, NULL, 1, &to_read);
+							 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL,
+							 0, NULL, 1, &to_read);
 		ok = end_oneshot(a, cb) >= 0;
 	}
 	destroy_instance_buffers(a, 1, stage, &smem, smap);
@@ -453,7 +646,8 @@ bool vk_overlay_cover(App *a, float alpha)
 		VK(a)->cover_gen = a->snap_gen;
 		VK(a)->cover_live = cover_upload(a);
 		if (!VK(a)->cover_live)
-			fnl_log(FNL_LOG_WARN, "the frame read back before the move "
+			fnl_log(FNL_LOG_WARN,
+					"the frame read back before the move "
 					"would not upload; the move dissolves from black");
 	}
 	if (!VK(a)->cover_live || VK(a)->cover.image == VK_NULL_HANDLE)
@@ -461,8 +655,8 @@ bool vk_overlay_cover(App *a, float alpha)
 	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 					  VK(a)->cover_pipeline);
 	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-							VK(a)->blit_layout, 0, 1, &VK(a)->blit_set_cover,
-							0, NULL);
+							VK(a)->blit_layout, 0, 1, &VK(a)->blit_set_cover, 0,
+							NULL);
 	const float k[4] = { 0.0f, 0.0f, 0.0f, alpha };
 	vkCmdSetBlendConstants(cb, k);
 	vkCmdDraw(cb, 3, 1, 0, 0);
@@ -497,8 +691,14 @@ void destroy_scene_objects(App *a)
 	vkDestroyPipeline(VK(a)->device, VK(a)->cover_pipeline, NULL);
 	VK(a)->cover_pipeline = VK_NULL_HANDLE;
 	VK(a)->blit_set_cover = VK_NULL_HANDLE;   /* freed with the pool */
+	VK(a)->taau_set[0]    = VK_NULL_HANDLE; /* likewise */
+	VK(a)->taau_set[1]    = VK_NULL_HANDLE;
+	VK(a)->blit_set_taau  = VK_NULL_HANDLE;
 	VK(a)->cover_gen = 0;
 	VK(a)->cover_live = false;
+	vkDestroyPipeline(VK(a)->device, VK(a)->taau_pipeline, NULL);
+	vkDestroyPipelineLayout(VK(a)->device, VK(a)->taau_layout, NULL);
+	vkDestroyDescriptorSetLayout(VK(a)->device, VK(a)->taau_set_layout, NULL);
 	vkDestroyPipeline(VK(a)->device, VK(a)->mlaa_win_pipeline, NULL);
 	vkDestroyPipeline(VK(a)->device, VK(a)->mlaa_pipeline, NULL);
 	vkDestroyPipeline(VK(a)->device, VK(a)->blit_pipeline, NULL);
@@ -512,6 +712,9 @@ void destroy_scene_objects(App *a)
 	VK(a)->mlaa_win_pipeline = VK_NULL_HANDLE;
 	VK(a)->mlaa_pipeline = VK_NULL_HANDLE;
 	VK(a)->blit_pipeline = VK_NULL_HANDLE;
+	VK(a)->taau_pipeline     = VK_NULL_HANDLE;
+	VK(a)->taau_layout       = VK_NULL_HANDLE;
+	VK(a)->taau_set_layout   = VK_NULL_HANDLE;
 	VK(a)->blit_layout = VK_NULL_HANDLE;
 	VK(a)->blit_pool = VK_NULL_HANDLE;
 	VK(a)->blit_set_scene = VK_NULL_HANDLE;   /* freed with the pool */

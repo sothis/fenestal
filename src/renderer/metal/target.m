@@ -95,15 +95,21 @@ static void destroy_scene_target(App *a)
 	g->scene = (MtTarget){ nil, nil };
 	g->scene_ms = (MtTarget){ nil, nil };
 	g->mlaa = nil;
+	g->taau = nil;
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		g->taau_hist[i] = nil;
+		g->taau_hist_ok[i] = false;
+	}
 	g->scene_ms_refused = false;
 	g->mlaa_refused = false;
+	g->taau_refused = false;
 	a->scene_extent = (Extent){ 0, 0 };
 }
 
 /* As Vulkan's scene_ensure_aa(): only what a mode asks for, once it does,
  * and a refusal remembered. The multisampled pair is drawn into and
  * resolved from, never sampled; MLAA's output is sampled by the window. */
-bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
+bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 {
 	struct RendererState *g = MT(a);
 	if (!g->scene.color)
@@ -138,6 +144,28 @@ bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d filtered scene image; "
 					"MLAA is off at this size", w, h);
+		}
+	}
+	if (want_taau && !g->taau && !g->taau_refused) {
+		if (!FNL_FAULT("scene-taau")) {
+			g->taau = make_image(a, MT_COLOR_FORMAT, w, h, 1, true);
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				g->taau_hist[i] = make_image(a, MT_COLOR_FORMAT, w, h, 1,
+											 true);
+		}
+		bool all = g->taau != nil;
+		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			all = all && g->taau_hist[i] != nil;
+		if (all) {
+			built = true;
+		} else {
+			g->taau = nil;
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				g->taau_hist[i] = nil;
+			g->taau_refused = true;
+			fnl_log(FNL_LOG_WARN,
+					"no room for a %dx%d resolved scene image and its "
+					"history; TAAU is off at this size", w, h);
 		}
 	}
 	return built;

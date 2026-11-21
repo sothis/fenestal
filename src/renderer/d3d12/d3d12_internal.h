@@ -123,7 +123,7 @@ FNL_MUST_USE FnlResult d3d_make_heaps(App *a);
 FNL_MUST_USE FnlResult d3d_window_images(App *a);
 void d3d_release_window_images(App *a);
 void d3d_scene_set_size(App *a, int w, int h);
-bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa);
+bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau);
 void d3d_destroy_targets(App *a);
 /* A resource-state transition on the open list. */
 void d3d_barrier(App *a, ID3D12Resource *r, D3D12_RESOURCE_STATES from,
@@ -144,6 +144,9 @@ void d3d_own_state(App *a);
 /* The fetch or the filter, one covering triangle reading `srv` at
  * `pso`. */
 void d3d_fetch(App *a, ID3D12PipelineState *pso, int srv);
+/* TAAU's resolve: the same triangle with two consecutive descriptors read --
+ * the pair `srv` names the first of -- at the offset and weight `pc` names. */
+void d3d_fetch2(App *a, ID3D12PipelineState *pso, int srv, const TaauPush *pc);
 /* Whether this device draws a caller's image at all: false refuses
  * fnl_image_create() rather than drawing nothing. */
 bool d3d_image_supported(const App *a);

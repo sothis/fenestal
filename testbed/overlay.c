@@ -341,6 +341,8 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 		snprintf(aa, sizeof aa, "FSAA %dx   ", f->samples);
 	else if (fnl_antialias(app) == FNL_AA_MLAA)
 		snprintf(aa, sizeof aa, "MLAA   ");
+	else if (fnl_antialias(app) == FNL_AA_TAAU)
+		snprintf(aa, sizeof aa, "TAAU   ");
 
 	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s", f->area_w_px, f->area_h_px,
 			 scene, aa, fnl_present_mode(app));

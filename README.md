@@ -33,7 +33,7 @@ and the client titlebar are composited over whatever was recorded.
 ```
   backend    window, input, outputs, scale, timing, wake-up   5 backends
   renderer   device, swapchain, targets, loss recovery        4 renderers
-  frame      pacing, late latch, render scale, FSAA, MLAA     1 policy
+  frame      pacing, late latch, render scale, AA modes       1 policy
 > your scene a command buffer, inside a pass, viewport set    per graphics API
   overlay    text, rectangles, strokes, client decorations    platform-agnostic
 ```
@@ -315,7 +315,7 @@ is a test pattern. `fenestal-dev`, beside it in every tree, is the
 harness's own instrument (its `pace` and `lifecycle` modes).
 
 The titlebar is the library's, as in every program: window buttons, a
-size drop-down, the `FSAA`, `MLAA` and `Fs Upsample` checkboxes, and a GPU
+size drop-down, the `FSAA`, `MLAA`, `TAAU` and `Fs Upsample` checkboxes, and a GPU
 drop-down that moves the window onto another GPU while it stays open -- a
 second card, lavapipe beside the hardware, or a GPU of another renderer,
 OpenGL's beside Vulkan's -- drawn dim where there is only one; and before

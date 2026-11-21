@@ -32,8 +32,7 @@ FNL_MUST_USE FnlResult fnl_vk_result(const char *expr, const char *file,
 #define VKR(expr) fnl_vk_result(#expr, __FILE__, __LINE__, (expr))
 
 /* A Vulkan call that must succeed, checked and propagated. */
-#define VK_TRY(expr)                                                          \
-	FNL_TRY(fnl_vk_result(#expr, __FILE__, __LINE__, (expr)))
+#define VK_TRY(expr) FNL_TRY(fnl_vk_result(#expr, __FILE__, __LINE__, (expr)))
 
 /* The same, for the builders whose result *is* a Vulkan handle: they report
  * failure as VK_NULL_HANDLE, with the message still recorded. */
@@ -170,8 +169,7 @@ static inline VkImageLayout vk_window_layout(const App *a)
 {
 	if (a->renderer_state->dxgi)
 		return VK_IMAGE_LAYOUT_GENERAL;
-	return a->renderer_state->surfaceless
-			   ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+	return a->renderer_state->surfaceless ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
 			   : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 }
 
@@ -212,6 +210,10 @@ typedef struct {
 	bool sampled;                   /* the result is fetched by a later pass
 									 * rather than presented                 */
 } PassDesc;
+
+/* How much of the frame before a TAAU resolve keeps -- and its `Push` block,
+ * which every renderer that draws the mode binds: both are in app.h, with the
+ * draw state the offset comes from. */
 
 /* Push constants for the overlay pipelines: what a frame's primitives share,
  * everything per primitive being an instance attribute. Each must match its
@@ -315,9 +317,9 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d);
  * A pipeline may only be bound inside a pass compatible with `pass`, which
  * includes the subpass dependencies, so the same shaders are built once per
  * pass they run in. */
-VkPipeline make_overlay_pipeline(App *a, VkRenderPass pass,
-								 VkShaderModule vert, VkShaderModule frag,
-								 VkPipelineLayout layout, uint32_t stride,
+VkPipeline make_overlay_pipeline(App *a, VkRenderPass pass, VkShaderModule vert,
+								 VkShaderModule frag, VkPipelineLayout layout,
+								 uint32_t stride,
 								 const VkVertexInputAttributeDescription *va,
 								 uint32_t n_va, OverlayBlend blend);
 
@@ -339,8 +341,8 @@ VkResult make_framebuffer(App *a, VkRenderPass pass, uint32_t n_views,
  * device has it, for an attachment that is never stored. Nothing is logged:
  * every caller but one answers a refusal by drawing without the target. */
 bool create_target_image(App *a, uint32_t w, uint32_t h, VkFormat fmt,
-						 VkSampleCountFlagBits samples,
-						 VkImageUsageFlags usage, bool lazy, TargetImage *t);
+						 VkSampleCountFlagBits samples, VkImageUsageFlags usage,
+						 bool lazy, TargetImage *t);
 /* Destroys and nulls; safe on one that was never built. */
 void destroy_target_image(App *a, TargetImage *t);
 
@@ -351,9 +353,9 @@ void destroy_target_image(App *a, TargetImage *t);
  * reads, 0 for memory it only writes. */
 FNL_MUST_USE FnlResult create_instance_buffers(App *a, VkDeviceSize bytes,
 								  VkBufferUsageFlags usage,
-								  VkMemoryPropertyFlags prefer, uint32_t count,
-								  VkBuffer *buf, VkDeviceMemory *mem,
-								  void **map);
+											   VkMemoryPropertyFlags prefer,
+											   uint32_t count, VkBuffer *buf,
+											   VkDeviceMemory *mem, void **map);
 void destroy_instance_buffers(App *a, uint32_t count, VkBuffer *buf,
 							  VkDeviceMemory *mem, void **map);
 
@@ -396,9 +398,10 @@ void destroy_scene_objects(App *a);
  * scene_extent at whatever exists, which is what every reader uses. */
 void scene_set_size(App *a, int w, int h);
 /* Build the half of the target a frame's antialiasing needs and does not have
- * yet: the multisampled pair, or the filter's output image. True when
- * something was built, which the caller answers by re-recording. */
-bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa);
+ * yet: the multisampled pair, the filter's output image, or TAAU's resolve and
+ * its history. True when something was built, which the caller answers by
+ * re-recording. */
+bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau);
 /* The seam's overlay_cover: App::snap over the window at `alpha`. */
 bool vk_overlay_cover(App *a, float alpha);
 /* The seam's cover_release: the cover and the snapshot's buffer let go. */

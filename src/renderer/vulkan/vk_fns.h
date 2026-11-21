@@ -72,6 +72,7 @@
 	X(vkCmdBindVertexBuffers)                                                 \
 	X(vkCmdClearAttachments)                                                  \
 	X(vkCmdCopyBufferToImage)                                                 \
+	X(vkCmdCopyImage)                                                          \
 	X(vkCmdCopyImageToBuffer)                                                 \
 	X(vkCmdDraw)                                                              \
 	X(vkCmdEndRenderPass)                                                     \
@@ -187,6 +188,7 @@ VK_INSTANCE_FNS(X_DECLARE)
 #define vkCmdBindVertexBuffers (*fnl_vkCmdBindVertexBuffers)
 #define vkCmdClearAttachments (*fnl_vkCmdClearAttachments)
 #define vkCmdCopyBufferToImage (*fnl_vkCmdCopyBufferToImage)
+#define vkCmdCopyImage (*fnl_vkCmdCopyImage)
 #define vkCmdCopyImageToBuffer (*fnl_vkCmdCopyImageToBuffer)
 #define vkCmdDraw (*fnl_vkCmdDraw)
 #define vkCmdEndRenderPass (*fnl_vkCmdEndRenderPass)

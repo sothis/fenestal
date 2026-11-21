@@ -14,7 +14,7 @@
  * __unsafe_unretained -- so retain what you keep.
  *
  * Fenestal owns the window, the device, the layer and its drawables, the
- * present schedule, the render scale, both antialiasing modes and the text
+ * present schedule, the render scale, the three antialiasing modes and the text
  * overlay; the scene is yours. Everything up to "here is a render command
  * encoder, with the target bound and the viewport set" is portable, and
  * what you encode into it is not.

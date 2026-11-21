@@ -103,8 +103,8 @@ int fnl_max_samples(const FnlApp *app)
 }
 
 /* Whether there is anywhere to render the scene but the window itself. The
- * render scale, FSAA and MLAA are one target between them, so this is one
- * question for all three; fnl_max_samples() covers FSAA and nothing else. */
+ * render scale, FSAA, MLAA and TAAU are one target between them, so this is
+ * one question for all four; fnl_max_samples() covers FSAA and nothing else. */
 bool fnl_offscreen_supported(const FnlApp *app)
 {
 	const App *a = (const App *)app;
@@ -142,8 +142,10 @@ void fnl_scene_size_px(const FnlApp *app, int *w, int *h)
 		fnl_mutex_unlock(&a->lock);
 	}
 	if (sw > 0 && sh > 0) {
-		if (w) *w = sw;
-		if (h) *h = sh;
+		if (w)
+			*w = sw;
+		if (h)
+			*h = sh;
 		return;
 	}
 	fnl_content_size_px(app, w, h);
@@ -159,8 +161,10 @@ void fnl_content_size_px(const FnlApp *app, int *w, int *h)
 		ch = a->pub_area_h_px;
 		fnl_mutex_unlock(&a->lock);
 	}
-	if (w) *w = cw;
-	if (h) *h = ch;
+	if (w)
+		*w = cw;
+	if (h)
+		*h = ch;
 }
 
 /* A call rather than a macro, so a caller cannot filter against a stale copy
@@ -168,8 +172,10 @@ void fnl_content_size_px(const FnlApp *app, int *w, int *h)
 void fnl_min_content_size_pt(const FnlApp *app, int *w, int *h)
 {
 	(void)app;
-	if (w) *w = CONTENT_MIN_W;
-	if (h) *h = CONTENT_MIN_H;
+	if (w)
+		*w = CONTENT_MIN_W;
+	if (h)
+		*h = CONTENT_MIN_H;
 }
 
 /* The same area in logical points, origin included. content_rect() is the
@@ -187,10 +193,14 @@ void fnl_content_rect_pt(const FnlApp *app, int *x, int *y, int *w, int *h)
 		ch = a->pub_ch;
 		fnl_mutex_unlock(&a->lock);
 	}
-	if (x) *x = cx;
-	if (y) *y = cy;
-	if (w) *w = cw;
-	if (h) *h = ch;
+	if (x)
+		*x = cx;
+	if (y)
+		*y = cy;
+	if (w)
+		*w = cw;
+	if (h)
+		*h = ch;
 }
 
 /* How tall the band is for the window as it is: the caller's own under
@@ -372,8 +382,8 @@ bool fnl_begin_resize(FnlApp *app, FnlEdge edge)
 		return false;
 
 	fnl_mutex_lock(&a->lock);
-	const bool ok = !a->want_fullscreen && !a->want_captured &&
-					!a->want_maximized;
+	const bool ok =
+		!a->want_fullscreen && !a->want_captured && !a->want_maximized;
 	if (ok) {
 		a->req.resize      = true;
 		a->req.resize_edge = edge;
@@ -445,8 +455,8 @@ bool fnl_frame_stats(const FnlApp *app, FnlFrameStats *out)
 	return true;
 }
 
-int fnl_frame_samples(FnlApp *app, FnlFrameSample *out, int max,
-					  size_t stride, uint64_t *lost)
+int fnl_frame_samples(FnlApp *app, FnlFrameSample *out, int max, size_t stride,
+					  uint64_t *lost)
 {
 	App *a = (App *)app;
 	if (lost)
@@ -459,8 +469,8 @@ int fnl_frame_samples(FnlApp *app, FnlFrameSample *out, int max,
 	int n = 0;
 	fnl_mutex_lock(&a->lock);
 	while (n < max && a->ring_n > 0) {
-		const uint32_t oldest = (a->ring_head + FRAME_RING - a->ring_n) %
-								FRAME_RING;
+		const uint32_t oldest =
+			(a->ring_head + FRAME_RING - a->ring_n) % FRAME_RING;
 		FnlFrameSample row = a->ring[oldest];
 		/* Waiting for its GPU time while it is young, and the frames after
 		 * it with it: the order is the order drawn (GPU_HOLD_FRAMES). */
@@ -497,13 +507,12 @@ void app_frame_shown(App *a, uint64_t index, double mono, bool vblank)
 	fnl_mutex_unlock(&a->lock);
 }
 
-void app_present_numbered(App *a, uint64_t index, uint32_t number,
-						  double at)
+void app_present_numbered(App *a, uint64_t index, uint32_t number, double at)
 {
 	const uint32_t cap = sizeof a->numbered / sizeof a->numbered[0];
 	if (a->numbered_n) {
-		const uint32_t last = a->numbered[(a->numbered_head + cap - 1) %
-										  cap].number;
+		const uint32_t last =
+			a->numbered[(a->numbered_head + cap - 1) % cap].number;
 		/* Signed, so a count that wraps still runs forward. */
 		if ((int32_t)(number - last) <= 0) {
 			a->numbered_n = 0;
@@ -518,8 +527,7 @@ void app_present_numbered(App *a, uint64_t index, uint32_t number,
 		a->numbered_n++;
 }
 
-void app_present_number_shown(App *a, uint32_t number, double mono,
-							  bool vblank)
+void app_present_number_shown(App *a, uint32_t number, double mono, bool vblank)
 {
 	if (number == a->number_stamped)
 		return;
@@ -555,8 +563,8 @@ int fnl_frame_shown(FnlApp *app, FnlFrameShown *out, int max, size_t stride,
 	int n = 0;
 	fnl_mutex_lock(&a->lock);
 	while (n < max && a->shown_n > 0) {
-		const uint32_t oldest = (a->shown_head + FRAME_RING - a->shown_n) %
-								FRAME_RING;
+		const uint32_t oldest =
+			(a->shown_head + FRAME_RING - a->shown_n) % FRAME_RING;
 		memcpy((char *)out + (size_t)n * stride, &a->shown[oldest], each);
 		a->shown_n--;
 		n++;
@@ -586,9 +594,10 @@ void fnl_set_transition_ms(FnlApp *app, int ms)
 	fnl_atomic_store_u32(&a->veil_in_ms, (uint32_t)ms);
 }
 
-/* What the mode `aa` comes to on the device drawing now. Both modes need
- * the offscreen target; FSAA also needs a sample count worth having. Any
- * thread: both answers are atomics the device build writes. */
+/* What the mode `aa` comes to on the device drawing now. Every mode needs
+ * the offscreen target; FSAA also needs a sample count worth having, and
+ * TAAU a renderer that draws it. Any thread: both answers are atomics the
+ * device build writes. */
 static FnlAntialias aa_resolve(const App *a, FnlAntialias aa)
 {
 	const FnlRendererVtbl *r = renderer_any(a);
@@ -597,6 +606,8 @@ static FnlAntialias aa_resolve(const App *a, FnlAntialias aa)
 		return FNL_AA_MSAA;
 	if (off && aa == FNL_AA_MLAA)
 		return FNL_AA_MLAA;
+	if (off && aa == FNL_AA_TAAU && r->temporal_upscale)
+		return FNL_AA_TAAU;
 	return FNL_AA_NONE;
 }
 
@@ -620,7 +631,7 @@ void fnl_set_antialias(FnlApp *app, FnlAntialias aa)
 	App *a = (App *)app;
 	if (!a)
 		return;
-	if (aa != FNL_AA_MSAA && aa != FNL_AA_MLAA)
+	if (aa != FNL_AA_MSAA && aa != FNL_AA_MLAA && aa != FNL_AA_TAAU)
 		aa = FNL_AA_NONE;
 	const FnlAntialias want = aa_resolve(a, aa);
 	fnl_mutex_lock(&a->lock);
@@ -793,8 +804,10 @@ void fnl_set_scene_size_px(FnlApp *app, int w_px, int h_px)
 	App *a = (App *)app;
 	if (!a)
 		return;
-	if (w_px < 0) w_px = 0;
-	if (h_px < 0) h_px = 0;
+	if (w_px < 0)
+		w_px = 0;
+	if (h_px < 0)
+		h_px = 0;
 
 	/* Under the lock and as a pair, for the reason at the top of this file:
 	 * the two halves of a size have to cross to the render thread together.
@@ -872,8 +885,10 @@ void fnl_output_size_pt(const FnlApp *app, int *w, int *h)
 		oh = a->want_out_h_pt;
 		fnl_mutex_unlock(&a->lock);
 	}
-	if (w) *w = ow;
-	if (h) *h = oh;
+	if (w)
+		*w = ow;
+	if (h)
+		*h = oh;
 }
 
 /* The published scale, not scale120() directly: that reads App::draw_scale120,
@@ -1057,8 +1072,8 @@ FnlGpuKind fnl_gpu_kind_at(const FnlApp *app, int i)
 	if (!a || i < 0)
 		return FNL_GPU_KIND_UNKNOWN;
 	fnl_mutex_lock(&a->lock);
-	const FnlGpuKind k = i < a->gpu_list_n ? a->gpu_list[i].kind
-										   : FNL_GPU_KIND_UNKNOWN;
+	const FnlGpuKind k =
+		i < a->gpu_list_n ? a->gpu_list[i].kind : FNL_GPU_KIND_UNKNOWN;
 	fnl_mutex_unlock(&a->lock);
 	return k;
 }
@@ -1069,8 +1084,8 @@ FnlRenderer fnl_gpu_renderer_at(const FnlApp *app, int i)
 	if (!a || i < 0)
 		return FNL_RENDERER_DEFAULT;
 	fnl_mutex_lock(&a->lock);
-	const FnlRenderer r = i < a->gpu_list_n ? a->gpu_list[i].renderer
-											: FNL_RENDERER_DEFAULT;
+	const FnlRenderer r =
+		i < a->gpu_list_n ? a->gpu_list[i].renderer : FNL_RENDERER_DEFAULT;
 	fnl_mutex_unlock(&a->lock);
 	return r;
 }

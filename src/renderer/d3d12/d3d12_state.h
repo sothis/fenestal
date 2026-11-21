@@ -34,11 +34,32 @@ enum {
 	RTV_SCENE = D3D_BUFFERS,
 	RTV_SCENE_MS,
 	RTV_MLAA,
+	RTV_TAAU,
 	RTV_COUNT
 };
 enum { DSV_WINDOW = 0, DSV_SCENE, DSV_SCENE_MS, DSV_COUNT };
-enum { SRV_ATLAS = 0, SRV_SCENE, SRV_MLAA, SRV_COVER, SRV_COUNT };
-enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_COUNT };
+/* TAAU's resolve reads two images in one draw, and a descriptor table reads
+ * *consecutive* descriptors: so the pairs it hands the table are reserved as
+ * pairs -- {scene, history 0} and {scene, history 1} -- rather than copied
+ * into place each frame, which would be work in the recording for a view
+ * that never changes. The scene's views in those pairs are made again
+ * wherever the scene's image is (d3d_scene_set_size()). */
+enum {
+	SRV_ATLAS = 0,
+	SRV_SCENE,
+	SRV_MLAA,
+	SRV_COVER,
+	SRV_TAAU,
+	SRV_PAIR0,
+	SRV_PAIR0_H,
+	SRV_PAIR1,
+	SRV_PAIR1_H,
+	SRV_COUNT
+};
+/* The resolve's two samplers are told apart by register, and both want the
+ * scene's linear filter: the second is an identical sampler, not the
+ * atlas's. */
+enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_LINEAR2, SMP_COUNT };
 
 /* Caller images (fnl_image_create()) take a descriptor each from the srv
  * heap, after the fixed slots above, which name the library's resources and
@@ -184,6 +205,14 @@ struct RendererState {
 	bool scene_ms_refused;
 	D3dTarget mlaa;
 	bool mlaa_refused;
+	/* TAAU's resolve and the history it mixes in, one per frame slot: the
+	 * resolve has an RTV and is copied from, the histories are copied into
+	 * and sampled. */
+	D3dTarget taau;
+	D3dTarget taau_hist[MAX_FRAMES_IN_FLIGHT];
+	bool taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
+	bool taau_refused;
+	uint64_t taau_present;
 	int samples; /* what FSAA multisamples at */
 
 	/* What on_record draws into, while it runs; null otherwise.
@@ -200,6 +229,9 @@ struct RendererState {
 	ID3D12PipelineState *pso_text;
 	ID3D12PipelineState *pso_blit;
 	ID3D12PipelineState *pso_mlaa;
+	/* The resolve: the fetch's vertex stage and a fragment stage reading two
+	 * images, so a state of its own. */
+	ID3D12PipelineState *pso_taau;
 	/* The cover: the fetch's shaders blended by a constant, drawing
 	 * App::snap -- the frame read back before a move -- as a texture of
 	 * this device, the App::snap_gen it was uploaded from or last tried

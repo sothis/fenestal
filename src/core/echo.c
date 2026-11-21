@@ -300,6 +300,7 @@ void echo_event(const App *app, const FnlEvent *ev)
 		echo(app, "antialias %s",
 			 ev->antialias.aa == FNL_AA_MSAA   ? "fsaa"
 			 : ev->antialias.aa == FNL_AA_MLAA ? "mlaa"
+			 : ev->antialias.aa == FNL_AA_TAAU ? "taau"
 											   : "none");
 		break;
 	case FNL_EVENT_SCENE_SIZE:

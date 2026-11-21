@@ -196,7 +196,7 @@ FORCED = ("FNL_BACKEND", "FNL_RENDERER")
 # geometry: the button strip, the gap and the controls' run with the GPU box
 # (deco_min_window(), DESIGN *The size floor*). A window that is its output
 # has another, and is never resized.
-FLOOR_W = 625
+FLOOR_W = 683
 # A point of the bar that is caption where the window is wide enough: left
 # of the controls, in the title. Not near the floor, where the controls
 # reach past it (caption_x()).
@@ -2079,7 +2079,7 @@ class Win32Wayland(_DeskWine, Wayland):
     CAN = frozenset({"composited", "edge-resize", "resizable"})
     # Measured: the border carried past the floor leaves the window 119
     # points wide, under the floor the Win32 backend arms after a resize
-    # (win32_apply_size_bounds()), which wine's X11 driver holds at 625.
+    # (win32_apply_size_bounds()), which wine's X11 driver holds at 683.
     FLOOR_UNHELD = ("wine's Wayland driver lets the compositor's resize "
                     "take the window below the floor the Win32 backend "
                     "arms after one")

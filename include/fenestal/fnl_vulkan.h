@@ -10,7 +10,7 @@
  * <vulkan/vulkan.h> into every consumer.
  *
  * Fenestal owns the window, the device, the swapchain, the present schedule,
- * the render scale, both antialiasing modes and the text overlay; the scene
+ * the render scale, the three antialiasing modes and the text overlay; the scene
  * is yours. Everything up to "here is a command buffer, inside a pass, with
  * the viewport set" is portable, and what you record into it is not.
  */

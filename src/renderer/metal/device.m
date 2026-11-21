@@ -442,6 +442,7 @@ const FnlRendererVtbl fnl_renderer_metal = {
 	.key                   = "metal",
 	.draws_overlay         = true,
 	.offscreen_scene       = true,
+	.temporal_upscale      = true,
 	.create_instance       = mt_create_instance,
 	.destroy_instance      = mt_destroy_instance,
 	.create_surface        = mt_create_surface,

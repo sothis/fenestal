@@ -402,14 +402,29 @@ typedef struct {
 	 * to record the frame, so frozen at zero a still window records
 	 * nothing. */
 	float scene_time;
+	/* The subpixel offset this frame's scene is to be rasterised at, in
+	 * pixels of the scene, for a temporal accumulation to gather its samples
+	 * from -- add `2 * jitter_x / scene_w_px` to clip-space x before the w
+	 * divide, and the same on y. Zero unless FNL_AA_TAAU is in force and the
+	 * scene is moving; a caller that draws without it loses the accumulation
+	 * and nothing else. */
+	float jitter_x, jitter_y;
 } FnlFrame;
 
 /* Antialiasing. The values are pinned for FnlKey's reason; what refuses the
- * two modes is with fnl_set_antialias() further down. */
+ * three modes is with fnl_set_antialias() further down. */
 typedef enum {
 	FNL_AA_NONE = 0,
 	FNL_AA_MSAA = 1, /* multisampling; antialiases geometry coverage */
 	FNL_AA_MLAA = 2, /* a post-process over the finished scene       */
+	/* Temporal upscaling: every frame is rendered at a subpixel offset
+	 * (FnlFrame::jitter_x) and resolved into the window's image with the
+	 * frames before it, which is what recovers detail a bilinear stretch of a
+	 * small scene throws away. Needs the scene to move to gather samples; a
+	 * a still scene keeps the image it converged on. Every renderer a build
+	 * has draws it, and one that has not leaves fnl_antialias() at
+	 * FNL_AA_NONE. */
+	FNL_AA_TAAU = 3,
 } FnlAntialias;
 
 /* ---- input ----------------------------------------------------------------
@@ -1577,9 +1592,9 @@ FNL_API bool fnl_is_pointer_captured(const FnlApp *app); /* [any] */
  * worth having. */
 FNL_API int fnl_max_samples(const FnlApp *app); /* [any] */
 /* Whether the scene can be rendered anywhere but straight into the window --
- * the one target the render scale, FSAA and MLAA are all built on. Where it
- * is false, fnl_set_antialias() and fnl_set_scene_size_px() are both no-ops and
- * a control for either should be drawn dim. */
+ * the one target the render scale, FSAA, MLAA and TAAU are all built on. Where
+ * it is false, fnl_set_antialias() and fnl_set_scene_size_px() are both no-ops
+ * and a control for either should be drawn dim. */
 FNL_API bool fnl_offscreen_supported(const FnlApp *app); /* [any] */
 FNL_API FnlAntialias fnl_antialias(const FnlApp *app);   /* [any] */
 
@@ -1824,10 +1839,12 @@ FNL_API void fnl_set_fullscreen(FnlApp *app, bool on); /* [any] */
 FNL_API void fnl_minimize(FnlApp *app);               /* [any] */
 FNL_API void fnl_set_maximized(FnlApp *app, bool on); /* [any] */
 
-/* Antialiasing. Both modes are built on the offscreen scene target, so where
+/* Antialiasing. Each mode is built on the offscreen scene target, so where
  * fnl_offscreen_supported() is false, asking leaves the window at
- * FNL_AA_NONE. fnl_max_samples() is FSAA's further condition. A control for
- * either mode should be drawn dim rather than left to fail quietly.
+ * FNL_AA_NONE. fnl_max_samples() is FSAA's further condition, and TAAU wants
+ * a renderer that draws it -- which every renderer a build has does: a mode
+ * the one drawing has not got is FNL_AA_NONE too. A control for a mode should
+ * be drawn dim rather than left to fail quietly.
  *
  * The request is kept across devices, and fnl_antialias() reports what the
  * device drawing now makes of it: a move to a GPU that cannot draw FSAA

@@ -38,10 +38,16 @@ typedef struct FnlRendererVtbl {
 	bool draws_overlay;
 
 	/* Whether this renderer can render the scene anywhere but straight into
-	 * the window. The render scale and both antialiasing modes are built on
-	 * that one target, so a renderer without it refuses all three. Wider than
+	 * the window. The render scale and the three antialiasing modes are built
+	 * on that one target, so a renderer without it refuses all four. Wider than
 	 * max_samples(), which answers only for FSAA. */
 	bool offscreen_scene;
+
+	/* Whether this renderer draws FNL_AA_TAAU, the one mode that is not a
+	 * property of the target but of the frame's own pass. Data, as
+	 * offscreen_scene is, and for its reason: a renderer that has not got it
+	 * says so here rather than drawing something else. */
+	bool temporal_upscale;
 
 	/* ---- instance and bridge ------------------------------------------- */
 
@@ -287,15 +293,13 @@ void renderer_noop(App *a);
 #endif
 
 #if defined(_WIN32)
-#  define FNL_RENDERERS(X) \
-	FNL_WITH_RENDERER_D3D12(X) FNL_WITH_RENDERER_VULKAN(X)
+#define FNL_RENDERERS(X) FNL_WITH_RENDERER_D3D12(X) FNL_WITH_RENDERER_VULKAN(X)
 #elif defined(__APPLE__)
 #  define FNL_RENDERERS(X) \
-	FNL_WITH_RENDERER_METAL(X) FNL_WITH_RENDERER_VULKAN(X) \
-	FNL_WITH_RENDERER_GL(X)
-#else
-#  define FNL_RENDERERS(X) \
+	FNL_WITH_RENDERER_METAL(X)                                                 \
 	FNL_WITH_RENDERER_VULKAN(X) FNL_WITH_RENDERER_GL(X)
+#else
+#define FNL_RENDERERS(X) FNL_WITH_RENDERER_VULKAN(X) FNL_WITH_RENDERER_GL(X)
 #endif
 
 extern const FnlRendererVtbl fnl_renderer_vulkan;

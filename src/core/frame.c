@@ -1547,6 +1547,34 @@ static bool fps_update(App *a, double now, bool vsync)
  * figures -- the frame rate, the two costs, the input latency and the
  * metrics panel's process figures -- which is what App::cost_counts is
  * told. */
+/* The subpixel sequence FNL_AA_TAAU gathers its samples from: Halton's first
+ * eight, base 2 against base 3, each centred on the pixel, so every offset is
+ * within half a pixel of the grid the scene was laid out on. A table rather
+ * than a running Halton because the sequence is part of what the picture is:
+ * a change to it changes every accumulated frame -- and eight is where a
+ * 60 Hz accumulation has the detail back, a longer cycle costing state that
+ * buys nothing visible. */
+static const float TAAU_JITTER[8][2] = {
+	{ 0.0000f, -0.1667f },  { -0.2500f, 0.1667f }, { 0.2500f, -0.3889f },
+	{ -0.3750f, -0.0556f }, { 0.1250f, 0.2778f },  { -0.1250f, -0.2778f },
+	{ 0.3750f, 0.0556f },   { -0.4375f, 0.3889f },
+};
+
+#define TAAU_JITTER_STEPS ((int)(sizeof TAAU_JITTER / sizeof TAAU_JITTER[0]))
+
+/* Whether a temporal accumulation may mix its history in this frame, for every
+ * renderer that draws one: the frame slot's history has been written, and this
+ * frame's scene is the scene that history holds. The present before this one
+ * wrote it in the ordinary case; nothing has moved since in the other -- a
+ * still window redrawing for the figures, where starting the accumulation over
+ * would throw away the image it had converged on. */
+bool app_taau_follows(const App *a, uint64_t last, bool written)
+{
+	const bool moved = fnl_atomic_load_bool(&a->scene_motion) ||
+					   fnl_atomic_load_bool(&a->calibrating);
+	return written && (a->presents == last + 1 || !moved);
+}
+
 static bool draw_state_update(App *a, const Latch *l)
 {
 	/* Frozen at 0 while motion is off, so the draw state stops changing and
@@ -1555,11 +1583,23 @@ static bool draw_state_update(App *a, const Latch *l)
 	 * not stored into App::scene_motion: a store put back at its end would
 	 * undo a fnl_set_scene_motion() or an F2 made meanwhile. */
 	float scene_time = 0.0f;
+	/* FNL_AA_TAAU's subpixel offset, zero unless that mode is in force and
+	 * the scene is moving: a jitter on a still frame would make the draw
+	 * state differ every turn, which is a window that never rests. Latched
+	 * with scene_time and for the same reason -- it is what re-records a
+	 * moving frame under the one mode whose recording is never reusable. */
+	float jitter_x = 0.0f, jitter_y = 0.0f;
 	if (fnl_atomic_load_bool(&a->scene_motion) ||
 		fnl_atomic_load_bool(&a->calibrating)) {
 		if (a->scene_motion_t0 == 0.0)
 			a->scene_motion_t0 = a->latch_time;
 		scene_time = (float)(a->latch_time - a->scene_motion_t0);
+		if (l->aa == FNL_AA_TAAU) {
+			const int j = (int)(a->jitter_n % (uint32_t)TAAU_JITTER_STEPS);
+			jitter_x    = TAAU_JITTER[j][0];
+			jitter_y    = TAAU_JITTER[j][1];
+			a->jitter_n = (uint32_t)((j + 1) % TAAU_JITTER_STEPS);
+		}
 	} else {
 		a->scene_motion_t0 = 0.0;
 	}
@@ -1595,6 +1635,8 @@ static bool draw_state_update(App *a, const Latch *l)
 		.scene_w    = (int)a->scene_extent.w,
 		.scene_h    = (int)a->scene_extent.h,
 		.scene_time = scene_time,
+		.jitter_x   = jitter_x,
+		.jitter_y   = jitter_y,
 		.veil       = veil_step(a, a->latch_time),
 	};
 	ds.aa = l->aa;

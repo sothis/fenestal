@@ -115,8 +115,7 @@ static long count_threads(void)
 		return -1;
 	for (mach_msg_type_number_t i = 0; i < n; i++)
 		mach_port_deallocate(mach_task_self(), list[i]);
-	vm_deallocate(mach_task_self(), (vm_address_t)list,
-				  n * sizeof list[0]);
+	vm_deallocate(mach_task_self(), (vm_address_t)list, n * sizeof list[0]);
 	return (long)n;
 }
 #else
@@ -252,8 +251,7 @@ static void title_for(FnlApp *app, const FnlInitDesc *d)
 	const char *host = fnl_window_host(app);
 	char where[64];
 	if (!strcmp(fnl_backend_name(app), "Win32"))
-		snprintf(where, sizeof where, "Win32, %s",
-				 host[0] ? host : "native");
+		snprintf(where, sizeof where, "Win32, %s", host[0] ? host : "native");
 	else
 		snprintf(where, sizeof where, "%s", fnl_backend_name(app));
 	char title[192];
@@ -411,7 +409,10 @@ static void bad_descriptors(void)
 }
 
 #if !defined(_WIN32)
-typedef struct { FnlApp *app; FnlResult rc; } OffThread;
+typedef struct {
+	FnlApp *app;
+	FnlResult rc;
+} OffThread;
 
 static void *run_off_thread(void *p)
 {
@@ -472,11 +473,26 @@ int create_swapchain(int x);
 int text_width(int x);
 int render_loop(int x);
 int utf8_next(int x);
-int app_event(int x)        { return x + 1; }
-int create_swapchain(int x) { return x + 2; }
-int text_width(int x)       { return x + 3; }
-int render_loop(int x)      { return x + 4; }
-int utf8_next(int x)        { return x + 5; }
+int app_event(int x)
+{
+	return x + 1;
+}
+int create_swapchain(int x)
+{
+	return x + 2;
+}
+int text_width(int x)
+{
+	return x + 3;
+}
+int render_loop(int x)
+{
+	return x + 4;
+}
+int utf8_next(int x)
+{
+	return x + 5;
+}
 
 /* ---- main ---------------------------------------------------------------- */
 
@@ -491,8 +507,9 @@ int lifecycle_main(int argc, char **argv)
 	if (cycles < 2)
 		cycles = 2;
 
-	check(app_event(0) + create_swapchain(0) + text_width(0) +
-		  render_loop(0) + utf8_next(0) == 15,
+	check(app_event(0) + create_swapchain(0) + text_width(0) + render_loop(0) +
+				  utf8_next(0) ==
+			  15,
 		  "this program's app_event() and four more are its own");
 	null_app();
 	bad_descriptors();
@@ -506,10 +523,11 @@ int lifecycle_main(int argc, char **argv)
 	for (int i = 0; i < cycles; i++) {
 		/* Each lifetime a different antialiasing mode, every other one at a
 		 * pinned scene size: the offscreen targets' build and teardown are
-		 * part of what a lifetime must give back. */
-		static const FnlAntialias AA[3] = { FNL_AA_NONE, FNL_AA_MSAA,
-											FNL_AA_MLAA };
-		Run r = { false, 0, 8, false, false, AA[i % 3], (i & 1) != 0 };
+		 * part of what a lifetime must give back -- and TAAU's resolve and its
+		 * history are two more images the device holds. */
+		static const FnlAntialias AA[4] = { FNL_AA_NONE, FNL_AA_MSAA,
+											FNL_AA_MLAA, FNL_AA_TAAU };
+		Run r        = { false, 0, 8, false, false, AA[i % 4], (i & 1) != 0 };
 		FnlResult rc = one_lifetime(&r);
 		if (rc < 0 || r.frames < 3) {
 			printf("lifetime %d: %s, %d frames\n", i + 1, fnl_result_str(rc),

@@ -113,6 +113,8 @@
 	X(PFNGLUSEPROGRAMPROC, UseProgram)                                         \
 	X(PFNGLGETUNIFORMBLOCKINDEXPROC, GetUniformBlockIndex)                     \
 	X(PFNGLUNIFORMBLOCKBINDINGPROC, UniformBlockBinding)                       \
+	X(PFNGLGETUNIFORMLOCATIONPROC, GetUniformLocation)                         \
+	X(PFNGLUNIFORM1IPROC, Uniform1i)                                           \
 	X(PFNGLDRAWARRAYSPROC, DrawArrays)                                         \
 	X(PFNGLDRAWARRAYSINSTANCEDPROC, DrawArraysInstanced)                       \
 	X(PFNGLFENCESYNCPROC, FenceSync)                                           \
@@ -307,7 +309,7 @@ void gl_destroy_targets(App *a);
 void gl_scene_set_size(App *a, int w, int h);
 /* Build what this frame's antialiasing wants of the scene target. True when
  * something was built. */
-bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa);
+bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau);
 /* The formats every colour and depth image here is made in. sRGB, so a write
  * is encoded and a blend is linear, as on Vulkan's _SRGB surface. */
 #define GL_COLOR_FORMAT GL_SRGB8_ALPHA8

@@ -1290,6 +1290,10 @@ embed_shader(fullscreen.vert fullscreen_vert_spv)
 embed_shader(blit.frag blit_frag_spv)
 # A post-process over the finished scene. See DESIGN.md's *Antialiasing*.
 embed_shader(mlaa.frag mlaa_frag_spv)
+# The scene onto the window, resolved against the frames before it, at the
+# offset each was rasterised at. Vulkan's alone: no other renderer draws
+# FNL_AA_TAAU (FnlRendererVtbl::temporal_upscale says which).
+embed_shader(taau.frag taau_frag_spv)
 
 gl_program(text       text.vert       text.frag)
 gl_program(text_lcd   text.vert       text_lcd.frag)

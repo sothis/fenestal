@@ -17,7 +17,7 @@ offset FnlInitDesc.gpu_name 80
 offset FnlInitDesc.frame_times 88
 offset FnlInitDesc.echo_events 89
 offset FnlInitDesc.renderers 92
-sizeof FnlFrame 48
+sizeof FnlFrame 56
 offset FnlFrame.index 0
 offset FnlFrame.time 8
 offset FnlFrame.area_w_px 16
@@ -27,6 +27,8 @@ offset FnlFrame.scene_h_px 28
 offset FnlFrame.target 32
 offset FnlFrame.samples 36
 offset FnlFrame.scene_time 40
+offset FnlFrame.jitter_x 44
+offset FnlFrame.jitter_y 48
 sizeof FnlCallbacks 48
 offset FnlCallbacks.size 0
 offset FnlCallbacks.ud 8
@@ -180,6 +182,7 @@ enum FNL_TARGET_COUNT 3
 enum FNL_AA_NONE 0
 enum FNL_AA_MSAA 1
 enum FNL_AA_MLAA 2
+enum FNL_AA_TAAU 3
 enum FNL_KEY_UNKNOWN 0
 enum FNL_KEY_W 1
 enum FNL_KEY_A 2

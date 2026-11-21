@@ -82,6 +82,16 @@ struct RendererState {
 	bool     scene_ms_refused;
 	__strong id<MTLTexture> mlaa;
 	bool     mlaa_refused;
+	/* TAAU's resolve and the history it mixes in, one per frame slot: a
+	 * command buffer keeps every texture it names alive, so a slot's history
+	 * is never the one a frame in flight is writing. Both are written by a
+	 * render pass and read by a blit, which Metal allows on any private
+	 * texture -- the usage flags below are for the sampling. */
+	__strong id<MTLTexture> taau;
+	__strong id<MTLTexture> taau_hist[MAX_FRAMES_IN_FLIGHT];
+	bool     taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
+	bool     taau_refused;
+	uint64_t taau_present;
 	int      samples;          /* what FSAA multisamples at */
 
 	/* What on_record draws into, while it runs; nil otherwise.
@@ -100,6 +110,9 @@ struct RendererState {
 	__strong id<MTLRenderPipelineState> pso_text;
 	__strong id<MTLRenderPipelineState> pso_blit;
 	__strong id<MTLRenderPipelineState> pso_mlaa;
+	/* The resolve: the fetch's vertex stage and a fragment stage that reads
+	 * two images, so it has a pipeline of its own. */
+	__strong id<MTLRenderPipelineState> pso_taau;
 	/* The cover: the fetch's shaders blended by a constant, drawing
 	 * App::snap -- the frame read back before a move -- as a texture of
 	 * this device, and the App::snap_gen it was uploaded from or last

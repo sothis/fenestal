@@ -13,7 +13,7 @@
  * values, as GLenum carries them.
  *
  * Fenestal owns the window, the context, the present schedule, the render
- * scale, both antialiasing modes and the text overlay; the scene is yours.
+ * scale, the three antialiasing modes and the text overlay; the scene is yours.
  * Everything up to "here is a framebuffer, bound, with the viewport set" is
  * portable, and what you draw into it is not.
  *

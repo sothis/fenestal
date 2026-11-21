@@ -147,15 +147,21 @@ static void destroy_scene_target(App *a)
 	destroy_target(&GLS(a)->scene);
 	destroy_target(&GLS(a)->scene_ms);
 	destroy_target(&GLS(a)->mlaa);
+	destroy_target(&GLS(a)->taau);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		destroy_target(&GLS(a)->taau_hist[i]);
+		GLS(a)->taau_hist_ok[i] = false;
+	}
 	GLS(a)->scene_ms_refused = false;
 	GLS(a)->mlaa_refused     = false;
+	GLS(a)->taau_refused     = false;
 	a->scene_extent          = (Extent){ 0, 0 };
 }
 
 /* As Vulkan's scene_ensure_aa(): only what a mode asks for, once it does,
  * and a refusal is remembered so a device with no room is asked once per
  * target rather than once per frame. */
-bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
+bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 {
 	if (!GLS(a)->scene.fbo)
 		return false;
@@ -187,6 +193,26 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa)
 			fnl_log(FNL_LOG_WARN,
 					"no room for a %dx%d filtered scene image; "
 					"MLAA is off at this size",
+					w, h);
+		}
+	}
+	if (want_taau && !GLS(a)->taau.fbo && !GLS(a)->taau_refused) {
+		bool all = false;
+		if (!FNL_FAULT("scene-taau")) {
+			all = make_target(&GLS(a)->taau, w, h, 1, true, false);
+			for (int i = 0; all && i < MAX_FRAMES_IN_FLIGHT; i++)
+				all = make_target(&GLS(a)->taau_hist[i], w, h, 1, true, false);
+		}
+		if (all) {
+			built = true;
+		} else {
+			destroy_target(&GLS(a)->taau);
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				destroy_target(&GLS(a)->taau_hist[i]);
+			GLS(a)->taau_refused = true;
+			fnl_log(FNL_LOG_WARN,
+					"no room for a %dx%d resolved scene image and its "
+					"history; TAAU is off at this size",
 					w, h);
 		}
 	}

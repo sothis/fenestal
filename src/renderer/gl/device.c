@@ -41,7 +41,9 @@ static void APIENTRY debug_message(GLenum source, GLenum type, GLuint id,
 								   GLenum severity, GLsizei length,
 								   const GLchar *message, const void *ud)
 {
-	(void)source; (void)id; (void)length;
+	(void)source;
+	(void)id;
+	(void)length;
 	const App *a = ud;
 	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION ||
 		(a && a->renderer_state && GLS(a)->debug_quiet))
@@ -111,12 +113,11 @@ static FnlResult create_device_objects(App *a)
 		cur = 0;
 	}
 	snprintf(list[cur].name, sizeof list[cur].name, "%s", renderer);
-	list[cur].kind = GLS(a)->software ? FNL_GPU_KIND_SOFTWARE
-									  : FNL_GPU_KIND_UNKNOWN;
+	list[cur].kind =
+		GLS(a)->software ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
 	list[cur].renderer = FNL_RENDERER_OPENGL;
 	for (int i = 0; i < n; i++)
-		app_gpu_inventory(a, i, list[i].name,
-						  app_gpu_kind_word(list[i].kind));
+		app_gpu_inventory(a, i, list[i].name, app_gpu_kind_word(list[i].kind));
 	fnl_log(FNL_LOG_INFO, "GPU in use: %s (OpenGL %s)%s", renderer,
 			version ? version : "?",
 			gl_profile41 ? ", drawn through the 4.1 profile" : "");
@@ -274,7 +275,8 @@ static void recover_from_loss(App *a)
 	 * from the display up, as after a move. */
 	const bool gone = GLS(a)->display_gone;
 	if (gone)
-		fnl_log(FNL_LOG_WARN, "the EGL display was terminated under the "
+		fnl_log(FNL_LOG_WARN,
+				"the EGL display was terminated under the "
 				"renderer; opened again, with a new context and surface");
 	if (a->surface_lost || gone) {
 		gl_bridge_surface_close(a);
@@ -451,7 +453,8 @@ static const char *gl_present_mode_name(const App *a)
 	if (pacer)
 		return pacer;
 	return fnl_atomic_load_u32(&a->present_mode) != 1u
-			   ? "swap interval 0" : "swap interval 1 (vsync)";
+			   ? "swap interval 0"
+			   : "swap interval 1 (vsync)";
 }
 
 static FnlResult gl_create_surface(App *a)
@@ -470,6 +473,7 @@ const FnlRendererVtbl fnl_renderer_gl = {
 	.key                   = "gl",
 	.draws_overlay         = true,
 	.offscreen_scene       = true,
+	.temporal_upscale = true,
 	.create_instance       = gl_create_instance,
 	.destroy_instance      = gl_destroy_instance,
 	.create_surface        = gl_create_surface,
@@ -537,8 +541,8 @@ FnlGlProc fnl_gl_proc(App *a, const char *name)
 
 bool fnl_gl_scene_layout(App *a, FnlSceneTarget t, FnlGlSceneLayout *out)
 {
-	if (!a || !out || renderer_any(a) != &fnl_renderer_gl ||
-		t < 0 || t >= FNL_TARGET_COUNT)
+	if (!a || !out || renderer_any(a) != &fnl_renderer_gl || t < 0 ||
+		t >= FNL_TARGET_COUNT)
 		return false;
 	int samples = 1;
 	if (t == FNL_TARGET_OFFSCREEN_MS) {
@@ -567,8 +571,8 @@ bool fnl_gl_scene_framebuffer(App *a, uint32_t *out)
 	 * nothing of the caller's is drawn into: refused rather than handed
 	 * back. The thread first, as fnl_vulkan_scene_cmd() tests it. */
 	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
-		a->renderer != &fnl_renderer_gl ||
-		!a->renderer_state || GLS(a)->scene_fbo_now == 0)
+		a->renderer != &fnl_renderer_gl || !a->renderer_state ||
+		GLS(a)->scene_fbo_now == 0)
 		return false;
 	*out = GLS(a)->scene_fbo_now;
 	return true;

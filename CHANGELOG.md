@@ -6,6 +6,16 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `FNL_AA_TAAU`: temporal upscaling, the mode a render scale is worth having.
+  Every frame is rasterised at a subpixel offset -- `FnlFrame::jitter_x`, which
+  a caller adds to its projection -- and resolved against the frames before it,
+  so a scene held at fewer pixels than the window keeps what a bilinear stretch
+  of it would throw away (DESIGN *Antialiasing*). Asked for through
+  `fnl_set_antialias()`, like the other modes; every renderer draws
+  it (`FnlRendererVtbl::temporal_upscale`), and where one has not got it the
+  call leaves the window at `FNL_AA_NONE` with an `FNL_EVENT_ANTIALIAS`, as a device that cannot
+  draw FSAA already does. `--antialias=taau` is the testbed's way in.
+
 - `fnl_overlay_rect_blend()`, `fnl_overlay_rect_round()`, `fnl_overlay_circle()`
   and `fnl_overlay_gradient()`: the shapes a UI is made of beyond the
   axis-aligned opaque block. A blended rectangle writes its colour *over* what

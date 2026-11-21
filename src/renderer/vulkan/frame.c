@@ -48,8 +48,7 @@
 static bool scene_offscreen(const App *a, const FnlDrawState *ds)
 {
 	return ds->scene_w > 0 && VK(a)->scene.image != VK_NULL_HANDLE &&
-		   a->scene_extent.w == ds->scene_w &&
-		   a->scene_extent.h == ds->scene_h;
+		   a->scene_extent.w == ds->scene_w && a->scene_extent.h == ds->scene_h;
 }
 
 /* FSAA, likewise asked of what was built: the device may offer no sample
@@ -83,6 +82,14 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 		   !scene_mlaa_direct(a, ds);
 }
 
+/* TAAU in force: the mode asked for, the offscreen path under it, and the
+ * resolve built -- the device may have refused the images it needs. */
+static bool scene_taau(const App *a, const FnlDrawState *ds)
+{
+	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) &&
+		   VK(a)->taau_fb != VK_NULL_HANDLE;
+}
+
 /* The seam: the pass is begun, the viewport is set, and what goes in the
  * command buffer is the caller's. The buffer is stashed rather than passed,
  * because the public callback takes no Vulkan type; fnl_vulkan_scene_cmd()
@@ -91,8 +98,8 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
  * FNL_TARGET_DIRECT it starts at the content's origin, past the titlebar
  * and the ring, and vkCmdClearAttachments takes no viewport. */
 static void record_scene_draws(App *a, VkCommandBuffer cb,
-							   const FnlDrawState *ds, FnlSceneTarget t,
-							   int x, int y, int w, int h)
+							   const FnlDrawState *ds, FnlSceneTarget t, int x,
+							   int y, int w, int h)
 {
 	if (!a->cb.on_record)
 		return;
@@ -110,8 +117,7 @@ static void record_scene_draws(App *a, VkCommandBuffer cb,
 		.scene_w_px = w,
 		.scene_h_px = h,
 		.target     = t,
-		.samples    = t == FNL_TARGET_OFFSCREEN_MS ? (int)scene_samples(a)
-												   : 1,
+		.samples    = t == FNL_TARGET_OFFSCREEN_MS ? (int)scene_samples(a) : 1,
 		.scene_time = ds->scene_time,
 	};
 
@@ -138,8 +144,7 @@ static VkExtent2D scene_vk_extent(const App *a)
 /* Viewport and scissor over the whole of a target of extent `e`. */
 static void set_full_viewport(VkCommandBuffer cb, VkExtent2D e)
 {
-	VkViewport vp = { 0.0f, 0.0f, (float)e.width, (float)e.height,
-					  0.0f, 1.0f };
+	VkViewport vp = { 0.0f, 0.0f, (float)e.width, (float)e.height, 0.0f, 1.0f };
 	VkRect2D sc = { .offset = { 0, 0 }, .extent = e };
 	vkCmdSetViewport(cb, 0, 1, &vp);
 	vkCmdSetScissor(cb, 0, 1, &sc);
@@ -170,10 +175,10 @@ static void record_scene_pass(App *a, VkCommandBuffer cb,
 
 	set_full_viewport(cb, scene_vk_extent(a));
 
-	const FnlSceneTarget t = ms ? FNL_TARGET_OFFSCREEN_MS
-								: FNL_TARGET_OFFSCREEN;
-	record_scene_draws(a, cb, ds, t, 0, 0,
-					   a->scene_extent.w, a->scene_extent.h);
+	const FnlSceneTarget t =
+		ms ? FNL_TARGET_OFFSCREEN_MS : FNL_TARGET_OFFSCREEN;
+	record_scene_draws(a, cb, ds, t, 0, 0, a->scene_extent.w,
+					   a->scene_extent.h);
 
 	vkCmdEndRenderPass(cb);
 }
@@ -198,11 +203,124 @@ static void record_mlaa_pass(App *a, VkCommandBuffer cb)
 	/* The set the fetch uses to read the unfiltered scene: same view, same
 	 * sampler, same binding. */
 	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-							VK(a)->blit_layout, 0, 1, &VK(a)->blit_set_scene,
-							0, NULL);
+							VK(a)->blit_layout, 0, 1, &VK(a)->blit_set_scene, 0,
+							NULL);
 	vkCmdDraw(cb, 3, 1, 0, 0);
 
 	vkCmdEndRenderPass(cb);
+}
+
+/* The resolve's result into this slot's history, so that the frame after this
+ * one in the same slot -- the only frame that reads it -- accumulates on it.
+ *
+ * A copy rather than the pass writing two attachments: the image the pass would
+ * write a second time is the image it reads, which is a feedback loop the API
+ * rejects. Both images leave the layout they are read in and come back to it,
+ * the fetch reading `taau` later in this recording.
+ *
+ * A barrier's first scope reaches the commands submitted before it, which is
+ * what orders this against the previous copy into the same history; the
+ * frame's own fence covers only its own slot's submissions, and the other
+ * slot's history is not touched here. */
+static void record_taau_copy(App *a, VkCommandBuffer cb)
+{
+	const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
+											1 };
+	VkImageMemoryBarrier out            = {
+				   .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				   .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				   .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				   .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				   .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				   .image               = VK(a)->taau.image,
+				   .subresourceRange    = range,
+				   .srcAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+				   .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+	};
+	VkImageMemoryBarrier hist = out;
+	hist.newLayout            = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	hist.image                = VK(a)->taau_hist[a->frame].image;
+	hist.srcAccessMask =
+		VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+	hist.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+	const VkImageMemoryBarrier to[2] = { out, hist };
+	vkCmdPipelineBarrier(cb,
+						 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+							 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+							 VK_PIPELINE_STAGE_TRANSFER_BIT,
+						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2,
+						 to);
+
+	const VkImageCopy copy = {
+		.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+		.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+		.extent = { (uint32_t)a->scene_extent.w, (uint32_t)a->scene_extent.h,
+					1 },
+	};
+	vkCmdCopyImage(cb, VK(a)->taau.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				   VK(a)->taau_hist[a->frame].image,
+				   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+	VkImageMemoryBarrier back[2] = { out, hist };
+	back[0].oldLayout            = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	back[0].newLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	back[0].srcAccessMask        = VK_ACCESS_TRANSFER_READ_BIT;
+	back[0].dstAccessMask        = VK_ACCESS_SHADER_READ_BIT;
+	back[1].oldLayout            = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	back[1].newLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	back[1].srcAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
+	back[1].dstAccessMask        = VK_ACCESS_SHADER_READ_BIT;
+	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+							 VK_PIPELINE_STAGE_TRANSFER_BIT,
+						 0, 0, NULL, 0, NULL, 2, back);
+}
+
+/* The scene resolved against the frames before it: a pass of its own ahead of
+ * the fetch that puts the result on the window, as MLAA's is, and at the
+ * scene's resolution for the same reason -- the samples the jitter gathers are
+ * in the scene's own pixel grid.
+ *
+ * The history is mixed in only where this frame follows the one that wrote it:
+ * App::presents moved by exactly one, and this slot's history has been written.
+ * A rest, a pause, a dropped present and a rebuilt device all read as no
+ * history, and no history is the picture the fetch would have drawn. */
+static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
+{
+	const bool prev = app_taau_follows(a, VK(a)->taau_present,
+									   VK(a)->taau_hist_ok[a->frame]);
+	VkRenderPassBeginInfo rp = {
+		.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		.renderPass        = VK(a)->post_pass,
+		.framebuffer       = VK(a)->taau_fb,
+		.renderArea.extent = scene_vk_extent(a),
+	};
+	vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
+
+	set_full_viewport(cb, scene_vk_extent(a));
+
+	const TaauPush pc = {
+		.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
+					0.0f },
+		.texel  = { 1.0f / (float)a->scene_extent.w,
+					1.0f / (float)a->scene_extent.h, 0.0f, 0.0f },
+	};
+	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+					  VK(a)->taau_pipeline);
+	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+							VK(a)->taau_layout, 0, 1,
+							&VK(a)->taau_set[a->frame], 0, NULL);
+	vkCmdPushConstants(cb, VK(a)->taau_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+					   sizeof pc, &pc);
+	vkCmdDraw(cb, 3, 1, 0, 0);
+
+	vkCmdEndRenderPass(cb);
+
+	record_taau_copy(a, cb);
+	VK(a)->taau_hist_ok[a->frame] = true;
+	VK(a)->taau_present           = a->presents;
 }
 
 /* The scene onto the window, inside the window's pass and under the overlay:
@@ -223,8 +341,9 @@ static void draw_scene(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 	if (offscreen)
 		scene_dst_rect(ds->scene_w, ds->scene_h, aw, ah, &dx, &dy, &dw, &dh);
 
-	VkViewport vp = { (float)(ax + dx), (float)(ay + dy),
-					  (float)dw, (float)dh, 0.0f, 1.0f };
+	VkViewport vp = {
+		(float)(ax + dx), (float)(ay + dy), (float)dw, (float)dh, 0.0f, 1.0f
+	};
 	VkRect2D sc = { .offset = { ax + dx, ay + dy },
 					.extent = { (uint32_t)dw, (uint32_t)dh } };
 	vkCmdSetViewport(cb, 0, 1, &vp);
@@ -241,6 +360,7 @@ static void draw_scene(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 						  direct ? VK(a)->mlaa_win_pipeline
 								 : VK(a)->blit_pipeline);
 		VkDescriptorSet set = scene_mlaa(a, ds) ? VK(a)->blit_set_mlaa
+							  : scene_taau(a, ds) ? VK(a)->blit_set_taau
 												: VK(a)->blit_set_scene;
 		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 								VK(a)->blit_layout, 0, 1, &set, 0, NULL);
@@ -282,10 +402,11 @@ static void record_readback(App *a, VkCommandBuffer cb, uint32_t img,
 	 * out, so its final layout change is ordered by the implicit one, whose
 	 * second scope is BOTTOM_OF_PIPE alone, and this barrier chains onto it
 	 * only through that stage. */
-	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+	vkCmdPipelineBarrier(cb,
+						 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
 							 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL,
-						 1, &out);
+						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
+						 &out);
 	const VkBufferImageCopy region = {
 		.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
 		.imageExtent = { (uint32_t)a->extent.w, (uint32_t)a->extent.h, 1 },
@@ -342,8 +463,7 @@ static bool record_command_buffer(App *a, VkCommandBuffer cb, uint32_t img,
 	 * it has finished, a GL_TIMESTAMP's meaning: so the first one's lead
 	 * over the pair's is the time the previous frame's work still held the
 	 * queue. */
-	const VkQueryPool parts = VK(a)->ts_pool ? VK(a)->ts_parts
-											 : VK_NULL_HANDLE;
+	const VkQueryPool parts = VK(a)->ts_pool ? VK(a)->ts_parts : VK_NULL_HANDLE;
 	if (parts) {
 		vkCmdResetQueryPool(cb, parts, 4 * img, 4);
 		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, parts,
@@ -352,11 +472,15 @@ static bool record_command_buffer(App *a, VkCommandBuffer cb, uint32_t img,
 
 	/* The scene's pass first when it is offscreen: it fills an image the
 	 * window's pass samples, so it has to be outside that pass and before
-	 * it. */
+	 * it. The filter and the resolve come between them, each writing an
+	 * image the fetch then reads; the mode is one value, so no frame runs
+	 * both. */
 	if (scene_offscreen(a, ds)) {
 		record_scene_pass(a, cb, ds);
 		if (scene_mlaa(a, ds))
 			record_mlaa_pass(a, cb);
+		if (scene_taau(a, ds))
+			record_taau_pass(a, cb, ds);
 	}
 	if (parts)
 		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, parts,
@@ -405,7 +529,8 @@ static bool record_command_buffer(App *a, VkCommandBuffer cb, uint32_t img,
 		uint32_t k = 0;
 		for (int i = 0; i < 4; i++)
 			if (ring[i].extent.width && ring[i].extent.height)
-				cr[k++] = (VkClearRect){ .rect = ring[i], .baseArrayLayer = 0,
+				cr[k++] = (VkClearRect){ .rect           = ring[i],
+										 .baseArrayLayer = 0,
 										 .layerCount = 1 };
 		if (k) {
 			/* The API rejects a zero extent, and clipping is free to produce
@@ -482,8 +607,8 @@ static void present_copied(App *a, uint32_t frame, uint32_t img)
 	BACKEND(a)->present_pixels(a, VK(a)->readback_map[img], a->extent.w,
 							   a->extent.h, (size_t)a->extent.w * 4u, bgra);
 	if (a->snap_owed)
-		app_snapshot_set(a, VK(a)->readback_map[img], a->extent.w,
-						 a->extent.h, (size_t)a->extent.w * 4u, bgra);
+		app_snapshot_set(a, VK(a)->readback_map[img], a->extent.w, a->extent.h,
+						 (size_t)a->extent.w * 4u, bgra);
 }
 
 /* The host buffer a frame copies itself into for the snapshot, at this
@@ -492,8 +617,8 @@ static void present_copied(App *a, uint32_t frame, uint32_t img)
  * memory where the device has it, as the copy path's readback asks. */
 static bool ensure_snap_buf(App *a)
 {
-	const VkDeviceSize need = (VkDeviceSize)a->extent.w * 4u *
-							  (VkDeviceSize)a->extent.h;
+	const VkDeviceSize need =
+		(VkDeviceSize)a->extent.w * 4u * (VkDeviceSize)a->extent.h;
 	if (need <= VK(a)->snap_bytes)
 		return true;
 	if (VK(a)->snap_bytes) {
@@ -551,8 +676,7 @@ static bool frame_bail(App *a, uint32_t frame, bool fence_reset)
 	};
 	VkFence fence = VK(a)->in_flight[frame];
 	if (!fence_reset &&
-		vkResetFences(VK(a)->device, 1, &VK(a)->in_flight[frame]) !=
-			VK_SUCCESS)
+		vkResetFences(VK(a)->device, 1, &VK(a)->in_flight[frame]) != VK_SUCCESS)
 		fence = VK_NULL_HANDLE;
 	/* A submit refused for any other reason leaves an unsignalled fence
 	 * nothing will signal and a semaphore nothing will wait on, which the
@@ -613,8 +737,9 @@ static void gpu_time_read(App *a, uint32_t img)
 		!r[1] || !r[3])
 		return;
 	VK(a)->ts_unread[img] = false;
-	app_gpu_time(a, (double)((r[2] - r[0]) & VK(a)->ts_mask) *
-					VK(a)->ts_ns * 1e-9, VK(a)->ts_index[img]);
+	app_gpu_time(a,
+				 (double)((r[2] - r[0]) & VK(a)->ts_mask) * VK(a)->ts_ns * 1e-9,
+				 VK(a)->ts_index[img]);
 	gpu_parts_read(a, img, r);
 }
 
@@ -637,14 +762,19 @@ void vk_gpu_time_poll(App *a)
 static bool frame_record(App *a, uint32_t img, const FnlDrawState *ds,
 						 double t_ready, double *t_rec)
 {
-	if (VK(a)->img_cmd_gen[img] == a->record_gen)
+	/* The resolve reads a history image of its own slot's, so a recording is
+	 * only good for the slot it was made in: without TAAU nothing in it names
+	 * one, and a recording is reused for whatever slot acquires the image, as
+	 * it always was. */
+	if (VK(a)->img_cmd_gen[img] == a->record_gen &&
+		(!VK(a)->img_taau[img] || VK(a)->img_slot[img] == a->frame))
 		return true;
 
 	/* This image's command buffer may still be executing from an earlier
 	 * frame; wait on that frame's fence before re-recording it. */
 	if (VK(a)->images_in_flight[img] != VK_NULL_HANDLE) {
-		VkResult wr = vkWaitForFences(VK(a)->device, 1,
-									  &VK(a)->images_in_flight[img],
+		VkResult wr =
+			vkWaitForFences(VK(a)->device, 1, &VK(a)->images_in_flight[img],
 									  VK_TRUE, UINT64_MAX);
 		if (vk_lost(a, wr) || VKR(wr) < 0)
 			return false;
@@ -662,6 +792,8 @@ static bool frame_record(App *a, uint32_t img, const FnlDrawState *ds,
 	if (a->timing)
 		a->fc_record = now_seconds() - *t_rec;
 	VK(a)->img_cmd_gen[img] = a->record_gen;
+	VK(a)->img_slot[img]    = a->frame;
+	VK(a)->img_taau[img]    = ds->aa == FNL_AA_TAAU;
 	return true;
 }
 
@@ -700,8 +832,8 @@ static void timing_take(App *a)
 	if (VK(a)->timing_local &&
 		now_seconds() - VK(a)->timing_cal_at >= TIMING_CALIBRATE_S)
 		(void)vk_timing_calibrate(a);
-	for (uint32_t i = 0; i < got.presentationTimingCount &&
-						 i < TIMING_QUEUE; i++) {
+	for (uint32_t i = 0; i < got.presentationTimingCount && i < TIMING_QUEUE;
+		 i++) {
 		if (!t[i].reportComplete)
 			continue;
 		if (VK(a)->timing_owed)
@@ -711,8 +843,8 @@ static void timing_take(App *a)
 			st[i].stage == VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT)
 			app_present_number_shown(
 				a, (uint32_t)t[i].presentId,
-				(double)((int64_t)st[i].time + VK(a)->timing_offset_ns) *
-					1e-9, true);
+				(double)((int64_t)st[i].time + VK(a)->timing_offset_ns) * 1e-9,
+				true);
 	}
 #else
 	(void)a;
@@ -727,16 +859,15 @@ static void google_take(App *a)
 {
 	VkPastPresentationTimingGOOGLE t[TIMING_QUEUE];
 	uint32_t n = TIMING_QUEUE;
-	const VkResult r = VK(a)->google_past(VK(a)->device, VK(a)->swapchain,
-										  &n, t);
+	const VkResult r =
+		VK(a)->google_past(VK(a)->device, VK(a)->swapchain, &n, t);
 	if (r != VK_SUCCESS && r != VK_INCOMPLETE)
 		return;
 	for (uint32_t i = 0; i < n && i < TIMING_QUEUE; i++)
 		if (t[i].actualPresentTime)
 			app_present_number_shown(
 				a, t[i].presentID,
-				VK(a)->bridge->driver_clock(a, t[i].actualPresentTime),
-				true);
+				VK(a)->bridge->driver_clock(a, t[i].actualPresentTime), true);
 }
 
 /* ---- the frame that acks, waited for until shown --------------------------
@@ -776,8 +907,7 @@ static void *shown_main(void *arg)
 		 * go, x11-vulkan passes the round under ThreadSanitizer with a
 		 * clean log (DESIGN *X11: xcb, not Xlib*), which sees the
 		 * library's races and not the driver's: measured, not proven. */
-		(void)VK(a)->wait_for_present(VK(a)->device, sc, id,
-									  ACK_SHOWN_WAIT_NS);
+		(void)VK(a)->wait_for_present(VK(a)->device, sc, id, ACK_SHOWN_WAIT_NS);
 		fnl_atomic_store_bool(&a->ack_held, false);
 		BACKEND(a)->ack_release(a);
 
@@ -856,8 +986,8 @@ static void scale_check(App *a, VkResult r)
 {
 	if (!VK(a)->present_scale || VK(a)->swap_agreed)
 		return;
-	const bool fault = VK(a)->swap_fresh &&
-					   FNL_FAULT("swapchain-scale-refused");
+	const bool fault =
+		VK(a)->swap_fresh && FNL_FAULT("swapchain-scale-refused");
 	if (!fault && r != VK_ERROR_OUT_OF_DATE_KHR && r != VK_SUBOPTIMAL_KHR)
 		return;
 	VK(a)->present_scale = false;
@@ -869,8 +999,10 @@ static void scale_check(App *a, VkResult r)
 		why = "refused (FNL_FAULT)";
 	else if (r == VK_SUBOPTIMAL_KHR)
 		why = "suboptimal";
-	fnl_log(FNL_LOG_WARN, "a swapchain larger than the window was %s; "
-			"sizes recreate it", why);
+	fnl_log(FNL_LOG_WARN,
+			"a swapchain larger than the window was %s; "
+			"sizes recreate it",
+			why);
 }
 
 /* Present a submitted image, with the window-server calls that ride on the
@@ -933,8 +1065,10 @@ static void frame_present(App *a, uint32_t frame, uint32_t img,
 	};
 	if (a->counting && !VK(a)->timing_on && VK(a)->timing_why[0] &&
 		!VK(a)->timing_said) {
-		fnl_log(FNL_LOG_INFO, "Vulkan: the display path's frames are not "
-				"stamped: %s", VK(a)->timing_why);
+		fnl_log(FNL_LOG_INFO,
+				"Vulkan: the display path's frames are not "
+				"stamped: %s",
+				VK(a)->timing_why);
 		VK(a)->timing_said = true;
 	}
 	if (VK(a)->timing_on && a->counting && !VK(a)->surfaceless &&
@@ -1072,9 +1206,11 @@ static void swap_stale_note(App *a, bool out_of_date)
 	if (VK(a)->swap_stale_run < SWAP_STALE_RUN && !FNL_FAULT("stale-swapchain"))
 		return;
 	if (!VK(a)->swap_nudged)
-		fnl_log(FNL_LOG_WARN, "every swapchain at the window's own size is "
+		fnl_log(FNL_LOG_WARN,
+				"every swapchain at the window's own size is "
 				"out of date at once (%d in a row); the window's size is "
-				"nudged", VK(a)->swap_stale_run);
+				"nudged",
+				VK(a)->swap_stale_run);
 	VK(a)->swap_nudged = true;
 	VK(a)->swap_stale_run = 0;
 	app_request_size_nudge(a);
@@ -1102,7 +1238,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * recorded without it. */
 	if (scene_offscreen(a, ds) &&
 		scene_ensure_aa(a, ds->aa == FNL_AA_MSAA,
-						ds->aa == FNL_AA_MLAA && !scene_mlaa_direct(a, ds)))
+						ds->aa == FNL_AA_MLAA && !scene_mlaa_direct(a, ds),
+						ds->aa == FNL_AA_TAAU))
 		a->record_gen++;
 
 	/* Was the GPU far enough ahead that this frame will not wait for it? This
@@ -1133,7 +1270,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	uint32_t img;
 	const uint64_t acquire_timeout =
 		BACKEND(a)->is_output && !VK(a)->present_copy
-			? ACQUIRE_TIMEOUT_DISPLAY_NS : ACQUIRE_TIMEOUT_NS;
+			? ACQUIRE_TIMEOUT_DISPLAY_NS
+			: ACQUIRE_TIMEOUT_NS;
 	/* The renderer's own images are taken in turn; frame_record() waits for
 	 * the frame that last used one before it is drawn again. */
 	VkResult r = VK_SUCCESS;
@@ -1183,8 +1321,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * recording drops it. The copy path's readback already has every
 	 * frame. A surface whose images cannot be copied from gives none. */
 	bool snap = a->snap_owed;
-	if (snap && (!VK(a)->snap_usage ||
-				 (!VK(a)->present_copy && !ensure_snap_buf(a)))) {
+	if (snap &&
+		(!VK(a)->snap_usage || (!VK(a)->present_copy && !ensure_snap_buf(a)))) {
 		app_snapshot_decline(a);
 		snap = false;
 	}
@@ -1235,8 +1373,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * copy. The copy path handed its pixels over in present_copied(). */
 	if (snap) {
 		if (!VK(a)->present_copy) {
-			const VkResult sw = vkWaitForFences(VK(a)->device, 1,
-												&VK(a)->in_flight[frame],
+			const VkResult sw =
+				vkWaitForFences(VK(a)->device, 1, &VK(a)->in_flight[frame],
 												VK_TRUE, UINT64_MAX);
 			if (!vk_lost(a, sw) && sw == VK_SUCCESS)
 				app_snapshot_set(a, VK(a)->snap_map[0], a->extent.w,

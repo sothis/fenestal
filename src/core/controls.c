@@ -13,7 +13,7 @@
  * (ctl_check_shown()).
  *
  * The library's own, because each drives a knob the library already owns --
- * FSAA, MLAA, the render-scale pin, the window size, the GPU
+ * FSAA, MLAA, TAAU, the render-scale pin, the window size, the GPU
  * (fnl_request_gpu()), the output (fnl_request_output()), and where the
  * window is the output its display mode. They call the same public
  * knobs a caller would, so the event that reports a change comes out of the
@@ -409,6 +409,7 @@ static const struct {
 } CTL_LABEL[CTL_CHECK_COUNT] = {
 	CTL_LABEL_OF("FSAA"),
 	CTL_LABEL_OF("MLAA"),
+	CTL_LABEL_OF("TAAU"),
 	CTL_LABEL_OF("Fs Upsample"),
 };
 
@@ -428,8 +429,8 @@ static bool ctl_wanted(const App *a, uint32_t bit)
 
 static bool ctl_check_shown(const App *a, int i)
 {
-	/* The antialiasing pair is one choice of sampling and one bit; the render
-	 * scale is the other checkbox and has its own. */
+	/* The antialiasing boxes are one choice of sampling and one bit; the
+	 * render scale is the other checkbox and has its own. */
 	if (!ctl_wanted(a, i == CTL_CHECK_SCALE ? FNL_TITLEBAR_SCALE
 											: FNL_TITLEBAR_ANTIALIAS))
 		return false;
@@ -595,8 +596,9 @@ static int ctl_output_count(const App *a)
 	return ctl_outputs(a, &e, names, &now);
 }
 
-/* Whether a checkbox can act. All three need the offscreen target; FSAA also
- * needs a sample count worth having, and the scaling box a size to hold.
+/* Whether a checkbox can act. All four need the offscreen target; FSAA also
+ * needs a sample count worth having, TAAU a renderer that draws it, and the
+ * scaling box a size to hold.
  * `n_sizes` is passed in because the frame path has already built the list,
  * and filtering it again is another crossing of App::lock. */
 static bool ctl_check_enabled(const App *a, int i, int n_sizes)
@@ -606,6 +608,8 @@ static bool ctl_check_enabled(const App *a, int i, int n_sizes)
 		return false;
 	if (i == CTL_CHECK_FSAA)
 		return r->max_samples(a) > 1;
+	if (i == CTL_CHECK_TAAU)
+		return r->temporal_upscale;
 	if (i == CTL_CHECK_SCALE)
 		return n_sizes > 0;
 	return true;
@@ -663,7 +667,7 @@ static void ctl_output_label(const App *a, char *buf, size_t n)
 
 /* ---- drawing ------------------------------------------------------------- */
 
-/* Whether box `i` is ticked. The two antialiasing boxes show the mode the
+/* Whether box `i` is ticked. The three antialiasing boxes show the mode the
  * frame was latched with, whoever set it -- a tick of their own would stay
  * off when the caller turns FSAA on with fnl_set_antialias(). The scaling
  * box keeps its own: the size it holds is the drop-down's pick, which the
@@ -674,6 +678,8 @@ static bool ctl_ticked(const App *a, const FnlDrawState *ds, int i)
 		return ds->aa == FNL_AA_MSAA;
 	if (i == CTL_CHECK_MLAA)
 		return ds->aa == FNL_AA_MLAA;
+	if (i == CTL_CHECK_TAAU)
+		return ds->aa == FNL_AA_TAAU;
 	return CTL_CHECKED(a, i);
 }
 
@@ -986,14 +992,16 @@ static void ctl_toggle(App *a, int which)
 	if (!ctl_check_enabled(a, which, ctl_size_count(a)))
 		return;
 
-	/* The two antialiasing boxes are one knob publicly -- they solve the
-	 * same problem twice and the library takes one answer -- so each turns
-	 * its own mode on, or off where it is the one in force, and ticking
-	 * either unticks the other by the same token. Read off the knob itself,
+	/* The antialiasing boxes are one knob publicly -- they solve the same
+	 * problem three ways and the library takes one answer -- so each turns
+	 * its own mode on, or off where it is the one in force, and ticking any
+	 * of them unticks the others by the same token. Read off the knob itself,
 	 * as the boxes are drawn from it. */
-	if (which == CTL_CHECK_FSAA || which == CTL_CHECK_MLAA) {
-		const FnlAntialias mode =
-			which == CTL_CHECK_FSAA ? FNL_AA_MSAA : FNL_AA_MLAA;
+	if (which == CTL_CHECK_FSAA || which == CTL_CHECK_MLAA ||
+		which == CTL_CHECK_TAAU) {
+		const FnlAntialias mode = which == CTL_CHECK_FSAA   ? FNL_AA_MSAA
+								  : which == CTL_CHECK_MLAA ? FNL_AA_MLAA
+															: FNL_AA_TAAU;
 		fnl_set_antialias(a, fnl_antialias(a) == mode ? FNL_AA_NONE : mode);
 		fnl_invalidate(a);
 		return;

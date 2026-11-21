@@ -21,7 +21,8 @@
 
 /* Stringify through the enum name itself, so a typo cannot make the message
  * disagree with the constant it reports. */
-#define VK_RESULT_CASE(x) case x: return #x
+#define VK_RESULT_CASE(x)                                                      \
+	case x: return #x
 
 const char *vk_result_str(VkResult r)
 {
@@ -80,16 +81,10 @@ FnlResult fnl_vk_result(const char *expr, const char *file, int line,
 
 	switch (r) {
 	case VK_ERROR_OUT_OF_HOST_MEMORY:
-	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-		code = FNL_ERR_OUT_OF_MEMORY;
-		break;
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY: code = FNL_ERR_OUT_OF_MEMORY; break;
 	case VK_ERROR_DEVICE_LOST:
-	case VK_ERROR_SURFACE_LOST_KHR:
-		code = FNL_ERR_DEVICE_LOST;
-		break;
-	default:
-		code = FNL_ERR_SYSTEM;
-		break;
+	case VK_ERROR_SURFACE_LOST_KHR: code = FNL_ERR_DEVICE_LOST; break;
+	default: code = FNL_ERR_SYSTEM; break;
 	}
 	return fnl_fail(code, "%s:%d: %s\n  returned %s (%d)", file, line, expr,
 					vk_result_str(r), (int)r);
@@ -122,8 +117,8 @@ static InstanceExts instance_exts(void)
 {
 	InstanceExts e = { NULL, 0 };
 	uint32_t n = 0;
-	if (vkEnumerateInstanceExtensionProperties(NULL, &n, NULL) != VK_SUCCESS
-		|| n == 0)
+	if (vkEnumerateInstanceExtensionProperties(NULL, &n, NULL) != VK_SUCCESS ||
+		n == 0)
 		return e;
 	e.props = calloc(n, sizeof *e.props);
 	if (!e.props)
@@ -144,7 +139,9 @@ static InstanceExts instance_exts(void)
  * alike, which saves reading their manifests. Opened once, on the render
  * thread, and never closed (core/dynlib.h). */
 static const char *const CROSS_LIBS[] = {
-	"libvulkan_intel.so", "libvulkan_intel_hasvk.so", "libvulkan_radeon.so",
+	"libvulkan_intel.so",
+	"libvulkan_intel_hasvk.so",
+	"libvulkan_radeon.so",
 	"libvulkan_lvp.so",
 };
 #define CROSS_MAX (sizeof CROSS_LIBS / sizeof CROSS_LIBS[0])
@@ -162,8 +159,8 @@ static uint32_t cross_drivers(void)
 		const char *names[] = { CROSS_LIBS[i], NULL };
 		char why[256];
 		void *lib = fnl_lib_open(names, why, sizeof why);
-		const FnlLibFn f = lib ? fnl_lib_sym(lib, "vk_icdGetInstanceProcAddr")
-							   : NULL;
+		const FnlLibFn f =
+			lib ? fnl_lib_sym(lib, "vk_icdGetInstanceProcAddr") : NULL;
 		if (f)
 			cross_gipa[cross_n++] = (PFN_vkGetInstanceProcAddrLUNARG)f;
 	}
@@ -182,8 +179,7 @@ static InstanceExts cross_exts(void)
 				VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties");
 		uint32_t n = 0;
 		/* A count no driver comes near, and a size that cannot wrap. */
-		if (!get || get(NULL, &n, NULL) != VK_SUCCESS || n == 0 ||
-			n > 1024)
+		if (!get || get(NULL, &n, NULL) != VK_SUCCESS || n == 0 || n > 1024)
 			continue;
 		VkExtensionProperties *more =
 			realloc(e.props, (e.n + n) * sizeof *e.props);
@@ -223,8 +219,10 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 		if (BRIDGES[i]->backend == BACKEND(a)->id)
 			g->bridge = BRIDGES[i];
 	if (!g->bridge)
-		return fnl_fail(FNL_ERR_UNSUPPORTED, "the Vulkan renderer has no "
-						"bridge to %s in this build", BACKEND(a)->name);
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"the Vulkan renderer has no "
+						"bridge to %s in this build",
+						BACKEND(a)->name);
 	FNL_TRY(vk_load_global());
 
 	/* The library's name, not the caller's: a driver matches its application
@@ -255,7 +253,8 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	};
 	if (cross) {
 		if (cross_drivers() == 0)
-			return fnl_fail(FNL_ERR_NO_DEVICE, "none of Mesa's Intel, AMD "
+			return fnl_fail(FNL_ERR_NO_DEVICE,
+							"none of Mesa's Intel, AMD "
 							"or CPU Vulkan drivers is installed");
 		for (uint32_t i = 0; i < cross_n; i++)
 			direct[i] = (VkDirectDriverLoadingInfoLUNARG){
@@ -296,10 +295,10 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	const bool caps2_offered = instance_has(
 		&offered, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
 	for (uint32_t i = 0; i < n_backend; i++) {
-		if ((strcmp(backend[i],
-					VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME) == 0 ||
-			 strcmp(backend[i],
-					VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME) == 0) &&
+		if ((strcmp(backend[i], VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME) ==
+				 0 ||
+			 strcmp(backend[i], VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME) ==
+				 0) &&
 			!caps2_offered)
 			continue;
 		if (i < required || instance_has(&offered, backend[i])) {
@@ -309,15 +308,15 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 		}
 	}
 	free(offered.props);
-	g->surface_maint = exts_have(
-			exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
+	g->surface_maint =
+		exts_have(exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
 		(exts_have(exts, n, VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME) ||
 		 exts_have(exts, n, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME));
 	VkInstanceCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pNext = cross ? &direct_list : NULL,
-		.flags = portability
-					 ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0,
+		.flags =
+			portability ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0,
 		.pApplicationInfo = &app_info,
 		.enabledExtensionCount = n,
 		.ppEnabledExtensionNames = exts,
@@ -345,7 +344,8 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	 * installed. Said once a process: the GPU listing asks too. */
 	VkResult made = vkCreateInstance(&ci, NULL, &g->instance);
 	if (made == VK_ERROR_LAYER_NOT_PRESENT && ci.enabledLayerCount) {
-		fnl_log(FNL_LOG_WARN, "FNL_VK_VALIDATION: the loader has no "
+		fnl_log(FNL_LOG_WARN,
+				"FNL_VK_VALIDATION: the loader has no "
 				"VK_LAYER_KHRONOS_validation; the instance is made "
 				"without it");
 		ci.enabledLayerCount = 0;
@@ -355,7 +355,8 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	if (made == VK_ERROR_INCOMPATIBLE_DRIVER) {
 		static FnlAtomicBool said;
 		if (fnl_atomic_load_bool(&said))
-			return fnl_fail_quiet(FNL_ERR_NO_DEVICE, "no Vulkan driver "
+			return fnl_fail_quiet(FNL_ERR_NO_DEVICE,
+								  "no Vulkan driver "
 								  "would load: vkCreateInstance returned "
 								  "VK_ERROR_INCOMPATIBLE_DRIVER");
 		fnl_atomic_store_bool(&said, true);
@@ -373,19 +374,21 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 		g->instance = VK_NULL_HANDLE;
 		return loaded;
 	}
-	g->get_features2 = props2
-		? (PFN_vkGetPhysicalDeviceFeatures2KHR)vkGetInstanceProcAddr(
+	g->get_features2 =
+		props2 ? (PFN_vkGetPhysicalDeviceFeatures2KHR)vkGetInstanceProcAddr(
 			  g->instance, "vkGetPhysicalDeviceFeatures2KHR")
 		: NULL;
-	g->get_memory2 = props2
-		? (PFN_vkGetPhysicalDeviceMemoryProperties2KHR)vkGetInstanceProcAddr(
+	g->get_memory2 =
+		props2 ? (PFN_vkGetPhysicalDeviceMemoryProperties2KHR)
+					 vkGetInstanceProcAddr(
 			  g->instance, "vkGetPhysicalDeviceMemoryProperties2KHR")
 		: NULL;
 	/* By name: an optional instance entry is not a row of vk_fns.h, and a
 	 * call the sources name is a stub the cross link would have to satisfy. */
-	g->surface_caps2 = exts_have(
-			exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)
-		? (PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR)vkGetInstanceProcAddr(
+	g->surface_caps2 =
+		exts_have(exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)
+			? (PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR)
+				  vkGetInstanceProcAddr(
 			  g->instance, "vkGetPhysicalDeviceSurfaceCapabilities2KHR")
 		: NULL;
 	return FNL_OK;
@@ -549,8 +552,7 @@ static FnlResult pick_device(App *a)
 		/* gpu_index is 0 for automatic and seen starts at 1, so the automatic
 		 * case never matches and needs no branch of its own. */
 		seen++;
-		if (q >= 0 &&
-			(by_name ? chosen == VK_NULL_HANDLE &&
+		if (q >= 0 && (by_name ? chosen == VK_NULL_HANDLE &&
 						   app_name_has(props.deviceName, a->gpu_want)
 					 : seen == a->gpu_index)) {
 			chosen = devs[i];
@@ -601,7 +603,8 @@ static FnlResult pick_device(App *a)
 		if (device_passed_over(&props) &&
 			props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 			rank = device_type_rank(VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) - 1;
-			fnl_log(FNL_LOG_INFO, "%s is ranked below an integrated one: "
+			fnl_log(FNL_LOG_INFO,
+					"%s is ranked below an integrated one: "
 					"NVK on a GPU before Turing runs at its boot clocks; "
 					"FNL_GPU names it to choose it anyway",
 					props.deviceName);
@@ -624,7 +627,8 @@ static FnlResult pick_device(App *a)
 	if (by_name && chosen == VK_NULL_HANDLE)
 		fnl_log(FNL_LOG_WARN,
 				"no GPU named \"%s\" among the %d that can present to this "
-				"surface", a->gpu_want, seen);
+				"surface",
+				a->gpu_want, seen);
 	else if (a->gpu_index > 0 && chosen == VK_NULL_HANDLE)
 		fnl_log(FNL_LOG_WARN,
 				"no GPU %d: %d device%s can present to this surface",
@@ -661,9 +665,10 @@ static FnlResult pick_device(App *a)
 								props.limits.framebufferDepthSampleCounts;
 	if (FNL_FAULT("no-msaa"))
 		counts = VK_SAMPLE_COUNT_1_BIT;
-	fnl_atomic_store_u32(&a->msaa_samples,
-		(counts & VK_SAMPLE_COUNT_4_BIT) ? VK_SAMPLE_COUNT_4_BIT
-	  : (counts & VK_SAMPLE_COUNT_2_BIT) ? VK_SAMPLE_COUNT_2_BIT
+	fnl_atomic_store_u32(&a->msaa_samples, (counts & VK_SAMPLE_COUNT_4_BIT)
+											   ? VK_SAMPLE_COUNT_4_BIT
+										   : (counts & VK_SAMPLE_COUNT_2_BIT)
+											   ? VK_SAMPLE_COUNT_2_BIT
 										 : VK_SAMPLE_COUNT_1_BIT);
 	return FNL_OK;
 }
@@ -718,8 +723,7 @@ static int vk_list_gpus(App *a, GpuEntry *out, int max)
 			VkPhysicalDeviceProperties props;
 			vkGetPhysicalDeviceProperties(devs[i], &props);
 			memset(&out[n], 0, sizeof out[n]);
-			snprintf(out[n].name, sizeof out[n].name, "%s",
-					 props.deviceName);
+			snprintf(out[n].name, sizeof out[n].name, "%s", props.deviceName);
 			out[n].kind = device_kind(props.deviceType);
 			out[n].renderer = FNL_RENDERER_VULKAN;
 			n++;
@@ -777,8 +781,8 @@ static bool device_has_extension(App *a, const char *name)
 		VK(a)->dev_ext_phys  = VK(a)->phys;
 
 		uint32_t n = 0;
-		if (vkEnumerateDeviceExtensionProperties(VK(a)->phys, NULL, &n,
-												 NULL) != VK_SUCCESS ||
+		if (vkEnumerateDeviceExtensionProperties(VK(a)->phys, NULL, &n, NULL) !=
+				VK_SUCCESS ||
 			n == 0)
 			return false;
 		VkExtensionProperties *props = xmalloc(n * sizeof *props);
@@ -859,8 +863,8 @@ static FnlResult create_device(App *a)
 		device_has_extension(a, VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 	if (wait_exts)
 		VK(a)->get_features2(VK(a)->phys, &have2);
-	VK(a)->present_wait = wait_exts && id_have.presentId &&
-						  wait_have.presentWait;
+	VK(a)->present_wait =
+		wait_exts && id_have.presentId && wait_have.presentWait;
 	VkPhysicalDevicePresentWaitFeaturesKHR wait_want = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
 		.presentWait = VK_TRUE,
@@ -899,8 +903,7 @@ static FnlResult create_device(App *a)
 	 * VK_EXT_present_timing only where it says the instance can, since
 	 * VK_GOOGLE_display_timing, the fallback, rests on nothing of it. */
 	const bool stamps_wanted = VK(a)->bridge->driver_stamps != NULL;
-	const bool stamps_asked = stamps_wanted &&
-							  VK(a)->bridge->driver_stamps(a);
+	const bool stamps_asked  = stamps_wanted && VK(a)->bridge->driver_stamps(a);
 #ifdef VK_EXT_present_timing
 	VkPhysicalDevicePresentTimingFeaturesEXT timing_have = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT,
@@ -914,16 +917,13 @@ static FnlResult create_device(App *a)
 		.pNext = &id2_have,
 	};
 	if (VK(a)->get_features2 && stamps_asked &&
-		device_has_extension(a,
-							 VK_EXT_PRESENT_TIMING_EXTENSION_NAME) &&
-		device_has_extension(a,
-							 VK_KHR_PRESENT_ID_2_EXTENSION_NAME) &&
-		device_has_extension(a,
-							 VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) &&
+		device_has_extension(a, VK_EXT_PRESENT_TIMING_EXTENSION_NAME) &&
+		device_has_extension(a, VK_KHR_PRESENT_ID_2_EXTENSION_NAME) &&
+		device_has_extension(a, VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) &&
 		!FNL_FAULT("no-present-timing")) {
 		VK(a)->get_features2(VK(a)->phys, &have3);
-		VK(a)->present_timing = id2_have.presentId2 &&
-								timing_have.presentTiming;
+		VK(a)->present_timing =
+			id2_have.presentId2 && timing_have.presentTiming;
 	}
 	VkPhysicalDevicePresentTimingFeaturesEXT timing_want = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT,
@@ -944,10 +944,10 @@ static FnlResult create_device(App *a)
 	/* Else VK_GOOGLE_display_timing, its older sibling, which names no
 	 * clock: where the bridge says whose its times are (MoltenVK's). Its
 	 * present ids are its own, carried in the same struct as its times. */
-	VK(a)->google_timing = !VK(a)->present_timing && stamps_wanted &&
+	VK(a)->google_timing =
+		!VK(a)->present_timing && stamps_wanted &&
 						   VK(a)->bridge->driver_clock &&
-						   device_has_extension(
-							   a, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) &&
+		device_has_extension(a, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) &&
 						   !FNL_FAULT("no-present-timing");
 	if (VK(a)->google_timing)
 		exts[n_exts++] = VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME;
@@ -969,11 +969,11 @@ static FnlResult create_device(App *a)
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
 		.swapchainMaintenance1 = VK_TRUE,
 	};
-	if (!VK(a)->scale_refused && VK(a)->surface_maint &&
-		VK(a)->get_features2 && n_exts < 16) {
+	if (!VK(a)->scale_refused && VK(a)->surface_maint && VK(a)->get_features2 &&
+		n_exts < 16) {
 		const char *scale_name = NULL;
-		if (device_has_extension(
-				a, VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
+		if (device_has_extension(a,
+								 VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
 			scale_name = VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME;
 		else if (device_has_extension(
 					 a, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
@@ -1003,29 +1003,31 @@ static FnlResult create_device(App *a)
 		.pEnabledFeatures = &want,
 	};
 	VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &VK(a)->device));
-	VK(a)->memory_budget = VK(a)->get_memory2 &&
+	VK(a)->memory_budget =
+		VK(a)->get_memory2 &&
 		device_has_extension(a, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 	VK(a)->wait_for_present = NULL;
 	if (VK(a)->present_wait)
-		VK(a)->wait_for_present = (PFN_vkWaitForPresentKHR)
-			vkGetDeviceProcAddr(VK(a)->device, "vkWaitForPresentKHR");
+		VK(a)->wait_for_present = (PFN_vkWaitForPresentKHR)vkGetDeviceProcAddr(
+			VK(a)->device, "vkWaitForPresentKHR");
 	VK(a)->present_wait = VK(a)->wait_for_present != NULL;
 #ifdef VK_EXT_present_timing
 	if (VK(a)->present_timing) {
-		VK(a)->timing_queue_size = (PFN_vkSetSwapchainPresentTimingQueueSizeEXT)
-			vkGetDeviceProcAddr(VK(a)->device,
-								"vkSetSwapchainPresentTimingQueueSizeEXT");
-		VK(a)->timing_domains = (PFN_vkGetSwapchainTimeDomainPropertiesEXT)
-			vkGetDeviceProcAddr(VK(a)->device,
-								"vkGetSwapchainTimeDomainPropertiesEXT");
-		VK(a)->timing_past = (PFN_vkGetPastPresentationTimingEXT)
-			vkGetDeviceProcAddr(VK(a)->device,
-								"vkGetPastPresentationTimingEXT");
+		VK(a)->timing_queue_size =
+			(PFN_vkSetSwapchainPresentTimingQueueSizeEXT)vkGetDeviceProcAddr(
+				VK(a)->device, "vkSetSwapchainPresentTimingQueueSizeEXT");
+		VK(a)->timing_domains =
+			(PFN_vkGetSwapchainTimeDomainPropertiesEXT)vkGetDeviceProcAddr(
+				VK(a)->device, "vkGetSwapchainTimeDomainPropertiesEXT");
+		VK(a)->timing_past =
+			(PFN_vkGetPastPresentationTimingEXT)vkGetDeviceProcAddr(
+				VK(a)->device, "vkGetPastPresentationTimingEXT");
 		VK(a)->surface_caps2 = (PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR)
 			vkGetInstanceProcAddr(VK(a)->instance,
 								  "vkGetPhysicalDeviceSurfaceCapabilities2KHR");
-		VK(a)->calibrated = (PFN_vkGetCalibratedTimestampsKHR)
-			vkGetDeviceProcAddr(VK(a)->device, "vkGetCalibratedTimestampsKHR");
+		VK(a)->calibrated =
+			(PFN_vkGetCalibratedTimestampsKHR)vkGetDeviceProcAddr(
+				VK(a)->device, "vkGetCalibratedTimestampsKHR");
 		VK(a)->present_timing = VK(a)->timing_queue_size &&
 								VK(a)->timing_domains && VK(a)->timing_past &&
 								VK(a)->surface_caps2 && VK(a)->calibrated;
@@ -1035,13 +1037,14 @@ static FnlResult create_device(App *a)
 #endif
 	VK(a)->google_past = NULL;
 	if (VK(a)->google_timing)
-		VK(a)->google_past = (PFN_vkGetPastPresentationTimingGOOGLE)
-			vkGetDeviceProcAddr(VK(a)->device,
-								"vkGetPastPresentationTimingGOOGLE");
+		VK(a)->google_past =
+			(PFN_vkGetPastPresentationTimingGOOGLE)vkGetDeviceProcAddr(
+				VK(a)->device, "vkGetPastPresentationTimingGOOGLE");
 	VK(a)->google_timing = VK(a)->google_past != NULL;
 	VK(a)->timing_why[0] = '\0';
 	if (stamps_asked && !VK(a)->present_timing && !VK(a)->google_timing)
-		snprintf(VK(a)->timing_why, sizeof VK(a)->timing_why, "the device "
+		snprintf(VK(a)->timing_why, sizeof VK(a)->timing_why,
+				 "the device "
 				 "has neither VK_EXT_present_timing nor "
 				 "VK_GOOGLE_display_timing");
 	vkGetDeviceQueue(VK(a)->device, VK(a)->queue_family, 0, &VK(a)->queue);
@@ -1062,9 +1065,8 @@ static FnlResult choose_present_modes(App *a)
 	/* Checked: this runs on the recovery path as well as at startup, where the
 	 * surface may have gone again. */
 	uint32_t n = 0;
-	VK_TRY(vkGetPhysicalDeviceSurfacePresentModesKHR(VK(a)->phys,
-													 VK(a)->vk_surface,
-													 &n, NULL));
+	VK_TRY(vkGetPhysicalDeviceSurfacePresentModesKHR(
+		VK(a)->phys, VK(a)->vk_surface, &n, NULL));
 	VkPresentModeKHR *modes = xmalloc(n * sizeof(*modes));
 	if (!modes)
 		return out_of_memory("the present mode list");
@@ -1157,9 +1159,8 @@ static FnlResult query_surface_info(App *a)
 	if (!formats)
 		return out_of_memory("the surface format list");
 	/* Owned from here, so no VK_TRY. */
-	FnlResult fr = VKR(vkGetPhysicalDeviceSurfaceFormatsKHR(VK(a)->phys,
-															VK(a)->vk_surface,
-															&fn, formats));
+	FnlResult fr = VKR(vkGetPhysicalDeviceSurfaceFormatsKHR(
+		VK(a)->phys, VK(a)->vk_surface, &fn, formats));
 	if (fr < 0) {
 		free(formats);
 		return fr;
@@ -1209,8 +1210,8 @@ static FnlResult create_command_pool(App *a)
 
 static FnlResult create_sync(App *a)
 {
-	VkSemaphoreCreateInfo sci = {
-		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	VkSemaphoreCreateInfo sci = { .sType =
+									  VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	VkFenceCreateInfo fci = {
 		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 		.flags = VK_FENCE_CREATE_SIGNALED_BIT,   /* first wait must not block */
@@ -1237,7 +1238,8 @@ static void create_timestamps(App *a)
 		return;
 	vkGetPhysicalDeviceQueueFamilyProperties(VK(a)->phys, &qn, q);
 	const uint32_t bits = VK(a)->queue_family < qn
-						? q[VK(a)->queue_family].timestampValidBits : 0;
+							  ? q[VK(a)->queue_family].timestampValidBits
+							  : 0;
 	free(q);
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(VK(a)->phys, &props);
@@ -1261,8 +1263,8 @@ static void create_timestamps(App *a)
 			.queryType = VK_QUERY_TYPE_TIMESTAMP,
 			.queryCount = 4 * OVERLAY_MAX_IMAGES,
 		};
-		if (vkCreateQueryPool(VK(a)->device, &pci, NULL,
-							  &VK(a)->ts_parts) != VK_SUCCESS)
+		if (vkCreateQueryPool(VK(a)->device, &pci, NULL, &VK(a)->ts_parts) !=
+			VK_SUCCESS)
 			VK(a)->ts_parts = VK_NULL_HANDLE;
 	}
 }
@@ -1293,8 +1295,7 @@ static FnlResult create_device_objects(App *a)
 			cur--;
 	}
 	fnl_mutex_lock(&a->lock);
-	snprintf(a->gpu_via, sizeof a->gpu_via, "%s",
-			 VK(a)->dxgi ? "D3D11" : "");
+	snprintf(a->gpu_via, sizeof a->gpu_via, "%s", VK(a)->dxgi ? "D3D11" : "");
 	fnl_mutex_unlock(&a->lock);
 	/* Said only where there was a choice -- the inventory is one line on
 	 * most machines, and that line is the answer -- and once the way is
@@ -1428,8 +1429,7 @@ static void recover_from_loss(App *a)
 	 * pipelines it compiled are kept in its own cache file; a move to
 	 * another kernel driver is a renderer swap (renderer_swap()) and never
 	 * comes here. No read-back from a lost one. */
-	destroy_device_objects(a, (remake || a->gpu_switching) &&
-							  !a->device_lost);
+	destroy_device_objects(a, (remake || a->gpu_switching) && !a->device_lost);
 
 	/* After the swapchain that was using it, never before. */
 	if (a->surface_lost) {
@@ -1492,8 +1492,9 @@ static void vk_destroy_instance(App *a)
 	 * display); the entry is looked up because only that bridge enables
 	 * the extension. */
 	if (VK(a)->instance && VK(a)->vk_display != VK_NULL_HANDLE) {
-		PFN_vkReleaseDisplayEXT release = (PFN_vkReleaseDisplayEXT)
-			vkGetInstanceProcAddr(VK(a)->instance, "vkReleaseDisplayEXT");
+		PFN_vkReleaseDisplayEXT release =
+			(PFN_vkReleaseDisplayEXT)vkGetInstanceProcAddr(
+				VK(a)->instance, "vkReleaseDisplayEXT");
 		if (release)
 			release(VK(a)->surface_phys, VK(a)->vk_display);
 	}
@@ -1611,6 +1612,10 @@ const FnlRendererVtbl fnl_renderer_vulkan = {
 	 * still refuse is the memory for a target, which is scene_set_size()'s
 	 * answer and not this one. */
 	.offscreen_scene       = true,
+	/* The resolve and its history: drawn by every renderer a build has, and a
+	 * build that has not got one leaves the field out -- what
+	 * fnl_set_antialias() reads to leave the window at FNL_AA_NONE there. */
+	.temporal_upscale = true,
 	.create_instance       = create_instance,
 	.destroy_instance      = vk_destroy_instance,
 	.create_surface        = create_surface,
@@ -1664,8 +1669,8 @@ const FnlRendererVtbl fnl_renderer_vulkan = {
 bool fnl_vulkan_gpu(App *a, FnlVulkanGpu *out)
 {
 	if (!a || !out || !app_renderer_state_ours(a) ||
-		renderer_any(a) != &fnl_renderer_vulkan ||
-		!a->renderer_state || !VK(a)->device)
+		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
+		!VK(a)->device)
 		return false;
 	*out = (FnlVulkanGpu){
 		.instance        = VK(a)->instance,
@@ -1683,8 +1688,8 @@ bool fnl_vulkan_scene_layout(App *a, FnlSceneTarget t,
 							 FnlVulkanSceneLayout *out)
 {
 	if (!a || !out || !app_renderer_state_ours(a) ||
-		renderer_any(a) != &fnl_renderer_vulkan ||
-		!a->renderer_state || t < 0 || t >= FNL_TARGET_COUNT)
+		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
+		t < 0 || t >= FNL_TARGET_COUNT)
 		return false;
 
 	VkRenderPass          pass;
@@ -1722,8 +1727,8 @@ bool fnl_vulkan_scene_cmd(App *a, VkCommandBuffer *out)
 	 * handed back. The thread first: from another, the state read may be
 	 * one a move to another renderer is freeing. */
 	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
-		renderer_any(a) != &fnl_renderer_vulkan ||
-		!a->renderer_state || VK(a)->scene_cb == VK_NULL_HANDLE)
+		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
+		VK(a)->scene_cb == VK_NULL_HANDLE)
 		return false;
 	*out = VK(a)->scene_cb;
 	return true;
@@ -1735,8 +1740,8 @@ bool fnl_vulkan_scene_rect(App *a, VkRect2D *out)
 	 * rectangle is this recording's, and the state it is read from is the
 	 * render thread's. */
 	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
-		renderer_any(a) != &fnl_renderer_vulkan ||
-		!a->renderer_state || VK(a)->scene_cb == VK_NULL_HANDLE)
+		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
+		VK(a)->scene_cb == VK_NULL_HANDLE)
 		return false;
 	*out = VK(a)->scene_rect;
 	return true;

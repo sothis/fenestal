@@ -45,7 +45,11 @@ double bench_now(void);
 /* ---- bench_options.c: one table, four readers ---------------------------- */
 
 typedef enum {
-	BENCH_BOOL, BENCH_INT, BENCH_NUM, BENCH_ENUM, BENCH_TEXT,
+	BENCH_BOOL,
+	BENCH_INT,
+	BENCH_NUM,
+	BENCH_ENUM,
+	BENCH_TEXT,
 } BenchKind;
 
 /* When a row takes effect: at fnl_init() (a new lifetime), at the run's
@@ -53,22 +57,52 @@ typedef enum {
 typedef enum { BENCH_INIT, BENCH_RUN, BENCH_RECORD } BenchWhen;
 
 typedef enum {
-	BENCH_PAGE_RUN, BENCH_PAGE_WINDOW, BENCH_PAGE_DEVICE, BENCH_PAGE_LOAD,
-	BENCH_PAGE_RECORD, BENCH_PAGE_COUNT
+	BENCH_PAGE_RUN,
+	BENCH_PAGE_WINDOW,
+	BENCH_PAGE_DEVICE,
+	BENCH_PAGE_LOAD,
+	BENCH_PAGE_RECORD,
+	BENCH_PAGE_COUNT
 } BenchPage;
 
 /* The rows, in the table's order. Appended, as the record's keys are. */
 typedef enum {
-	OPT_LABEL, OPT_REDRAW, OPT_SETTLE_S, OPT_WARMUP_S, OPT_MEASURE_S,
-	OPT_COOLDOWN_S, OPT_REPEATS, OPT_INTERVAL_MS, OPT_FRAMES, OPT_HUD,
-	OPT_WIDTH_PT, OPT_HEIGHT_PT, OPT_FULLSCREEN, OPT_SCALE, OPT_VSYNC,
-	OPT_LATE_LATCH, OPT_LATE_LATCH_MS, OPT_ANTIALIAS,
-	OPT_BACKEND, OPT_RENDERER, OPT_GPU, OPT_TRANSITION_MS, OPT_COST_SAMPLING,
+	OPT_LABEL,
+	OPT_REDRAW,
+	OPT_SETTLE_S,
+	OPT_WARMUP_S,
+	OPT_MEASURE_S,
+	OPT_COOLDOWN_S,
+	OPT_REPEATS,
+	OPT_INTERVAL_MS,
+	OPT_FRAMES,
+	OPT_HUD,
+	OPT_WIDTH_PT,
+	OPT_HEIGHT_PT,
+	OPT_FULLSCREEN,
+	OPT_SCALE,
+	OPT_VSYNC,
+	OPT_LATE_LATCH,
+	OPT_LATE_LATCH_MS,
+	OPT_ANTIALIAS,
+	OPT_BACKEND,
+	OPT_RENDERER,
+	OPT_GPU,
+	OPT_TRANSITION_MS,
+	OPT_COST_SAMPLING,
 	OPT_FRAME_TIMES,
-	OPT_OUT, OPT_EMIT, OPT_QUIT, OPT_LIBRARY_LOG, OPT_NOTES,
+	OPT_OUT,
+	OPT_EMIT,
+	OPT_QUIT,
+	OPT_LIBRARY_LOG,
+	OPT_NOTES,
 	OPT_SCENE_MOTION,
-	OPT_LOAD_THREADS, OPT_LOAD_DUTY, OPT_LOAD_AFFINITY, OPT_LOAD_PRIORITY,
-	OPT_PROCESS_AFFINITY, OPT_PRIORITY,
+	OPT_LOAD_THREADS,
+	OPT_LOAD_DUTY,
+	OPT_LOAD_AFFINITY,
+	OPT_LOAD_PRIORITY,
+	OPT_PROCESS_AFFINITY,
+	OPT_PRIORITY,
 	OPT_MODE,
 	OPT_COUNT
 } BenchOptId;
@@ -76,7 +110,7 @@ typedef enum {
 /* The enumerations' values, as their rows name them. */
 enum { REDRAW_EVERY_FRAME, REDRAW_AT_REST };
 enum { LATE_AUTO, LATE_OFF, LATE_FIXED };
-enum { AA_DEFAULT, AA_NONE, AA_MSAA, AA_MLAA };
+enum { AA_DEFAULT, AA_NONE, AA_MSAA, AA_MLAA, AA_TAAU };
 enum { BACKEND_AUTO };     /* then the names, BENCH_BACKENDS */
 enum { RENDERER_AUTO };    /* then the names, BENCH_RENDERERS */
 enum { SCALE_DESKTOP };    /* then the factors, bench_opt_scale120() */
@@ -116,8 +150,7 @@ bool bench_opt_set(BenchConfig *c, BenchOptId id, const char *value);
  * for an ENUM and a BOOL. */
 void bench_opt_step(BenchConfig *c, BenchOptId id, int dir);
 /* The value as the panel and --bench-list print it. */
-void bench_opt_format(const BenchConfig *c, BenchOptId id, char *out,
-					  size_t n);
+void bench_opt_format(const BenchConfig *c, BenchOptId id, char *out, size_t n);
 void bench_opt_list(FILE *f, const BenchConfig *c);
 
 int         bench_opt_int(const BenchConfig *c, BenchOptId id);
@@ -279,14 +312,18 @@ typedef struct {
 /* Writes the document to its file and says where on stderr, one line,
  * and the whole of it on stderr between marker lines with `emit`. The
  * file's path is put in `path`; false when it could not be written. */
-bool bench_record_write(const BenchConfig *c, const BenchResult *r,
-						char *path, size_t n);
+bool bench_record_write(const BenchConfig *c, const BenchResult *r, char *path,
+						size_t n);
 void bench_result_free(BenchResult *r);
 
 /* ---- bench_panel.c: the setup and the results ---------------------------- */
 
 typedef enum {
-	PANEL_NONE, PANEL_START, PANEL_QUIT, PANEL_RERUN, PANEL_BACK,
+	PANEL_NONE,
+	PANEL_START,
+	PANEL_QUIT,
+	PANEL_RERUN,
+	PANEL_BACK,
 } BenchAction;
 
 /* The panel's on_overlay, for a lifetime that shows it: drains the events,
