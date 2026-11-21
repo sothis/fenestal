@@ -204,7 +204,7 @@ static int met_panel_h(void)
 
 /* A figure right-aligned in MET_FIGURE cells, clamped to the largest that
  * fits there at its decimals (0 to 2), or a dash where there is none. */
-static void met_figure(char out[16], double v, int decimals)
+static void met_format(char out[16], double v, int decimals)
 {
 	static const double TOP[] = { 9999999.0, 99999.9, 9999.99 };
 	if (v < 0.0)
@@ -214,6 +214,46 @@ static void met_figure(char out[16], double v, int decimals)
 				 v > TOP[decimals] ? TOP[decimals] : v);
 }
 
+/* The panel redraws whenever anything in the frame moves, and its eight
+ * figures are latched at METRICS_WINDOW -- so the same value is formatted
+ * again on every frame that window spans, eight snprintfs apiece. Kept per
+ * row instead, keyed on its label and unit, which are literals and unique
+ * among the eight (the two "CPU" rows differ in their unit). Regenerated
+ * only when the value or its decimals move. */
+#define MET_FIG_ROWS 8
+
+static const char *met_figure(const char *label, const char *unit, double v,
+							  int decimals)
+{
+	static FNL_THREAD_LOCAL struct {
+		const char *label, *unit;
+		double      v;
+		int         decimals;
+		char        text[16];
+	} memo[MET_FIG_ROWS];
+	static FNL_THREAD_LOCAL int used;
+
+	int slot = -1;
+	for (int i = 0; i < used && slot < 0; i++)
+		if (memo[i].label == label && memo[i].unit == unit)
+			slot = i;
+	if (slot < 0) {
+		/* A row this table has not seen. Eight are drawn, so this is the
+		 * first frame; past eight, the first slot is reused, which is a
+		 * miss and nothing worse. */
+		slot           = used < MET_FIG_ROWS ? used++ : 0;
+		memo[slot].label = label;
+		memo[slot].unit  = unit;
+		memo[slot].v     = -1e300; /* forces the format below */
+	}
+	if (memo[slot].v != v || memo[slot].decimals != decimals) {
+		met_format(memo[slot].text, v, decimals);
+		memo[slot].v        = v;
+		memo[slot].decimals = decimals;
+	}
+	return memo[slot].text;
+}
+
 /* One row of a column from its left edge: the label grey, the figure bright
  * -- in `fc`, which says something only for the frame's halves and the rate
  * -- and the unit dimmer; a figure not known is a dash as dim as its
@@ -221,10 +261,9 @@ static void met_figure(char out[16], double v, int decimals)
 static void met_row(App *a, int x, int y, const char *label, double v,
 					int decimals, const float *fc, const char *unit)
 {
-	const int adv = text_advance(TEXT_BODY);
-	char fig[16];
-	met_figure(fig, v, decimals);
-	const int fx = x + MET_LABEL * adv;
+	const int adv      = text_advance(TEXT_BODY);
+	const char *fig   = met_figure(label, unit, v, decimals);
+	const int fx      = x + MET_LABEL * adv;
 	text_draw(a, x, y, TEXT_BODY, a->pal[COL_ICON_OFF], label);
 	text_draw(a, fx, y, TEXT_BODY, v < 0.0 ? a->pal[COL_CTL_DIM] : fc, fig);
 	text_draw(a, fx + (MET_FIGURE + 1) * adv, y, TEXT_BODY,

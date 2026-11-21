@@ -964,15 +964,25 @@ Open, each needing a decision or a measurement:
   before it may still be fetching. Verified at run time: the same frame off
   GL and off Vulkan agrees to 0.13% of its text ink, so the text's block is
   neither truncated nor bound to the wrong slot.
-- **Per-frame figures that move slowly**: the calibration panel re-measures
-  every entry each frame (`pw` is frozen once `plan()` sets the ids); the
-  controls ask the backend for its outputs twice a frame and recompute
-  `ctl_run_w()` ten times; the metrics panel formats eight figures a frame
-  for values latched at `METRICS_WINDOW`. Each is a cache, and each wants the
-  hit test to read what the draw read.
-- **Startup, not frame**: Vulkan enumerates the device's extensions about
-  ten times per device creation, and Metal compiles fourteen libraries for
-  eleven stages. Both are once per device, so neither is measured as a cost.
+- ~~**Per-frame figures that move slowly**~~ -- **settled (2026-11-21)**, two
+  cached and one declined. The calibration panel's width is frozen in
+  `plan()`, where the ids are set (`App::cal::panel_w`), so the draw no longer
+  measures every entry again on every frame; and the metrics panel keeps its
+  eight formatted figures keyed on each row's label and unit, regenerating
+  one only when the value or its decimals move. The third is declined: the
+  controls' `BACKEND(a)->outputs()` is `backend_published_outputs()` on X11
+  and Wayland -- a mutex take and a copy of published state, no window-server
+  round trip -- and `kms_outputs()` is a few atomics and its own array. Two
+  of those and ten arithmetic recomputations are not worth a cache whose
+  staleness would misplace or unclickable the window's only controls, which
+  is the hazard this entry named itself.
+- ~~**Startup, not frame**~~ -- **closed (2026-11-21)**: Vulkan enumerates
+  the device's extension list once and keeps it on the renderer's state,
+  where a device creation used to make about twenty round trips for ten
+  names; Metal keeps each compiled MSL stage by the source it came from, so
+  the overlay's fourteen asks are eleven compiles, emptied at the top of
+  `mt_create_overlay()` so nothing outlives its device. Both were once per
+  device and measured as no cost, so what moved is the work, not a figure.
 - **`win32_host()` per `WM_MOVE`** takes the loader lock and scans ntdll for
   `wine_get_version`, a fact fixed once the display driver is loaded. Caching
   it is safe only from `win32_open()` on, which is where the driver has

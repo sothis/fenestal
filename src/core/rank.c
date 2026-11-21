@@ -73,7 +73,17 @@
 #define CAL_MOVE 1.8       /* and a move to another kernel driver, more */
 #define CAL_LIMIT 30.0     /* an entry not drawn on in this is left out */
 #define RANK_QUIET 1.0     /* seconds on one output, unmoved, to act */
-#define CAL_PANEL_W 640    /* the panel's least width, points, padding out */
+#define CAL_PANEL_W 640 /* the panel's least width, points, padding out */
+/* The panel's own padding and the gap inside its figures, which plan() and
+ * the draw must agree on: they are what turns a measured line into a width. */
+#define CAL_PAD 20
+#define CAL_GAP 12
+/* Its three fixed lines. Here rather than in the draw because plan() measures
+ * them once for the whole calibration. */
+static const char CAL_HEAD[] = "Calibrating the GPUs";
+static const char CAL_UNIT[] = "s left";
+static const char CAL_NOTE[] = "Input is off until it ends; the fastest is "
+							   "chosen then.";
 
 enum { CAL_OFF, CAL_NEXT, CAL_LANDING, CAL_SETTLING, CAL_SAMPLING };
 enum { RANK_AUTO, RANK_CALIBRATE, RANK_KEEP, RANK_ORDER, RANK_OFF };
@@ -740,6 +750,35 @@ static void order_plan(App *a, const char *display)
  * first and the moves to another after them, so that the GPU moves once
  * and the entries there are drawn on before it moves back. A figure kept
  * for an entry or a display not here now is left as it is. */
+/* rank.c's own: how an entry's key reads as words, defined far below. */
+static void entry_words(const char *id, char *out, size_t size);
+
+/* The panel's width for the plan just made: the widest line any of its
+ * entries will show, the seconds at their widest, and never less than
+ * CAL_PANEL_W -- a panel sized to the line on screen would change width with
+ * every entry's name. Asked once, here, where the ids are set; the draw used
+ * to walk every entry again on every frame of the calibration. */
+static int panel_width(const App *a)
+{
+	int pw             = CAL_PANEL_W;
+	const int fixed[3] = { text_width(CAL_HEAD, TEXT_UI),
+						   text_width("88888", TEXT_LARGE) + CAL_GAP +
+							   text_width(CAL_UNIT, TEXT_UI),
+						   text_width(CAL_NOTE, TEXT_UI) };
+	for (int k = 0; k < 3; k++)
+		if (fixed[k] > pw)
+			pw = fixed[k];
+	for (int j = 0; j < a->cal.n; j++) {
+		char one[RANK_ID_MAX + 64], words[RANK_ID_MAX + 16];
+		entry_words(a->cal.ids[j], words, sizeof words);
+		snprintf(one, sizeof one, "%d of %d: %s", a->cal.n, a->cal.n, words);
+		const int ew = text_width(one, TEXT_UI);
+		if (ew > pw)
+			pw = ew;
+	}
+	return pw + 2 * CAL_PAD;
+}
+
 static void plan(App *a, const char *display, bool all)
 {
 	int n = 0;
@@ -766,6 +805,7 @@ static void plan(App *a, const char *display, bool all)
 	fnl_mutex_unlock(&a->lock);
 	a->cal.n = n;
 	a->cal.i = 0;
+	a->cal.panel_w = panel_width(a);
 	snprintf(a->cal.display, sizeof a->cal.display, "%s", display);
 	order_plan(a, display);
 }
@@ -1398,41 +1438,26 @@ FnlResult app_rank_draw(App *a, int w, int h)
 	/* The seconds left in the large size, which is baked for a readout --
 	 * the digits, a space, F, P and S (tools/mkfont.c) -- and every word
 	 * in the proportional one, which has Latin-1 whole. */
-	const char *head = "Calibrating the GPUs";
-	const char *unit = "s left";
+	const char *head = CAL_HEAD;
+	const char *unit = CAL_UNIT;
 	char secs[16], entry[RANK_ID_MAX + 64], what[RANK_ID_MAX + 16];
 	snprintf(secs, sizeof secs, "%.0f", time_left(a, now));
 	const int i = a->cal.i < a->cal.n ? a->cal.i : a->cal.n - 1;
 	entry_words(i >= 0 ? a->cal.ids[i] : "", what, sizeof what);
 	snprintf(entry, sizeof entry, "%d of %d: %s", i + 1, a->cal.n, what);
-	const char *note = "Input is off until it ends; the fastest is "
-					   "chosen then.";
+	const char *note = CAL_NOTE;
 
 	/* Centred over everything, the bar included, and one width for the
 	 * whole calibration: the widest line any of its entries will show, the
 	 * seconds at their widest, and never less than CAL_PANEL_W -- a panel
 	 * sized to the line on screen would change width with every entry's
 	 * name. Narrower than the window only where that is narrow. */
-	const int pad = 20, gap = 12, bar_h = 8;
+	const int pad = CAL_PAD, gap = CAL_GAP, bar_h = 8;
 	const int lh = text_height(TEXT_LARGE), uh = text_height(TEXT_UI);
-	const int sw       = text_width(secs, TEXT_LARGE);
-	int pw             = CAL_PANEL_W;
-	const int fixed[3] = { text_width(head, TEXT_UI),
-						   text_width("88888", TEXT_LARGE) + gap +
-							   text_width(unit, TEXT_UI),
-						   text_width(note, TEXT_UI) };
-	for (int k = 0; k < 3; k++)
-		if (fixed[k] > pw)
-			pw = fixed[k];
-	for (int j = 0; j < a->cal.n; j++) {
-		char one[RANK_ID_MAX + 64], words[RANK_ID_MAX + 16];
-		entry_words(a->cal.ids[j], words, sizeof words);
-		snprintf(one, sizeof one, "%d of %d: %s", a->cal.n, a->cal.n, words);
-		const int ew = text_width(one, TEXT_UI);
-		if (ew > pw)
-			pw = ew;
-	}
-	pw += 2 * pad;
+	const int sw = text_width(secs, TEXT_LARGE);
+	/* Frozen when the plan was made; the clamp is this frame's, since the
+	 * window may have narrowed since. */
+	int pw = a->cal.panel_w > 0 ? a->cal.panel_w : CAL_PANEL_W;
 	if (pw > w - 16)
 		pw = w - 16;
 	const int ph = 2 * pad + uh + gap + lh + gap + bar_h + gap + uh + gap + uh;

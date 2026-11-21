@@ -1476,6 +1476,11 @@ struct FnlApp {
 	struct {
 		int state; /* rank.c's CAL_* */
 		int i, n;  /* the entry measured, of n */
+		/* The panel's width, padding out, worked out in plan() where the ids
+		 * are set -- the one moment the widest line is known. The draw used it
+		 * to measure every entry again on every frame of the calibration. 0
+		 * before a plan, which the draw reads as CAL_PANEL_W. */
+		int panel_w;
 		char ids[GPU_LIST_MAX * 2][RANK_ID_MAX];
 		double fps[GPU_LIST_MAX * 2];
 		double at;                /* when the state was entered */

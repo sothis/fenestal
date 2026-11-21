@@ -59,8 +59,33 @@ void mt_wait_idle(App *a)
 /* One stage, from MSL text: its own library, since spirv-cross names every
  * entry main0. Metal keeps what it has compiled in the system's shader
  * cache, so a second start costs a lookup. */
+/* Every MSL stage built for one device's overlay, kept by the source it came
+ * from: the overlay asks for fourteen stages and has eleven -- the fullscreen
+ * vertex stage three times, the blit fragment twice -- and a compile is tens
+ * of milliseconds. The table belongs to one overlay creation and nothing in
+ * it outlives the device: mt_functions_forget() empties it at the top, so a
+ * rebuild builds again rather than handing back a function from the old
+ * device. */
+#define MT_STAGE_MAX 16
+static __strong id<MTLFunction> s_fn[MT_STAGE_MAX];
+static const char *s_fn_src[MT_STAGE_MAX];
+static int s_fn_n;
+
+void mt_functions_forget(void)
+{
+	for (int i = 0; i < MT_STAGE_MAX; i++) {
+		s_fn_src[i] = NULL;
+		s_fn[i]     = nil;
+	}
+	s_fn_n = 0;
+}
+
 id<MTLFunction> mt_function(App *a, const char *what, const char *msl)
 {
+	for (int i = 0; i < s_fn_n; i++)
+		if (s_fn_src[i] == msl)
+			return s_fn[i];
+
 	MTLCompileOptions *o = [[MTLCompileOptions alloc] init];
 	o.languageVersion = MTLLanguageVersion2_1;
 	NSError *err = nil;
@@ -73,7 +98,12 @@ id<MTLFunction> mt_function(App *a, const char *what, const char *msl)
 				err.localizedDescription.UTF8String ?: "(no log)");
 		return nil;
 	}
-	return [lib newFunctionWithName:@"main0"];
+	id<MTLFunction> fn = [lib newFunctionWithName:@"main0"];
+	if (fn && s_fn_n < MT_STAGE_MAX) {
+		s_fn_src[s_fn_n] = msl;
+		s_fn[s_fn_n++]   = fn;
+	}
+	return fn;
 }
 
 /* ---- the device ---------------------------------------------------------- */
