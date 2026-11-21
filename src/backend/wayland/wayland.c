@@ -561,6 +561,19 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 	const FnlKey k         = key_from_evdev(key);
 	loop_input_ms(a, time);
 
+	/* A press of a key the caller already holds is the compositor repeating it
+	 * -- no compositor measured does, and the timer at the end of this
+	 * function is the library's own -- or a focus regain that resent one. It
+	 * takes the repeat path, as X11's key handler does with a set of its own,
+	 * so that no binding fires twice on one physical press. The held set is
+	 * the library's, seeded by kb_enter() from the compositor's array. */
+	if (pressed && k != FNL_KEY_UNKNOWN && fnl_key_down(a, k)) {
+		app_key_repeat(a, k);
+		if (app_text_input(a))
+			key_type(a, key, true);
+		return;
+	}
+
 	/* Key first, text second: the order fenestal.h promises. */
 	app_key(a, k, pressed);
 
