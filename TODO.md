@@ -952,10 +952,13 @@ Open, each needing a decision or a measurement:
   case this entry named is the one that made a stamp necessary rather than a
   comparison of published fields: a mode switch that keeps the size moves
   the refresh rate alone, and `app_publish_refresh()` bumps the stamp for it.
-- **Wayland's held-key guard** (`kb_key()`): X11 has one and Wayland has
-  not, which is latent only while no compositor repeats a press of its own.
-  Settling it needs a compositor that does, or a focus regain that resends
-  one; the stress round's held-key check says mutter does not.
+- ~~**Wayland's held-key guard**~~ -- **built (2026-11-21)** anyway, since the
+  guard costs nothing where nothing repeats: `kb_key()` sends a press of a key
+  the caller already holds down the repeat path -- `app_key_repeat()` and the
+  text, never the binding -- on the held set `kb_enter()` already seeds from
+  the compositor's array, which is X11's guard with the set the protocol
+  hands over. Whether a compositor repeats is now a thing that cannot be
+  heard wrongly rather than one to be waited for.
 - ~~**Win32's clipboard `Sleep()`**~~ -- **closed (2026-11-21)**: the waits
   are `pump_sent()`, `size_await()`'s idiom, so the thread dispatches what
   another window *sends* it and takes nothing off its queue. The re-entry
@@ -995,10 +998,11 @@ Open, each needing a decision or a measurement:
   the overlay's fourteen asks are eleven compiles, emptied at the top of
   `mt_create_overlay()` so nothing outlives its device. Both were once per
   device and measured as no cost, so what moved is the work, not a figure.
-- **`win32_host()` per `WM_MOVE`** takes the loader lock and scans ntdll for
-  `wine_get_version`, a fact fixed once the display driver is loaded. Caching
-  it is safe only from `win32_open()` on, which is where the driver has
-  loaded -- a cache taken at the first call is not.
+- ~~**`win32_host()` per `WM_MOVE`**~~ -- **closed (2026-11-21)**: probed once
+  in `win32_open()`, where wine's display driver has loaded, and kept on the
+  backend state; before open it still probes, which is the status line's one
+  call and nobody's frame. `under_wine()`'s loader lock and ntdll scan no
+  longer run per step of a window drag.
 
 What verifies any of the pictures is now in the tree and owes a round.
 `fnl_image_create()` had one caller, `examples/image.c`, whose
