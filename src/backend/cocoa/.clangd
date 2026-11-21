@@ -19,3 +19,8 @@ CompileFlags:
     - -F
     - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
     - -D__APPLE__
+    - -include
+    - /home/json/ws/fenestal/src/core/app.h
+    - -I/home/json/ws/fenestal/include
+    - -I/home/json/ws/fenestal/src
+    - -I/home/json/ws/fenestal/build/macos/release/generated

@@ -10,3 +10,8 @@ CompileFlags:
     - -D_WIN32_WINNT=0x0A00
     - -DWINVER=0x0A00
     - -D__USE_MINGW_ANSI_STDIO=1
+    - -include
+    - /home/json/ws/fenestal/src/core/app.h
+    - -I/home/json/ws/fenestal/include
+    - -I/home/json/ws/fenestal/src
+    - -I/home/json/ws/fenestal/build/win64/release/generated

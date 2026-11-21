@@ -39,8 +39,8 @@
 /* What the shaders' `Push` block holds, fed as four root constants: the
  * same bytes as scene_vulkan.c's push constant, and pinned the same way. */
 typedef struct {
-	float    size[2];
-	float    time;
+	float size[2];
+	float time;
 	uint32_t srgb;
 } ScenePush;
 
@@ -55,18 +55,18 @@ typedef struct {
 	 * -- and the frame will never ask for it. */
 	ID3D12PipelineState *pattern[FNL_TARGET_COUNT];
 	ID3D12PipelineState *star[FNL_TARGET_COUNT];
-	bool                 srgb;
+	bool srgb;
 } Scene;
 
 static Scene g_scene;
 
-#define RELEASE(p)                                                            \
-	do {                                                                      \
-		if (p) {                                                              \
-			IUnknown *u_ = (IUnknown *)(void *)(p);                           \
-			u_->lpVtbl->Release(u_);                                          \
-			(p) = NULL;                                                       \
-		}                                                                     \
+#define RELEASE(p)                                                             \
+	do {                                                                       \
+		if (p) {                                                               \
+			IUnknown *u_ = (IUnknown *)(void *)(p);                            \
+			u_->lpVtbl->Release(u_);                                           \
+			(p) = NULL;                                                        \
+		}                                                                      \
 	} while (0)
 
 /* Four 32-bit constants at b0, the register spirv-cross gives `cbuffer
@@ -75,14 +75,14 @@ static Scene g_scene;
 static ID3D12RootSignature *make_root(ID3D12Device *dev)
 {
 	D3D12_ROOT_PARAMETER p = {
-		.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
-		.Constants = { .ShaderRegister = 0,
-					   .Num32BitValues = sizeof(ScenePush) / 4 },
+		.ParameterType    = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
+		.Constants        = { .ShaderRegister = 0,
+							  .Num32BitValues = sizeof(ScenePush) / 4 },
 		.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL,
 	};
 	const D3D12_ROOT_SIGNATURE_DESC d = { .NumParameters = 1,
-										  .pParameters = &p };
-	ID3DBlob *blob = NULL;
+										  .pParameters   = &p };
+	ID3DBlob *blob                    = NULL;
 	if (FAILED(D3D12SerializeRootSignature(&d, D3D_ROOT_SIGNATURE_VERSION_1,
 										   &blob, NULL)))
 		return NULL;
@@ -151,17 +151,17 @@ void scene_d3d12_on_gpu_created(void *ud, FnlApp *app)
 	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
 		FnlD3D12SceneLayout layout;
 		if (!fnl_d3d12_scene_layout(app, (FnlSceneTarget)t, &layout))
-			continue;          /* this window cannot use that target */
+			continue; /* this window cannot use that target */
 		/* Whether the target encodes linear -> sRGB as fragments are
 		 * written, which decides whether the shader must. */
 		if (t == FNL_TARGET_DIRECT)
 			s->srgb = layout.color_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-		s->pattern[t] = make_pso(gpu.device, s->root, &layout,
-								 scene_vert_dxil, sizeof scene_vert_dxil,
-								 scene_frag_dxil, sizeof scene_frag_dxil);
-		s->star[t] = make_pso(gpu.device, s->root, &layout,
-							  star_vert_dxil, sizeof star_vert_dxil,
-							  star_frag_dxil, sizeof star_frag_dxil);
+		s->pattern[t] = make_pso(gpu.device, s->root, &layout, scene_vert_dxil,
+								 sizeof scene_vert_dxil, scene_frag_dxil,
+								 sizeof scene_frag_dxil);
+		s->star[t]    = make_pso(gpu.device, s->root, &layout, star_vert_dxil,
+								 sizeof star_vert_dxil, star_frag_dxil,
+								 sizeof star_frag_dxil);
 		if (!s->pattern[t] || !s->star[t])
 			fprintf(stderr, "a scene pipeline state was refused\n");
 	}
@@ -170,18 +170,19 @@ void scene_d3d12_on_gpu_created(void *ud, FnlApp *app)
 /* The adapter scene_d3d12_vram() asks, for the device it was found for;
  * let go with the device. */
 static IDXGIAdapter3 *g_vram_adapter;
-static ID3D12Device  *g_vram_device;
+static ID3D12Device *g_vram_device;
 
 /* The library has waited for the queue before calling this, so nothing
  * released here is still being drawn with. */
 void scene_d3d12_on_gpu_lost(void *ud, FnlApp *app)
 {
-	(void)ud; (void)app;
+	(void)ud;
+	(void)app;
 	if (g_vram_adapter)
 		IDXGIAdapter3_Release(g_vram_adapter);
 	g_vram_adapter = NULL;
-	g_vram_device = NULL;
-	Scene *s = &g_scene;
+	g_vram_device  = NULL;
+	Scene *s       = &g_scene;
 	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
 		RELEASE(s->pattern[t]);
 		RELEASE(s->star[t]);
@@ -211,8 +212,8 @@ void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 	};
 	ID3D12GraphicsCommandList *l = sc.list;
 	ID3D12GraphicsCommandList_SetGraphicsRootSignature(l, s->root);
-	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(
-		l, 0, sizeof pc / 4, &pc, 0);
+	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(l, 0, sizeof pc / 4,
+															&pc, 0);
 	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -234,12 +235,11 @@ static IDXGIAdapter3 *adapter_of(const FnlD3D12Gpu *g)
 		if (g_vram_adapter)
 			IDXGIAdapter3_Release(g_vram_adapter);
 		g_vram_adapter = NULL;
-		g_vram_device = dev;
+		g_vram_device  = dev;
 		LUID luid;
 		dev->lpVtbl->GetAdapterLuid(dev, &luid);
 		IDXGIFactory4 *f = NULL;
-		if (SUCCEEDED(CreateDXGIFactory2(0, &IID_IDXGIFactory4,
-										 (void **)&f))) {
+		if (SUCCEEDED(CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&f))) {
 			if (FAILED(IDXGIFactory4_EnumAdapterByLuid(
 					f, luid, &IID_IDXGIAdapter3, (void **)&g_vram_adapter)))
 				g_vram_adapter = NULL;
@@ -286,19 +286,21 @@ bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d)
 		d->device_id = desc.DeviceId;
 	}
 	LARGE_INTEGER umd;
-	if (SUCCEEDED(IDXGIAdapter3_CheckInterfaceSupport(ad, &IID_IDXGIDevice,
-													  &umd)))
+	if (SUCCEEDED(
+			IDXGIAdapter3_CheckInterfaceSupport(ad, &IID_IDXGIDevice, &umd)))
 		snprintf(d->info, sizeof d->info, "driver %u.%u.%u.%u",
 				 (unsigned)(umd.HighPart >> 16 & 0xffff),
 				 (unsigned)(umd.HighPart & 0xffff),
 				 (unsigned)(umd.LowPart >> 16 & 0xffff),
 				 (unsigned)(umd.LowPart & 0xffff));
 	static const D3D_FEATURE_LEVEL LEVELS[] = {
-		D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
-		D3D_FEATURE_LEVEL_12_0, D3D_FEATURE_LEVEL_12_1,
+		D3D_FEATURE_LEVEL_11_0,
+		D3D_FEATURE_LEVEL_11_1,
+		D3D_FEATURE_LEVEL_12_0,
+		D3D_FEATURE_LEVEL_12_1,
 	};
 	D3D12_FEATURE_DATA_FEATURE_LEVELS fl = {
-		.NumFeatureLevels = (UINT)(sizeof LEVELS / sizeof LEVELS[0]),
+		.NumFeatureLevels        = (UINT)(sizeof LEVELS / sizeof LEVELS[0]),
 		.pFeatureLevelsRequested = LEVELS,
 	};
 	if (SUCCEEDED(ID3D12Device_CheckFeatureSupport(

@@ -15,3 +15,44 @@ CompileFlags:
     - -I/home/json/ws/fenestal/tools
     - -I/home/json/ws/fenestal/build/linux/release/generated
     - -D_DEFAULT_SOURCE
+
+# The Vulkan renderer's two Win32 bridges and its one Cocoa bridge live in
+# src/renderer/vulkan/ beside portable files, so they cannot be given their
+# flags by a directory of their own as src/renderer/d3d12/ and metal/ are --
+# a .clangd takes the place of the flags above for *every* file below it. They
+# take them by a condition instead, and the cross builds (./build.sh win64,
+# ./build.sh macos) are the authority.
+#
+# The Vulkan headers are the host's and target-agnostic: mingw has none, and
+# vk_state.h includes them whichever platform is being built, so /usr/include
+# is added for the Windows block.
+---
+If:
+  PathMatch: (present_dxgi|surface_win32)\.c
+CompileFlags:
+  Add:
+    - --target=x86_64-pc-windows-gnu
+    - -isystem
+    - /usr/x86_64-w64-mingw32/include
+    - -isystem
+    - /usr/include
+    - -D_WIN32_WINNT=0x0A00
+    - -DWINVER=0x0A00
+    - -D__USE_MINGW_ANSI_STDIO=1
+    - -DCOBJMACROS
+    - -I/home/json/ws/fenestal/build/win64/release/generated
+
+# -F as well as -isysroot: the framework headers are found through the
+# framework search path and not the SDK's include path.
+---
+If:
+  PathMatch: surface_cocoa\.c
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-darwin
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -F
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
+    - -D__APPLE__
+    - -I/home/json/ws/fenestal/build/macos/release/generated
