@@ -42,14 +42,14 @@
  * can type at this program and read back what the layout made of it. */
 static bool text_input;
 /* --transition=MS, in milliseconds; -1 leaves the library's own. */
-static int  trans_ms = -1;
+static int trans_ms = -1;
 
 /* The --bench* arguments, in order, for bench.c; and the first option given
  * beside them that a benchmark row sets instead, which is refused: a record
  * names every option it ran under, and one set behind its back would not
  * be. */
-static char      **bench_args;
-static int         bench_count;
+static char **bench_args;
+static int bench_count;
 static const char *bench_clash;
 
 /* ---- one scene per renderer ----------------------------------------------
@@ -67,7 +67,7 @@ typedef struct {
 	void (*on_record)(void *ud, FnlApp *app, const FnlFrame *frame);
 } Scene;
 
-#if !defined(SCENE_HAS_VULKAN) && !defined(SCENE_HAS_GL) && \
+#if !defined(SCENE_HAS_VULKAN) && !defined(SCENE_HAS_GL) &&                    \
 	!defined(SCENE_HAS_D3D12) && !defined(SCENE_HAS_METAL)
 #error "no scene: the build defines SCENE_HAS_<API> for each one it compiles"
 #endif
@@ -92,7 +92,7 @@ static const Scene SCENES[] = {
 };
 #define SCENE_COUNT (sizeof SCENES / sizeof SCENES[0])
 
-static const Scene *scene;     /* the one drawing, or NULL */
+static const Scene *scene; /* the one drawing, or NULL */
 
 static uint32_t scene_renderers(void)
 {
@@ -105,7 +105,7 @@ static uint32_t scene_renderers(void)
 static void scene_on_gpu_created(void *ud, FnlApp *app)
 {
 	const FnlRenderer r = fnl_renderer(app);
-	scene = NULL;
+	scene               = NULL;
 	for (size_t i = 0; i < SCENE_COUNT; i++)
 		if (SCENES[i].renderer == r)
 			scene = &SCENES[i];
@@ -145,7 +145,8 @@ static void print_licence(void)
 
 static void usage(FILE *f, const char *prog)
 {
-	fprintf(f,
+	fprintf(
+		f,
 		"usage: %s [options]\n"
 		"\n"
 		"Late latching holds a frame's state until most of the display period\n"
@@ -255,7 +256,8 @@ static void usage(FILE *f, const char *prog)
 		"                     second: \"reserve: ...\".\n"
 		"  --shapes           the shapes panel on from the first frame, where\n"
 		"                     O toggles it: the wash, the rounded rectangle,\n"
-		"                     the disc and the gradient, for a round that reads\n"
+		"                     the disc and the gradient, for a round that "
+		"reads\n"
 		"                     pixels rather than pressing keys.\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
@@ -303,12 +305,12 @@ static void usage(FILE *f, const char *prog)
 static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 {
 	const char *prog = (argc > 0 && argv[0]) ? argv[0] : "fenestal-testbed";
-	static const char PIN[]   = "--late-latch=";
-	static const char SCALE[] = "--scale=";
-	static const char GPU[]   = "--gpu=";
-	static const char DRIVER[] = "--gpu-driver=";
-	static const char RANK[] = "--gpu-rank=";
-	static const char LAYOUT[] = "--layout=";
+	static const char PIN[]        = "--late-latch=";
+	static const char SCALE[]      = "--scale=";
+	static const char GPU[]        = "--gpu=";
+	static const char DRIVER[]     = "--gpu-driver=";
+	static const char RANK[]       = "--gpu-rank=";
+	static const char LAYOUT[]     = "--layout=";
 	static const char TRANSITION[] = "--transition=";
 
 	*status = EXIT_SUCCESS;
@@ -317,10 +319,11 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 	 * never reads, refused beside --bench*: the run would not record them,
 	 * and the second kind would be dropped without a word. */
 	static const char *const CLASH[] = {
-		"--no-late-latch", "--late-latch=", "--scale=", "--gpu=",
-		"--custom-titlebar", "--text-input", "--frame-times", "--no-vsync",
-		"--transition=", "--footprint-log", "--frame-cpu-log",
-		"--frame-stats-log", "--reserve-log", "--shapes",
+		"--no-late-latch", "--late-latch=",     "--scale=",
+		"--gpu=",          "--custom-titlebar", "--text-input",
+		"--frame-times",   "--no-vsync",        "--transition=",
+		"--footprint-log", "--frame-cpu-log",   "--frame-stats-log",
+		"--reserve-log",   "--shapes",
 	};
 
 	for (int i = 1; i < argc; i++) {
@@ -412,8 +415,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			const char *v = arg + sizeof RANK - 1;
 			if (strcmp(v, "calibrate") != 0 && strcmp(v, "keep") != 0 &&
 				strcmp(v, "order") != 0 && strcmp(v, "off") != 0) {
-				fprintf(stderr, "--gpu-rank: expected calibrate, keep, order "
-								"or off; got \"%s\"\n", v);
+				fprintf(stderr,
+						"--gpu-rank: expected calibrate, keep, order "
+						"or off; got \"%s\"\n",
+						v);
 				*status = EXIT_FAILURE;
 				return false;
 			}
@@ -429,12 +434,14 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strncmp(arg, TRANSITION, sizeof TRANSITION - 1)) {
 			const char *v = arg + sizeof TRANSITION - 1;
-			char *end = NULL;
-			errno = 0;
-			long ms = strtol(v, &end, 10);
+			char *end     = NULL;
+			errno         = 0;
+			long ms       = strtol(v, &end, 10);
 			if (errno || end == v || *end || ms < 0 || ms > 5000) {
-				fprintf(stderr, "--transition: expected a time in "
-								"milliseconds, 0 to 5000; got \"%s\"\n", v);
+				fprintf(stderr,
+						"--transition: expected a time in "
+						"milliseconds, 0 to 5000; got \"%s\"\n",
+						v);
 				*status = EXIT_FAILURE;
 				return false;
 			}
@@ -444,15 +451,17 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		if (!strncmp(arg, PIN, sizeof PIN - 1)) {
 			const char *v = arg + sizeof PIN - 1;
 			char *end;
-			errno = 0;
+			errno     = 0;
 			double ms = strtod(v, &end);
 			/* Bounded above as well as below: the delay is a fraction of one
 			 * display period, and anything approaching a second is not a
 			 * mistyped frame delay but a hung render thread. */
 			if (errno || !*v || *end || !(ms > 0.0) || ms >= 1000.0) {
-				fprintf(stderr, "--late-latch: expected a delay in "
-								"milliseconds, greater than 0 and under 1000; "
-								"got \"%s\"\n", v);
+				fprintf(stderr,
+						"--late-latch: expected a delay in "
+						"milliseconds, greater than 0 and under 1000; "
+						"got \"%s\"\n",
+						v);
 				*status = EXIT_FAILURE;
 				return false;
 			}
@@ -462,7 +471,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		if (!strncmp(arg, SCALE, sizeof SCALE - 1)) {
 			const char *v = arg + sizeof SCALE - 1;
 			char *end;
-			errno = 0;
+			errno    = 0;
 			double s = strtod(v, &end);
 			/* Bounded against nonsense, not against the device's ceiling: a
 			 * buffer the device will not give is cut back to one it will.
@@ -471,8 +480,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			 * features (DESIGN *Scale*). Downscaling is for a scene, which
 			 * is what fnl_set_scene_size_px() does. */
 			if (errno || !*v || *end || !(s >= 1.0) || s > 8.0) {
-				fprintf(stderr, "--scale: expected a surface scale from 1 "
-								"to 8; got \"%s\"\n", v);
+				fprintf(stderr,
+						"--scale: expected a surface scale from 1 "
+						"to 8; got \"%s\"\n",
+						v);
 				*status = EXIT_FAILURE;
 				return false;
 			}
@@ -531,7 +542,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		if (!strncmp(arg, GPU, sizeof GPU - 1)) {
 			const char *v = arg + sizeof GPU - 1;
 			char *end;
-			errno = 0;
+			errno  = 0;
 			long n = strtol(v, &end, 10);
 			/* Anything that is not a number through and through is a name,
 			 * and so is a number no index reaches: a card is called "1050".
@@ -544,8 +555,9 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			 * devices there are, and the library answers an index past the
 			 * end with a warning and the automatic choice. */
 			if (errno || !*v || n < 1) {
-				fprintf(stderr, "--gpu: expected a device number from 1 to 8 "
-								"or part of a device's name; got \"%s\"\n",
+				fprintf(stderr,
+						"--gpu: expected a device number from 1 to 8 "
+						"or part of a device's name; got \"%s\"\n",
 						v);
 				*status = EXIT_FAILURE;
 				return false;
@@ -560,9 +572,11 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		return false;
 	}
 	if (bench_count && bench_clash) {
-		fprintf(stderr, "%s is refused beside --bench: a benchmark takes "
-						"its options as --bench-<key>, which --bench-list "
-						"names\n", bench_clash);
+		fprintf(stderr,
+				"%s is refused beside --bench: a benchmark takes "
+				"its options as --bench-<key>, which --bench-list "
+				"names\n",
+				bench_clash);
 		*status = EXIT_FAILURE;
 		return false;
 	}
@@ -582,8 +596,7 @@ static void name_window(FnlApp *app)
 	const char *host = fnl_window_host(app);
 	char where[64];
 	if (!strcmp(fnl_backend_name(app), "Win32"))
-		snprintf(where, sizeof where, "Win32, %s",
-				 host[0] ? host : "native");
+		snprintf(where, sizeof where, "Win32, %s", host[0] ? host : "native");
 	else
 		snprintf(where, sizeof where, "%s", fnl_backend_name(app));
 	/* The renderer and, where its frames go through another API's
@@ -599,7 +612,7 @@ static void name_window(FnlApp *app)
 void testbed_renderer_label(FnlApp *app, char *out, size_t size)
 {
 	const char *via = fnl_renderer_via(app);
-	int gl = 0;
+	int gl          = 0;
 #ifdef SCENE_HAS_GL
 	gl = scene_gl_version(app);
 #endif
@@ -672,9 +685,9 @@ static void use_parent_console(void)
 {
 	HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
 	if (h && h != INVALID_HANDLE_VALUE)
-		return;                       /* redirected, or inherited: leave it */
+		return; /* redirected, or inherited: leave it */
 	if (!AttachConsole(ATTACH_PARENT_PROCESS))
-		return;                       /* launched from Explorer; no console */
+		return; /* launched from Explorer; no console */
 	/* Nothing to answer a failure with, so neither is reported. */
 	if (freopen("CONOUT$", "w", stdout))
 		(void)freopen("CONOUT$", "w", stderr);
@@ -688,9 +701,9 @@ static void use_parent_console(void)
  * a Fenestal program for a laptop wants these two lines in their own main.c.
  * What they move for a Vulkan program is the order of enumeration, and so
  * what --gpu=1 means: see DESIGN *The startup inventory*. */
-__declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
+__declspec(dllexport) unsigned long NvOptimusEnablement        = 0x00000001;
 __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
-#endif  /* _WIN32 */
+#endif /* _WIN32 */
 
 int main(int argc, char **argv)
 {
@@ -704,17 +717,17 @@ int main(int argc, char **argv)
 		/* Names the program, not the platform: one source builds them all. The
 		 * library draws it in the titlebar and hands the same string to the
 		 * window server. */
-		.title          = TITLE,
+		.title = TITLE,
 		/* The presentable area, in logical points -- the window comes out
 		 * taller by the titlebar drawn above it. */
-		.width_pt       = 1280,
-		.height_pt      = 720,
+		.width_pt  = 1280,
+		.height_pt = 720,
 		/* A program may take the process's signals; a library may not assume
 		 * it, so the caller asks. */
 		.install_signal_handlers = true,
 		/* Every renderer this program has a scene for; the library takes the
 		 * first of them, in its own order, that works on this machine. */
-		.renderers      = scene_renderers(),
+		.renderers = scene_renderers(),
 	};
 
 	int status;
@@ -737,7 +750,7 @@ int main(int argc, char **argv)
 		return status;
 	}
 
-	FnlApp   *app;
+	FnlApp *app;
 	FnlResult rc = fnl_init(&desc, &app);
 	if (rc < 0) {
 		fprintf(stderr, "%s: %s\n", fnl_result_str(rc), fnl_last_error());

@@ -353,8 +353,8 @@ FnlResult gl_create_overlay(App *a)
 	g->push_slot  = 0;
 	gl.CreateBuffers(1, &g->push);
 	gl.NamedBufferStorage(g->push,
-						  (GLsizeiptr)(PUSH_SLOTS * (size_t)g->push_align), NULL,
-						  GL_DYNAMIC_STORAGE_BIT);
+						  (GLsizeiptr)(PUSH_SLOTS * (size_t)g->push_align),
+						  NULL, GL_DYNAMIC_STORAGE_BIT);
 
 	/* Asked once, as a constant of the context, not at every frame. */
 	GLint clips = 0;

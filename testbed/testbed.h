@@ -61,9 +61,9 @@ bool scene_vulkan_vram(FnlApp *app, double *mib);
  * "" and 0 for what it does not say. From on_overlay, on the render
  * thread, where OpenGL's context is current. */
 typedef struct {
-	char     name[256];
-	char     info[256];
-	char     api[160];
+	char name[256];
+	char info[256];
+	char api[160];
 	unsigned vendor_id, device_id;
 } TestbedDriver;
 bool scene_vulkan_driver(FnlApp *app, TestbedDriver *d);
@@ -71,7 +71,7 @@ bool scene_gl_driver(FnlApp *app, TestbedDriver *d);
 /* fnl_gl_version() where OpenGL draws, 0 elsewhere: the one call into
  * fnl_gl.h the renderer-neutral files make, through scene_gl.c, which a
  * build without OpenGL does not have. */
-int  scene_gl_version(FnlApp *app);
+int scene_gl_version(FnlApp *app);
 
 /* The renderer as the title and the status line name it: its name, the
  * API it goes through where it presents through another ("Vulkan via
@@ -147,8 +147,8 @@ bool testbed_vram_mib(FnlApp *app, double *mib);
  * fnl_titlebar_reserve() refuses and the library's controls draw nothing. */
 void testbed_titlebar_custom_enable(void);
 bool testbed_titlebar_custom_enabled(void);
-int  testbed_titlebar_custom_height(void);
-int  testbed_titlebar_custom_min_width(void);
+int testbed_titlebar_custom_height(void);
+int testbed_titlebar_custom_min_width(void);
 void testbed_titlebar_custom_event(FnlApp *app, const FnlEvent *ev);
 void testbed_titlebar_custom_draw(FnlApp *app, const FnlFrame *frame);
 

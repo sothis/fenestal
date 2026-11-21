@@ -149,7 +149,7 @@ static const uint8_t SC_PLAIN[] = {
 	[0x42] = FNL_KEY_F8,
 	[0x43] = FNL_KEY_F9,
 	[0x44] = FNL_KEY_F10,
-	[0x45] = FNL_KEY_PAUSE,           /* sic: see above */
+	[0x45] = FNL_KEY_PAUSE, /* sic: see above */
 	[0x46] = FNL_KEY_SCROLL_LOCK,
 	[0x47] = FNL_KEY_KP_7,
 	[0x48] = FNL_KEY_KP_8,
@@ -173,9 +173,9 @@ static const uint8_t SC_EXTENDED[] = {
 	[0x1c] = FNL_KEY_KP_ENTER,
 	[0x1d] = FNL_KEY_RCTRL,
 	[0x35] = FNL_KEY_KP_DIVIDE,
-	[0x37] = FNL_KEY_PRINT_SCREEN,    /* a release only: see above */
-	[0x38] = FNL_KEY_RALT,            /* after a left Ctrl where it is AltGr */
-	[0x45] = FNL_KEY_NUM_LOCK,        /* sic: see above */
+	[0x37] = FNL_KEY_PRINT_SCREEN, /* a release only: see above */
+	[0x38] = FNL_KEY_RALT,         /* after a left Ctrl where it is AltGr */
+	[0x45] = FNL_KEY_NUM_LOCK,     /* sic: see above */
 	[0x47] = FNL_KEY_HOME,
 	[0x48] = FNL_KEY_UP,
 	[0x49] = FNL_KEY_PAGE_UP,
@@ -196,12 +196,12 @@ static const uint8_t SC_EXTENDED[] = {
 };
 
 /* The codes seedable() asks about by name. */
-#define SC_ENTER       0x1c     /* the keypad's when extended */
-#define SC_PAUSE       0x45     /* Num Lock when extended */
-#define SC_KP_FIRST    0x47     /* keypad 7 ... */
+#define SC_ENTER 0x1c    /* the keypad's when extended */
+#define SC_PAUSE 0x45    /* Num Lock when extended */
+#define SC_KP_FIRST 0x47 /* keypad 7 ... */
 #define SC_KP_SUBTRACT 0x4a
-#define SC_KP_ADD      0x4e
-#define SC_KP_LAST     0x53     /* ... to the keypad's point */
+#define SC_KP_ADD 0x4e
+#define SC_KP_LAST 0x53 /* ... to the keypad's point */
 
 /* MapVirtualKey's spelling of the extended bit. */
 #define SC_EXT_PREFIX 0xe000u
@@ -212,10 +212,10 @@ static const uint8_t SC_EXTENDED[] = {
 
 static FnlKey key_from_scancode(LPARAM lparam)
 {
-	const size_t   sc  = (size_t)((lparam >> 16) & 0xff);
-	const bool     ext = ((lparam >> 24) & 1) != 0;
-	const uint8_t *t   = ext ? SC_EXTENDED : SC_PLAIN;
-	const size_t   n   = ext ? sizeof SC_EXTENDED : sizeof SC_PLAIN;
+	const size_t sc  = (size_t)((lparam >> 16) & 0xff);
+	const bool ext   = ((lparam >> 24) & 1) != 0;
+	const uint8_t *t = ext ? SC_EXTENDED : SC_PLAIN;
+	const size_t n   = ext ? sizeof SC_EXTENDED : sizeof SC_PLAIN;
 
 	if (sc >= n)
 		return FNL_KEY_UNKNOWN;
@@ -241,8 +241,8 @@ static bool seedable(size_t sc, bool ext)
 {
 	if (sc == SC_PAUSE)
 		return false;
-	if (!ext && sc >= SC_KP_FIRST && sc <= SC_KP_LAST &&
-		sc != SC_KP_SUBTRACT && sc != SC_KP_ADD)
+	if (!ext && sc >= SC_KP_FIRST && sc <= SC_KP_LAST && sc != SC_KP_SUBTRACT &&
+		sc != SC_KP_ADD)
 		return false;
 	return !(ext && sc == SC_ENTER);
 }
@@ -255,7 +255,7 @@ static void seed_held_keys(App *a)
 {
 	for (int ext = 0; ext < 2; ext++) {
 		const uint8_t *t = ext ? SC_EXTENDED : SC_PLAIN;
-		const size_t   n = ext ? sizeof SC_EXTENDED : sizeof SC_PLAIN;
+		const size_t n   = ext ? sizeof SC_EXTENDED : sizeof SC_PLAIN;
 
 		for (size_t sc = 0; sc < n; sc++) {
 			if (!t[sc] || !seedable(sc, ext != 0))
@@ -298,11 +298,12 @@ static unsigned int refresh_of(const WCHAR *dev)
 {
 	UINT32 np = 0, nm = 0;
 	if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &np, &nm) !=
-			ERROR_SUCCESS || np == 0 || nm == 0)
+			ERROR_SUCCESS ||
+		np == 0 || nm == 0)
 		return 0;
 	DISPLAYCONFIG_PATH_INFO *paths = calloc(np, sizeof *paths);
 	DISPLAYCONFIG_MODE_INFO *modes = calloc(nm, sizeof *modes);
-	unsigned int mhz = 0;
+	unsigned int mhz               = 0;
 	if (paths && modes &&
 		QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &np, paths, &nm, modes,
 						   NULL) == ERROR_SUCCESS) {
@@ -321,13 +322,13 @@ static unsigned int refresh_of(const WCHAR *dev)
 			/* The mode's signal where the path names one, else the
 			 * path's own rate, which is the same fraction rounded less. */
 			DISPLAYCONFIG_RATIONAL r = paths[i].targetInfo.refreshRate;
-			const UINT32 k = paths[i].targetInfo.modeInfoIdx;
+			const UINT32 k           = paths[i].targetInfo.modeInfoIdx;
 			if (k < nm &&
 				modes[k].infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET)
 				r = modes[k].targetMode.targetVideoSignalInfo.vSyncFreq;
 			if (r.Denominator)
-				mhz = (unsigned int)((UINT64)r.Numerator * 1000u /
-									 r.Denominator);
+				mhz =
+					(unsigned int)((UINT64)r.Numerator * 1000u / r.Denominator);
 		}
 	}
 	free(paths);
@@ -343,23 +344,22 @@ static unsigned int refresh_of(const WCHAR *dev)
  * monitor changes, and again for a move to one by name. */
 typedef struct {
 	HMONITOR handle[OUTPUTS_MAX];
-	char     name[OUTPUTS_MAX][OUTPUT_NAME_MAX];
-	int      n;
+	char name[OUTPUTS_MAX][OUTPUT_NAME_MAX];
+	int n;
 } MonitorList;
 
 static void monitor_name(const WCHAR *dev, char *out, size_t n)
 {
 	char name[OUTPUT_NAME_MAX] = { 0 };
-	WideCharToMultiByte(CP_UTF8, 0, dev, -1, name, sizeof name - 1, NULL,
-						NULL);
-	snprintf(out, n, "%s",
-			 strncmp(name, "\\\\.\\", 4) == 0 ? name + 4 : name);
+	WideCharToMultiByte(CP_UTF8, 0, dev, -1, name, sizeof name - 1, NULL, NULL);
+	snprintf(out, n, "%s", strncmp(name, "\\\\.\\", 4) == 0 ? name + 4 : name);
 }
 
 static BOOL CALLBACK monitor_listed(HMONITOR mon, HDC dc, LPRECT r, LPARAM lp)
 {
-	(void)dc; (void)r;
-	MonitorList *l = (MonitorList *)lp;
+	(void)dc;
+	(void)r;
+	MonitorList *l    = (MonitorList *)lp;
 	MONITORINFOEXW mi = { .cbSize = sizeof mi };
 	if (!GetMonitorInfoW(mon, (MONITORINFO *)&mi))
 		return TRUE;
@@ -398,10 +398,10 @@ static void publish_output(App *a, bool force)
 	if (!GetMonitorInfoW(mon, (MONITORINFO *)&mi))
 		return;
 
-	const int s120 = want_s120(a);
+	const int s120  = want_s120(a);
 	const RECT work = monitor_work((const MONITORINFO *)&mi);
-	const int w_pt = px_to_pt(work.right - work.left, s120);
-	const int h_pt = px_to_pt(work.bottom - work.top, s120);
+	const int w_pt  = px_to_pt(work.right - work.left, s120);
+	const int h_pt  = px_to_pt(work.bottom - work.top, s120);
 
 	char name[OUTPUT_NAME_MAX];
 	monitor_name(mi.szDevice, name, sizeof name);
@@ -441,10 +441,10 @@ static void publish_size(App *a)
 	 * the client's to add to, so here a larger scale leaves fewer points,
 	 * where on Wayland the buffer grows. Only the size the window is *created*
 	 * at is scaled up; see win32_open(). */
-	const int  s120     = resolve_scale120(a, a->backend_state->dpi);
+	const int s120      = resolve_scale120(a, a->backend_state->dpi);
 	const bool rescaled = s120 != a->want_scale120;
-	const int  w_pt     = px_to_pt(w_px, s120);
-	const int  h_pt     = px_to_pt(h_px, s120);
+	const int w_pt      = px_to_pt(w_px, s120);
+	const int h_pt      = px_to_pt(h_px, s120);
 
 	/* A minimized window has no size to publish, and zero is how the frame
 	 * loop is told to idle: a clamp to 1 would have Vulkan asked for an
@@ -524,7 +524,7 @@ static void capture_follow(App *a, HWND hwnd)
 static bool raw_mouse_registration(RAWINPUTDEVICE *out)
 {
 	RAWINPUTDEVICE got[32];
-	UINT n = sizeof got / sizeof got[0];
+	UINT n       = sizeof got / sizeof got[0];
 	const UINT c = GetRegisteredRawInputDevices(got, &n, sizeof got[0]);
 	if (c == (UINT)-1)
 		return false;
@@ -568,12 +568,16 @@ static void raw_unregister(struct BackendState *p)
 	RAWINPUTDEVICE now;
 	if (!raw_mouse_registration(&now) || now.hwndTarget != p->hwnd)
 		return;
-	RAWINPUTDEVICE rid = p->raw_saved_valid ? p->raw_saved
-		: (RAWINPUTDEVICE){ .usUsagePage = 0x01, .usUsage = 0x02,
-							.dwFlags = RIDEV_REMOVE };
+	RAWINPUTDEVICE rid = p->raw_saved_valid
+							 ? p->raw_saved
+							 : (RAWINPUTDEVICE){ .usUsagePage = 0x01,
+												 .usUsage     = 0x02,
+												 .dwFlags     = RIDEV_REMOVE };
 	if (!RegisterRawInputDevices(&rid, 1, sizeof rid))
-		fnl_log(FNL_LOG_WARN, "the raw mouse could not be given back to "
-							  "the program (%lu)", GetLastError());
+		fnl_log(FNL_LOG_WARN,
+				"the raw mouse could not be given back to "
+				"the program (%lu)",
+				GetLastError());
 	p->raw_saved_valid = false;
 }
 
@@ -622,11 +626,10 @@ static void win32_release(App *a)
 	if (p->cursor_hidden) {
 		int cx, cy;
 		app_content_px_rect(a, &cx, &cy, NULL, NULL);
-		POINT at = { cx + (int)(a->cur_px + 0.5),
-					 cy + (int)(a->cur_py + 0.5) };
+		POINT at = { cx + (int)(a->cur_px + 0.5), cy + (int)(a->cur_py + 0.5) };
 		const int s120 = want_s120(a);
-		a->ptr_x = px_to_ptf(at.x, s120);
-		a->ptr_y = px_to_ptf(at.y, s120);
+		a->ptr_x       = px_to_ptf(at.x, s120);
+		a->ptr_y       = px_to_ptf(at.y, s120);
 		ClientToScreen(p->hwnd, &at);
 		SetCursorPos(at.x, at.y);
 	}
@@ -662,18 +665,18 @@ static void win32_release(App *a)
  * IDC_* names are pointers made from these, which is not something a static
  * initialiser may hold under every compiler this builds with. */
 static const WORD CALLER_CURSORS[] = {
-	[FNL_CURSOR_DEFAULT]     = 32512,   /* IDC_ARROW   */
-	[FNL_CURSOR_TEXT]        = 32513,   /* IDC_IBEAM   */
-	[FNL_CURSOR_POINTER]     = 32649,   /* IDC_HAND    */
-	[FNL_CURSOR_CROSSHAIR]   = 32515,   /* IDC_CROSS   */
-	[FNL_CURSOR_MOVE]        = 32646,   /* IDC_SIZEALL */
-	[FNL_CURSOR_EW_RESIZE]   = 32644,   /* IDC_SIZEWE  */
-	[FNL_CURSOR_NS_RESIZE]   = 32645,   /* IDC_SIZENS  */
-	[FNL_CURSOR_NOT_ALLOWED] = 32648,   /* IDC_NO      */
-	[FNL_CURSOR_WAIT]        = 32514,   /* IDC_WAIT    */
+	[FNL_CURSOR_DEFAULT]     = 32512, /* IDC_ARROW   */
+	[FNL_CURSOR_TEXT]        = 32513, /* IDC_IBEAM   */
+	[FNL_CURSOR_POINTER]     = 32649, /* IDC_HAND    */
+	[FNL_CURSOR_CROSSHAIR]   = 32515, /* IDC_CROSS   */
+	[FNL_CURSOR_MOVE]        = 32646, /* IDC_SIZEALL */
+	[FNL_CURSOR_EW_RESIZE]   = 32644, /* IDC_SIZEWE  */
+	[FNL_CURSOR_NS_RESIZE]   = 32645, /* IDC_SIZENS  */
+	[FNL_CURSOR_NOT_ALLOWED] = 32648, /* IDC_NO      */
+	[FNL_CURSOR_WAIT]        = 32514, /* IDC_WAIT    */
 };
 _Static_assert(sizeof CALLER_CURSORS / sizeof CALLER_CURSORS[0] ==
-			   FNL_CURSOR_WAIT + 1,
+				   FNL_CURSOR_WAIT + 1,
 			   "a FnlCursor was appended without a system cursor for it here");
 
 /* A system cursor's handle, loaded once: WM_SETCURSOR asks per pointer move.
@@ -681,8 +684,7 @@ _Static_assert(sizeof CALLER_CURSORS / sizeof CALLER_CURSORS[0] ==
 static HCURSOR cursor_handle(struct BackendState *p, FnlCursor c)
 {
 	if (!p->cursors[c])
-		p->cursors[c] = LoadCursorW(NULL,
-									MAKEINTRESOURCEW(CALLER_CURSORS[c]));
+		p->cursors[c] = LoadCursorW(NULL, MAKEINTRESOURCEW(CALLER_CURSORS[c]));
 	return p->cursors[c];
 }
 
@@ -711,8 +713,8 @@ static void cursor_apply(App *a, HWND hwnd)
 	ScreenToClient(hwnd, &pt);
 	const int s120 = want_s120(a);
 	Edge edge;
-	const Zone z = deco_hit(a, px_to_ptf(pt.x, s120), px_to_ptf(pt.y, s120),
-							&edge);
+	const Zone z =
+		deco_hit(a, px_to_ptf(pt.x, s120), px_to_ptf(pt.y, s120), &edge);
 	SetCursor(cursor_handle(a->backend_state, deco_cursor(a, z, edge).shape));
 }
 
@@ -734,11 +736,11 @@ static void window_max_rect(HWND hwnd, MINMAXINFO *mmi)
 	MONITORINFO mi = { .cbSize = sizeof mi };
 	if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
 						 &mi))
-		return;      /* the system's own defaults stand; they were prefilled */
-	const RECT work = monitor_work(&mi);
+		return; /* the system's own defaults stand; they were prefilled */
+	const RECT work      = monitor_work(&mi);
 	mmi->ptMaxPosition.x = work.left - mi.rcMonitor.left;
-	mmi->ptMaxPosition.y = work.top  - mi.rcMonitor.top;
-	mmi->ptMaxSize.x     = work.right  - work.left;
+	mmi->ptMaxPosition.y = work.top - mi.rcMonitor.top;
+	mmi->ptMaxSize.x     = work.right - work.left;
 	mmi->ptMaxSize.y     = work.bottom - work.top;
 }
 
@@ -902,8 +904,8 @@ static void win32_set_fullscreen(App *a, bool on)
 		 * move and overwrites it. The way out re-enters the maximized state
 		 * with ShowWindow(SW_MAXIMIZE), from saved_maximized, and never
 		 * through the style. */
-		p->saved_style = (DWORD)GetWindowLongPtrW(p->hwnd, GWL_STYLE)
-					   & ~(DWORD)WS_MAXIMIZE;
+		p->saved_style =
+			(DWORD)GetWindowLongPtrW(p->hwnd, GWL_STYLE) & ~(DWORD)WS_MAXIMIZE;
 		p->saved_maximized = a->is_maximized;
 		/* A maximized window's rectangle is the screen's, which is not what
 		 * it should come back to, so what is saved is the restored one. */
@@ -914,8 +916,8 @@ static void win32_set_fullscreen(App *a, bool on)
 			GetWindowRect(p->hwnd, &p->saved_rect);
 
 		MONITORINFO mi = { .cbSize = sizeof mi };
-		if (!GetMonitorInfoW(MonitorFromWindow(p->hwnd,
-											   MONITOR_DEFAULTTONEAREST), &mi))
+		if (!GetMonitorInfoW(
+				MonitorFromWindow(p->hwnd, MONITOR_DEFAULTTONEAREST), &mi))
 			return;
 
 		/* The style loses everything that would draw or reserve a frame. The
@@ -928,11 +930,10 @@ static void win32_set_fullscreen(App *a, bool on)
 		/* What the window is held at for as long as it is fullscreen; see
 		 * WM_WINDOWPOSCHANGING. Recorded before the move, because the move is
 		 * the first thing that has to be held. */
-		p->fs_rect = mi.rcMonitor;
-		a->is_fullscreen = true;   /* before the move, so the WM_SIZE it
+		p->fs_rect       = mi.rcMonitor;
+		a->is_fullscreen = true; /* before the move, so the WM_SIZE it
 									* provokes publishes the right state */
-		SetWindowPos(p->hwnd, HWND_TOP,
-					 mi.rcMonitor.left, mi.rcMonitor.top,
+		SetWindowPos(p->hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
 					 mi.rcMonitor.right - mi.rcMonitor.left,
 					 mi.rcMonitor.bottom - mi.rcMonitor.top,
 					 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
@@ -941,8 +942,7 @@ static void win32_set_fullscreen(App *a, bool on)
 		a->is_fullscreen = false;
 		/* FRAMECHANGED with the restored style, so the frame this window does
 		 * not want is recalculated away before the size lands on it. */
-		SetWindowPos(p->hwnd, NULL,
-					 p->saved_rect.left, p->saved_rect.top,
+		SetWindowPos(p->hwnd, NULL, p->saved_rect.left, p->saved_rect.top,
 					 p->saved_rect.right - p->saved_rect.left,
 					 p->saved_rect.bottom - p->saved_rect.top,
 					 SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
@@ -956,8 +956,7 @@ static void win32_set_fullscreen(App *a, bool on)
 	 * panel -- already has the monitor's rectangle, and its fullscreen
 	 * would never be told: so the handler runs here when nothing ran it. */
 	if (p->size_serial == serial)
-		on_size(a, p->hwnd, IsZoomed(p->hwnd) ? SIZE_MAXIMIZED
-											  : SIZE_RESTORED);
+		on_size(a, p->hwnd, IsZoomed(p->hwnd) ? SIZE_MAXIMIZED : SIZE_RESTORED);
 
 	app_mark_urgent(a);
 }
@@ -971,11 +970,11 @@ static void win32_set_fullscreen(App *a, bool on)
 /* Edge to Windows' hit code: what WM_NCHITTEST answers with, and what a
  * resize begun through the seam is entered by. EDGE_NONE is the move. */
 static const uint8_t WIN32_EDGE_HT[EDGE_COUNT] = {
-	[EDGE_NONE] = HTCAPTION,
-	[EDGE_T]    = HTTOP,        [EDGE_B]  = HTBOTTOM,
-	[EDGE_L]    = HTLEFT,       [EDGE_R]  = HTRIGHT,
-	[EDGE_TL]   = HTTOPLEFT,    [EDGE_TR] = HTTOPRIGHT,
-	[EDGE_BL]   = HTBOTTOMLEFT, [EDGE_BR] = HTBOTTOMRIGHT,
+	[EDGE_NONE] = HTCAPTION,   [EDGE_T] = HTTOP,
+	[EDGE_B] = HTBOTTOM,       [EDGE_L] = HTLEFT,
+	[EDGE_R] = HTRIGHT,        [EDGE_TL] = HTTOPLEFT,
+	[EDGE_TR] = HTTOPRIGHT,    [EDGE_BL] = HTBOTTOMLEFT,
+	[EDGE_BR] = HTBOTTOMRIGHT,
 };
 
 /* WM_NCHITTEST: what the pointer is over, in Windows' own vocabulary.
@@ -991,12 +990,12 @@ static const uint8_t WIN32_EDGE_HT[EDGE_COUNT] = {
  * manager owns gets WM_NC* messages and never a WM_LBUTTONDOWN. */
 static LRESULT hit_test(App *a, HWND hwnd, LPARAM lp)
 {
-	POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };   /* screen */
+	POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) }; /* screen */
 	ScreenToClient(hwnd, &pt);
 	const int s120 = want_s120(a);
 	Edge edge;
-	const Zone z = deco_hit(a, px_to_ptf(pt.x, s120), px_to_ptf(pt.y, s120),
-							&edge);
+	const Zone z =
+		deco_hit(a, px_to_ptf(pt.x, s120), px_to_ptf(pt.y, s120), &edge);
 	if (z == ZONE_RESIZE)
 		return WIN32_EDGE_HT[edge];
 	return z == ZONE_TITLEBAR ? HTCAPTION : HTCLIENT;
@@ -1010,10 +1009,10 @@ static LRESULT hit_test(App *a, HWND hwnd, LPARAM lp)
 static void on_pos_changing(const App *a, WINDOWPOS *pos)
 {
 	const RECT *f = &a->backend_state->fs_rect;
-	pos->x  = f->left;
-	pos->y  = f->top;
-	pos->cx = f->right - f->left;
-	pos->cy = f->bottom - f->top;
+	pos->x        = f->left;
+	pos->y        = f->top;
+	pos->cx       = f->right - f->left;
+	pos->cy       = f->bottom - f->top;
 	pos->flags &= ~(UINT)(SWP_NOMOVE | SWP_NOSIZE);
 }
 
@@ -1052,12 +1051,12 @@ static void size_await(App *a)
 	struct BackendState *p = a->backend_state;
 
 	if (p->size_awaiting || !p->size_event ||
-		!fnl_atomic_load_bool(&p->size_live) ||
-		IsIconic(p->hwnd) || !IsWindowVisible(p->hwnd))
+		!fnl_atomic_load_bool(&p->size_live) || IsIconic(p->hwnd) ||
+		!IsWindowVisible(p->hwnd))
 		return;
 
 	const uint32_t serial = p->size_serial;
-	const DWORD    t0     = GetTickCount();
+	const DWORD t0        = GetTickCount();
 
 	p->size_awaiting = true;
 	/* Signed, so a serial that wrapped still orders. */
@@ -1065,13 +1064,14 @@ static void size_await(App *a)
 		const DWORD gone = GetTickCount() - t0;
 		if (gone >= SIZE_AWAIT_MS) {
 			fnl_atomic_store_bool(&p->size_live, false);
-			fnl_log(FNL_LOG_WARN, "no frame at the new size in %d ms; sizes "
-								  "are not waited for until one is shown",
+			fnl_log(FNL_LOG_WARN,
+					"no frame at the new size in %d ms; sizes "
+					"are not waited for until one is shown",
 					SIZE_AWAIT_MS);
 			break;
 		}
-		if (MsgWaitForMultipleObjectsEx(1, &p->size_event,
-										SIZE_AWAIT_MS - gone, QS_SENDMESSAGE,
+		if (MsgWaitForMultipleObjectsEx(1, &p->size_event, SIZE_AWAIT_MS - gone,
+										QS_SENDMESSAGE,
 										0) == WAIT_OBJECT_0 + 1) {
 			/* Asking is what dispatches them; nothing is taken off the
 			 * queue. */
@@ -1092,15 +1092,14 @@ static void win32_ack_configure(App *a, uint32_t serial)
 	fnl_mutex_unlock(&a->lock);
 	struct BackendState *p = a->backend_state;
 	fnl_mutex_lock(&p->ack_lock);
-	p->size_acked = serial;
-	p->size_ack_owed = true;
+	p->size_acked     = serial;
+	p->size_ack_owed  = true;
 	p->size_ack_calls = a->present_calls;
 	fnl_mutex_unlock(&p->ack_lock);
 }
 
 /* The size owed, given back to the window's thread, if one is. */
-static void size_release_owed(struct BackendState *p)
-	FNL_REQUIRES(p->ack_lock)
+static void size_release_owed(struct BackendState *p) FNL_REQUIRES(p->ack_lock)
 {
 	if (!p->size_ack_owed)
 		return;
@@ -1200,10 +1199,9 @@ static void on_dpi_changed(App *a, HWND hwnd, WPARAM wp, LPARAM lp)
 	 * at a physical size that no longer matches its logical one, and the
 	 * next drag snaps. */
 	a->backend_state->dpi = HIWORD(wp);
-	const RECT *sug = (const RECT *)lp;
-	SetWindowPos(hwnd, NULL, sug->left, sug->top,
-				 sug->right - sug->left, sug->bottom - sug->top,
-				 SWP_NOZORDER | SWP_NOACTIVATE);
+	const RECT *sug       = (const RECT *)lp;
+	SetWindowPos(hwnd, NULL, sug->left, sug->top, sug->right - sug->left,
+				 sug->bottom - sug->top, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 /* WM_SETFOCUS and WM_KILLFOCUS. */
@@ -1278,44 +1276,44 @@ static void on_char(App *a, WPARAM wp)
  * on the window's thread. Where it will not open, every message goes to
  * DefWindowProc as it did before. */
 
-typedef HIMC (WINAPI *ImmGetContextFn)(HWND);
-typedef BOOL (WINAPI *ImmReleaseContextFn)(HWND, HIMC);
-typedef LONG (WINAPI *ImmGetCompositionStringWFn)(HIMC, DWORD, LPVOID,
-												  DWORD);
-typedef BOOL (WINAPI *ImmNotifyIMEFn)(HIMC, DWORD, DWORD, DWORD);
-typedef BOOL (WINAPI *ImmSetCompositionWindowFn)(HIMC, LPCOMPOSITIONFORM);
-typedef BOOL (WINAPI *ImmSetCandidateWindowFn)(HIMC, LPCANDIDATEFORM);
+typedef HIMC(WINAPI *ImmGetContextFn)(HWND);
+typedef BOOL(WINAPI *ImmReleaseContextFn)(HWND, HIMC);
+typedef LONG(WINAPI *ImmGetCompositionStringWFn)(HIMC, DWORD, LPVOID, DWORD);
+typedef BOOL(WINAPI *ImmNotifyIMEFn)(HIMC, DWORD, DWORD, DWORD);
+typedef BOOL(WINAPI *ImmSetCompositionWindowFn)(HIMC, LPCOMPOSITIONFORM);
+typedef BOOL(WINAPI *ImmSetCandidateWindowFn)(HIMC, LPCANDIDATEFORM);
 
 static struct {
-	bool                       tried;
-	ImmGetContextFn            get;
-	ImmReleaseContextFn        release;
+	bool tried;
+	ImmGetContextFn get;
+	ImmReleaseContextFn release;
 	ImmGetCompositionStringWFn string;
-	ImmNotifyIMEFn             notify;
-	ImmSetCompositionWindowFn  place_composition;
-	ImmSetCandidateWindowFn    place_candidates;
+	ImmNotifyIMEFn notify;
+	ImmSetCompositionWindowFn place_composition;
+	ImmSetCandidateWindowFn place_candidates;
 } imm;
 
 static bool imm_load(void)
 {
 	if (imm.tried)
 		return imm.get != NULL;
-	imm.tried = true;
+	imm.tried                        = true;
 	static const char *const NAMES[] = { "imm32.dll", NULL };
-	char why[160] = "FNL_FAULT";
-	void *lib = FNL_FAULT("win32-no-imm32")
-					? NULL : fnl_lib_open(NAMES, why, sizeof why);
+	char why[160]                    = "FNL_FAULT";
+	void *lib                        = FNL_FAULT("win32-no-imm32")
+										   ? NULL
+										   : fnl_lib_open(NAMES, why, sizeof why);
 	if (lib) {
 		imm.get = (ImmGetContextFn)fnl_lib_sym(lib, "ImmGetContext");
-		imm.release = (ImmReleaseContextFn)fnl_lib_sym(lib,
-													   "ImmReleaseContext");
+		imm.release =
+			(ImmReleaseContextFn)fnl_lib_sym(lib, "ImmReleaseContext");
 		imm.string = (ImmGetCompositionStringWFn)fnl_lib_sym(
 			lib, "ImmGetCompositionStringW");
 		imm.notify = (ImmNotifyIMEFn)fnl_lib_sym(lib, "ImmNotifyIME");
 		imm.place_composition = (ImmSetCompositionWindowFn)fnl_lib_sym(
 			lib, "ImmSetCompositionWindow");
-		imm.place_candidates = (ImmSetCandidateWindowFn)fnl_lib_sym(
-			lib, "ImmSetCandidateWindow");
+		imm.place_candidates =
+			(ImmSetCandidateWindowFn)fnl_lib_sym(lib, "ImmSetCandidateWindow");
 		if (!imm.get || !imm.release || !imm.string || !imm.notify ||
 			!imm.place_composition || !imm.place_candidates) {
 			snprintf(why, sizeof why, "imm32.dll lacks a function");
@@ -1323,8 +1321,10 @@ static bool imm_load(void)
 		}
 	}
 	if (!imm.get) {
-		fnl_log(FNL_LOG_WARN, "no input method composition (%s): the "
-				"system shows it in a window of its own", why);
+		fnl_log(FNL_LOG_WARN,
+				"no input method composition (%s): the "
+				"system shows it in a window of its own",
+				why);
 		return false;
 	}
 	return true;
@@ -1338,7 +1338,7 @@ static void imm_string(HIMC c, DWORD which, char *out, int out_n)
 	WCHAR w[256];
 	const LONG got = imm.string(c, which, w, (DWORD)(sizeof w - sizeof *w));
 	const size_t n = got > 0 ? (size_t)got / sizeof *w : 0;
-	w[n] = 0;
+	w[n]           = 0;
 	if (!WideCharToMultiByte(CP_UTF8, 0, w, -1, out, out_n, NULL, NULL))
 		out[0] = '\0';
 }
@@ -1388,9 +1388,10 @@ static void imm_place(App *a, HWND hwnd)
 	if (!c)
 		return;
 	COMPOSITIONFORM cf = { .dwStyle = CFS_POINT, .ptCurrentPos = { l, t } };
-	CANDIDATEFORM cand = { .dwIndex = 0, .dwStyle = CFS_EXCLUDE,
+	CANDIDATEFORM cand = { .dwIndex      = 0,
+						   .dwStyle      = CFS_EXCLUDE,
 						   .ptCurrentPos = { l, t },
-						   .rcArea = { l, t, r, b } };
+						   .rcArea       = { l, t, r, b } };
 	imm.place_composition(c, &cf);
 	imm.place_candidates(c, &cand);
 	imm.release(hwnd, c);
@@ -1517,17 +1518,17 @@ static void on_motion(App *a, HWND hwnd, LPARAM lp)
 		return;
 
 	const int s120 = want_s120(a);
-	a->ptr_x = px_to_ptf(GET_X_LPARAM(lp), s120);
-	a->ptr_y = px_to_ptf(GET_Y_LPARAM(lp), s120);
+	a->ptr_x       = px_to_ptf(GET_X_LPARAM(lp), s120);
+	a->ptr_y       = px_to_ptf(GET_Y_LPARAM(lp), s120);
 
 	/* Asked for once per entry, and re-armed by the leave itself. Win32 sends
 	 * nothing to say the pointer has gone unless asked, so a titlebar button
 	 * would stay lit and a caller would never hear the pointer arrive or
 	 * leave -- TME_LEAVE is what brings the WM_MOUSELEAVE that says both. */
 	if (!a->backend_state->tracking_leave) {
-		TRACKMOUSEEVENT tme = { .cbSize = sizeof tme,
-								.dwFlags = TME_LEAVE,
-								.hwndTrack = hwnd };
+		TRACKMOUSEEVENT tme              = { .cbSize    = sizeof tme,
+											 .dwFlags   = TME_LEAVE,
+											 .hwndTrack = hwnd };
 		a->backend_state->tracking_leave = TrackMouseEvent(&tme) != 0;
 		/* Nothing was tracked, so this is the pointer arriving. */
 		app_pointer_presence(a, true, a->ptr_x, a->ptr_y);
@@ -1569,22 +1570,16 @@ static void raw_wheel_open(App *a)
  * holding the button. */
 static void on_button(App *a, HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-	const bool down = msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN ||
-					  msg == WM_MBUTTONDOWN;
+	const bool down =
+		msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN;
 	const int s120 = want_s120(a);
 	FnlButton b;
 	switch (msg) {
 	case WM_RBUTTONDOWN:
-	case WM_RBUTTONUP:
-		b = FNL_BUTTON_RIGHT;
-		break;
+	case WM_RBUTTONUP: b = FNL_BUTTON_RIGHT; break;
 	case WM_MBUTTONDOWN:
-	case WM_MBUTTONUP:
-		b = FNL_BUTTON_MIDDLE;
-		break;
-	default:
-		b = FNL_BUTTON_LEFT;
-		break;
+	case WM_MBUTTONUP: b = FNL_BUTTON_MIDDLE; break;
+	default: b = FNL_BUTTON_LEFT; break;
 	}
 	/* Taken before the press is acted on, as win32_drag() releases it. */
 	if (down)
@@ -1653,17 +1648,16 @@ static void present_erase(App *a, HWND hwnd, HDC dc)
 		const int w = a->snap_w, h = a->snap_h;
 		BITMAPINFO bmi;
 		memset(&bmi, 0, sizeof bmi);
-		bmi.bmiHeader.biSize = sizeof bmi.bmiHeader;
-		bmi.bmiHeader.biWidth = w;
-		bmi.bmiHeader.biHeight = -h;            /* top row first */
-		bmi.bmiHeader.biPlanes = 1;
-		bmi.bmiHeader.biBitCount = 32;
+		bmi.bmiHeader.biSize        = sizeof bmi.bmiHeader;
+		bmi.bmiHeader.biWidth       = w;
+		bmi.bmiHeader.biHeight      = -h; /* top row first */
+		bmi.bmiHeader.biPlanes      = 1;
+		bmi.bmiHeader.biBitCount    = 32;
 		bmi.bmiHeader.biCompression = BI_RGB;
 		SetStretchBltMode(dc, COLORONCOLOR);
-		const int lines = StretchDIBits(dc, 0, 0, r.right - r.left,
-										r.bottom - r.top, 0, 0, w, h,
-										a->snap_px, &bmi, DIB_RGB_COLORS,
-										SRCCOPY);
+		const int lines =
+			StretchDIBits(dc, 0, 0, r.right - r.left, r.bottom - r.top, 0, 0, w,
+						  h, a->snap_px, &bmi, DIB_RGB_COLORS, SRCCOPY);
 		drawn = lines > 0 && lines != (int)GDI_ERROR;
 		/* For a loss during the lift, which lifts again from what the
 		 * gap showed (device_recover()). */
@@ -1674,12 +1668,10 @@ static void present_erase(App *a, HWND hwnd, HDC dc)
 		FillRect(dc, &r, (HBRUSH)GetStockObject(BLACK_BRUSH));
 }
 
-static LRESULT CALLBACK present_proc(HWND hwnd, UINT msg, WPARAM wp,
-									 LPARAM lp)
+static LRESULT CALLBACK present_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
 	switch (msg) {
-	case WM_NCHITTEST:
-		return HTTRANSPARENT;
+	case WM_NCHITTEST: return HTTRANSPARENT;
 	case WM_ERASEBKGND: {
 		/* Until the child's first present (BackendState::present_presented,
 		 * win32_flush()): the last frame before the move, or black, so
@@ -1694,8 +1686,7 @@ static LRESULT CALLBACK present_proc(HWND hwnd, UINT msg, WPARAM wp,
 			present_erase(a, hwnd, (HDC)wp);
 		return 1;
 	}
-	default:
-		return DefWindowProcW(hwnd, msg, wp, lp);
+	default: return DefWindowProcW(hwnd, msg, wp, lp);
 	}
 }
 
@@ -1715,7 +1706,8 @@ static void present_renew(App *a, HWND hwnd)
 		};
 		p->present_class = RegisterClassExW(&pc);
 		if (!p->present_class) {
-			fnl_log(FNL_LOG_WARN, "RegisterClassExW for the frames' window "
+			fnl_log(FNL_LOG_WARN,
+					"RegisterClassExW for the frames' window "
 					"failed (%lu); they go into the window itself",
 					GetLastError());
 			return;
@@ -1723,8 +1715,7 @@ static void present_renew(App *a, HWND hwnd)
 		/* The window paints nothing over its child -- nor once a
 		 * fullscreen made now ends, and puts back the style it saved. */
 		SetWindowLongPtrW(hwnd, GWL_STYLE,
-						  GetWindowLongPtrW(hwnd, GWL_STYLE) |
-							  WS_CLIPCHILDREN);
+						  GetWindowLongPtrW(hwnd, GWL_STYLE) | WS_CLIPCHILDREN);
 		p->saved_style |= WS_CLIPCHILDREN;
 	}
 	RECT c = { 0, 0, 0, 0 };
@@ -1739,11 +1730,13 @@ static void present_renew(App *a, HWND hwnd)
 	p->present_calls_at_renew = a->present_calls;
 	HWND made = CreateWindowExW(WS_EX_NOPARENTNOTIFY, FNL_PRESENT_CLASS, L"",
 								WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0,
-								c.right - c.left, c.bottom - c.top, hwnd,
-								NULL, p->instance, NULL);
+								c.right - c.left, c.bottom - c.top, hwnd, NULL,
+								p->instance, NULL);
 	if (!made) {
-		fnl_log(FNL_LOG_WARN, "the frames' window was not made (%lu); they "
-				"go where they went", GetLastError());
+		fnl_log(FNL_LOG_WARN,
+				"the frames' window was not made (%lu); they "
+				"go where they went",
+				GetLastError());
 		return;
 	}
 	/* Painted now, before the old child goes. A child's GDI paint lands in
@@ -1772,8 +1765,8 @@ static void present_renew(App *a, HWND hwnd)
 static void present_hold(App *a, HWND hwnd)
 {
 	struct BackendState *p = a->backend_state;
-	HWND w = p->present ? p->present : hwnd;
-	HDC dc = GetDC(w);
+	HWND w                 = p->present ? p->present : hwnd;
+	HDC dc                 = GetDC(w);
 	if (!dc)
 		return;
 	present_erase(a, w, dc);
@@ -1811,7 +1804,7 @@ static bool ask_send(App *a, UINT msg)
 		return false;
 	}
 	const uint32_t ticket = ++p->ask_ticket;
-	p->ask_state = ASK_SENT;
+	p->ask_state          = ASK_SENT;
 	fnl_mutex_unlock(&a->lock);
 	DWORD_PTR r;
 	if (SendMessageTimeoutW(p->hwnd, msg, (WPARAM)ticket, 0, SMTO_NORMAL,
@@ -1832,7 +1825,7 @@ static bool ask_send(App *a, UINT msg)
 			return state == ASK_DONE;
 		if (!said)
 			fnl_log(FNL_LOG_INFO, "the window's thread is slow with the "
-					"frames' window; waited for");
+								  "frames' window; waited for");
 		said = true;
 		fnl_sleep_seconds(0.001);
 	}
@@ -1845,7 +1838,7 @@ static bool ask_take(App *a, WPARAM wp)
 {
 	struct BackendState *p = a->backend_state;
 	fnl_mutex_lock(&a->lock);
-	const bool now = (uint32_t)wp == p->ask_ticket;
+	const bool now  = (uint32_t)wp == p->ask_ticket;
 	const bool mine = now && p->ask_state == ASK_SENT;
 	if (mine)
 		p->ask_state = ASK_TAKEN;
@@ -1870,15 +1863,19 @@ static void ask_done(App *a, WPARAM wp)
 static void win32_present_window_renew(App *a)
 {
 	if (!ask_send(a, FNL_WM_PRESENT_RENEW))
-		fnl_log(FNL_LOG_WARN, "the window's thread did not make the frames' "
-				"window in %d ms; they go where they went", PRESENT_ASK_MS);
+		fnl_log(FNL_LOG_WARN,
+				"the window's thread did not make the frames' "
+				"window in %d ms; they go where they went",
+				PRESENT_ASK_MS);
 }
 
 static void win32_present_window_hold(App *a)
 {
 	if (!ask_send(a, FNL_WM_PRESENT_HOLD))
-		fnl_log(FNL_LOG_WARN, "the window's thread did not paint the gap in "
-				"%d ms; it shows what was there", PRESENT_ASK_MS);
+		fnl_log(FNL_LOG_WARN,
+				"the window's thread did not paint the gap in "
+				"%d ms; it shows what was there",
+				PRESENT_ASK_MS);
 }
 
 /* An input message's age, for fnl_input_latency_ms(). GetMessageTime() is
@@ -1901,19 +1898,19 @@ static unsigned raw_flag(UINT msg)
 {
 	const bool swap = GetSystemMetrics(SM_SWAPBUTTON) != 0;
 	switch (msg) {
-	case WM_LBUTTONDOWN: return swap ? RI_MOUSE_RIGHT_BUTTON_DOWN
-									 : RI_MOUSE_LEFT_BUTTON_DOWN;
-	case WM_LBUTTONUP:   return swap ? RI_MOUSE_RIGHT_BUTTON_UP
-									 : RI_MOUSE_LEFT_BUTTON_UP;
-	case WM_RBUTTONDOWN: return swap ? RI_MOUSE_LEFT_BUTTON_DOWN
-									 : RI_MOUSE_RIGHT_BUTTON_DOWN;
-	case WM_RBUTTONUP:   return swap ? RI_MOUSE_LEFT_BUTTON_UP
-									 : RI_MOUSE_RIGHT_BUTTON_UP;
+	case WM_LBUTTONDOWN:
+		return swap ? RI_MOUSE_RIGHT_BUTTON_DOWN : RI_MOUSE_LEFT_BUTTON_DOWN;
+	case WM_LBUTTONUP:
+		return swap ? RI_MOUSE_RIGHT_BUTTON_UP : RI_MOUSE_LEFT_BUTTON_UP;
+	case WM_RBUTTONDOWN:
+		return swap ? RI_MOUSE_LEFT_BUTTON_DOWN : RI_MOUSE_RIGHT_BUTTON_DOWN;
+	case WM_RBUTTONUP:
+		return swap ? RI_MOUSE_LEFT_BUTTON_UP : RI_MOUSE_RIGHT_BUTTON_UP;
 	case WM_MBUTTONDOWN: return RI_MOUSE_MIDDLE_BUTTON_DOWN;
-	case WM_MBUTTONUP:   return RI_MOUSE_MIDDLE_BUTTON_UP;
-	case WM_MOUSEWHEEL:  return RI_MOUSE_WHEEL;
+	case WM_MBUTTONUP: return RI_MOUSE_MIDDLE_BUTTON_UP;
+	case WM_MOUSEWHEEL: return RI_MOUSE_WHEEL;
 	case WM_MOUSEHWHEEL: return RI_MOUSE_HWHEEL;
-	default:             return 0;
+	default: return 0;
 	}
 }
 
@@ -1984,9 +1981,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 	 * inner loop. Re-entrant and safe for it: app_drain_requests() clears the
 	 * block under the lock before spending any of it. fnl_quit() is not
 	 * reached this way and lands on release; see DESIGN *Win32*. */
-	case FNL_WM_WAKEUP:
-		app_drain_requests(a);
-		return 0;
+	case FNL_WM_WAKEUP: app_drain_requests(a); return 0;
 
 	case FNL_WM_PRESENT_RENEW:
 		if (ask_take(a, wp)) {
@@ -2028,21 +2023,21 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 	 * one at creation. */
 	case WM_NCCALCSIZE:
 		if (!deco_client(a->is_fullscreen))
-			break;              /* fullscreen: the default holds */
+			break; /* fullscreen: the default holds */
 		max_client_rect(hwnd, (RECT *)lp);
-		return 0;               /* what is left is all client area */
+		return 0; /* what is left is all client area */
 
 	/* How large to be maximized, and only that: the floor is applied after a
 	 * resize and is not this message's. See window_max_rect(). */
 	case WM_GETMINMAXINFO:
 		if (!deco_client(a->is_fullscreen))
-			break;              /* no bar to protect; the defaults hold */
+			break; /* no bar to protect; the defaults hold */
 		window_max_rect(hwnd, (MINMAXINFO *)lp);
 		return 0;
 
 	case WM_NCHITTEST:
 		if (!deco_client(a->is_fullscreen))
-			break;              /* no zones of ours; HTCLIENT throughout */
+			break; /* no zones of ours; HTCLIENT throughout */
 		return hit_test(a, hwnd, lp);
 
 	/* Sent on every pointer move with the hit-test answer in the low word.
@@ -2069,19 +2064,13 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		}
 		break;
 
-	case WM_SIZE:
-		on_size(a, hwnd, wp);
-		return 0;
+	case WM_SIZE: on_size(a, hwnd, wp); return 0;
 
-	case WM_MOVE:
-		on_move(a, hwnd);
-		return 0;
+	case WM_MOVE: on_move(a, hwnd); return 0;
 
 	/* The monitor changed mode, or one was plugged in: same handle, different
 	 * numbers, so the re-read is forced. */
-	case WM_DISPLAYCHANGE:
-		publish_output(a, true);
-		return 0;
+	case WM_DISPLAYCHANGE: publish_output(a, true); return 0;
 
 	/* Back from a sleep. AUTOMATIC and not RESUMESUSPEND: the second comes
 	 * only once a hand has been on the machine, and a timer's wake has
@@ -2098,17 +2087,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			publish_output(a, true);
 		break;
 
-	case WM_DPICHANGED:
-		on_dpi_changed(a, hwnd, wp, lp);
-		return 0;
+	case WM_DPICHANGED: on_dpi_changed(a, hwnd, wp, lp); return 0;
 
-	case WM_SETFOCUS:
-		on_focus(a, true);
-		return 0;
+	case WM_SETFOCUS: on_focus(a, true); return 0;
 
-	case WM_KILLFOCUS:
-		on_focus(a, false);
-		return 0;
+	case WM_KILLFOCUS: on_focus(a, false); return 0;
 
 	/* Answered, so WM_SYSKEYDOWN is swallowed as well. F10 is a system key on
 	 * Windows -- it activates the menu bar -- and left to DefWindowProc the
@@ -2122,13 +2105,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		return 0;
 
 	case WM_KEYUP:
-	case WM_SYSKEYUP:
-		app_key(a, key_from_scancode(lp), false);
-		return 0;
+	case WM_SYSKEYUP: app_key(a, key_from_scancode(lp), false); return 0;
 
-	case WM_CHAR:
-		on_char(a, wp);
-		return 0;
+	case WM_CHAR: on_char(a, wp); return 0;
 
 	/* Alt and a letter is a menu's mnemonic, and with no menu to take it
 	 * DefWindowProc beeps. Alt+Space still opens the system menu. */
@@ -2163,27 +2142,19 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			return 0;
 		break;
 
-	case WM_INPUT:
-		on_raw_input(a, lp);
-		break;
+	case WM_INPUT: on_raw_input(a, lp); break;
 
-	case WM_MOUSEMOVE:
-		on_motion(a, hwnd, lp);
-		return 0;
+	case WM_MOUSEMOVE: on_motion(a, hwnd, lp); return 0;
 
 	case WM_MOUSEWHEEL:
-	case WM_MOUSEHWHEEL:
-		on_wheel(a, msg, wp);
-		return 0;
+	case WM_MOUSEHWHEEL: on_wheel(a, msg, wp); return 0;
 
 	case WM_LBUTTONDOWN:
 	case WM_LBUTTONUP:
 	case WM_RBUTTONDOWN:
 	case WM_RBUTTONUP:
 	case WM_MBUTTONDOWN:
-	case WM_MBUTTONUP:
-		on_button(a, hwnd, msg, wp, lp);
-		return 0;
+	case WM_MBUTTONUP: on_button(a, hwnd, msg, wp, lp); return 0;
 
 	/* lParam is the window taking the capture: this one again is no loss.
 	 * on_button()'s own release, to none, finds nothing owed. */
@@ -2192,17 +2163,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 			on_capture_lost(a);
 		return 0;
 
-	case WM_CLOSE:
-		app_close_requested(a);
-		return 0;
+	case WM_CLOSE: app_close_requested(a); return 0;
 
 	case WM_DESTROY:
 		if (!a->backend_state->closing)
 			fnl_atomic_store_bool(&a->should_close, true);
 		return 0;
 
-	default:
-		break;
+	default: break;
 	}
 	return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -2229,8 +2197,7 @@ static FnlResult win32_open(App *a)
 	/* Per-monitor v2: the client area is in physical pixels and WM_DPICHANGED
 	 * arrives with a rectangle to adopt. Failure is not fatal -- the process
 	 * may already have had awareness set by a manifest. */
-	SetProcessDpiAwarenessContext(
-		DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
 	WNDCLASSEXW wc = {
 		.cbSize        = sizeof wc,
@@ -2242,10 +2209,10 @@ static FnlResult win32_open(App *a)
 	/* Before the window, whose creation is already a size. Without one a
 	 * size is simply not waited for. */
 	p->size_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-	p->wndclass = RegisterClassExW(&wc);
+	p->wndclass   = RegisterClassExW(&wc);
 	if (!p->wndclass)
-		return fnl_fail(FNL_ERR_NO_DISPLAY,
-						"RegisterClassExW failed (%lu)", GetLastError());
+		return fnl_fail(FNL_ERR_NO_DISPLAY, "RegisterClassExW failed (%lu)",
+						GetLastError());
 
 	/* WS_OVERLAPPEDWINDOW, and not WS_POPUP with WS_THICKFRAME: a popup is
 	 * not an ordinary top-level window and loses the taskbar button, the
@@ -2279,12 +2246,12 @@ static FnlResult win32_open(App *a)
 
 	/* The App goes in as lpCreateParams, so WM_NCCREATE can install it before
 	 * the frame is decided -- see the top of wnd_proc. */
-	p->hwnd = CreateWindowExW(0, FNL_WNDCLASS, wtitle, style,
-							  CW_USEDEFAULT, CW_USEDEFAULT, w_pt, h_pt,
-							  NULL, NULL, p->instance, a);
+	p->hwnd =
+		CreateWindowExW(0, FNL_WNDCLASS, wtitle, style, CW_USEDEFAULT,
+						CW_USEDEFAULT, w_pt, h_pt, NULL, NULL, p->instance, a);
 	if (!p->hwnd)
-		return fnl_fail(FNL_ERR_NO_DISPLAY,
-						"CreateWindowExW failed (%lu)", GetLastError());
+		return fnl_fail(FNL_ERR_NO_DISPLAY, "CreateWindowExW failed (%lu)",
+						GetLastError());
 
 	p->dpi = GetDpiForWindow(p->hwnd);
 	if (!p->dpi)
@@ -2385,8 +2352,9 @@ static void win32_close(App *a)
 	if (p->rawin && a->frame_times) {
 		uint32_t matched, missed;
 		rawin_tally(p->rawin, &matched, &missed);
-		fnl_log(FNL_LOG_INFO, "raw input: %u inputs matched to their "
-							  "reports, %u messages left to the tick",
+		fnl_log(FNL_LOG_INFO,
+				"raw input: %u inputs matched to their "
+				"reports, %u messages left to the tick",
 				matched, missed);
 	}
 	rawin_stop(p->rawin);
@@ -2417,7 +2385,7 @@ static void win32_close(App *a)
  * hands WM_QUIT over as a message; all three end the loop. */
 static void win32_pump(App *a, int timeout_ms)
 {
-	MSG  msg;
+	MSG msg;
 	BOOL got;
 	if (timeout_ms >= 0) {
 		/* A bound of the caller's own, for a loop that is not fnl_run()'s
@@ -2426,7 +2394,7 @@ static void win32_pump(App *a, int timeout_ms)
 		MsgWaitForMultipleObjects(0, NULL, FALSE, (DWORD)timeout_ms,
 								  QS_ALLINPUT);
 		if (!PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
-			return;                  /* nothing within the bound */
+			return; /* nothing within the bound */
 		got = TRUE;
 	} else {
 		got = GetMessageW(&msg, NULL, 0, 0);
@@ -2477,8 +2445,8 @@ static void win32_request_size(App *a, int w_pt, int h_pt)
 {
 	const int s120 = want_s120(a);
 
-	SetWindowPos(a->backend_state->hwnd, NULL, 0, 0,
-				 scale_pt(w_pt, s120), scale_pt(h_pt, s120),
+	SetWindowPos(a->backend_state->hwnd, NULL, 0, 0, scale_pt(w_pt, s120),
+				 scale_pt(h_pt, s120),
 				 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
@@ -2494,9 +2462,8 @@ static void win32_set_maximized(App *a, bool on)
 static POINT workspace_origin(void)
 {
 	const POINT zero = { 0, 0 };
-	MONITORINFO mi = { .cbSize = sizeof mi };
-	if (!GetMonitorInfoW(MonitorFromPoint(zero, MONITOR_DEFAULTTOPRIMARY),
-						 &mi))
+	MONITORINFO mi   = { .cbSize = sizeof mi };
+	if (!GetMonitorInfoW(MonitorFromPoint(zero, MONITOR_DEFAULTTOPRIMARY), &mi))
 		return zero;
 	const POINT o = { mi.rcWork.left - mi.rcMonitor.left,
 					  mi.rcWork.top - mi.rcMonitor.top };
@@ -2551,14 +2518,14 @@ static void win32_set_output(App *a, const char *name)
 		WINDOWPLACEMENT wp = { .length = sizeof wp };
 		if (GetWindowPlacement(p->hwnd, &wp)) {
 			const POINT o = workspace_origin();
-			RECT *r = &wp.rcNormalPosition;
+			RECT *r       = &wp.rcNormalPosition;
 			const int w = r->right - r->left, h = r->bottom - r->top;
 			app_place_on_output(r->left + o.x, r->top + o.y, w, h, &fr, &tr,
 								&nx, &ny);
-			r->left   = nx - o.x;
-			r->top    = ny - o.y;
-			r->right  = r->left + w;
-			r->bottom = r->top + h;
+			r->left    = nx - o.x;
+			r->top     = ny - o.y;
+			r->right   = r->left + w;
+			r->bottom  = r->top + h;
 			wp.showCmd = SW_SHOWMAXIMIZED;
 			wp.flags   = 0;
 			SetWindowPlacement(p->hwnd, &wp);
@@ -2643,7 +2610,7 @@ static void win32_apply_size_bounds(App *a)
 /* The clipboard is one lock for the whole session, and a clipboard manager
  * takes it the instant anything is copied, so it is asked a few times,
  * briefly. */
-#define CLIP_OPEN_TRIES   5
+#define CLIP_OPEN_TRIES 5
 #define CLIP_OPEN_WAIT_MS 10
 
 /* Wait `ms`, dispatching the messages other windows have *sent* this one and
@@ -2682,7 +2649,7 @@ static bool clipboard_open(HWND hwnd)
 static void win32_clipboard_set(App *a)
 {
 	const int wn = MultiByteToWideChar(CP_UTF8, 0, a->clip_out, -1, NULL, 0);
-	WCHAR *wide = wn > 0 ? malloc((size_t)wn * sizeof *wide) : NULL;
+	WCHAR *wide  = wn > 0 ? malloc((size_t)wn * sizeof *wide) : NULL;
 	if (!wide)
 		return;
 	MultiByteToWideChar(CP_UTF8, 0, a->clip_out, -1, wide, wn);
@@ -2697,9 +2664,8 @@ static void win32_clipboard_set(App *a)
 		return;
 	}
 
-	HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE,
-							((size_t)wn + bare) * sizeof(WCHAR));
-	WCHAR *w = h ? GlobalLock(h) : NULL;
+	HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, ((size_t)wn + bare) * sizeof(WCHAR));
+	WCHAR *w  = h ? GlobalLock(h) : NULL;
 	if (w) {
 		size_t o = 0;
 		for (int i = 0; i < wn; i++) {
@@ -2721,17 +2687,17 @@ static void win32_clipboard_set(App *a)
 static void win32_clipboard_request(App *a)
 {
 	char *out = NULL;
-	int   n = 0;
+	int n     = 0;
 
 	if (clipboard_open(a->backend_state->hwnd)) {
-		HANDLE h = GetClipboardData(CF_UNICODETEXT);
+		HANDLE h       = GetClipboardData(CF_UNICODETEXT);
 		const WCHAR *w = h ? GlobalLock(h) : NULL;
 		if (w) {
 			/* Counted, not trusted to be terminated: the block is whatever
 			 * another program put there, and its size is the only bound on
 			 * it that is the system's. */
 			const SIZE_T cap = GlobalSize(h) / sizeof(WCHAR);
-			SIZE_T wn = 0;
+			SIZE_T wn        = 0;
 			while (wn < cap && wn < (SIZE_T)INT_MAX && w[wn])
 				wn++;
 			if (wn > 0)
@@ -2739,8 +2705,7 @@ static void win32_clipboard_request(App *a)
 										NULL);
 			out = n > 0 ? malloc((size_t)n + 1) : NULL;
 			if (out)
-				WideCharToMultiByte(CP_UTF8, 0, w, (int)wn, out, n, NULL,
-									NULL);
+				WideCharToMultiByte(CP_UTF8, 0, w, (int)wn, out, n, NULL, NULL);
 			GlobalUnlock(h);
 			/* CRLF to LF, in place: it only ever shortens. */
 			int k = 0;
@@ -2764,8 +2729,7 @@ static void win32_clipboard_request(App *a)
 static void win32_set_title(App *a, const char *utf8)
 {
 	wchar_t w[TITLE_MAX] = { 0 };
-	MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w,
-						(int)(sizeof w / sizeof w[0]));
+	MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, (int)(sizeof w / sizeof w[0]));
 	SetWindowTextW(a->backend_state->hwnd, w);
 }
 
@@ -2783,8 +2747,8 @@ static void win32_cursor_changed(App *a)
 	POINT pt;
 	if (!GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd)
 		return;
-	const LRESULT ht = SendMessageW(hwnd, WM_NCHITTEST, 0,
-									MAKELPARAM(pt.x, pt.y));
+	const LRESULT ht =
+		SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y));
 	if (ht != HTCLIENT && !(ht == HTCAPTION && a->deco_custom))
 		return;
 	cursor_apply(a, hwnd);
@@ -2817,63 +2781,63 @@ static bool win32_shared_driver(const App *a)
 }
 
 const FnlBackendVtbl fnl_backend_win32 = {
-	.name               = "Win32",
-	.id                 = BACKEND_WIN32,
-	.key                = "win32",
-	.absent             = backend_always_present,
-	.host               = win32_host,
-	.shared_driver      = win32_shared_driver,
-	.gpu_drivers        = backend_noop_gpu_drivers,
-	.gpu_driver_set     = backend_noop_gpu_driver_set,
-	.gpu_driver_held    = backend_noop_gpu_driver_held,
+	.name            = "Win32",
+	.id              = BACKEND_WIN32,
+	.key             = "win32",
+	.absent          = backend_always_present,
+	.host            = win32_host,
+	.shared_driver   = win32_shared_driver,
+	.gpu_drivers     = backend_noop_gpu_drivers,
+	.gpu_driver_set  = backend_noop_gpu_driver_set,
+	.gpu_driver_held = backend_noop_gpu_driver_held,
 	/* No ring: the window rectangle is the window, so the resize edges are an
 	 * inner margin that WM_NCHITTEST answers for. */
-	.grab_ring          = 0,
+	.grab_ring = 0,
 	/* No invitation to draw: the present is the throttle. See
 	 * backend_frame_wait_shown(), and late_latch_slack() in
 	 * src/core/frame.c for the signal that replaces it. */
-	.invites            = false,
+	.invites = false,
 	/* size_await() holds a size until its frame is shown, and the flush
 	 * that releases it runs after the present returns -- which under wine,
 	 * and on any driver that presents from a thread of its own, is before
 	 * the frame is on the screen. */
-	.ack_when_shown     = true,
-	.ack_release        = win32_ack_release,
-	.open               = win32_open,
-	.close              = win32_close,
-	.pump               = win32_pump,
-	.wakeup             = win32_wakeup,
-	.check_error        = backend_noop_check_error,
-	.flush              = win32_flush,
-	.present_pixels     = backend_noop_present_pixels,
-	.set_geometry       = backend_noop_set_geometry,
-	.ack_configure      = win32_ack_configure,
-	.frame_request      = backend_noop,
-	.frame_cancel       = backend_noop,
+	.ack_when_shown       = true,
+	.ack_release          = win32_ack_release,
+	.open                 = win32_open,
+	.close                = win32_close,
+	.pump                 = win32_pump,
+	.wakeup               = win32_wakeup,
+	.check_error          = backend_noop_check_error,
+	.flush                = win32_flush,
+	.present_pixels       = backend_noop_present_pixels,
+	.set_geometry         = backend_noop_set_geometry,
+	.ack_configure        = win32_ack_configure,
+	.frame_request        = backend_noop,
+	.frame_cancel         = backend_noop,
 	.present_window_renew = win32_present_window_renew,
 	.present_window_hold  = win32_present_window_hold,
-	.frame_wait         = backend_frame_wait_shown,
-	.window_on_screen   = win32_window_on_screen,
-	.apply_scale        = backend_noop_apply_scale,
-	.request_size       = win32_request_size,
-	.nudge_size         = backend_noop,
-	.set_fullscreen     = win32_set_fullscreen,
-	.set_maximized      = win32_set_maximized,
-	.minimize           = win32_minimize,
-	.modes              = backend_noop_modes,
-	.outputs            = backend_published_outputs,
-	.set_mode           = backend_noop_set_mode,
-	.set_output         = win32_set_output,
-	.begin_move         = win32_begin_move,
-	.begin_resize       = win32_begin_resize,
-	.apply_size_bounds  = win32_apply_size_bounds,
-	.buffer_granularity = backend_noop_buffer_granularity,
-	.update_scale       = win32_update_scale,
-	.capture_pointer    = win32_capture,
-	.release_pointer    = win32_release,
-	.cursor_changed     = win32_cursor_changed,
-	.text_input_changed = win32_text_input_changed,
-	.clipboard_set      = win32_clipboard_set,
-	.clipboard_request  = win32_clipboard_request,
-	.set_title          = win32_set_title,
+	.frame_wait           = backend_frame_wait_shown,
+	.window_on_screen     = win32_window_on_screen,
+	.apply_scale          = backend_noop_apply_scale,
+	.request_size         = win32_request_size,
+	.nudge_size           = backend_noop,
+	.set_fullscreen       = win32_set_fullscreen,
+	.set_maximized        = win32_set_maximized,
+	.minimize             = win32_minimize,
+	.modes                = backend_noop_modes,
+	.outputs              = backend_published_outputs,
+	.set_mode             = backend_noop_set_mode,
+	.set_output           = win32_set_output,
+	.begin_move           = win32_begin_move,
+	.begin_resize         = win32_begin_resize,
+	.apply_size_bounds    = win32_apply_size_bounds,
+	.buffer_granularity   = backend_noop_buffer_granularity,
+	.update_scale         = win32_update_scale,
+	.capture_pointer      = win32_capture,
+	.release_pointer      = win32_release,
+	.cursor_changed       = win32_cursor_changed,
+	.text_input_changed   = win32_text_input_changed,
+	.clipboard_set        = win32_clipboard_set,
+	.clipboard_request    = win32_clipboard_request,
+	.set_title            = win32_set_title,
 };
