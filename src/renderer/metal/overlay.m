@@ -292,17 +292,18 @@ FnlResult mt_create_overlay(App *a)
 	struct RendererState *g = MT(a);
 	const size_t rect[2] = { offsetof(RectInstance, rect),
 							 offsetof(RectInstance, color) };
-	const size_t shape[4] = { offsetof(ShapeInstance, p0),
+	const size_t shape[5] = { offsetof(ShapeInstance, p0),
 							  offsetof(ShapeInstance, p2),
 							  offsetof(ShapeInstance, color),
-							  offsetof(ShapeInstance, fill) };
+							  offsetof(ShapeInstance, color2),
+							  offsetof(ShapeInstance, shape_kind) };
 	const size_t text[3] = { offsetof(GlyphInstance, rect),
 							 offsetof(GlyphInstance, uv),
 							 offsetof(GlyphInstance, color) };
 	const PsoDesc descs[7] = {
 		{ "rectangle", rect_vert_msl, rect_frag_msl, rect, 2,
 		  sizeof(RectInstance), BLEND_NONE },
-		{ "stroke", shape_vert_msl, shape_frag_msl, shape, 4,
+		{ "stroke", shape_vert_msl, shape_frag_msl, shape, 5,
 		  sizeof(ShapeInstance), BLEND_ALPHA },
 		/* A caller's picture: one quad at the rectangle the push block names
 		 * and no vertex input at all, so the corner is the vertex index. */

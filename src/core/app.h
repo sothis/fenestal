@@ -882,22 +882,35 @@ _Static_assert(offsetof(RectInstance, color) == 16,
 			   "RectInstance layout drifted");
 
 /* One stroke: a capsule from p0 to p1, or two meeting at p1 and ending at p2.
- * The fragment shader takes the nearer of the two (see shaders/shape.frag). */
+ * The fragment shader takes the nearer of the two (see shaders/shape.frag).
+ * The kind picks what p0..p1 mean beyond the stroke: a filled box, a rounded
+ * box, a disc, or a gradient -- one primitive each, all in the one stream. */
 typedef struct {
 	float p0[2], p1[2]; /* spine, physical pixels                          */
 	float p2[2];        /* second arm's end; == p1 for a plain line        */
-	float half_w;       /* half the stroke width, pixels                   */
+	float half_w;       /* half the stroke width, or the corner radius      */
 	float feather;      /* coverage ramp half-width, pixels                */
 	float color[4];
-	float fill;         /* 1: the box p0..p1 is filled, not outlined        */
-	float pad[3];       /* the stride the vertex stage reads               */
+	float color2[4];    /* the gradient's second colour, or color's copy     */
+	float shape_kind;   /* ShapeKind: 0 stroke, 1 fill, 2 round, 3 disc, 4 grad */
 } ShapeInstance;
 
-_Static_assert(sizeof(ShapeInstance) == 64,
+/* What ShapeInstance::shape_kind says an instance is. Appended to, never
+ * renumbered: the shader reads the number and a compiled caller holds it. */
+typedef enum {
+	SHAPE_STROKE = 0, /* the capsule, elbow and box the titlebar is made of */
+	SHAPE_FILL = 1,   /* a filled box, blended (fnl_overlay_rect_blend)    */
+	SHAPE_ROUND = 2,  /* a filled box with rounded corners                  */
+	SHAPE_GRADIENT = 3 /* a two-colour linear gradient                      */
+} ShapeKind;
+
+_Static_assert(sizeof(ShapeInstance) == 68,
 			   "ShapeInstance must match shape.vert");
 _Static_assert(offsetof(ShapeInstance, p2) == 16,
 			   "ShapeInstance layout drifted");
 _Static_assert(offsetof(ShapeInstance, color) == 32,
+			   "ShapeInstance layout drifted");
+_Static_assert(offsetof(ShapeInstance, color2) == 48,
 			   "ShapeInstance layout drifted");
 
 typedef struct {
@@ -2883,11 +2896,23 @@ bool overlay_clip(const App *a, int x, int y, int w, int h, FnlRect *out);
 /* A logical-point rectangle, clipped to the framebuffer. Solid: the pipeline
  * does not blend, so this writes exactly what it is given. */
 void overlay_rect(App *a, int x, int y, int w, int h, const float color[4]);
-/* The same rectangle, blended over what is under it instead of replacing it:
- * the shape pipeline's box form, so a colour with alpha is a wash and not the
- * hole an opaque write leaves (DESIGN *Recording*). */
+/* A logical-point rectangle, clipped to the framebuffer. Solid: the pipeline
+ * does not blend, so this writes exactly what it is given. The four below are
+ * the shape stream's box form, so they all blend and all are one draw with
+ * the strokes: the same rectangle washed over what is under it (a colour with
+ * alpha is a wash and not the hole an opaque write leaves, DESIGN
+ * *Recording*), the same with rounded corners of `radius` points, a filled
+ * disc at a centre a hand put between pixels, and a two-colour linear
+ * gradient across a rectangle, `angle` degrees clockwise from its own x
+ * axis. */
 void overlay_rect_blend(App *a, int x, int y, int w, int h,
 						const float color[4]);
+void overlay_rect_round(App *a, int x, int y, int w, int h, float radius,
+						const float color[4]);
+void overlay_circle(App *a, float cx, float cy, float r,
+					const float color[4]);
+void overlay_gradient(App *a, int x, int y, int w, int h, float angle,
+					  const float color[4], const float color2[4]);
 /* Four of them: a one-point outline just inside the rectangle. */
 void overlay_frame(App *a, int x, int y, int w, int h, const float color[4]);
 void overlay_stroke(App *a, float x0, float y0, float x1, float y1, float width,

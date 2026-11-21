@@ -152,14 +152,13 @@ void overlay_frame(App *a, int x, int y, int w, int h, const float color[4])
 	overlay_rect(a, x + w - 1, y, 1, h, color);
 }
 
-/* A rectangle whose colour blends over what is under it rather than replacing
- * it, so a colour with alpha below one is a wash and not the hole an opaque
- * write makes (see FnlColor and DESIGN *Recording*). It is the shape shader's
- * box form with its fill bit set -- one instance in the alpha-blended stream
- * -- so a caller who wants a soft panel under a border draws both and needs
- * no second pipeline for either. */
-void overlay_rect_blend(App *a, int x, int y, int w, int h,
-						const float color[4])
+/* One instance of the shape stream's filled forms, from the caller's points:
+ * the box's opposite corners in physical pixels, the colour, and the kind.
+ * p2 is unused by every kind but the stroke, and the shader reads the kind to
+ * say what p0..p1 mean. The float corner is the circle's, whose centre a hand
+ * put between pixels; the int form rounds it. */
+static void shape_boxf(App *a, float x, float y, float w, float h, float radius,
+					   const float color[4], const float color2[4], float kind)
 {
 	if (!a->overlay_open || a->shape_count >= OVERLAY_MAX_SHAPES ||
 		!a->ovl_map[a->ovl_img])
@@ -168,19 +167,66 @@ void overlay_rect_blend(App *a, int x, int y, int w, int h,
 	const int s120 = scale120(a);
 	ShapeInstance *o = (ShapeInstance *)(a->ovl_map[a->ovl_img] +
 										 OVERLAY_SHAPE_OFF) + a->shape_count++;
-	/* The box's opposite corners, in physical pixels; p2 is unused by the fill
-	 * path, and half_w is 0 so the coverage ramp straddles the border. */
-	o->p0[0] = surf_ptf(a, (float)x, s120);
-	o->p0[1] = surf_ptf(a, (float)y, s120);
-	o->p1[0] = surf_ptf(a, (float)(x + w), s120);
-	o->p1[1] = surf_ptf(a, (float)(y + h), s120);
+	o->p0[0] = surf_ptf(a, x, s120);
+	o->p0[1] = surf_ptf(a, y, s120);
+	o->p1[0] = surf_ptf(a, x + w, s120);
+	o->p1[1] = surf_ptf(a, y + h, s120);
 	o->p2[0] = o->p0[0];
 	o->p2[1] = o->p0[1];
-	o->half_w  = 0.0f;
+	/* The corner radius is points and scales with everything else; the
+	 * gradient's angle is degrees and does not, so the kind says which the
+	 * argument was and only the radius is converted. */
+	o->half_w  = kind == SHAPE_GRADIENT ? radius
+								: radius * (float)s120 / 120.0f;
 	o->feather = STROKE_FEATHER_PX;
 	memcpy(o->color, color, sizeof o->color);
-	o->fill = 1.0f;
-	o->pad[0] = o->pad[1] = o->pad[2] = 0.0f;
+	memcpy(o->color2, color2, sizeof o->color2);
+	o->shape_kind = kind;
+}
+
+static void shape_box(App *a, int x, int y, int w, int h, float radius,
+					  const float color[4], const float color2[4], float kind)
+{
+	shape_boxf(a, (float)x, (float)y, (float)w, (float)h, radius, color, color2,
+			   kind);
+}
+
+/* A rectangle whose colour blends over what is under it rather than replacing
+ * it, so a colour with alpha below one is a wash and not the hole an opaque
+ * write makes (see FnlColor and DESIGN *Recording*). It is the shape shader's
+ * box form -- one instance in the alpha-blended stream -- so a caller who
+ * wants a soft panel under a border draws both and needs no second pipeline
+ * for either. */
+void overlay_rect_blend(App *a, int x, int y, int w, int h,
+						const float color[4])
+{
+	shape_box(a, x, y, w, h, 0.0f, color, color, SHAPE_FILL);
+}
+
+void overlay_rect_round(App *a, int x, int y, int w, int h, float radius,
+						const float color[4])
+{
+	shape_box(a, x, y, w, h, radius, color, color, SHAPE_ROUND);
+}
+
+void overlay_circle(App *a, float cx, float cy, float r,
+					const float color[4])
+{
+	/* A disc is a box whose half-extent is r and whose corner radius is r:
+	 * the shape shader's rounded-box distance at that radius is the disc's
+	 * own, and the caller's centre keeps the sub-pixel position a stroke's
+	 * geometry has. */
+	shape_boxf(a, cx - r, cy - r, 2.0f * r, 2.0f * r, r, color, color,
+			   SHAPE_ROUND);
+}
+
+void overlay_gradient(App *a, int x, int y, int w, int h, float angle,
+					  const float color[4], const float color2[4])
+{
+	/* The gradient's axis is the box's own x axis turned by `angle`, so the
+	 * shader's t is the position along it and the two colours are the ends.
+	 * The angle is carried in half_w, which the kind does not read. */
+	shape_box(a, x, y, w, h, angle, color, color2, SHAPE_GRADIENT);
 }
 
 void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
@@ -199,8 +245,8 @@ void overlay_elbow(App *a, float x0, float y0, float x1, float y1,
 	o->half_w  = width * (float)s120 / 120.0f * 0.5f;
 	o->feather = STROKE_FEATHER_PX;
 	memcpy(o->color, color, sizeof o->color);
-	o->fill = 0.0f;
-	o->pad[0] = o->pad[1] = o->pad[2] = 0.0f;
+	memcpy(o->color2, color, sizeof o->color2);
+	o->shape_kind = SHAPE_STROKE;
 }
 
 void overlay_stroke(App *a, float x0, float y0, float x1, float y1,

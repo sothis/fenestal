@@ -6,6 +6,41 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_overlay_rect_blend()`, `fnl_overlay_rect_round()`, `fnl_overlay_circle()`
+  and `fnl_overlay_gradient()`: the shapes a UI is made of beyond the
+  axis-aligned opaque block. A blended rectangle writes its colour *over* what
+  is under it, so a colour with alpha is a wash rather than the hole an opaque
+  write leaves (`FnlColor`, DESIGN *Recording*); a rounded rectangle is the same
+  with `radius` points of corner; a disc is the circle a knob or a lamp is drawn
+  as, at a centre in points rather than on the pixel grid; a gradient is two
+  colours across a rectangle, `angle` degrees clockwise from its own x axis.
+  All four are the shape stream's box form, so they blend, they are one draw
+  with the strokes, and none of them needs a pipeline of its own. A caller who
+  wants a soft panel under a border draws both and the border still lands on
+  top. `examples/events.c` shows the wash under a line of text.
+- `fnl_overlay_text_in()`: one line of text placed against a rectangle's right
+  edge or its centre, rather than by its left end. A column of figures that has
+  to line up, or a caption centred on a card, was a subtraction at every call
+  site -- and the subtraction is wrong the moment the string changes. Placement
+  only: the glyphs are one draw for the frame and are not clipped, so a line
+  wider than `w` runs past it (`fnl_text_elide()` is what fits one to a width).
+- `fnl_claim_focus()` and `FNL_EVENT_CLAIM_FOCUS`: a claim that also asks for
+  the keyboard. Tab and Shift+Tab move the focus among the claims that asked,
+  and the event says where it landed -- the library moves the focus, the caller
+  draws the ring, the same as every other rectangle. `fnl_claim()`'s terms
+  otherwise: rebuilt every frame, window points, from `on_overlay`.
+- `FnlButtonEvent::clicks`: how many presses of one button this is in the run
+  it belongs to -- 1 for a lone press, 2 for the second press of a
+  double-click -- counted by the library within its double-click time and slop,
+  for every button and not only the titlebar's. A caller's double-click needs
+  no clock of its own. Always 0 on a release.
+- `fnl_image_valid()` and `FNL_EVENT_IMAGE_LOST`: whether a caller's image is
+  drawable *now*. An image survives a loss, a move to another GPU or another
+  renderer -- the library keeps its pixels and uploads them again -- but between
+  the loss and the first frame on the device that replaced it there is nothing
+  to draw with, and the gap was silent. `fnl_image_valid()` answers false
+  there, `FNL_EVENT_IMAGE_LOST` says the gap opened, and `FNL_EVENT_GPU` says
+  it closed.
 - `fnl_overlay_counts()`: what the frame being recorded has appended, against
   each kind's ceiling -- `FnlOverlayCounts` carries rectangles, strokes and
   glyphs with the maximum each will take. An append past its ceiling draws

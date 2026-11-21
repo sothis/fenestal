@@ -26,13 +26,15 @@ layout(push_constant) uniform Push {
 layout(location = 0) in vec4 i_p0p1;   /* p0.xy, p1.xy -- pixels          */
 layout(location = 1) in vec4 i_p2hf;   /* p2.xy, half_w, feather          */
 layout(location = 2) in vec4 i_color;
-layout(location = 3) in vec4 i_fill;   /* x: 1 fills the box, 0 outlines  */
+layout(location = 3) in vec4 i_color2; /* gradient's second colour, and  */
+layout(location = 4) in vec4 i_kind;   /* the ShapeKind, in .x             */
 
 layout(location = 0)      out vec2 v_px;     /* fragment position, pixels */
 layout(location = 1) flat out vec4 v_p0p1;
 layout(location = 2) flat out vec4 v_p2hf;
 layout(location = 3) flat out vec4 v_color;
-layout(location = 4) flat out float v_fill;
+layout(location = 4) flat out vec4 v_color2;
+layout(location = 5) flat out float v_kind;
 
 void main()
 {
@@ -46,11 +48,12 @@ void main()
 	vec2  hi  = max(max(p0, p1), p2) + pad;
 
 	vec2 px = mix(lo, hi, k);
-	v_px    = px;
-	v_p0p1  = i_p0p1;
-	v_p2hf  = i_p2hf;
-	v_color = i_color;
-	v_fill  = i_fill.x;
+	v_px     = px;
+	v_p0p1   = i_p0p1;
+	v_p2hf   = i_p2hf;
+	v_color  = i_color;
+	v_color2 = i_color2;
+	v_kind   = i_kind.x;
 	/* Pixel origin is top-left, matching Vulkan's NDC y-down. */
 	gl_Position = vec4(px / pc.screen * 2.0 - 1.0, 0.0, 1.0);
 }

@@ -369,7 +369,56 @@ void fnl_overlay_rect_blend(FnlApp *app, int x, int y, int w, int h, FnlColor c)
 	float col[4];
 	to_surface(a, c, col);
 	overlay_rect_blend(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
-						  col);
+					  col);
+}
+
+void fnl_overlay_rect_round(FnlApp *app, int x, int y, int w, int h,
+							float radius, FnlColor c)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a))
+		return;
+	/* A corner past half the shorter side folds the box in on itself, so it
+	 * is held to the disc the box can carry -- the same clamp the shader's
+	 * coverage assumes. */
+	const int short_side = w < h ? w : h;
+	if (radius > (float)short_side * 0.5f)
+		radius = (float)short_side * 0.5f;
+	if (radius < 0.0f)
+		radius = 0.0f;
+	float col[4];
+	to_surface(a, c, col);
+	overlay_rect_round(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
+					   radius, col);
+}
+
+void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r, FnlColor c)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a) || !(r > 0.0f))
+		return;
+	/* The float clamp, since a disc's centre is geometry and may sit between
+	 * pixels: the same bound the drawing calls hold their points to. */
+	const float lim = (float)OVERLAY_COORD_MAX;
+	cx = cx > lim ? lim : cx < -lim ? -lim : cx;
+	cy = cy > lim ? lim : cy < -lim ? -lim : cy;
+	r  = r > lim ? lim : r;
+	float col[4];
+	to_surface(a, c, col);
+	overlay_circle(a, cx, cy, r, col);
+}
+
+void fnl_overlay_gradient(FnlApp *app, int x, int y, int w, int h,
+						  float angle, FnlColor c, FnlColor c2)
+{
+	App *a = (App *)app;
+	if (!overlay_here(a))
+		return;
+	float col[4], col2[4];
+	to_surface(a, c, col);
+	to_surface(a, c2, col2);
+	overlay_gradient(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
+					 angle, col, col2);
 }
 
 void fnl_overlay_stroke(FnlApp *app, float x0, float y0, float x1, float y1,
