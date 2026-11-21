@@ -2181,7 +2181,7 @@ static void x11_frame_request(App *a)
 	 * leaving its own queued for ever and the frame that answers a size never
 	 * answered. Discarded here, before the new chain's first number is taken;
 	 * a sync value kept for one of them goes with them. */
-	bool     purged   = false;
+	bool purged        = false;
 	uint64_t purged_hw = 0; /* the highest frame index discarded */
 	fnl_mutex_lock(&p->present_lock);
 	if (p->present_chain_seen != a->present_chain) {
@@ -2221,8 +2221,7 @@ static void x11_frame_request(App *a)
 		if (p->present_log)
 			fnl_log(FNL_LOG_INFO,
 					"X11 present: swapchain %u, %llu's queue discarded",
-					(unsigned)a->present_chain,
-					(unsigned long long)purged_hw);
+					(unsigned)a->present_chain, (unsigned long long)purged_hw);
 	}
 	p->present_index  = a->presents;
 	p->present_pushed = true;
