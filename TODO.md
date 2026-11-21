@@ -933,14 +933,13 @@ GL's window image remade on every rebuild.
 
 Open, each needing a decision or a measurement:
 
-- **The GPU ranking's per-frame re-derivation**: `app_rank_tick()` calls
-  `display_now()` (round trips through `App::lock`, the backend's
-  `modes`/`outputs`, two scans of `rank[]`) and `list_hash()` every turn, for
-  an answer that moves on a configure or an output event. Gating it on the
-  published fields alone is the staleness the file warns of --
-  `events_post_state()` does not diff the refresh rate, so a mode switch that
-  keeps the size would keep the old name. Owed: a stamp plus the hook that
-  clears it wherever `app_publish_*()` runs.
+- ~~**The GPU ranking's per-frame re-derivation**~~ -- **closed (2026-11-21)**:
+  `app_rank_tick()` derives the display only when `App::display_gen` moved,
+  and every publish that can change the display bumps it -- the size, the
+  output, the output's own mode, the refresh rate, the outputs' list. The
+  case this entry named is the one that made a stamp necessary rather than a
+  comparison of published fields: a mode switch that keeps the size moves
+  the refresh rate alone, and `app_publish_refresh()` bumps the stamp for it.
 - **Wayland's held-key guard** (`kb_key()`): X11 has one and Wayland has
   not, which is latent only while no compositor repeats a press of its own.
   Settling it needs a compositor that does, or a focus regain that resends
