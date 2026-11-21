@@ -985,3 +985,43 @@ wine, the guests, the laptops and the Mac; and `kms-vulkan-bare` for the
 commit's other half, the LED's bit test at open and `GETCRTC` in the motion
 the round drives. Until one, the two image fixes and the check are reasoned
 and not measured.
+
+## Three shapes a UI is made of
+
+`fnl_overlay_rect_round()`, `fnl_overlay_circle()` and
+`fnl_overlay_gradient()`, built on all four renderers (2026-11-21). They are
+the shape stream's box form -- `ShapeInstance::shape_kind` says which of
+stroke, fill, round or gradient an instance is, and `shaders/shape.frag`
+reads it -- so all three blend, all three are one draw with the strokes, and
+none needs a pipeline of its own.
+
+Open:
+
+- **A disc past the coordinate bound is clamped, not refused.**
+  `fnl_overlay_circle()` holds `cx`, `cy` and `r` to `OVERLAY_COORD_MAX`,
+  which is the bound the drawing calls hold their points to, so a radius
+  past it draws a disc of that bound rather than answering false. Every
+  other overlay call clamps its points the same way and a disc's centre is
+  geometry rather than a cell, so the question is whether a caller asking
+  for something that large has made a mistake worth a line in the log --
+  `fnl_image_create()` refuses a size past the bound, and this does not.
+- **A gradient on a degenerate box divides by a floor.** The shader's
+  ` t = dot(p - lo, dir) / max(dot(hi - lo, dir), 1e-6)`, so a box with
+  no extent along the gradient's axis -- zero width at 90 degrees, zero
+  height at 0 -- comes out as a hard edge on one side rather than as the
+  nearer colour. A gradient across a zero-width rectangle is a caller's
+  mistake, but the answer should be the nearer colour, not a division by
+  a fudge factor. The alternative is to answer false from the appender
+  where the box has no extent along the axis, which needs the axis in core
+  and not only in the shader.
+
+Not owed, and not yet known:
+
+- **The gradient's angle is measured clockwise from the rectangle's own x
+  axis** (0 left to right, 90 top to bottom), which is my choice and is
+  written down nowhere but the header's comment. Nothing has been drawn
+  with any of the three -- they compile, the ABI is checked, and the
+  coverage maths is the shape shader's existing one for strokes -- so the
+  angle's direction, the corner radius's clamp and the disc's edge are
+  all reasoned and not seen. A picture is `FNL_BACKEND=x11` with
+  `import -window`, which is this desk's cheapest look at a frame.
