@@ -155,7 +155,10 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
    `fnl_mode_get()` instead), `fullscreen`, `scale` (INIT
    `scale_override120`), `vsync` (INIT `FNL_VSYNC`), `late-latch` auto/off/
    fixed + `late-latch-ms`, `antialias` (dim where `!fnl_offscreen_supported`),
-   `scene-scale`; `backend`/`renderer`/`gpu` (INIT; `auto` leaves the
+   `scene-scale` (hold the scene at the area divided by this, the fetch then
+   upscaling it -- 1 is native and unpinned, and >1 is what the render scale
+   and the resolve's upscale are measured at, `fnl_set_scene_size_px()`);
+   `backend`/`renderer`/`gpu` (INIT; `auto` leaves the
    harness's `FNL_BACKEND`/`FNL_RENDERER`/`FNL_GPU` standing), `scene-motion`
    (phase 2 setter), `scene-motion-px` (the pair the TAAU resolve reprojects
    by, pixels of the scene, the vertical half the horizontal as the testbed's

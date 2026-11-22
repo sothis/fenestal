@@ -98,6 +98,13 @@ const BenchOption BENCH_OPTIONS[OPT_COUNT] = {
 							BENCH_INIT, BENCH_PAGE_WINDOW, "the fixed hold"),
 	[OPT_ANTIALIAS] = E("antialias", "Antialias", AA, BENCH_RUN,
 		BENCH_PAGE_WINDOW, "default leaves the library's"),
+	[OPT_SCENE_SCALE] =
+		N("scene-scale", "Scene scale", 1, 8, 0.5, 1, BENCH_RUN,
+		  BENCH_PAGE_WINDOW,
+		  "hold the scene at the presentable area divided by this, in "
+		  "pixels, and let the fetch upscale it: 1 is native, the "
+		  "unpinned scene (fnl_set_scene_size_px()); what the render "
+		  "scale and the resolve's upscale cost are read against"),
 
 	[OPT_BACKEND] = E("backend", "Backend", BACKENDS, BENCH_INIT,
 		BENCH_PAGE_DEVICE, "auto leaves FNL_BACKEND as it is"),

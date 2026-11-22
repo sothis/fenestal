@@ -85,6 +85,7 @@ typedef enum {
 	OPT_LATE_LATCH,
 	OPT_LATE_LATCH_MS,
 	OPT_ANTIALIAS,
+	OPT_SCENE_SCALE,
 	OPT_BACKEND,
 	OPT_RENDERER,
 	OPT_GPU,
@@ -274,6 +275,13 @@ typedef struct {
 	/* How far the scene was told it moved, in pixels of the scene: the
 	 * vertical is half the horizontal, as the option and F8 set it. */
 	float  scene_motion_x, scene_motion_y;
+	/* The render scale the scene was pinned at (--bench-scene-scale): 1 is
+	 * native, unpinned, and >1 holds the scene at area/scale. */
+	double scene_scale;
+	/* The scene's own size, as the frame drew it: the area when unpinned,
+	 * its quotient by the scale where one holds, and what the fetch
+	 * upscales -- the two figures a resolve's cost is read against. */
+	int    scene_w_px, scene_h_px;
 	BenchConditions cond;
 	/* The GPU driver, as the renderer's API names it; "" unknown. */
 	char   driver_name[256], driver_info[256], api_version[160];

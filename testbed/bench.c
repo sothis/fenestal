@@ -211,6 +211,12 @@ static struct {
 	double measure_t0;          /* its first frame, the series' zero */
 	double record_t0;
 	int    samples;
+	/* The render scale pinned at the first frame, where --bench-scene-scale
+	 * asked for one: the scene at area/scale, so the same measure can be
+	 * read at a size the fetch upscales (fnl_set_scene_size_px()). 1 is
+	 * native and pins nothing; zero until a run sets it. */
+	double scene_scale;
+	bool   scene_pinned;
 
 	/* The log, while a run's window is open. */
 	bool   logging;
@@ -318,6 +324,9 @@ static void read_platform(FnlApp *app, const FnlFrame *f, bool driver)
 	r->scene_motion     = fnl_scene_motion(app);
 	r->scene_motion_x   = (float)bench_opt_num(R.cfg, OPT_SCENE_MOTION_PX);
 	r->scene_motion_y   = r->scene_motion_x * 0.5f;
+	r->scene_scale      = bench_opt_num(R.cfg, OPT_SCENE_SCALE);
+	r->scene_w_px       = f->scene_w_px;
+	r->scene_h_px       = f->scene_h_px;
 
 	TestbedDriver d;
 	memset(&d, 0, sizeof d);
@@ -513,6 +522,19 @@ static void run_gpu_lost(void *ud, FnlApp *app)
 static void run_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	const double t0 = bench_now();
+	/* The render scale, placed at the first frame that has an area: the
+	 * scene at area/scale on both axes, which the fetch then upscales. A
+	 * scale of 1 pins nothing (an equal pin is native, and
+	 * scene_pin_applies() refuses it), and the pin is set once -- the
+	 * measure's frames are the same size, and setting it again each frame
+	 * would only re-signal the render thread. */
+	if (!R.scene_pinned && R.scene_scale > 1 && f->area_w_px > 0 &&
+		f->area_h_px > 0) {
+		const int sw = (int)((double)f->area_w_px / (double)R.scene_scale);
+		const int sh = (int)((double)f->area_h_px / (double)R.scene_scale);
+		fnl_set_scene_size_px(app, sw, sh);
+		R.scene_pinned = true;
+	}
 	R.scene->on_record(ud, app, f);
 	if (atomic_load(&R.phase) == PH_MEASURE)
 		bench_series_add(&R.r->record_ms, (bench_now() - t0) * 1e3);
@@ -900,6 +922,7 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	R.r = r;
 	R.last_frame = -1.0;
 	R.sample_cpu = -1.0;
+	R.scene_scale = bench_opt_num(c, OPT_SCENE_SCALE);
 	atomic_store(&R.phase, (int)PH_WAIT);
 	log_lock();
 	R.logging = true;

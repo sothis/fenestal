@@ -87,12 +87,18 @@ Owed, in this order:
   asked for, and no layer line in either log. Probed by hand, as the item
   above is: what a checker *round* still owes is a TAAU section, a press on
   the titlebar's TAAU box.
-- **What it costs**, by the table's own method (DESIGN *Antialiasing*): a
-  pinned scene at 640x480 and at half the area, `--antialias=taau` against the
-  same pin with no mode, on the RX 590 and on lavapipe, uncapped on `MAILBOX`,
-  `--frame-times` and the median of six seconds. The resolve and the copy are
-  the two costs, and the accumulation's re-record is a third figure that only
-  `record` shows.
+- ~~**What it costs**~~ -- **measured (2026-11-22)**. By the table's own
+  method (DESIGN *Antialiasing*), a pinned scene against a direct frame of the
+  same pin, uncapped on `MAILBOX`, motion off, `frame.gpu_ms`'s p50 over eight
+  seconds. The pinned case wanted a render scale the testbed could not be put
+  in from the command line, so `--bench-scene-scale` was added to the
+  benchmark (`fnl_set_scene_size_px()` at area/scale): the resolve is +0.656 ms
+  of GPU at native 2560x1440 on the RX 590, and **+0.095 ms pinned at
+  1280x720, +0.030 at 640x360** -- cheapest where the mode is worth having, as
+  the design expects. On lavapipe a hundredfold larger, a software cost. The
+  figures are in DESIGN *Antialiasing*. What the fill on its own costs, apart
+  from the resolve, is the one figure still owed rather than folded into the
+  pair.
 - **What the scene's fetch costs now**, which is the one figure the change to
   a Catmull-Rom cubic owes and nothing has measured: the same method, a
   pinned scene against a direct frame, since the cubic is sixteen bilinear

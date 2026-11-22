@@ -62,6 +62,9 @@
         "fullscreen": {"type": "boolean"},
         "scene_motion": {"type": "boolean"},
         "scene_motion_px": {"type": ["number", "null"]},
+        "scene_scale": {"type": ["number", "null"]},
+        "scene_w_px": {"type": ["integer", "null"]},
+        "scene_h_px": {"type": ["integer", "null"]},
         "driver": {"type": "object"},
         "env": {"type": "object",
                 "additionalProperties": {"type": ["string", "null"]}}

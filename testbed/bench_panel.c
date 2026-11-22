@@ -454,8 +454,13 @@ static void draw_results(BenchPanel *p, FnlApp *app, const Layout *l)
 	figure(v[10], sizeof v[10], vram.mean, "MiB");
 	figure(v[11], sizeof v[11], in.mean, "ms");
 	snprintf(v[12], sizeof v[12], "%s", r->present_mode);
-	snprintf(v[13], sizeof v[13], "%dx%d px, scale %d%%%s%s", r->area_w_px,
-			 r->area_h_px, r->scale120 * 100 / 120,
+	/* The scene's own size where it is pinned, beside the area's. */
+	char sc[24] = "";
+	if (r->scene_scale > 1.0)
+		snprintf(sc, sizeof sc, ", scene /%g", r->scene_scale);
+	snprintf(v[13], sizeof v[13],
+			 "%dx%d px, scale %d%%%s%s%s", r->area_w_px, r->area_h_px,
+			 r->scale120 * 100 / 120, sc,
 			 r->scene_motion ? ", scene moving" : "",
 			 r->scene_motion_x > 0.0f ? ", motion on" : "");
 	/* The frame loop's own account, each phase's mean per frame. */

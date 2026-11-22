@@ -7413,12 +7413,40 @@ fill itself is a `vkCmdCopyImage` and not a second colour attachment: the pass
 reads the image it would have to write, which is the one feedback loop the API
 rejects.
 
-What it costs is owed rather than measured -- TODO *Temporal upscaling,
-measured*. What is expected of it, from the parts it is made of: the resolve is
-one full-screen pass at the scene's resolution and the fill is one image copy,
-both of which the table below prices at a fraction of the fetch they replace,
-against an accumulation that a moving frame was already paying for in
-re-recording.
+What it costs, measured (2026-11-22) by the same method as the table below:
+a pinned scene against a direct frame of the same pin, uncapped on `MAILBOX`,
+motion off, the figure `frame.gpu_ms`'s p50 over an eight-second measure (the
+benchmark record's own instrument, `tools/drive/bench.py`). The pin is the
+new `--bench-scene-scale`, which holds the scene at the area divided by the
+scale so the fetch upscales it -- the case this mode exists for, and one no
+option could put the testbed in before. Two runs of each RX 590 pair agreed to
+0.01 ms.
+
+On the AMD Radeon RX 590 GME (RADV POLARIS10) at a 2560x1440 area:
+
+| scene | direct | TAAU | the resolve |
+|---|---|---|---|
+| native, 2560x1440 | 0.160 ms | 0.816 ms | +0.656 ms |
+| pinned 1280x720 | 0.418 ms | 0.513 ms | +0.095 ms |
+| pinned 640x360 | 0.403 ms | 0.433 ms | +0.030 ms |
+
+Three things fall out. At native size the resolve is the whole cost -- +0.656
+ms, about five times a direct frame -- because both the resolve and the fill
+run at the window's own resolution and the fill is a full-resolution copy. At
+a render scale that reverses: the direct frame is already the full-resolution
+fetch, and the resolve, now at the scene's small size, adds **+0.095 ms at
+half and +0.030 ms at a quarter**, a fraction of what it costs at native. So
+the mode is cheapest exactly where it is worth having, which is what the
+design expects of a pass that sits at the scene's resolution and a copy, ahead
+of a fetch the unpinned case pays anyway. The re-record the accumulation
+forces, read off the same records, is +0.008 ms of CPU a frame at native size.
+
+On lavapipe the same method says what a software rasteriser pays for a
+full-screen pass with sixteen taps: at 2560x1440 native the resolve is +203.5
+ms (15.29 direct against 218.79 with TAAU), and pinned at half +19.5 ms
+(130.79 against 150.32) -- the same shape, a hundredfold larger, and a figure
+about software Vulkan rather than any GPU (TODO *Temporal upscaling,
+measured*).
 
 What has been measured since is what it draws and that its order is agreed
 with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a
