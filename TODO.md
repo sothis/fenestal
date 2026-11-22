@@ -11,6 +11,12 @@ this list.
 > what was decided and why, and the measurements still owed is in
 > `.rpiv/artifacts/handoffs/2026-11-22_10-31-09_temporal-upscaling.md`. That
 > file is session tooling and untracked; this note is the pointer to it.
+> **Built on 2026-11-22** (`a42c7d8`), the first compile of any of it: every
+> tree is clean under gcc and under clang, the analyzer and the three
+> sanitizers among them. The compile found what reading had not -- a C-style
+> cast GLSL rejects in `blit.frag`, a Vulkan enum name that does not exist on
+> the depth barrier, and a status line grown past its buffer -- all fixed in
+> that commit, which also gave the vector its first callers.
 
 Built on 2026-11-21 in all three trees -- `build/linux` (Vulkan and OpenGL),
 `build/win64` (Direct3D 12 and Vulkan) and `build/macos` (Metal) -- warning
@@ -65,6 +71,16 @@ Owed, in this order:
   round has no TAAU section, so what a checker round repeats is still owed --
   a press on the titlebar's TAAU box (that box's x, and the echo's
   `antialias` line as the proof the press landed) is what it wants.
+  **The depth barrier is not covered by that run.** `record_taau_pass()`'s
+  third barrier, which returns the scene depth from
+  `DEPTH_STENCIL_READ_ONLY_OPTIMAL` to the attachment layout for the next
+  frame, was added in `5e000d7` and compiled for the first time only at
+  `a42c7d8` -- where it named a Vulkan enum that does not exist
+  (`VK_ACCESS_DEPTH_ATTACHMENT_WRITE_BIT`; the barrier wants
+  `_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT`). The layer has not seen it, nor the
+  `TRANSFER` transitions around `scene_depth_make_resident()`: the same
+  `asan` + `VK_LAYER_VALIDATE_SYNC=1` run, now that the tree compiles, is what
+  would clear it.
 - **What it costs**, by the table's own method (DESIGN *Antialiasing*): a
   pinned scene at 640x480 and at half the area, `--antialias=taau` against the
   same pin with no mode, on the RX 590 and on lavapipe, uncapped on `MAILBOX`,
@@ -91,9 +107,13 @@ Owed, in this order:
 - **What a motion vector looks like**: the testbed's star under
   `--antialias=taau` with `fnl_set_scene_motion_px()` set, against the same
   run with no vector, which is the case the clamp alone was worst at (DESIGN
-  *Antialiasing*). No caller sets one yet -- `examples/` and `testbed/` both
-  draw without it -- so what has been drawn so far is the old mode plus a
-  code path nothing exercises.
+  *Antialiasing*). It has a caller now (`a42c7d8`): the testbed's F8 steps a
+  fixed vector and `--bench-scene-motion-px` sets one for a run, and
+  `demos/motion` and `motion2` pan the camera under F2 and hand over the
+  per-frame delta. What no run has yet is the *picture* -- the star or the
+  cube with the vector on against the same scene with it off, a frame read
+  back off the window, which is what says the reprojection gathers rather than
+  smears and that the demos' pan is carried, not fought by the clamp.
 - **What it looks like**: the testbed's star (geometry, so a jitter has
   something to gather) at 60 and at 30 sizes a second, against MSAA and MLAA;
   and the moving cube of `demos/motion` where the clamp, not the accumulation,
