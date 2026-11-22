@@ -7472,6 +7472,17 @@ they are inside the resolve's +0.095 ms at that pin above, not this figure.
 Lavapipe, where the arithmetic is a hundredfold dearer, shows the same nothing
 under a spread wider than any signal (TODO *Temporal upscaling, measured*).
 
+**What it looks like, on the demo** (2026-11-22): `demos/motion` at a scene
+pinned to half the window (960x600 over 1920x1200), drifting under F2 with TAAU
+toggled by F3, is **crisper with the mode on** than the plain bilinear stretch
+of the small scene -- the cube's silhouette and face edges sharper, and holding
+through the pan rather than smearing. The half-scale case is the one the mode is
+for, and the demo is the only program that applies `FnlFrame::jitter_x` to its
+projection, without which the resolve would sample a jitter it does not need to
+undo and gather nothing. The testbed's four scene files still draw without it,
+so the star there is a false test of the mode until they are taught it -- a
+defect this run found, owed in TODO *Temporal upscaling, measured*.
+
 What has been measured since is what it draws and that its order is agreed
 with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a
 `complete` benchmark record -- 59.997 fps, p99 18.45 ms over 1200 frames, the

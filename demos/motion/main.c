@@ -19,15 +19,16 @@
  *                            rate at any frame rate.
  *
  * The cube turns in place, so the library's temporal antialiasing (TAAU)
- * has nothing to reproject: a still scene with a spin is the case its
- * neighbourhood clamp is worst at. Pressing F2 turns on a *drift* as well
- * -- the camera panning, the whole picture sliding across the scene, which
- * is what fnl_set_scene_motion_px() is for -- and the difference is what
- * the mode is meant to be looked at in. The vector handed to the library is
- * computed from that pan every frame, never chosen by hand, so it cannot
- * describe a move the picture did not make. F2 is the library's own binding
- * for the scene's clock, so this reads it back with fnl_scene_motion()
- * rather than ever seeing the key itself.
+ * has nothing to reproject on its own: a still scene with a spin is the case
+ * its neighbourhood clamp is worst at. Pressing F2 turns on a *drift* as
+ * well -- the camera panning, the whole picture sliding across the scene,
+ * which is what fnl_set_scene_motion_px() is for -- and F3 switches the mode
+ * itself, so the drifting picture can be seen with the accumulation on and
+ * off. The vector handed to the library is computed from that pan every
+ * frame, never chosen by hand, so it cannot describe a move the picture did
+ * not make, and the projection carries FnlFrame::jitter_x as a temporal
+ * gather needs. F2 is the library's own binding for the scene's clock, so
+ * this reads it back with fnl_scene_motion() rather than ever seeing the key.
  */
 
 #include "motion.h"
@@ -38,7 +39,7 @@
 #include <string.h>
 
 #define TITLE       "fenestal-demo-motion"
-#define HINT        "F2 drift   F5 metrics   Esc quit"
+#define HINT        "F2 drift   F3 TAAU   F4 half   F5 metrics   Esc quit"
 
 #define PI_D        3.14159265358979
 #define SPIN_Y      0.9                   /* radians a second, about y */
@@ -223,8 +224,20 @@ static void on_record(void *ud, FnlApp *app, const FnlFrame *f)
 
 	const Mat4 rot = mat4_mul(mat4_rotate_y(turn(f->time, SPIN_Y)),
 							  mat4_rotate_x(turn(f->time, SPIN_X)));
-	const Mat4 proj = mat4_perspective(
+	Mat4 proj = mat4_perspective(
 		FOV_Y, (float)f->scene_w_px / (float)f->scene_h_px, Z_NEAR, Z_FAR);
+	/* The temporal accumulation's subpixel offset, which only the caller can
+	 * put in its projection (FnlFrame::jitter_x): a uniform shift of the
+	 * picture by that many scene pixels, which the shader's `- jitter` undoes
+	 * exactly. A pixel-space shift in NDC is 2*jx/scene_w on x, applied to
+	 * every vertex alike -- so it rides in column 2, which multiplies z, by
+	 * the -z that clip.w is: clip.x += delta*w = delta*(-z). A constant added
+	 * to clip.x instead would be scaled by the perspective divide and land
+	 * only 1/depth of the way at the cube, which is a different, wrong
+	 * offset. Zero unless FNL_AA_TAAU is in force and the scene moves, so a
+	 * program that never asks for the mode draws exactly as before. */
+	proj.m[8] -= 2.0f * f->jitter_x / (float)f->scene_w_px;
+	proj.m[9] -= 2.0f * f->jitter_y / (float)f->scene_h_px;
 	const Mat4 view = camera(f->scene_time);
 
 	CubePush push;
@@ -257,6 +270,33 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 			g_drift = fnl_scene_motion(app);
 			if (!g_drift)
 				fnl_set_scene_motion_px(app, 0.0f, 0.0f);
+		}
+		/* F3 toggles the temporal accumulation, which is what the drift is
+		 * for: with the scene moving, the resolve gathers the subpixel
+		 * samples the jitter spreads and reprojects the history by the
+		 * vector. Off is the plain frame, the comparison to judge it
+		 * against. */
+		if (ev.type == FNL_EVENT_KEY && ev.key.pressed &&
+			!ev.key.repeat && ev.key.key == FNL_KEY_F3)
+			fnl_set_antialias(app,
+							  fnl_antialias(app) == FNL_AA_TAAU
+								  ? FNL_AA_NONE
+								  : FNL_AA_TAAU);
+		/* F4 pins the scene to half the window and back, so the fetch has an
+		 * upscale to do: at 1:1 a subpixel gain is invisible, and this is the
+		 * scale that shows what the accumulation is for. Whether a pin is in
+		 * force is scene smaller than area, which is what the two calls
+		 * answer -- a scene-size read alone gives the area itself when
+		 * nothing is pinned. */
+		if (ev.type == FNL_EVENT_KEY && ev.key.pressed &&
+			!ev.key.repeat && ev.key.key == FNL_KEY_F4) {
+			int sw, sh, aw, ah;
+			fnl_scene_size_px(app, &sw, &sh);
+			fnl_content_size_px(app, &aw, &ah);
+			if (sw > 0 && sw < aw)
+				fnl_set_scene_size_px(app, 0, 0);
+			else if (aw > 0 && ah > 0)
+				fnl_set_scene_size_px(app, aw / 2, ah / 2);
 		}
 	}
 

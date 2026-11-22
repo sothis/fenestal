@@ -127,16 +127,23 @@ Owed, in this order:
   0.02 is a guess, and what it should be wants the moving cube of
   `demos/motion` -- where the clamp, not the accumulation, decides -- read back
   off the window at two or three values against the threshold at nought.
-- **What a motion vector looks like**: the testbed's star under
-  `--antialias=taau` with `fnl_set_scene_motion_px()` set, against the same
-  run with no vector, which is the case the clamp alone was worst at (DESIGN
-  *Antialiasing*). It has a caller now (`a42c7d8`): the testbed's F8 steps a
-  fixed vector and `--bench-scene-motion-px` sets one for a run, and
-  `demos/motion` and `motion2` pan the camera under F2 and hand over the
-  per-frame delta. What no run has yet is the *picture* -- the star or the
-  cube with the vector on against the same scene with it off, a frame read
-  back off the window, which is what says the reprojection gathers rather than
-  smears and that the demos' pan is carried, not fought by the clamp.
+- **What a motion vector looks like** -- **judged on the demo (2026-11-22),
+  the testbed still owed**. `demos/motion` under `F2` (drift) + `F3` (TAAU) +
+  `F4` (scene pinned to half the window), toggling `F3` while the cube panned:
+  **crisper with TAAU on**, the cube's silhouette and face edges holding
+  through the pan rather than smearing -- the reprojection gathers the moving
+  content and the clamp lets it through. The echo proves the conditions (the
+  pin held at 960x600 across each `antialias` toggle, so the TAAU change was
+  not a re-layout). This is the case the design is built for.
+  **The testbed's star is still owed, and it is blocked on a defect this test
+  found:** no program in the tree applied `FnlFrame::jitter_x`, and the
+  testbed's scene files (`scene_vulkan.c` and the other three) still do not --
+  so TAAU on the star rasterises every frame at the same subpixel and
+  accumulates identical samples, a false test. `demos/motion` was taught the
+  jitter in `main.c` for this run (a subpixel shift in the projection's `m[8]`,
+  which multiplies z so the divide cancels and the shift is uniform on
+  screen); the testbed's four scenes want the same before the star comparison
+  against MSAA and MLAA is worth running.
 - **What it looks like**: the testbed's star (geometry, so a jitter has
   something to gather) at 60 and at 30 sizes a second, against MSAA and MLAA;
   and the moving cube of `demos/motion` where the clamp, not the accumulation,
