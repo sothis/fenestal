@@ -2481,8 +2481,10 @@ between the checkboxes and `GPU 1` at 740 points, is still drawn at 734,
 and is gone at 732, where the GPU box has taken its place. The fourth
 checkbox (TAAU, 2026-11-21) is 58 points of run -- measured in
 `deco_min_window()`, and 614 against the 556 it was -- so those three widths
-move to 798, 792 and 790 by the same difference; the screen's own
-re-measure is owed (TODO *The output box under a window server*).
+move to 798, 792 and 790 by the same difference. Re-measured on the screen
+(2026-11-22) with the testbed's `--width`: the box is drawn at 800 and at 792
+and gone at 790, the GPU box in its place, and at 700 the bar still fits every
+control with room to spare -- so the shift is confirmed, not only derived.
 
 **The size list is derived, not shipped.** A hand-written list of resolutions
 would be a product decision, and the library has no business having one. What

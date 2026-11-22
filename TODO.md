@@ -186,9 +186,14 @@ Owed, in this order:
   measured in `deco_min_window()` on 2026-11-21 -- the floor 556 to 614, and
   683 with the GPU box in it; that 683 is `environment.py`'s `FLOOR_W`, and
   `stress.py`'s floor check agrees with it. The three widths the output box
-  gives way at were measured on a screen with three boxes and are now derived
-  from the two measurements above (798, 792, 790); that capture is owed, as is
-  a look at the bar at a narrow width.
+  gives way at were derived from the pre-TAAU measurement (798, 792, 790).
+  **Captured (2026-11-22)** with the testbed's new `--width=PT` (the presentable
+  width in points, verified: 800 reads 1600 px at scale 2, 792 1584, 790 1580):
+  the DP-1 output box is **present at 800 and at 792, gone at 790**, the GPU box
+  taking its place -- the derived boundary holds. At 700 the bar is intact and
+  readable, every control fitting with no overlap or truncation. So the
+  give-way widths are measured rather than derived now; a look at the bar at an
+  even narrower width (near the 614 floor) is the only piece left.
 
 ## Windows laptops
 

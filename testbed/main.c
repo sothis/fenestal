@@ -60,6 +60,10 @@ static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
  * display's own rate, the default. */
 static int g_fps;
 static double g_fps_next;
+/* --width=PT: the window's presentable width in logical points, for capturing
+ * the titlebar at a chosen width (where a control gives way). Applied to the
+ * init descriptor, so the window opens at it; 0 leaves the default. */
+static int g_width_pt;
 
 /* The --bench* arguments, in order, for bench.c; and the first option given
  * beside them that a benchmark row sets instead, which is refused: a record
@@ -292,6 +296,9 @@ static void usage(FILE *f, const char *prog)
 		"                     moving scene advances further between frames --\n"
 		"                     30 is twice the displacement per frame the\n"
 		"                     temporal clamp sees at 60.\n"
+		"  --width=PT         open the window at this presentable width in\n"
+		"                     logical points, for capturing the titlebar\n"
+		"                     where a control gives way.\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
@@ -442,6 +449,21 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 				return false;
 			}
 			g_fps = (int)n;
+			continue;
+		}
+		if (!strncmp(arg, "--width=", 8)) {
+			const char *v = arg + 8;
+			char *end;
+			errno = 0;
+			long n = strtol(v, &end, 10);
+			if (errno || !*v || *end || n < 320 || n > 7680) {
+				fprintf(stderr, "--width: expected logical points "
+								"from 320 to 7680; got \"%s\"\n", v);
+				*status = EXIT_FAILURE;
+				return false;
+			}
+			g_width_pt = (int)n;
+			d->width_pt = (int)n;
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {
