@@ -71,16 +71,22 @@ Owed, in this order:
   round has no TAAU section, so what a checker round repeats is still owed --
   a press on the titlebar's TAAU box (that box's x, and the echo's
   `antialias` line as the proof the press landed) is what it wants.
-  **The depth barrier is not covered by that run.** `record_taau_pass()`'s
-  third barrier, which returns the scene depth from
+  **The depth barrier is now covered too (2026-11-22, `a42c7d8`).**
+  `record_taau_pass()`'s third barrier, which returns the scene depth from
   `DEPTH_STENCIL_READ_ONLY_OPTIMAL` to the attachment layout for the next
   frame, was added in `5e000d7` and compiled for the first time only at
   `a42c7d8` -- where it named a Vulkan enum that does not exist
   (`VK_ACCESS_DEPTH_ATTACHMENT_WRITE_BIT`; the barrier wants
-  `_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT`). The layer has not seen it, nor the
-  `TRANSFER` transitions around `scene_depth_make_resident()`: the same
-  `asan` + `VK_LAYER_VALIDATE_SYNC=1` run, now that the tree compiles, is what
-  would clear it.
+  `_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT`). With the tree compiling, the same
+  method cleared it: the `asan` and `gc` trees on `x11-vulkan` under
+  `FNL_VK_VALIDATION=1` and `VK_LAYER_VALIDATE_SYNC=1`, drawing
+  `--bench-antialias=taau` -- the only mode that makes the depth resident, so
+  the barrier and the `TRANSFER` transitions around
+  `scene_depth_make_resident()` both run every frame -- the records `complete`,
+  the layer proven mapped in the program's `/proc/<pid>/maps` and not merely
+  asked for, and no layer line in either log. Probed by hand, as the item
+  above is: what a checker *round* still owes is a TAAU section, a press on
+  the titlebar's TAAU box.
 - **What it costs**, by the table's own method (DESIGN *Antialiasing*): a
   pinned scene at 640x480 and at half the area, `--antialias=taau` against the
   same pin with no mode, on the RX 590 and on lavapipe, uncapped on `MAILBOX`,
