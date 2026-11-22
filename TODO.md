@@ -24,20 +24,37 @@ side +0.049 ms, the re-record the jitter forces. A captured frame
 
 Owed, in this order:
 
-- **Does Direct3D 12 draw it** -- the one of the four that has not. Every
-  environment it has here is shut, and shut without this change: the laptop's
-  `win64-d3d12-native` times out and `win64-d3d12` under wine stops after
-  "GPU in use" with *both* this tree and the tree at HEAD
-  (`git checkout -- src/renderer/d3d12/` and a rebuild gives the same
-  timeout and the same silence), while the guests that last passed on
-  2026-11-05 (`9f6f184`, 91 checks) cannot start here for want of the vboxdrv
-  module. So the debug layer's opinion of the resolve's
+- ~~**Does Direct3D 12 draw it**~~ -- **answered for the drawing (2026-11-22)**.
+  The environment the entry called shut is not: `win64-d3d12` under wine runs
+  at `df55495` as it ran at `6b1788c` -- 98 checks, none failed, the overlay's
+  picture among them -- and `tools/drive/bench.py win64-d3d12 --
+  --bench-antialias=taau --bench-scene-motion=1` writes a `complete` record
+  (59.997 fps, p99 18.45 ms, 1200 frames), with a frame captured through
+  `import -window` showing the star drawn and the titlebar's TAAU box ticked.
+  The silence that entry recorded was not reproduced, and the whole-tree
+  review's wine picture failure is gone with it.
+
+  **Still owed: the debug layer's opinion** of the resolve's
   `RENDER_TARGET -> COPY_SOURCE -> PIXEL_SHADER_RESOURCE` round trip, and of a
-  one-texture pipeline binding a two-descriptor table, is still owed.
-- **The Vulkan and GL barriers, under the validation layer**, in a checker
-  tree: the two around `vkCmdCopyImage`, the copy's write-after-write on a
-  history image the frame before wrote, and the GL blit's source and its
-  destination.
+  one-texture pipeline binding a two-descriptor table. It cannot be had under
+  wine: vkd3d-proton has no debug layer (`D3D12_NO_LAYER`,
+  `environment.py`), and a Debug tree on the guests or the laptop is where the
+  layer is (`d3d_create_instance()`, `#ifndef NDEBUG`). The guests can start
+  here again -- `/dev/vboxdrv` is loaded and `win10` and `win11` both exist --
+  so the way in is a `win64` `gc` round or bench there, where WARP draws.
+- ~~**The Vulkan and GL barriers, under the validation layer**~~ -- **measured
+  clean (2026-11-22)**. `asan` (Debug, so GL's debug output is on) with
+  `FNL_VK_VALIDATION=1`, `VK_LAYER_VALIDATE_SYNC=1` and
+  `VK_LAYER_VALIDATE_BEST_PRACTICES=1` -- the layer probe proves mapped in the
+  program's own `/proc/<pid>/maps` -- and `--bench-antialias=taau
+  --bench-scene-motion=1`: `x11-vulkan` drew 2395 frames in 40 s and
+  `x11-gl` 2432, both records `complete`, and neither log holds a layer line.
+  The two around `vkCmdCopyImage`, the copy's write-after-write on the history
+  image and the GL blit's source and destination are therefore silent under
+  the checks that would name them. Probed by hand and not by a round: the
+  round has no TAAU section, so what a checker round repeats is still owed --
+  a press on the titlebar's TAAU box (that box's x, and the echo's
+  `antialias` line as the proof the press landed) is what it wants.
 - **What it costs**, by the table's own method (DESIGN *Antialiasing*): a
   pinned scene at 640x480 and at half the area, `--antialias=taau` against the
   same pin with no mode, on the RX 590 and on lavapipe, uncapped on `MAILBOX`,
@@ -1079,18 +1096,19 @@ commit's other half, the LED's bit test at open and `GETCRTC` in the motion
 the round drives. Until one, the two image fixes and the check are reasoned
 and not measured.
 
-**The wine environments fail it, and no diagnosis is owed a guess.** Measured
-(2026-11-21, commit `1deaf19`, nine runs between them: six on
-`win64-vulkan`, three on `win64-d3d12`): both fail `a picture in the overlay
+**The wine environments' failure did not reproduce, and no diagnosis was
+made.** Measured (2026-11-21, commit `1deaf19`, nine runs between them: six on
+`win64-vulkan`, three on `win64-d3d12`): both failed `a picture in the overlay
 draws` and `and it is made again after its destroy`, while `I takes it away`
-passes on a picture that was never drawn; the log has no image line at all,
-so the renderer answered `fnl_image_supported()` true and
-`fnl_image_create()` made the image, and what is missing is the draw. The same
-check passes on this desk's `x11-vulkan` and `x11-gl` (OpenGL's run at
-`4bf939c` failed while the overlay push block was in; the block was reverted
-and the run after it was clean), and the guests, the laptops and the Mac have
-not run since. Owed: a wine round with the picture drawn by hand, and the
-`vkCmdDraw` that carries it read against the native tree's.
+passed on a picture that was never drawn. At `df55495` on 2026-11-22 both pass
+the three checks with a row 7.2% white: `win64-d3d12` 98 checks and
+`win64-vulkan` 94, none failed. Whatever it was, it went with the commits
+between them, and the draw is drawn -- so what is owed is not a diagnosis but
+a second look if it comes back. One thing to know while reading a wine round:
+`size_await()`'s 250 ms line (`no frame at the new size in 250 ms`) fires
+about once in a run's worth of wine rounds on this desk -- once in the
+`win64-vulkan` round here, and in five on 2026-11-02 -- and it fails the
+round's log check when it does.
 
 ## Three shapes a UI is made of
 

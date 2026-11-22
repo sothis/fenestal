@@ -7388,6 +7388,25 @@ both of which the table below prices at a fraction of the fetch they replace,
 against an accumulation that a moving frame was already paying for in
 re-recording.
 
+What has been measured since is what it draws and that its order is agreed
+with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a
+`complete` benchmark record -- 59.997 fps, p99 18.45 ms over 1200 frames, the
+scene moving -- and a frame read back off the window has the star in it and
+the titlebar's TAAU box ticked, so the one renderer whose environment was shut
+when this was written is the fourth of the four.
+
+The resolve's order is the validation layer's business, and the layer is
+silent on it (2026-11-22). An `asan` tree -- Debug, so GL's debug output is on
+-- with Khronos' layer enabled in the instance alone and sync and
+best-practices checks on, drawing the same moving TAAU frames: 2395 frames on
+`x11-vulkan` and 2432 on `x11-gl`, both records `complete`, and neither log
+holds a layer line. So the `RENDER_TARGET -> COPY_SOURCE` before the fill, the
+`COPY_SOURCE -> PIXEL_SHADER_RESOURCE` after it, the write the fill makes to
+the history image the frame before wrote, and the GL blit's source and its
+destination are each what those checks want. A round does not repeat it yet --
+the round has no TAAU section -- so it is a measurement and not an instrument
+(TODO *Temporal upscaling, measured*).
+
 **What they cost.** AMD Radeon RX 590 GME (RADV POLARIS10), the Wayland build
 at `--scale=2` — a 2584x1532 buffer over a 2560x1440 presentable area —
 uncapped on `MAILBOX`, motion off, command buffer reused (`record 0.00`). The
