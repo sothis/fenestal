@@ -18,7 +18,9 @@
  * Every pipeline here is made for the window's pass -- the drawable's
  * format, the window's depth, one sample -- and MLAA's own pass is given a
  * depth of the same format for the same reason, so that one set serves
- * both. None tests or writes the depth.
+ * both. None tests or writes the depth. The resolve is the one exception:
+ * it samples the scene's depth, so it draws in a pass with no depth
+ * attachment and its pipeline declares none (make_pso()).
  */
 
 #include "core/app.h"
@@ -120,7 +122,12 @@ static id<MTLRenderPipelineState> make_pso(App *a, const PsoDesc *s)
 	d.vertexFunction = vs;
 	d.fragmentFunction = fs;
 	d.rasterSampleCount = 1;
-	d.depthAttachmentPixelFormat = MT_DEPTH_FORMAT;
+	/* The resolve samples the scene's depth, so the pass it draws in binds
+	 * no depth attachment and its pipeline must declare none either: a
+	 * pipeline that declares one cannot be used in a pass that has none.
+	 * Unset (MTLPixelFormatInvalid) is that. It is the one such pipeline. */
+	if (strcmp(s->name, "TAAU") != 0)
+		d.depthAttachmentPixelFormat = MT_DEPTH_FORMAT;
 
 	if (s->n_inputs) {
 		MTLVertexDescriptor *vd = [MTLVertexDescriptor vertexDescriptor];
@@ -320,9 +327,10 @@ FnlResult mt_create_overlay(App *a)
 		  BLEND_NONE },
 		{ "MLAA", fullscreen_vert_msl, mlaa_frag_msl, NULL, 0, 0,
 		  BLEND_NONE },
-		/* The resolve: the fetch's shaders with two images read, and the
-		 * same pass shape as the filter's, so the one depth attachment
-		 * serves both. */
+		/* The resolve: the fetch's shaders with three images read (the
+		 * scene, the history and the scene's depth). Colour only, as
+		 * Vulkan's resolve is: it samples the depth, so the pass it draws
+		 * in binds no depth attachment. */
 		{ "TAAU", fullscreen_vert_msl, taau_frag_msl, NULL, 0, 0,
 		  BLEND_NONE },
 		/* The cover: the fetch once more, blended by a constant, for the

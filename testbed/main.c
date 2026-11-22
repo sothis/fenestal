@@ -60,10 +60,6 @@ static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
  * display's own rate, the default. */
 static int g_fps;
 static double g_fps_next;
-/* --width=PT: the window's presentable width in logical points, for capturing
- * the titlebar at a chosen width (where a control gives way). Applied to the
- * init descriptor, so the window opens at it; 0 leaves the default. */
-static int g_width_pt;
 
 /* The --bench* arguments, in order, for bench.c; and the first option given
  * beside them that a benchmark row sets instead, which is refused: a record
@@ -462,7 +458,6 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 				*status = EXIT_FAILURE;
 				return false;
 			}
-			g_width_pt = (int)n;
 			d->width_pt = (int)n;
 			continue;
 		}

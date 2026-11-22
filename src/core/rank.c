@@ -255,11 +255,18 @@ static bool rank_save(const App *a)
 	 * and may leave fclose() nothing to fail on: renamed, the short file
 	 * would stand for the whole ranking. */
 	const bool wrote = !ferror(f);
-	const bool ok    = fclose(f) == 0 && wrote;
+	/* The stream error's own errno, read before fclose() runs: a buffered
+	 * write that set the stream error need not have set errno, and a
+	 * subsequent successful fclose() leaves whatever errno last held --
+	 * the callers log strerror(errno), which would then read "Success" or
+	 * an unrelated call's error. */
+	const int e    = wrote ? 0 : errno;
+	const bool ok  = fclose(f) == 0 && wrote;
 	if (!ok) {
-		const int e = errno; /* what the callers' line says */
 		(void)remove(tmp);
-		errno = e;
+		/* A stream error that left no errno is still an error: say so
+		 * rather than let the caller print "Success" over the empty zero. */
+		errno = wrote ? errno : (e ? e : EIO);
 		return false;
 	}
 #if defined(_WIN32)
@@ -358,11 +365,19 @@ static void display_now(App *a, char *out, size_t size)
 	snprintf(pre, sizeof pre, "%s %dx%d@", name, w, h);
 	const size_t len = strlen(pre);
 	if (mhz == 0) {
+		/* Under the lock, as the rated lookup below: the lister thread
+		 * reads these names too (gpu_merge()), and one reader outside the
+		 * lock is the one a later cross-thread writer would tear. */
+		char kept[RANK_DISPLAY_MAX] = "";
+		fnl_mutex_lock(&a->lock);
 		for (int i = 0; i < a->rank_n; i++)
 			if (strncmp(a->rank[i].display, pre, len) == 0) {
-				snprintf(out, size, "%s", a->rank[i].display);
+				snprintf(kept, sizeof kept, "%s", a->rank[i].display);
 				break;
 			}
+		fnl_mutex_unlock(&a->lock);
+		if (kept[0])
+			snprintf(out, size, "%s", kept);
 		return;
 	}
 	/* And the other way round: figures kept @0, where the first start on

@@ -238,8 +238,17 @@ void x11_present_open(struct BackendState *p)
 }
 
 /* A completion of Present's, and the frame it answers stamped; true for any
- * event of Present's, which nothing else wants. libxcb puts full_sequence
- * at byte 32 of an event longer than 32, so `ust` is at 24, `msc` at 36. */
+ * event of Present's, which nothing else wants.
+ *
+ * The offsets are libxcb's in-memory layout, not the wire's. On the wire
+ * xPresentCompleteNotify puts msc at 32, but libxcb appends the generic
+ * event's body after the 36-byte xcb_generic_event_t (sizeof 36,
+ * full_sequence at 32) and writes its synthesised full_sequence there -- so
+ * every body field from byte 32 on lands 4 bytes further along. msc is
+ * therefore at 36 in the buffer this reads: the generated
+ * xcb_present_complete_notify_event_t is XCB_PACKED with full_sequence at
+ * 32 and msc at 36. The fields in the 32-byte header -- evtype 8, kind 10,
+ * mode 11, window 16, serial 20, ust 24 -- are unshifted. */
 bool x11_present_event(App *a, const xcb_generic_event_t *ev)
 {
 	struct BackendState *p = a->backend_state;

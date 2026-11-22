@@ -750,6 +750,8 @@ static void left_release(App *a, NSPoint pt)
 
 - (void)button:(FnlButton)b pressed:(bool)down event:(NSEvent *)e
 {
+	if (!app)
+		return;
 	const NSPoint pt = event_pt(app, e);
 	if (b == FNL_BUTTON_LEFT) {
 		left_held = down;
@@ -801,6 +803,8 @@ static void left_release(App *a, NSPoint pt)
  * turned or not; a trackpad's are points, at Wayland's ten to the step. */
 - (void)scrollWheel:(NSEvent *)e
 {
+	if (!app)
+		return;
 	double dx = -e.scrollingDeltaX, dy = -e.scrollingDeltaY;
 	if (e.hasPreciseScrollingDeltas) {
 		dx /= 10.0;
@@ -821,6 +825,8 @@ static void left_release(App *a, NSPoint pt)
  * handed to super, whose answer to a key nobody wants is a beep. */
 - (void)keyDown:(NSEvent *)e
 {
+	if (!app)
+		return;
 	const FnlKey k = key_from_code(e.keyCode);
 	if (e.ARepeat)
 		app_key_repeat(app, k);
@@ -832,6 +838,8 @@ static void left_release(App *a, NSPoint pt)
 
 - (void)keyUp:(NSEvent *)e
 {
+	if (!app)
+		return;
 	app_key(app, key_from_code(e.keyCode), false);
 }
 
@@ -839,6 +847,8 @@ static void left_release(App *a, NSPoint pt)
  * reports the lock and not the key, so each change is one press of it. */
 - (void)flagsChanged:(NSEvent *)e
 {
+	if (!app)
+		return;
 	if (e.keyCode == KC_CAPS_LOCK) {
 		app_key(app, FNL_KEY_CAPS_LOCK, true);
 		app_key(app, FNL_KEY_CAPS_LOCK, false);
@@ -884,6 +894,10 @@ static void compose_discard(App *a)
 - (void)insertText:(id)s replacementRange:(NSRange)r
 {
 	(void)r;
+	/* Detached: the window is going, and AppKit may still message the input
+	 * client as its context drops what was marked (see -detach). */
+	if (!app)
+		return;
 	struct BackendState *p = app->backend_state;
 	if (p->marked_len) {
 		p->marked_len = 0;
@@ -899,6 +913,8 @@ static void compose_discard(App *a)
 {
 	(void)sel;
 	(void)r;
+	if (!app)
+		return;
 	NSString *t = plain(s);
 	app->backend_state->marked_len = t.length;
 	app_compose_set(app, t.length ? t.UTF8String : NULL);
@@ -906,16 +922,18 @@ static void compose_discard(App *a)
 
 - (void)unmarkText
 {
+	if (!app)
+		return;
 	app->backend_state->marked_len = 0;
 	app_compose_set(app, NULL);
 }
 
 /* The client keeps no document, so the marked text is all of it: it starts
  * at 0 for as long as it is up. */
-- (BOOL)hasMarkedText  { return app->backend_state->marked_len > 0; }
+- (BOOL)hasMarkedText  { return app && app->backend_state->marked_len > 0; }
 - (NSRange)markedRange
 {
-	const size_t n = app->backend_state->marked_len;
+	const size_t n = app ? app->backend_state->marked_len : 0;
 	return n ? NSMakeRange(0, n) : NSMakeRange(NSNotFound, 0);
 }
 - (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
@@ -944,6 +962,8 @@ static void compose_discard(App *a)
 {
 	(void)r;
 	(void)actual;
+	if (!app)
+		return NSZeroRect;
 	int x = 0, y = 0, w = 0, h = 0;
 	if (!app_text_rect(app, &x, &y, &w, &h))
 		return NSZeroRect;
@@ -981,6 +1001,8 @@ static void compose_discard(App *a)
 - (BOOL)windowShouldClose:(NSWindow *)w
 {
 	(void)w;
+	if (!app)
+		return NO;
 	app_close_requested(app);
 	return NO;
 }
@@ -988,30 +1010,40 @@ static void compose_discard(App *a)
 - (void)windowDidResize:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	publish_size(app);
 }
 
 - (void)windowDidMove:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	publish_output(app, false);
 }
 
 - (void)windowDidChangeScreen:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	publish_output(app, true);
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	BACKEND(app)->update_scale(app);
 }
 
 - (void)windowDidMiniaturize:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	publish_on_screen(app);
 	publish_size(app);
 }
@@ -1019,6 +1051,8 @@ static void compose_discard(App *a)
 - (void)windowDidDeminiaturize:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	publish_on_screen(app);
 	publish_size(app);
 }
@@ -1026,6 +1060,8 @@ static void compose_discard(App *a)
 - (void)windowDidChangeOcclusionState:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	const bool seen = (WIN(app->backend_state).occlusionState &
 					   NSWindowOcclusionStateVisible) != 0;
 	fnl_atomic_store_bool(&app->backend_state->occluded, !seen);
@@ -1038,6 +1074,8 @@ static void compose_discard(App *a)
  * goes with the focus and the capture does not. */
 - (void)focus:(bool)in
 {
+	if (!app)
+		return;
 	struct BackendState *p = app->backend_state;
 	app_keys_clear(app);
 	if (in) {
@@ -1058,6 +1096,8 @@ static void compose_discard(App *a)
  * clicks, which find the view by where they land, went on arriving. */
 - (void)keysToView
 {
+	if (!app)
+		return;
 	NSWindow *w = WIN(app->backend_state);
 	if (w.firstResponder != (NSResponder *)VIEW(app->backend_state))
 		[w makeFirstResponder:VIEW(app->backend_state)];
@@ -1118,6 +1158,8 @@ static void fs_settle(App *a)
 - (void)windowWillEnterFullScreen:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	layer_hold(app->backend_state, true);
 	app->is_fullscreen = true;
 	app->backend_state->fs_transition = true;
@@ -1127,6 +1169,8 @@ static void fs_settle(App *a)
 - (void)windowDidEnterFullScreen:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	layer_hold(app->backend_state, false);
 	app->backend_state->fs_transition = false;
 	[self keysToView];
@@ -1137,6 +1181,8 @@ static void fs_settle(App *a)
 - (void)windowWillExitFullScreen:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	layer_hold(app->backend_state, true);
 	app->is_fullscreen = false;
 	app->backend_state->fs_transition = true;
@@ -1146,6 +1192,8 @@ static void fs_settle(App *a)
 - (void)windowDidExitFullScreen:(NSNotification *)n
 {
 	(void)n;
+	if (!app)
+		return;
 	layer_hold(app->backend_state, false);
 	app->backend_state->fs_transition = false;
 	[self keysToView];
@@ -1156,6 +1204,8 @@ static void fs_settle(App *a)
 - (void)windowDidFailToEnterFullScreen:(NSWindow *)w
 {
 	(void)w;
+	if (!app)
+		return;
 	layer_hold(app->backend_state, false);
 	app->is_fullscreen = false;
 	app->backend_state->fs_transition = false;
@@ -1166,6 +1216,8 @@ static void fs_settle(App *a)
 - (void)windowDidFailToExitFullScreen:(NSWindow *)w
 {
 	(void)w;
+	if (!app)
+		return;
 	layer_hold(app->backend_state, false);
 	app->is_fullscreen = true;
 	app->backend_state->fs_transition = false;

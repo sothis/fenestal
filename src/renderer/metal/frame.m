@@ -104,11 +104,16 @@ static id<MTLRenderCommandEncoder> begin_pass(App *a, id<MTLCommandBuffer> cb,
 	} else {
 		rp.colorAttachments[0].storeAction = MTLStoreActionStore;
 	}
-	rp.depthAttachment.texture = depth;
-	rp.depthAttachment.loadAction = MTLLoadActionClear;
-	rp.depthAttachment.clearDepth = 1.0;
-	rp.depthAttachment.storeAction = keep_depth ? MTLStoreActionStore
-												: MTLStoreActionDontCare;
+	/* A pass with `depth` nil binds none, which is what the resolve needs:
+	 * it samples the scene's depth and may not also attach it. The load and
+	 * store actions go with it, or the descriptor is inconsistent. */
+	if (depth) {
+		rp.depthAttachment.texture     = depth;
+		rp.depthAttachment.loadAction  = MTLLoadActionClear;
+		rp.depthAttachment.clearDepth  = 1.0;
+		rp.depthAttachment.storeAction = keep_depth ? MTLStoreActionStore
+													: MTLStoreActionDontCare;
+	}
 	id<MTLRenderCommandEncoder> enc =
 		[cb renderCommandEncoderWithDescriptor:rp];
 	if (enc) {
@@ -196,7 +201,9 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	 * has been written, so a rest, a pause, a dropped present and a rebuilt
 	 * device all read as no history. */
 	if (scene_taau(a, ds)) {
-		enc = begin_pass(a, cb, g->taau, nil, g->scene.depth, false);
+		/* No depth attachment: the resolve samples the scene's depth at unit
+		 * 2, and a pass may not both attach and sample one texture. */
+		enc = begin_pass(a, cb, g->taau, nil, nil, false);
 		if (!enc)
 			return false;
 		const bool prev = app_taau_follows(a, g->taau_present,
