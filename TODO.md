@@ -116,16 +116,17 @@ Owed, in this order:
   figure a reader weighing the cubical against a two-pass separable one wants.
   A frame read back to confirm the result is identical at 1:1 is still owed
   too.
-- **What the depth comparison costs and whether it earns its keep**: the
-  mode-dependent depth is in -- Vulkan rebuilds the scene target with a
-  resident depth at the first frame that wants TAAU, so no other offscreen
-  frame pays for one -- and what is left is the measurement. The same table's
-  method, a pinned scene against a direct frame, TAAU against the same pin
-  with the comparison off (`TAAU_DEPTH_REJECT` at nought), which is the only
-  way to price the comparison itself rather than the mode.
-  `TAAU_DEPTH_REJECT` is 0.02 of eye depth, a guess: what it should be wants
-  the moving cube of `demos/motion`, where the clamp, not the accumulation,
-  decides, and a frame read back off the window at two or three values.
+- **What the depth comparison costs** -- **measured, and it is nothing
+  (2026-11-22)**. `TAAU_DEPTH_REJECT` at nought leaves the fetch and the alpha
+  write in place and turns off only the compare: three interleaved runs each at
+  1280x720 read 0.512 ms at 0.02 and 0.514 at nought, a difference inside the
+  spread and in the wrong direction. Lavapipe agrees under a spread wider than
+  any signal. So the compare is free; the depth fetch and write are not, and
+  live inside the resolve's +0.095 ms. **Whether it earns its keep is still
+  owed**, and is a picture question, not a clock one: `TAAU_DEPTH_REJECT` at
+  0.02 is a guess, and what it should be wants the moving cube of
+  `demos/motion` -- where the clamp, not the accumulation, decides -- read back
+  off the window at two or three values against the threshold at nought.
 - **What a motion vector looks like**: the testbed's star under
   `--antialias=taau` with `fnl_set_scene_motion_px()` set, against the same
   run with no vector, which is the case the clamp alone was worst at (DESIGN

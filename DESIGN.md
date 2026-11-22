@@ -7459,6 +7459,19 @@ ms (15.29 direct against 218.79 with TAAU), and pinned at half +19.5 ms
 about software Vulkan rather than any GPU (TODO *Temporal upscaling,
 measured*).
 
+**The depth comparison is free**, measured (2026-11-22) against the same pin
+with `TAAU_DEPTH_REJECT` at nought -- which leaves the depth fetch and the
+alpha write in place and turns off only the compare, so it prices the compare
+and not the mode. Three runs each, interleaved so machine drift cannot pass for
+a cost: at 1280x720 the reject at 0.02 read 0.512 ms and at nought 0.514 ms, a
+0.002 ms difference in the wrong direction and inside the 0.496-0.515 spread of
+one build alone. The comparison is a reciprocal and an absolute difference on
+values the shader fetches anyway, and it does not register. The depth *fetch*
+and the alpha *write* are another matter and are always paid under the mode --
+they are inside the resolve's +0.095 ms at that pin above, not this figure.
+Lavapipe, where the arithmetic is a hundredfold dearer, shows the same nothing
+under a spread wider than any signal (TODO *Temporal upscaling, measured*).
+
 What has been measured since is what it draws and that its order is agreed
 with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a
 `complete` benchmark record -- 59.997 fps, p99 18.45 ms over 1200 frames, the
