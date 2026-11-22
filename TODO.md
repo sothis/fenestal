@@ -6,6 +6,12 @@ this list.
 
 ## Temporal upscaling, measured
 
+> **Handoff.** What was built on 2026-11-22 -- motion vectors, the bicubic
+> fetch, the depth-aware resolve and the third binding in all four renderers --
+> what was decided and why, and the measurements still owed is in
+> `.rpiv/artifacts/handoffs/2026-11-22_10-31-09_temporal-upscaling.md`. That
+> file is session tooling and untracked; this note is the pointer to it.
+
 Built on 2026-11-21 in all three trees -- `build/linux` (Vulkan and OpenGL),
 `build/win64` (Direct3D 12 and Vulkan) and `build/macos` (Metal) -- warning
 clean, the one shader through SPIR-V, GLSL 4.50, GLSL 4.10, DXIL and MSL.
