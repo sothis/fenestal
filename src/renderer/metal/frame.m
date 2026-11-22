@@ -165,10 +165,15 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	struct RendererState *g = MT(a);
 	const int w = a->scene_extent.w, h = a->scene_extent.h;
 	const bool ms = scene_msaa(a, ds);
+	/* The depth is stored when the resolve will sample it -- FNL_AA_TAAU
+	 * compares against it (mt_fetch2 takes it at unit 2), and a DontCare
+	 * store leaves it undefined for that read. The mode is exclusive of
+	 * multisampling, so this is the single-sample branch's depth. */
+	const bool keep = scene_taau(a, ds);
 	id<MTLRenderCommandEncoder> enc =
 		ms ? begin_pass(a, cb, g->scene_ms.color, g->scene.color,
 						g->scene_ms.depth, false)
-		   : begin_pass(a, cb, g->scene.color, nil, g->scene.depth, false);
+		   : begin_pass(a, cb, g->scene.color, nil, g->scene.depth, keep);
 	if (!enc)
 		return false;
 	record_scene(a, ds, cb, enc,
