@@ -36,12 +36,16 @@ Owed, in this order:
 
   **Still owed: the debug layer's opinion** of the resolve's
   `RENDER_TARGET -> COPY_SOURCE -> PIXEL_SHADER_RESOURCE` round trip, and of a
-  one-texture pipeline binding a two-descriptor table. It cannot be had under
-  wine: vkd3d-proton has no debug layer (`D3D12_NO_LAYER`,
-  `environment.py`), and a Debug tree on the guests or the laptop is where the
-  layer is (`d3d_create_instance()`, `#ifndef NDEBUG`). The guests can start
-  here again -- `/dev/vboxdrv` is loaded and `win10` and `win11` both exist --
-  so the way in is a `win64` `gc` round or bench there, where WARP draws.
+  one-texture pipeline binding a two-descriptor table. Neither machine that can
+  be reached here has the layer: vkd3d-proton has none (`D3D12_NO_LAYER`,
+  `environment.py`), and `win10`'s own Windows says `the Direct3D 12 debug
+  layer is not installed` -- its Graphics Tools are not a feature of the
+  guests' image (2026-11-22, `win64-d3d12-vm@win10`, `gc`, which drew 307 TAAU
+  frames on WARP with a `complete` record, so Windows itself draws the mode
+  too). The layer is on aspire's Windows at least: it raised its
+  own exception in DESIGN *A loss waits for the queue under Direct3D 12*, so
+  `win64-d3d12-native@aspire` on a `gc` tree is the way in, and both laptops
+  were unreachable on 2026-11-22.
 - ~~**The Vulkan and GL barriers, under the validation layer**~~ -- **measured
   clean (2026-11-22)**. `asan` (Debug, so GL's debug output is on) with
   `FNL_VK_VALIDATION=1`, `VK_LAYER_VALIDATE_SYNC=1` and

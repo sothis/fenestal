@@ -7393,7 +7393,9 @@ with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a
 `complete` benchmark record -- 59.997 fps, p99 18.45 ms over 1200 frames, the
 scene moving -- and a frame read back off the window has the star in it and
 the titlebar's TAAU box ticked, so the one renderer whose environment was shut
-when this was written is the fourth of the four.
+when this was written is the fourth of the four. Windows draws it as well as
+wine: the `win10` guest, on WARP, wrote a `complete` record of 307 frames in
+20 s (2026-11-22).
 
 The resolve's order is the validation layer's business, and the layer is
 silent on it (2026-11-22). An `asan` tree -- Debug, so GL's debug output is on
