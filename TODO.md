@@ -206,6 +206,62 @@ Owed, in this order:
   window's floor with no GPU box, which a renderer that has listed its GPUs
   never has.
 
+## Vendor temporal upscaling (MetalFX, FSR 2)
+
+Two vendor upscalers are open enough to build on -- MetalFX a system framework
+and FSR 2 under MIT -- with very different costs, and neither is written. The
+caller-side seam already lets a program bring its own: every
+renderer hands out the scene's command buffer and layout
+(`fnl_vulkan_scene_cmd()` and its D3D12/GL/Metal twins), and
+`fnl_set_scene_motion_px()` plus the depth are the inputs. So what follows is
+about the library drawing one itself, not about whether a caller could.
+
+- **MetalFX -- a scoped implementation, not yet written.** It fits the Metal
+  renderer: `MTLFXTemporalScaler` is a system framework (no vendored binary,
+  no new link line) and takes colour, depth, a motion texture, an output and a
+  jitter offset -- the last two and the depth the library already has
+  (`ds->jitter_x/y`, `ds->motion_x/y`, the scene depth). Two things block a
+  claim that it works, and both are the reason it is a TODO and not code:
+  1. **A motion texture, not a vector.** The scaler wants a per-pixel
+     two-component motion image; the library produces one uniform vector. A
+     MetalFX path can only synthesise a constant-motion texture from
+     `ds->motion_x/y`, which is faithful for a pure camera pan -- the case a
+     single vector describes, and what the API is documented for -- and wrong
+     for content that moves independently. Anything better wants a per-pixel
+     motion seam the library has not got, which is the same gap FSR 2 has.
+  2. **It cannot be verified here.** MetalFX's temporal scaler needs a
+     supported device and macOS 14 or later (it gates on
+     `supportedInputContentMinScaleForDevice:`). The one Mac in this lab is an
+     Intel one reached over ssh, and no round runs MetalFX. So the work must be
+     **built for real and then seen drawing on a Mac before it is called
+     done** -- writing it cross-compiled and unrun would be a claim with no
+     evidence. The shape: gate on `MTLFXSpatialScalerDescriptor` or
+     `MTLFXTemporalScalerDescriptor` at the device, fall back to `taau.frag`
+     where unavailable or refused, and add the constant-motion texture the
+     scaler reads.
+- **FSR 2 -- a planned subsystem, not an integration.** FSR 2 is MIT and so
+  may be reimplemented, but the tree has **no compute shaders at all**
+  (`shaders/` is `.vert`/`.frag`; no `vkCmdDispatch`/`glDispatchCompute` in
+  any renderer) and its reference is C++, against this tree's C11. A real FSR 2
+  means, in order: (a) a compute stage in the four renderers and the build's
+  shader translation for SPIR-V/GLSL/DXIL/MSL; (b) the passes ported to
+  C11 and compute GLSL -- reactive mask, locks, history, auto-exposure,
+  Lanczos; (c) the same per-pixel motion texture MetalFX wants, since FSR 2
+  reprojects by a vector field too. It is multi-session, and starts with the
+  compute foundation, Vulkan first.
+- **DLSS and XeSS are not implementable here** and are not on this list:
+  their upscalers are trained neural models shipped as opaque vendor binaries,
+  so "supporting" them is loading a vendor DLL, which the link invariant ("a
+  consumer links `fenestal` plus the system's own libraries, and nothing
+  else") and the no-vendored-binaries rule both refuse. A caller who has the
+  SDK loads it through its own code, on the seam above.
+- **The Metal depth the resolve samples is now stored (2026-11-22).** Found
+  while scoping MetalFX: the Metal scene pass opened with a `DontCare` depth
+  store, so the TAAU resolve read undefined depth for its rejection. Fixed
+  (`MTLStoreActionStore` when FNL_AA_TAAU is in force), built for the macOS
+  tree; not yet run, since no round drives TAAU on the Mac -- it wants a frame
+  on the Mac with `FNL_AA_TAAU` and the depth rejection on, read back.
+
 ## Windows laptops
 
 Each needs a hand on the machine or hardware the two laptops do not have.

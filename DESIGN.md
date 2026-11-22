@@ -7409,7 +7409,12 @@ asks for the mode pays nothing (TODO *Temporal upscaling, measured*).
 
 FSR 2's and DLSS's answer -- motion vectors, depth *and* a jittered projection
 handed back by the caller, through an interop entry per renderer -- is the
-feature; the first two are here, and the third is what is still missing.
+feature; the first two are here, and the third is what is still missing. The
+library draws the first two itself (this section's TAAU); drawing a *vendor*
+upscaler in its place is a caller's, through the per-renderer scene seam
+(`fnl_vulkan_scene_cmd()` and its twins), except MetalFX, which fits the
+library and is scoped in TODO *Vendor temporal upscaling* along with FSR 2 and
+why DLSS and XeSS cannot be built in at all.
 
 Three of its consequences are frame-policy decisions and not details. The
 jitter is in `FnlDrawState`, so a moving frame is *never* a cached recording
