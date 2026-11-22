@@ -13,3 +13,7 @@ __pycache__/
 # A machine's own particulars for Claude Code -- its remote, accounts and
 # paths -- beside the project's CLAUDE.md and never published with it.
 CLAUDE.local.md
+
+# Session tooling: handoffs and artifacts from the rpiv pipeline. Local to
+# the machine running the assistant, not project content.
+.rpiv/
