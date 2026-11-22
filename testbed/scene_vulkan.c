@@ -324,7 +324,7 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 	ScenePush pc = {
 		.size = { (float)f->scene_w_px, (float)f->scene_h_px },
 		.jitter = { f->jitter_x, f->jitter_y },
-		.time = f->scene_time,
+		.time = testbed_scene_time(f),
 		.srgb = s->srgb ? 1u : 0u,
 	};
 	vkCmdPushConstants(cb, s->layout,

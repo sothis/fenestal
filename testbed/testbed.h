@@ -78,6 +78,10 @@ int scene_gl_version(FnlApp *app);
  * D3D11"), and OpenGL's version where OpenGL draws ("OpenGL 4.1"), which
  * is 4.1 on a device with no 4.5. main.c. */
 void testbed_renderer_label(FnlApp *app, char *out, size_t size);
+/* The clock the scene's shaders are given: the frame's own scene_time, or,
+ * under --freeze, a held value so the picture keeps one pose while the
+ * library clock (and so the temporal jitter) runs. */
+float testbed_scene_time(const FnlFrame *frame);
 bool scene_d3d12_vram(FnlApp *app, double *mib);
 bool scene_metal_vram(FnlApp *app, double *mib);
 bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d);

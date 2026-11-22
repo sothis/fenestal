@@ -43,6 +43,12 @@
 static bool text_input;
 /* --transition=MS, in milliseconds; -1 leaves the library's own. */
 static int trans_ms = -1;
+/* --freeze: the scene drawn at a fixed clock while the library's own clock
+ * runs, so a temporal accumulation's jitter still advances and gathers while
+ * the picture holds one pose -- the only way MSAA, MLAA and TAAU frame the
+ * same star to compare. Read by testbed_scene_time(). */
+static bool g_freeze;
+static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
 
 /* The --bench* arguments, in order, for bench.c; and the first option given
  * beside them that a benchmark row sets instead, which is refused: a record
@@ -127,6 +133,11 @@ static void scene_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	if (scene)
 		scene->on_record(ud, app, f);
+}
+
+float testbed_scene_time(const FnlFrame *frame)
+{
+	return g_freeze ? g_freeze_t : frame->scene_time;
 }
 
 static void print_licence(void)
@@ -259,6 +270,12 @@ static void usage(FILE *f, const char *prog)
 		"                     the disc and the gradient, for a round that "
 		"reads\n"
 		"                     pixels rather than pressing keys.\n"
+		"  --freeze           draw the scene at a fixed clock while the\n"
+		"                     library's clock runs, so a temporal\n"
+		"                     accumulation still gathers its subpixel samples\n"
+		"                     while the picture holds one pose -- what lets\n"
+		"                     MSAA, MLAA and TAAU frame the same scene to\n"
+		"                     compare. Press F2 for the clock.\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
@@ -391,6 +408,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--shapes")) {
 			testbed_overlay_shapes_on();
+			continue;
+		}
+		if (!strcmp(arg, "--freeze")) {
+			g_freeze = true;
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {

@@ -147,10 +147,21 @@ Owed, in this order:
   star at 60 and at 30 sizes a second, against MSAA and MLAA, a frame read
   back off the window -- the demo's half-scale comparison answered the mode's
   worth, not the star's against the other two.
-- **What it looks like**: the testbed's star (geometry, so a jitter has
-  something to gather) at 60 and at 30 sizes a second, against MSAA and MLAA;
-  and the moving cube of `demos/motion` where the clamp, not the accumulation,
-  decides -- the case this mode is worst at, and the one a caller will hit.
+- ~~**What it looks like**~~ -- **measured on the star, against MSAA and MLAA
+  (2026-11-22)**. The testbed's star, `--freeze` (the scene at a held pose while
+  the library clock runs, so TAAU still gathers its jitter), motion on, each
+  mode set and its picture read back through the portal -- so all three frame
+  the identical scene: FSAA and TAAU differ by a mean 1.9/255, FSAA and MLAA
+  1.2/255, the difference at the edges alone. Over the star disc, **TAAU has
+  the fewest hard edge steps (3699 against FSAA's 5972 and MLAA's 6266) and the
+  most blended ones (6.0% against 4.5 and 4.6)** -- the smoothest edges, its
+  thin rotating wedges cleaner than MLAA's, which show stair-stepping at the
+  tips. FSAA and MLAA sit close, MLAA the weaker of the two on the fine
+  features, as the filter's four-pixel minimum span predicts. One pose at
+  native size on the RX 590; the 60-against-30-sizes-a-second pacing question
+  wants the moving star and is still owed. The moving cube of `demos/motion`
+  was judged too -- crisper with TAAU at half scale, edges holding through the
+  pan (its own entry above).
 - **Whether a resting window keeps it**: the image a still scene converged on
   has to stay on screen through the rest, which is `rest_owed()` reading a
   draw state whose jitter has stopped moving. Nothing in the code asks for a
