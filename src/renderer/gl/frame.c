@@ -137,8 +137,8 @@ static void fetch(App *a, unsigned prog, unsigned tex)
  * the program when it is linked (overlay.c): the 4.1 translation loses its
  * bindings, so a sampler left unset reads unit 0 and would mix the frame with
  * itself. */
-static void fetch2(App *a, unsigned prog, unsigned tex0, unsigned tex1,
-				   const TaauPush *pc)
+static void fetch2(App *a, uint32_t slot, unsigned prog, unsigned tex0,
+				   unsigned tex1, const TaauPush *pc)
 {
 	gl.UseProgram(prog);
 	gl.BindVertexArray(GLS(a)->vao_empty);
@@ -146,7 +146,7 @@ static void fetch2(App *a, unsigned prog, unsigned tex0, unsigned tex1,
 	gl.BindSampler(0, GLS(a)->sampler_linear);
 	gl.BindTextureUnit(1, tex1);
 	gl.BindSampler(1, GLS(a)->sampler_linear);
-	gl_push(a, pc, sizeof *pc);
+	gl_push(a, slot, pc, sizeof *pc);
 	gl.Disable(GL_BLEND);
 	gl.DrawArrays(GL_TRIANGLES, 0, 3);
 }
@@ -193,7 +193,7 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 			.texel  = { 1.0f / (float)w, 1.0f / (float)h, 0.0f, 0.0f },
 		};
 		begin_target(a, &GLS(a)->taau, w, h);
-		fetch2(a, GLS(a)->prog_taau, GLS(a)->scene.color,
+		fetch2(a, a->frame, GLS(a)->prog_taau, GLS(a)->scene.color,
 			   GLS(a)->taau_hist[a->frame].color, &pc);
 		gl.Disable(GL_SCISSOR_TEST);
 		gl.BlitNamedFramebuffer(GLS(a)->taau.fbo,

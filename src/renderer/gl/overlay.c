@@ -145,10 +145,16 @@ unsigned gl_program(const char *name, const char *vert, const char *frag)
 	return p;
 }
 
-void gl_push(App *a, const void *data, size_t bytes)
+void gl_push(App *a, uint32_t slot, const void *data, size_t bytes)
 {
+	/* The frame being recorded owns this block: a slot's draws are guarded by
+	 * the slot's fence, so nothing in flight reads what the next turn writes
+	 * into the other slot's. */
+	const unsigned buf = GLS(a)->push[slot];
 	FNL_ASSERT(bytes <= PUSH_BYTES);
-	gl.NamedBufferSubData(GLS(a)->push, 0, (GLsizeiptr)bytes, data);
+	if (!buf)
+		return; /* the overlay did not build; nothing draws either */
+	gl.NamedBufferSubData(buf, 0, (GLsizeiptr)bytes, data);
 }
 
 /* One instance-rate layout: `n` vec4 attributes at locations 0.. from the
@@ -336,9 +342,18 @@ FnlResult gl_create_overlay(App *a)
 		!g->prog_mlaa || !g->prog_taau || !g->prog_image)
 		return fnl_fail(FNL_ERR_SYSTEM, "the overlay's programs did not build");
 
-	gl.CreateBuffers(1, &g->push);
-	gl.NamedBufferStorage(g->push, PUSH_BYTES, NULL, GL_DYNAMIC_STORAGE_BIT);
-
+	/* One block a slot, and a name refused is no overlay: gl_own_state() binds
+	 * it and every push writes into it, so a nought would silently draw
+	 * nothing. */
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		gl.CreateBuffers(1, &g->push[i]);
+		gl.NamedBufferStorage(g->push[i], PUSH_BYTES, NULL,
+							  GL_DYNAMIC_STORAGE_BIT);
+		if (!g->push[i])
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"out of memory for the overlay's "
+							"push block");
+	}
 	/* Asked once, as a constant of the context, not at every frame. */
 	GLint clips = 0;
 	gl.GetIntegerv(GL_MAX_CLIP_DISTANCES, &clips);
@@ -412,14 +427,15 @@ void gl_destroy_overlay(App *a)
 	gl.DeleteVertexArrays(4, vaos);
 	const unsigned samplers[2] = { g->sampler_nearest, g->sampler_linear };
 	gl.DeleteSamplers(2, samplers);
-	if (g->push)
-		gl.DeleteBuffers(1, &g->push);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		if (g->push[i])
+			gl.DeleteBuffers(1, &g->push[i]);
 
 	g->prog_rect = g->prog_shape = g->prog_text = 0;
 	g->prog_blit = g->prog_mlaa = g->prog_taau = g->prog_image = 0;
 	g->vao_rect = g->vao_shape = g->vao_text = g->vao_empty = 0;
 	g->sampler_nearest = g->sampler_linear = 0;
-	g->push                                = 0;
+	memset(g->push, 0, sizeof g->push);
 }
 
 /* ---- drawing ------------------------------------------------------------- */
@@ -446,7 +462,9 @@ void gl_own_state(App *a)
 	gl.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	gl.DepthMask(GL_TRUE);
 	gl.BlendEquation(GL_FUNC_ADD);
-	gl.BindBufferBase(GL_UNIFORM_BUFFER, 0, GLS(a)->push);
+	/* The slot's, as every push writes into it: the frame being recorded is
+	 * the one whose draws may still be reading the other. */
+	gl.BindBufferBase(GL_UNIFORM_BUFFER, 0, GLS(a)->push[a->ovl_img]);
 }
 
 /* The blend each kind is drawn with: rectangles replace what is under them,
@@ -489,7 +507,7 @@ static void flush(App *a, unsigned prog, unsigned vao, size_t offset,
 	set_blend(blend);
 	const GlOverlayPush push = { .screen = { (float)a->extent.w,
 											 (float)a->extent.h } };
-	gl_push(a, &push, sizeof push);
+	gl_push(a, a->ovl_img, &push, sizeof push);
 	gl.DrawArraysInstancedBaseInstance(GL_TRIANGLE_STRIP, 0, 4,
 									   (GLsizei)(*count - *drawn), *drawn);
 	*drawn = *count;
@@ -591,7 +609,7 @@ void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 		.rect   = { (float)x, (float)y, (float)w, (float)h },
 		.screen = { (float)a->extent.w, (float)a->extent.h },
 	};
-	gl_push(a, &push, sizeof push);
+	gl_push(a, a->ovl_img, &push, sizeof push);
 	gl.DrawArrays(GL_TRIANGLES, 0, 6);
 }
 
@@ -715,7 +733,7 @@ FnlResult gl_text_end(App *a)
 					   ? 0.0f
 					   : 1.0f / (float)a->font_atlas_w,
 	};
-	gl_push(a, &push, sizeof push);
+	gl_push(a, a->text_img, &push, sizeof push);
 	gl.DrawArraysInstancedBaseInstance(GL_TRIANGLE_STRIP, 0, 4,
 									   (GLsizei)(a->text_count - a->text_drawn),
 									   a->text_drawn);

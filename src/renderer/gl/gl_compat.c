@@ -30,7 +30,10 @@
  * device (overlay.c), and a lost context's, never deleted, are taken over
  * by name when its successor hands the same names out. */
 #define VAO_RECORDS 16
-#define VAO_ATTRIBS 4
+/* Five: the stroke's layout is packed as vec4s -- p0, p2, color, color2 and
+ * shape_kind (overlay.c) -- and an attribute at or past this is silently
+ * dropped here, leaving that one at the generic value. */
+#define VAO_ATTRIBS 5
 #define VAO_BINDINGS 1
 
 typedef struct {

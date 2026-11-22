@@ -185,7 +185,11 @@ static int d3d_list_gpus(App *a, GpuEntry *out, int max)
 	int n = 0;
 	for (UINT i = 0; n < max; i++) {
 		IDXGIAdapter1 *ad = NULL;
-		if (IDXGIFactory4_EnumAdapters1(f, i, &ad) == DXGI_ERROR_NOT_FOUND)
+		/* Any failure ends the walk, not only NOT_FOUND: a null adapter left
+		 * in `ad` is dereferenced by GetDesc1, adapter_draws and Release
+		 * alike, which inside fnl_init() is a crash where a clean "no GPU"
+		 * is owed. */
+		if (FAILED(IDXGIFactory4_EnumAdapters1(f, i, &ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
 		IDXGIAdapter1_GetDesc1(ad, &d);
@@ -226,8 +230,7 @@ static FnlResult choose_adapter(App *a)
 	int pick_i = -1, hw_i = -1, sw_i = -1, left_out = 0;
 	for (UINT i = 0;; i++) {
 		IDXGIAdapter1 *ad = NULL;
-		if (IDXGIFactory4_EnumAdapters1(g->factory, i, &ad) ==
-			DXGI_ERROR_NOT_FOUND)
+		if (FAILED(IDXGIFactory4_EnumAdapters1(g->factory, i, &ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
 		IDXGIAdapter1_GetDesc1(ad, &d);

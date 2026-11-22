@@ -450,8 +450,14 @@ VkResult vk_dxgi_present(App *a, uint32_t img)
 	}
 	IDXGIKeyedMutex_ReleaseSync(d->km[img], 0);
 	const double at = now_seconds();
+	/* ALLOW_TEARING is only legal with an interval of 0, and `tear` was read
+	 * when the swapchain was made: a program opened with vsync off and later
+	 * asking for it on (fnl_set_vsync()) would present interval 1 with the
+	 * flag, which DXGI forbids. */
 	hr = IDXGISwapChain2_Present(d->sc, vsync ? 1 : 0,
-								 d->tear ? DXGI_PRESENT_ALLOW_TEARING : 0);
+								 d->tear && !vsync
+									 ? DXGI_PRESENT_ALLOW_TEARING
+									 : 0);
 	if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
 		return VK_ERROR_DEVICE_LOST;
 	if (SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED && a->counting)

@@ -90,6 +90,16 @@ static bool scene_taau(const App *a, const FnlDrawState *ds)
 		   VK(a)->taau_fb != VK_NULL_HANDLE;
 }
 
+/* Whether this frame's resolve may mix its slot's history in. One function
+ * for the pass that bakes the answer into a push constant and for the cache
+ * that decides whether a recording made with it still serves, so the two
+ * cannot disagree. */
+static bool taau_follows(const App *a)
+{
+	return app_taau_follows(a, VK(a)->taau_present,
+							VK(a)->taau_hist_ok[a->frame]);
+}
+
 /* The seam: the pass is begun, the viewport is set, and what goes in the
  * command buffer is the caller's. The buffer is stashed rather than passed,
  * because the public callback takes no Vulkan type; fnl_vulkan_scene_cmd()
@@ -246,12 +256,21 @@ static void record_taau_copy(App *a, VkCommandBuffer cb)
 	hist.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
 	const VkImageMemoryBarrier to[2] = { out, hist };
+	/* One barrier an image, each with the stages that wrote *it*: the pass
+	 * wrote the resolve target through the colour attachment, and the history
+	 * through the copy before it. One barrier over both would make each wait
+	 * on the other's stages, serialising the resolve against the copy for
+	 * nothing. */
 	vkCmdPipelineBarrier(cb,
 						 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-							 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+							 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
+						 &to[0]);
+	vkCmdPipelineBarrier(cb,
+						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
 							 VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2,
-						 to);
+						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
+						 &to[1]);
 
 	const VkImageCopy copy = {
 		.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
@@ -272,10 +291,16 @@ static void record_taau_copy(App *a, VkCommandBuffer cb)
 	back[1].newLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	back[1].srcAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
 	back[1].dstAccessMask        = VK_ACCESS_SHADER_READ_BIT;
+	/* And likewise back: the copy read the one and wrote the other, and each
+	 * returns to the layout the fetch reads. */
 	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
 						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
 							 VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 0, 0, NULL, 0, NULL, 2, back);
+						 0, 0, NULL, 0, NULL, 1, &back[0]);
+	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+							 VK_PIPELINE_STAGE_TRANSFER_BIT,
+						 0, 0, NULL, 0, NULL, 1, &back[1]);
 }
 
 /* The scene resolved against the frames before it: a pass of its own ahead of
@@ -289,8 +314,7 @@ static void record_taau_copy(App *a, VkCommandBuffer cb)
  * history, and no history is the picture the fetch would have drawn. */
 static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 {
-	const bool prev = app_taau_follows(a, VK(a)->taau_present,
-									   VK(a)->taau_hist_ok[a->frame]);
+	const bool prev = taau_follows(a);
 	VkRenderPassBeginInfo rp = {
 		.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass        = VK(a)->post_pass,
@@ -765,9 +789,21 @@ static bool frame_record(App *a, uint32_t img, const FnlDrawState *ds,
 	/* The resolve reads a history image of its own slot's, so a recording is
 	 * only good for the slot it was made in: without TAAU nothing in it names
 	 * one, and a recording is reused for whatever slot acquires the image, as
-	 * it always was. */
+	 * it always was. Asked of scene_taau() and not of the requested mode:
+	 * TAAU asked for with no offscreen scene under it, or refused the images
+	 * it needs, names no history, and pinning the recording to a slot for it
+	 * would re-record the scene and the overlay every frame for nothing.
+	 *
+	 * And the history weight is part of the recording too: the resolve baked
+	 * whatever taau_follows() answered when it was recorded, so a buffer
+	 * recorded before the accumulation may follow is not the one this frame
+	 * wants. */
+	const bool taau = scene_taau(a, ds);
+	const bool prev = taau && taau_follows(a);
 	if (VK(a)->img_cmd_gen[img] == a->record_gen &&
-		(!VK(a)->img_taau[img] || VK(a)->img_slot[img] == a->frame))
+		(!VK(a)->img_taau[img] ||
+		 (VK(a)->img_slot[img] == a->frame &&
+		  VK(a)->img_taau_prev[img] == prev)))
 		return true;
 
 	/* This image's command buffer may still be executing from an earlier
@@ -791,9 +827,10 @@ static bool frame_record(App *a, uint32_t img, const FnlDrawState *ds,
 	 * submitting, which a frame the recording cache served still does. */
 	if (a->timing)
 		a->fc_record = now_seconds() - *t_rec;
-	VK(a)->img_cmd_gen[img] = a->record_gen;
-	VK(a)->img_slot[img]    = a->frame;
-	VK(a)->img_taau[img]    = ds->aa == FNL_AA_TAAU;
+	VK(a)->img_cmd_gen[img]   = a->record_gen;
+	VK(a)->img_slot[img]      = a->frame;
+	VK(a)->img_taau[img]      = taau;
+	VK(a)->img_taau_prev[img] = prev;
 	return true;
 }
 

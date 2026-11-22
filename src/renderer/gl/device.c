@@ -102,20 +102,28 @@ static FnlResult create_device_objects(App *a)
 	fnl_mutex_unlock(&a->lock);
 	GLS(a)->software = gl_renderer_is_software(renderer);
 	/* The GPUs the display can be opened on (egl.c), the one in use named
-	 * as GL names it; where EGL lists none, or cannot say which the display
-	 * is on, the list is that one alone. Printed as every renderer prints
-	 * its inventory. */
+	 * as GL names it; where EGL lists none, the display's own device is the
+	 * one there is. Printed as every renderer prints its inventory. */
 	static FNL_THREAD_LOCAL GpuEntry list[GPU_LIST_MAX];
 	int cur = -1;
 	int n = gl_bridge_gpus(a, list, &cur);
-	if (n == 0 || cur < 0) {
+	/* Only where EGL listed none: the display's own device then names the one
+	 * GPU there is, and a list of one is what it is. EGL listing devices but
+	 * not saying which the display is on (dev_cur = -1) is left as it listed
+	 * them -- cutting the inventory to the one in use would make
+	 * gl_bridge_list_gpus() name GPUs app_gpu_list_publish() does not, which
+	 * is what the list_gpus invariant is against. */
+	if (n == 0) {
 		n = 1;
 		cur = 0;
+		list[0].name[0] = '\0';
 	}
-	snprintf(list[cur].name, sizeof list[cur].name, "%s", renderer);
-	list[cur].kind =
-		GLS(a)->software ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
-	list[cur].renderer = FNL_RENDERER_OPENGL;
+	if (cur >= 0) {
+		snprintf(list[cur].name, sizeof list[cur].name, "%s", renderer);
+		list[cur].kind =
+			GLS(a)->software ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
+		list[cur].renderer = FNL_RENDERER_OPENGL;
+	}
 	for (int i = 0; i < n; i++)
 		app_gpu_inventory(a, i, list[i].name, app_gpu_kind_word(list[i].kind));
 	fnl_log(FNL_LOG_INFO, "GPU in use: %s (OpenGL %s)%s", renderer,

@@ -325,8 +325,11 @@ unsigned gl_program(const char *name, const char *vert, const char *frag);
 /* The state every draw of the library's own relies on, set before them
  * rather than assumed: on_record may have left anything behind. */
 void gl_own_state(App *a);
-/* Load `bytes` of what a program's `Push` block holds. */
-void gl_push(App *a, const void *data, size_t bytes);
+/* Load `bytes` of what a program's `Push` block holds, in the block of the
+ * frame slot `slot` names -- the slot the draw being recorded belongs to,
+ * which the overlay's appends know as a->ovl_img and the scene's passes pass
+ * as draw_frame()'s. */
+void gl_push(App *a, uint32_t slot, const void *data, size_t bytes);
 
 /* ---- frame.c ------------------------------------------------------------- */
 bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,

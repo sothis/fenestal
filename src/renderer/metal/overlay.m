@@ -394,10 +394,14 @@ void mt_own_state(App *a, id<MTLRenderCommandEncoder> enc)
 	[enc setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
 }
 
+/* No mt_own_state() here: every caller opens the pass with begin_pass(), which
+ * sets that state, and nothing between the two touches depth, cull, fill or
+ * depth bias -- on_record has already run by then. Four encoder calls a
+ * fetch, on the TAAU resolve's two and the blit, were re-asserting what the
+ * pass set moments before. */
 void mt_fetch(App *a, id<MTLRenderCommandEncoder> enc,
 			  id<MTLRenderPipelineState> pso, id<MTLTexture> tex)
 {
-	mt_own_state(a, enc);
 	[enc setRenderPipelineState:pso];
 	[enc setFragmentTexture:tex atIndex:0];
 	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:0];
@@ -412,7 +416,7 @@ void mt_fetch2(App *a, id<MTLRenderCommandEncoder> enc,
 			   id<MTLRenderPipelineState> pso, id<MTLTexture> combined,
 			   id<MTLTexture> history, const TaauPush *pc)
 {
-	mt_own_state(a, enc);
+	/* As mt_fetch(): the pass owns the state these draws need. */
 	[enc setRenderPipelineState:pso];
 	[enc setFragmentTexture:combined atIndex:0];
 	[enc setFragmentTexture:history atIndex:1];

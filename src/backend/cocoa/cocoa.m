@@ -1602,7 +1602,14 @@ static bool cocoa_media_key(App *a, NSEvent *e)
 	case 7:  k = FNL_KEY_MUTE;        break;
 	default: return false;
 	}
-	app_key(a, k, ((data >> 8) & 0xff) == 0x0a);
+	/* The repeat flag is the low byte's, as a key's is: a held volume key
+	 * re-fires a binding once per repeat if this reaches app_key(), which is
+	 * what the invariant against repeats acting is for. */
+	const bool down = ((data >> 8) & 0xff) == 0x0a;
+	if (down)
+		app_key(a, k, true);
+	else
+		app_key_repeat(a, k);
 	return true;
 }
 

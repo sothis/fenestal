@@ -118,7 +118,14 @@ static void clip_read(App *a)
 		else
 			p->clip_over = true;
 	} else if (!p->clip_incr) {
-		clip_finish(a, data, len);
+		/* The bound before it is handed on, and not only on the INCR branch:
+		 * the request asked for 0x1fffffff words, so a one-piece answer is
+		 * whatever another program's property holds, and CLIP_MAX is the
+		 * ceiling clip_linux.h exists to impose on it. */
+		if (len > CLIP_MAX)
+			clip_finish(a, NULL, 0);
+		else
+			clip_finish(a, data, len);
 	} else if (len == 0) {
 		clip_finish(a, p->clip_over ? NULL : p->clip.buf, p->clip.len);
 	} else if (!p->clip_over && len <= CLIP_MAX - p->clip.len &&

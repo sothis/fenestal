@@ -235,10 +235,14 @@ static unsigned image_pixel_bytes(FnlImageFormat fmt)
 
 bool fnl_image_supported(const FnlApp *app)
 {
-	App *a = (App *)app;
-	if (!a || !a->renderer || !RENDERER(a)->image_supported)
+	const App *a = (App *)app;
+	/* The published table, not App::renderer: a caller on any thread asks
+	 * this, and a move to another renderer may be freeing the drawing one's
+	 * as it does (renderer.h). */
+	const FnlRendererVtbl *r = a ? renderer_any(a) : NULL;
+	if (!r || !r->image_supported)
 		return false;
-	return RENDERER(a)->image_supported(a);
+	return r->image_supported(a);
 }
 
 bool fnl_image_valid(const FnlApp *app, const FnlImage *img)

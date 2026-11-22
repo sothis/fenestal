@@ -149,8 +149,7 @@ struct RendererState {
 	unsigned scene_fbo_now;
 
 	/* ---- programs and their inputs --------------------------------------
-	 * One program per pairing gl_program() links at build time. The `Push`
-	 * block of every one of them is bound to point 0, which `push` backs. */
+	 * One program per pairing gl_program() links at build time. */
 	unsigned prog_rect;
 	unsigned prog_shape;
 	unsigned prog_text;
@@ -162,8 +161,13 @@ struct RendererState {
 	/* The picture placed at a rectangle (fnl_overlay_image()); its texture is
 	 * the caller's, behind FnlImage::gpu. */
 	unsigned prog_image;
-	unsigned push;
-
+	/* One `Push` block per frame slot: the block is bound to point 0 for
+	 * every program that has one, and it is rewritten as the slot records --
+	 * glPush* would be per draw, but a UBO's contents are undefined for draws
+	 * issued before a modification (GL 4.5 6.1.3), and a slot's draws may
+	 * still be in flight when the next turn records into the other. The
+	 * arenas are per-slot for the same reason. */
+	unsigned push[MAX_FRAMES_IN_FLIGHT];
 	/* The instance layouts, each fed from the frame slot's arena at the
 	 * offset a flush reads from; and one with nothing in it, which a core
 	 * context needs bound for the attribute-less fetch. */

@@ -163,6 +163,13 @@ struct RendererState {
 	 * submit one elsewhere. */
 	uint32_t img_slot[OVERLAY_MAX_IMAGES];
 	bool img_taau[OVERLAY_MAX_IMAGES];
+	/* Whether the recording mixed its slot's history in (App::presents and
+	 * taau_hist_ok as record_taau_pass() read them). Baked into the push
+	 * constant, so a recording is only good while the answer stands: the
+	 * first frame after a rest, a pause or a dropped present is recorded
+	 * with no history, and reusing it once the accumulation may follow would
+	 * hold the resolve at that frame for good. */
+	bool img_taau_prev[OVERLAY_MAX_IMAGES];
 
 	/* Two timestamps per image, at the first command of its buffer and
 	 * after the copy path's readback, ahead of a snapshot's copy
