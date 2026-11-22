@@ -73,6 +73,38 @@ static void reticle_set(double x, double y)
 	g_ui.reticle_y = y;
 }
 
+/* The scene's own statement of how far it moved since the frame before it,
+ * in pixels of the scene (fnl_set_scene_motion_px()), so that what the
+ * resolve is reprojecting by can be read off the screen. Held here and not
+ * read back, because the API says what was *set* and the resolve reads what
+ * the frame latched: the two differ while a change is in flight, and it is
+ * the frame's half the resolve uses. g_motion is that second half, the
+ * scene's clock, read from fnl_scene_motion() as the event drain passes. */
+static float g_motion_x, g_motion_y;
+static bool  g_motion;
+
+/* The scene's motion vector: F8 steps it up by MOTION_STEP and Shift with
+ * F8 steps it back, clamped to [0, MOTION_MAX] -- so a run of presses with
+ * Shift returns it to zero, the still scene the clamp alone was worst at
+ * (DESIGN *Antialiasing*). The vertical is half the horizontal, the way a
+ * camera panning left and up would put the picture. The step is a few
+ * pixels: a whole texel at a typical scene size is what one press is worth.
+ * The ceiling is well under a scene's width, since a vector larger than that
+ * reprojects the history off the picture entirely. */
+#define MOTION_STEP 1.0f
+#define MOTION_MAX  64.0f
+
+static void motion_step(float d)
+{
+	float x = g_motion_x + d;
+	if (x > MOTION_MAX)
+		x = MOTION_MAX;
+	else if (x < 0.0f)
+		x = 0.0f;
+	g_motion_x = x;
+	g_motion_y = x * 0.5f;
+}
+
 /* ---- the keybindings panel ----------------------------------------------- */
 
 static const struct {
@@ -88,6 +120,7 @@ static const struct {
 	{ "Click LMB", "Capture mouse", { FNL_KEY_UNKNOWN } },
 	{ "F1", "Toggle this help", { FNL_KEY_UNKNOWN } },
 	{ "F2", "Scene motion", { FNL_KEY_UNKNOWN } },
+	{ "F8", "Scene motion px", { FNL_KEY_UNKNOWN } },
 	{ "F3", "Text entry", { FNL_KEY_UNKNOWN } },
 	{ "F4 / F6", "Copy / paste", { FNL_KEY_UNKNOWN } },
 	{ "F5", "Toggle metrics", { FNL_KEY_UNKNOWN } },
@@ -297,7 +330,7 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 {
 	const int line = fnl_text_line(FNL_TEXT_BODY);
 
-	char gpu[288], plat[160], mode[160], cur[48], out[80];
+	char gpu[288], plat[160], mode[224], cur[48], out[80];
 	snprintf(gpu, sizeof gpu, "GPU  %s", fnl_gpu_name(app));
 	const char *o = fnl_output_name(app);
 	snprintf(out, sizeof out, "Output  %s", o && o[0] ? o : "-");
@@ -344,8 +377,18 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 	else if (fnl_antialias(app) == FNL_AA_TAAU)
 		snprintf(aa, sizeof aa, "TAAU   ");
 
-	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s", f->area_w_px, f->area_h_px,
-			 scene, aa, fnl_present_mode(app));
+	/* Under TAAU, what the resolve is told the scene moved -- the pair, and
+	 * whether the scene's own clock is running at all, which is what makes
+	 * the resolve's jitter move (F2). The pair reads even while the clock is
+	 * off, since a caller setting one without the other is the mistake this
+	 * is meant to be seen in. */
+	char mo[64] = "";
+	if (fnl_antialias(app) == FNL_AA_TAAU)
+		snprintf(mo, sizeof mo, "Motion %g, %g%s", (double)g_motion_x,
+				 (double)g_motion_y, g_motion ? "" : "  (F2 for the jitter)");
+
+	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s%s", f->area_w_px,
+			 f->area_h_px, scene, aa, mo, fnl_present_mode(app));
 
 	int x = MARGIN;
 	/* status_panel_top() is where the *background* starts; the first row of
@@ -667,6 +710,7 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		g_motion_echo = moving ? 1 : 0;
 		fprintf(stderr, "scene motion: %s\n", moving ? "on" : "off");
 	}
+	g_motion = moving;
 	switch (ev->type) {
 	case FNL_EVENT_KEY:
 		/* F1 toggles a panel the library cannot see, so nothing in what it
@@ -682,6 +726,22 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * still close it with Escape afterwards. Nothing is drawn for it. */
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F3)
 			fnl_set_text_input(app, !fnl_is_text_input(app));
+		/* F8: the scene's motion vector, in steps of MOTION_STEP, and back
+		 * again with Shift. F2 is the library's and never reaches here, so
+		 * the vector and the scene's clock are two presses, as they are two
+		 * calls -- and a vector under a clock that is off is a reprojection
+		 * the resolve does not read, which is why the status line names both
+		 * while TAAU is in force. */
+		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F8) {
+			motion_step(fnl_key_down(app, FNL_KEY_LSHIFT) ||
+							fnl_key_down(app, FNL_KEY_RSHIFT)
+						? -MOTION_STEP
+						: MOTION_STEP);
+			fnl_set_scene_motion_px(app, g_motion_x, g_motion_y);
+			fprintf(stderr, "scene motion px: %g, %g\n", (double)g_motion_x,
+					(double)g_motion_y);
+			fnl_invalidate(app);
+		}
 		/* The clipboard, one key each way: F4 offers a string a harness can
 		 * recognise and F6 asks for whatever is there, which comes back as
 		 * FNL_EVENT_CLIPBOARD. Both in answer to a key press, which is the

@@ -157,7 +157,9 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
    fixed + `late-latch-ms`, `antialias` (dim where `!fnl_offscreen_supported`),
    `scene-scale`; `backend`/`renderer`/`gpu` (INIT; `auto` leaves the
    harness's `FNL_BACKEND`/`FNL_RENDERER`/`FNL_GPU` standing), `scene-motion`
-   (phase 2 setter), `scene-load` (1-256 star draws), `redraw` every-frame /
+   (phase 2 setter), `scene-motion-px` (the pair the TAAU resolve reprojects
+   by, pixels of the scene, the vertical half the horizontal as the testbed's
+   F8 sets it), `scene-load` (1-256 star draws), `redraw` every-frame /
    motion-only / at-rest, `cost-sampling`, `transition-ms`; `load-threads`,
    `load-duty`, `load-affinity`, `load-priority`, `process-affinity` (INIT,
    n/a on macOS), `priority` (INIT); `library-log`, `frame-times` (INIT),
@@ -260,6 +262,12 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
     - `fnl_set_scene_motion(app, bool)` / `fnl_scene_motion(app)` `[any]`,
       phase 2: the F2 flag made public (app.c:2014), with the wake
       `fnl_invalidate()` does.
+    - `fnl_set_scene_motion_px(app, dx_px, dy_px)` `[any]`: how far the
+      scene moved since the frame before it, in pixels of the scene, which
+      the `FNL_AA_TAAU` resolve reprojects the history by (sign of a camera
+      pan, `x - last_x`); a pair under `App::lock`, in the draw state, gated
+      on the clock running as the jitter is. A caller sets it every moving
+      frame and back to `(0, 0)` when the scene stops.
     - `fnl_set_frame_stats(app, bool)` + `fnl_frame_stats(app,
       FnlFrameStats *)` `[any]`, phase 2: cumulative counters the caller
       diffs (turns, frames, presents, rested; pace/fence/acquire/record/

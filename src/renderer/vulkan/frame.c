@@ -357,7 +357,7 @@ static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 			.image = VK(a)->scene_depth.image,
 			.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 },
 			.srcAccessMask    = VK_ACCESS_SHADER_READ_BIT,
-			.dstAccessMask    = VK_ACCESS_DEPTH_ATTACHMENT_WRITE_BIT,
+			.dstAccessMask    = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 		};
 		vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 							 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |

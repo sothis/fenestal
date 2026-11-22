@@ -315,7 +315,9 @@ static void read_platform(FnlApp *app, const FnlFrame *f, bool driver)
 	fnl_window_size_pt(app, &r->window_w_pt, &r->window_h_pt);
 	r->samples = f->samples;
 	r->fullscreen = fnl_is_fullscreen(app);
-	r->scene_motion = fnl_scene_motion(app);
+	r->scene_motion     = fnl_scene_motion(app);
+	r->scene_motion_x   = (float)bench_opt_num(R.cfg, OPT_SCENE_MOTION_PX);
+	r->scene_motion_y   = r->scene_motion_x * 0.5f;
 
 	TestbedDriver d;
 	memset(&d, 0, sizeof d);
@@ -931,6 +933,11 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 		fnl_set_transition_ms(app, bench_opt_int(c, OPT_TRANSITION_MS));
 	fnl_set_cost_sampling(app, bench_opt_bool(c, OPT_COST_SAMPLING));
 	fnl_set_scene_motion(app, bench_opt_bool(c, OPT_SCENE_MOTION));
+	/* The resolve's reprojection, from before the first frame: the scene is
+	 * static under a run, so a vector that was not latched with the run's
+	 * first frames would be pointed by whatever the window happened to hold. */
+	const double mv_px = bench_opt_num(c, OPT_SCENE_MOTION_PX);
+	fnl_set_scene_motion_px(app, (float)mv_px, (float)(mv_px * 0.5));
 	/* Counted from the start, and read at the measure's two ends. */
 	fnl_set_frame_stats(app, true);
 	if (bench_opt_int(c, OPT_ANTIALIAS) != AA_DEFAULT)

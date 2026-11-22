@@ -97,6 +97,7 @@ typedef enum {
 	OPT_LIBRARY_LOG,
 	OPT_NOTES,
 	OPT_SCENE_MOTION,
+	OPT_SCENE_MOTION_PX,
 	OPT_LOAD_THREADS,
 	OPT_LOAD_DUTY,
 	OPT_LOAD_AFFINITY,
@@ -270,6 +271,9 @@ typedef struct {
 	unsigned refresh_mhz;       /* fnl_output_refresh_mhz(), 0 unknown */
 	int    area_w_px, area_h_px, window_w_pt, window_h_pt, samples;
 	bool   fullscreen, scene_motion;
+	/* How far the scene was told it moved, in pixels of the scene: the
+	 * vertical is half the horizontal, as the option and F8 set it. */
+	float  scene_motion_x, scene_motion_y;
 	BenchConditions cond;
 	/* The GPU driver, as the renderer's API names it; "" unknown. */
 	char   driver_name[256], driver_info[256], api_version[160];

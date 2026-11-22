@@ -131,6 +131,15 @@ const BenchOption BENCH_OPTIONS[OPT_COUNT] = {
 		B("scene-motion", "Scene motion", 0, BENCH_RUN, BENCH_PAGE_WINDOW,
 		  "the scene's clock running, as F2 does: every "
 		"frame records again (fnl_set_scene_motion())"),
+	[OPT_SCENE_MOTION_PX] =
+		N("scene-motion-px", "Motion px", 0, 64, 0.5, 0, BENCH_RUN,
+		  BENCH_PAGE_WINDOW,
+		  "how far the scene is told it moved since the frame "
+		  "before it, in pixels of the scene, downwards as well "
+		  "as across (fnl_set_scene_motion_px()); half of it "
+		  "is the vertical, as the testbed's F8 sets it. Read "
+		  "only under TAAU with scene-motion on, which is what "
+		  "the resolve needs to move at all"),
 
 	[OPT_LOAD_THREADS] = I("load-threads", "Load threads", 0, 64, 1, 0,
 						   BENCH_RUN, BENCH_PAGE_LOAD,

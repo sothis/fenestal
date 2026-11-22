@@ -24,6 +24,15 @@
  *   it moves by the clock    the angle is a function of FnlFrame::time, not
  *                            a step a call, so the cube turns at the same
  *                            rate at any frame rate.
+ *
+ * As motion does, F2 turns on a *drift* of the whole picture as well as
+ * the clock, which is what fnl_set_scene_motion_px() is for: a scene that
+ * only spins has no motion for the library's temporal antialiasing to
+ * reproject, and the drift is what that mode is looked at in. The vector is
+ * computed from the pan every frame, never chosen by hand, so it cannot
+ * describe a move the picture did not make. F2 is the library's own binding
+ * for the scene's clock, so this reads it back with fnl_scene_motion()
+ * rather than ever seeing the key itself.
  */
 
 #include "motion2.h"
@@ -34,7 +43,7 @@
 #include <string.h>
 
 #define TITLE       "fenestal-demo-motion2"
-#define HINT        "F5 metrics   Esc quit"
+#define HINT        "F2 drift   F5 metrics   Esc quit"
 
 #define PI_D        3.14159265358979
 #define SPIN_Y      0.9                   /* radians a second, about y */
@@ -44,6 +53,13 @@
 #define Z_NEAR      0.1f
 #define Z_FAR       20.0f
 #define MARGIN      12                    /* points from the content edge */
+/* How far the camera swings sideways, in world units, and how often it makes
+ * the there-and-back trip: a pan wide enough to sweep the cube across a
+ * 960-point window and slow enough that the eye reads it as a camera move
+ * rather than a stutter. The vector the resolve is given is derived from this
+ * pan every frame and never chosen by hand, so the two cannot disagree. */
+#define PAN_AMP     0.8f
+#define DRIFT_HZ    0.15
 
 /* Towards the light, in the world: up, right and towards the camera.
  * Normalised by hand. */
@@ -162,7 +178,74 @@ static const Scene SCENES[] = {
  * thread, never two callbacks at once. */
 static const Scene *g_scene;
 
+/* Whether the scene is drifting, which is fnl_scene_motion()'s answer read
+ * in on_overlay and the only thing that decides it: F2 is the library's
+ * binding, and the scene's clock is the same state. */
+static bool g_drift;
+
 /* ---- the callbacks ------------------------------------------------------- */
+
+/* The camera for this frame: swung on x by the pan, a function of the
+ * scene's own clock -- which is stopped while F2 is off -- so the drift
+ * begins from rest each time it is switched on rather than jumping in. A
+ * scene's own turn moves each corner differently and no one vector can say
+ * so; a camera's pan moves every pixel alike, which is what
+ * fnl_set_scene_motion_px() describes. */
+static Mat4 camera(float seconds)
+{
+	const float x = g_drift
+		? PAN_AMP * (float)sin(2.0 * PI_D * DRIFT_HZ * (double)seconds)
+		: 0.0f;
+	return mat4_translate(x, 0.0f, -CAM_DIST);
+}
+
+/* Where the world's origin lands, in scene pixels, through `proj` and
+ * `view`: the perspective divide and the viewport, no rotation, since the
+ * camera's pan is the one thing that slides the whole picture. */
+static void origin_px(const Mat4 *proj, const Mat4 *view, int w, int h,
+					  float *x, float *y)
+{
+	const Mat4 mvp = mat4_mul(*proj, *view);
+	const float cw = mvp.m[15];
+	*x = (mvp.m[12] / cw * 0.5f + 0.5f) * (float)w;
+	*y = (mvp.m[13] / cw * 0.5f + 0.5f) * (float)h;
+}
+
+/* How far the picture moved since the frame before it, in scene pixels: the
+ * world origin's place through this frame's camera against the last frame's,
+ * from the same camera the draw uses, so the vector cannot describe a move
+ * the picture did not make. The origin sits at the cube's depth, which is
+ * where the picture's content is; a perspective pan moves nearer and further
+ * pixels by slightly different amounts, and one vector cannot say so -- which
+ * is the clamp's work, not the vector's. A still camera, the default, needs
+ * no vector. */
+static void motion_update(FnlApp *app, const FnlFrame *f)
+{
+	static bool have;
+	static float lx, ly;
+
+	if (!g_drift || f->scene_w_px < 1 || f->scene_h_px < 1) {
+		have = false;
+		fnl_set_scene_motion_px(app, 0.0f, 0.0f);
+		return;
+	}
+	const int w = f->scene_w_px, h = f->scene_h_px;
+	const Mat4 proj = mat4_perspective(FOV_Y, (float)w / (float)h,
+									   Z_NEAR, Z_FAR);
+	const Mat4 view = camera(f->scene_time);
+	float x, y;
+	origin_px(&proj, &view, w, h, &x, &y);
+	/* The first drifting frame has no frame before it to move from, so it
+	 * moves nothing and seeds the pair. */
+	if (!have) {
+		lx = x;
+		ly = y;
+		have = true;
+	}
+	fnl_set_scene_motion_px(app, x - lx, y - ly);
+	lx = x;
+	ly = y;
+}
 
 static void on_gpu_created(void *ud, FnlApp *app)
 {
@@ -189,6 +272,11 @@ static void on_record(void *ud, FnlApp *app, const FnlFrame *f)
 	 * frame always differs from this one. */
 	fnl_invalidate(app);
 
+	/* The picture's motion, and the vector the resolve reprojects by: from
+	 * the frame's own clock and the same camera the scene is drawn with, so
+	 * the vector matches the movement it describes. */
+	motion_update(app, f);
+
 	if (f->scene_w_px < 1 || f->scene_h_px < 1)
 		return;
 
@@ -196,7 +284,7 @@ static void on_record(void *ud, FnlApp *app, const FnlFrame *f)
 							  mat4_rotate_x(turn(f->time, SPIN_X)));
 	const Mat4 proj = mat4_perspective(
 		FOV_Y, (float)f->scene_w_px / (float)f->scene_h_px, Z_NEAR, Z_FAR);
-	const Mat4 view = mat4_translate(0.0f, 0.0f, -CAM_DIST);
+	const Mat4 view = camera(f->scene_time);
 
 	CubePush push;
 	memset(&push, 0, sizeof push);
@@ -219,10 +307,17 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	(void)ud;
 	(void)f;
-	/* Drained every frame, though nothing here is acted on: a waiting
-	 * event is itself a reason to record a frame. */
+	/* Drained every frame: a waiting event is itself a reason to record a
+	 * frame, and F2's change is one this program has to see to start or stop
+	 * moving the picture. */
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
+		if (ev.type == FNL_EVENT_KEY && ev.key.pressed &&
+			!ev.key.repeat && ev.key.key == FNL_KEY_F2) {
+			g_drift = fnl_scene_motion(app);
+			if (!g_drift)
+				fnl_set_scene_motion_px(app, 0.0f, 0.0f);
+		}
 	}
 
 	int cx, cy, cw, ch;

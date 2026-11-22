@@ -61,6 +61,7 @@
         "scale_120": {"type": "integer"},
         "fullscreen": {"type": "boolean"},
         "scene_motion": {"type": "boolean"},
+        "scene_motion_px": {"type": ["number", "null"]},
         "driver": {"type": "object"},
         "env": {"type": "object",
                 "additionalProperties": {"type": ["string", "null"]}}

@@ -69,7 +69,8 @@ void main()
 		const float kj = wy[j];
 		for (int i = 0; i < 4; ++i) {
 			/* Texel b + (i, j) - 1, whose centre is at +0.5. */
-			const vec2 o = (b + vec2((float)i, (float)j) - 0.5) * texel;
+			const vec2 o =
+				(b + vec2(float(i), float(j)) - 0.5) * texel;
 			c += textureLod(u_scene, o, 0.0).rgb * (wx[i] * kj);
 		}
 	}

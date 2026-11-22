@@ -464,6 +464,7 @@ static void document(BenchJson *j, const BenchConfig *c,
 	bench_json_int(j, "samples_n", r->samples);
 	bench_json_bool(j, "fullscreen", r->fullscreen);
 	bench_json_bool(j, "scene_motion", r->scene_motion);
+	bench_json_num(j, "scene_motion_px", (double)r->scene_motion_x);
 	bench_json_obj(j, "driver");
 	bench_json_str(j, "name", r->driver_name[0] ? r->driver_name : NULL);
 	bench_json_str(j, "info", r->driver_info[0] ? r->driver_info : NULL);
