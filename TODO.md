@@ -99,13 +99,23 @@ Owed, in this order:
   figures are in DESIGN *Antialiasing*. What the fill on its own costs, apart
   from the resolve, is the one figure still owed rather than folded into the
   pair.
-- **What the scene's fetch costs now**, which is the one figure the change to
-  a Catmull-Rom cubic owes and nothing has measured: the same method, a
-  pinned scene against a direct frame, since the cubic is sixteen bilinear
-  taps at the window's own resolution where the fetch was one. Its own claim
-  is that it is the identity at 1:1, which is a prediction and not a
-  measurement -- the antialias modes at the scene's own size are the case,
-  and a frame read back off the window is what would show it.
+- ~~**What the scene's fetch costs now**~~ -- **measured (2026-11-22)**. The
+  same method as the resolve's table: the cubic fetch against the bilinear one
+  it replaced, the shader the only difference, a 2560x1440 area on the RX 590.
+  The fetch runs per output pixel, so its cost is flat: **+0.26 ms of GPU**
+  whether the scene is native, pinned at half or a quarter. And the design's
+  claim that it "pays what it paid before" at 1:1 is right about the result
+  and wrong about the cost -- at native size a direct frame never fetches
+  (0.165 ms either way), but a TAAU frame goes 0.576 to 0.829. So the sharper
+  stretch is +0.26 ms even where it changes no pixel. That +0.26 is the
+  cubic's own increment -- sixteen taps against the bilinear fetch's one, both
+  at the same 2560 output, so the resolution is common to both and cancels.
+  What is still owed is how much a *cheaper* cubic reclaims: the same sixteen
+  taps collapse to four with the separability the loop does not use (a bilinear
+  row pass then a bilinear column pass), and that against the sixteen is the
+  figure a reader weighing the cubical against a two-pass separable one wants.
+  A frame read back to confirm the result is identical at 1:1 is still owed
+  too.
 - **What the depth comparison costs and whether it earns its keep**: the
   mode-dependent depth is in -- Vulkan rebuilds the scene target with a
   resident depth at the first frame that wants TAAU, so no other offscreen

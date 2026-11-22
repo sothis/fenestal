@@ -7214,10 +7214,21 @@ presentable area?
   decodes the _SRGB texels and interpolates in linear, but the negative lobe
   of the cubic is what a bilinear stretch rounds off. At 1:1 -- an
   antialias mode at the scene's own size, where the fetch copies the image
-  to the window -- the fraction is zero, the outer weights vanish and it is
-  the identity, so a caller that pins no scale pays what it paid before. The
-  cost is owed: sixteen taps where there was one, at the window's own
-  resolution (TODO *Temporal upscaling, measured*).
+  to the window -- the fraction is zero, the outer weights vanish and the
+  *result* is the identity; but it is still sixteen taps where the bilinear
+  fetch was one, and that is priced rather than free.
+
+  **What the cubic costs** (2026-11-22), the same method as the resolve's
+  table above: the fetch is a per-output-pixel cost, so at a 2560x1440 area it
+  is a flat **+0.26 ms of GPU** whether the scene is native, pinned at half or
+  at a quarter, and whether TAAU is on -- at native size the direct frame does
+  not fetch at all (0.165 ms either way), while a TAAU frame there goes 0.576
+  to 0.829 ms; pinned at 1280x720 a direct frame goes 0.167 to 0.427 and a TAAU
+  one 0.249 to 0.514; pinned at 640x360, 0.143 to 0.401 and 0.173 to 0.433. So
+  the sixteen taps cost +0.26 ms over the one, and a caller pinning no scale
+  pays it for the sharper stretch. How much a *cheaper* cubic reclaims -- the
+  same taps in a single bilinear row-then-column pass, four by the separability
+  the loop does not use -- is not measured.
 
 A pin larger than the area on either axis is **ignored, not fitted**: fitting it
 means either distorting an aspect nobody asked to distort or picking a size
