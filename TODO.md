@@ -197,8 +197,14 @@ Owed, in this order:
   the DP-1 output box is **present at 800 and at 792, gone at 790**, the GPU box
   taking its place -- the derived boundary holds. At 700 the bar is intact and
   readable, every control fitting with no overlap or truncation. So the
-  give-way widths are measured rather than derived now; a look at the bar at an
-  even narrower width (near the 614 floor) is the only piece left.
+  give-way widths are measured rather than derived now. **The narrowest bar is
+  checked too (2026-11-22)**: with the GPU box in the run the enforced floor is
+  683 points, not the 614 without it (`deco_min_window()`), and it holds on
+  screen -- `--width=670` and `650` both clamp to 683, and at 683 the bar shows
+  FSAA, MLAA, TAAU, Fs Upsample, GPU 1, the size box and all three window
+  buttons, no overlap or truncation and no control lost. The 614 figure is the
+  window's floor with no GPU box, which a renderer that has listed its GPUs
+  never has.
 
 ## Windows laptops
 

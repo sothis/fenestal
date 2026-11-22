@@ -2720,7 +2720,12 @@ floor at open, is told it again then (`apply_size_bounds()` from
 `fnl_init()`); missed, X11's manager held the window to 556. Measured by the
 round (`stress.py`, the corner carried to the window's own left edge): 683
 on X11 for both renderers, on Win32 on both laptops and under wine's X11
-driver. Wine's Wayland driver lets the compositor take the window to 119,
+driver. Confirmed by a width sweep of the testbed's `--width` (2026-11-22):
+requesting 700 and 690 opens at those widths and 670 and 650 both clamp to
+683, and at 683 the bar draws every control it should -- the four checkboxes,
+the GPU box, the size box and the three window buttons -- with no overlap or
+truncation, the output box already given way. Wine's Wayland driver lets the
+compositor take the window to 119,
 below what the Win32 backend arms after a resize, and is declared
 (`FLOOR_UNHELD`). With no window manager (bare X11) the library resizes
 its own window in steps of 16 pixels and keeps the floor to the step,
