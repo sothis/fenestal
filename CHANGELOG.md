@@ -6,6 +6,20 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `fnl_set_scene_motion_px()`: how far the scene moved since the frame before
+  it, in pixels of the scene. `FNL_AA_TAAU`'s resolve reads the history where
+  the picture was rather than at the same pixel, so moving content is gathered
+  instead of dropped by the neighbourhood clamp -- the half of a reprojection
+  only the caller can supply, the library never seeing a camera. Zero, the
+  default, is a still scene, and a stale vector reprojects a picture that has
+  already settled. Ignored under every other mode (DESIGN *Antialiasing*).
+
+- The scene's fetch onto the window is a Catmull-Rom cubic rather than a
+  bilinear filter: sixteen bilinear taps at the window's own resolution, whose
+  negative lobe is what a bilinear stretch rounds off. It is the identity at
+  1:1, so a caller that pins no render scale pays what it paid before (DESIGN
+  *Render scale*).
+
 - `FNL_AA_TAAU`: temporal upscaling, the mode a render scale is worth having.
   Every frame is rasterised at a subpixel offset -- `FnlFrame::jitter_x`, which
   a caller adds to its projection -- and resolved against the frames before it,

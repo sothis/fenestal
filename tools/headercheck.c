@@ -51,6 +51,9 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			fnl_overlay_counts(app, &counts);
 			(void)counts;
 		}
+	/* The scene's motion under FNL_AA_TAAU: the resolve reprojects the
+	 * history by it, and a still frame leaves it at (0, 0). */
+	fnl_set_scene_motion_px(app, 0.0f, 0.0f);
 	/* An image the caller made and the device then lost: the query is what
 	 * says whether there is anything to draw with until on_gpu_created hands
 	 * the device back. A null image is not drawable, which is the answer here. */

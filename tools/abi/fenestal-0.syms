@@ -78,6 +78,7 @@ fnl_input_latency_ms
 fnl_set_cost_sampling
 fnl_set_scene_motion
 fnl_scene_motion
+fnl_set_scene_motion_px
 fnl_set_metrics_panel
 fnl_metrics_panel
 fnl_set_metrics_key

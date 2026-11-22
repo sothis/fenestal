@@ -308,6 +308,10 @@ struct RendererState {
 	 * the target and exists whenever scene_extent is non-zero. */
 	TargetImage           scene;
 	TargetImage           scene_depth;
+	/* Whether that image was created resident rather than transient -- the
+	 * one mode that reads it asks for it, and until it does the depth is a
+	 * transient attachment that costs no memory. */
+	bool                  scene_depth_resident;
 	VkFramebuffer         scene_fb;
 	/* The multisampled colour and depth FSAA renders into, and the
 	 * framebuffer that resolves the first into the scene image. Built the

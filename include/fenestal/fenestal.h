@@ -1658,6 +1658,18 @@ FNL_API void fnl_set_cost_sampling(FnlApp *app, bool on); /* [any] */
 FNL_API void fnl_set_scene_motion(FnlApp *app, bool on); /* [any] */
 FNL_API bool fnl_scene_motion(const FnlApp *app);        /* [any] */
 
+/* How far the scene moved since the frame before it, in pixels of the
+ * scene: what only the caller knows, since the library never sees a
+ * camera. Zero, the default, is a still scene. Under FNL_AA_TAAU the
+ * resolve reads the frame before it where the picture was rather than at
+ * the same pixel, so moving content is gathered instead of dropped by the
+ * neighbourhood clamp (FnlFrame::jitter_x is the other half of this). Set
+ * it every frame the scene moves and back to (0, 0) when it stops: a stale
+ * vector reprojects a picture that has already settled. Under any other
+ * mode the pair is ignored. Since 0.9. */
+FNL_API void fnl_set_scene_motion_px(FnlApp *app, float dx_px,
+									 float dy_px); /* [any] */
+
 /* The metrics panel: the library's own readout of what it measures, drawn
  * over everything else at the presentable area's top right, on every
  * renderer. The frame rate in its header; under it what a frame costs --

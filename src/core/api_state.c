@@ -427,6 +427,26 @@ bool fnl_scene_motion(const FnlApp *app)
 	return a && fnl_atomic_load_bool(&a->scene_motion);
 }
 
+void fnl_set_scene_motion_px(FnlApp *app, float dx_px, float dy_px)
+{
+	App *a = (App *)app;
+	if (!a)
+		return;
+
+	/* Under the lock and as a pair, for the reason fnl_set_scene_size_px()
+	 * gives: the two halves of a vector have to cross to the render thread
+	 * together, and a reprojection pointed by half of one is worse than none.
+	 * Signalled only for a change, as the size is -- the vector is in the draw
+	 * state, so a change is what makes the frame re-record. */
+	fnl_mutex_lock(&a->lock);
+	if (a->want_motion_x != dx_px || a->want_motion_y != dy_px) {
+		a->want_motion_x = dx_px;
+		a->want_motion_y = dy_px;
+		fnl_cond_signal(&a->cond);
+	}
+	fnl_mutex_unlock(&a->lock);
+}
+
 void fnl_set_frame_stats(FnlApp *app, bool on)
 {
 	App *a = (App *)app;

@@ -198,12 +198,14 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 									   g->taau_hist_ok[a->frame]);
 		const TaauPush pc = {
 			.jitter = { ds->jitter_x, ds->jitter_y,
-						prev ? TAAU_HISTORY : 0.0f, 0.0f },
+						prev ? TAAU_HISTORY : 0.0f,
+						g->scene.depth ? TAAU_DEPTH_REJECT : 0.0f },
 			.texel  = { 1.0f / (float)a->scene_extent.w,
-						1.0f / (float)a->scene_extent.h, 0.0f, 0.0f },
+						1.0f / (float)a->scene_extent.h, ds->motion_x,
+							ds->motion_y },
 		};
 		mt_fetch2(a, enc, g->pso_taau, g->scene.color,
-				  g->taau_hist[a->frame], &pc);
+				  g->taau_hist[a->frame], g->scene.depth, &pc);
 		[enc endEncoding];
 
 		id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];

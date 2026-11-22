@@ -189,7 +189,9 @@ void mt_scene_set_size(App *a, int w, int h)
 	if (!FNL_FAULT("scene-target")) {
 		@autoreleasepool {
 			g->scene.color = make_image(a, MT_COLOR_FORMAT, w, h, 1, true);
-			g->scene.depth = make_image(a, MT_DEPTH_FORMAT, w, h, 1, false);
+			/* Sampled: FNL_AA_TAAU compares against this image, and only
+			 * MTLTextureUsageShaderRead lets it. The colour stays as it was. */
+			g->scene.depth = make_image(a, MT_DEPTH_FORMAT, w, h, 1, true);
 		}
 	}
 	if (!g->scene.color || !g->scene.depth) {

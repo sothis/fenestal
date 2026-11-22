@@ -65,6 +65,29 @@ Owed, in this order:
   `--frame-times` and the median of six seconds. The resolve and the copy are
   the two costs, and the accumulation's re-record is a third figure that only
   `record` shows.
+- **What the scene's fetch costs now**, which is the one figure the change to
+  a Catmull-Rom cubic owes and nothing has measured: the same method, a
+  pinned scene against a direct frame, since the cubic is sixteen bilinear
+  taps at the window's own resolution where the fetch was one. Its own claim
+  is that it is the identity at 1:1, which is a prediction and not a
+  measurement -- the antialias modes at the scene's own size are the case,
+  and a frame read back off the window is what would show it.
+- **What the depth comparison costs and whether it earns its keep**: the
+  mode-dependent depth is in -- Vulkan rebuilds the scene target with a
+  resident depth at the first frame that wants TAAU, so no other offscreen
+  frame pays for one -- and what is left is the measurement. The same table's
+  method, a pinned scene against a direct frame, TAAU against the same pin
+  with the comparison off (`TAAU_DEPTH_REJECT` at nought), which is the only
+  way to price the comparison itself rather than the mode.
+  `TAAU_DEPTH_REJECT` is 0.02 of eye depth, a guess: what it should be wants
+  the moving cube of `demos/motion`, where the clamp, not the accumulation,
+  decides, and a frame read back off the window at two or three values.
+- **What a motion vector looks like**: the testbed's star under
+  `--antialias=taau` with `fnl_set_scene_motion_px()` set, against the same
+  run with no vector, which is the case the clamp alone was worst at (DESIGN
+  *Antialiasing*). No caller sets one yet -- `examples/` and `testbed/` both
+  draw without it -- so what has been drawn so far is the old mode plus a
+  code path nothing exercises.
 - **What it looks like**: the testbed's star (geometry, so a jitter has
   something to gather) at 60 and at 30 sizes a second, against MSAA and MLAA;
   and the moving cube of `demos/motion` where the clamp, not the accumulation,

@@ -327,9 +327,10 @@ static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 
 	const TaauPush pc = {
 		.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
-					0.0f },
+					VK(a)->scene_depth_resident ? TAAU_DEPTH_REJECT : 0.0f },
 		.texel  = { 1.0f / (float)a->scene_extent.w,
-					1.0f / (float)a->scene_extent.h, 0.0f, 0.0f },
+					1.0f / (float)a->scene_extent.h, ds->motion_x,
+						ds->motion_y },
 	};
 	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 					  VK(a)->taau_pipeline);
@@ -341,6 +342,28 @@ static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 	vkCmdDraw(cb, 3, 1, 0, 0);
 
 	vkCmdEndRenderPass(cb);
+
+	/* The resolve read the depth, and the next frame's scene pass writes
+	 * it; nothing orders those two but this. The pass left the image in
+	 * the read-only layout its descriptor names, and it goes back to the
+	 * attachment layout the clear and the writes expect. */
+	if (VK(a)->scene_depth.image != VK_NULL_HANDLE) {
+		const VkImageMemoryBarrier back = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+			.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = VK(a)->scene_depth.image,
+			.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 },
+			.srcAccessMask    = VK_ACCESS_SHADER_READ_BIT,
+			.dstAccessMask    = VK_ACCESS_DEPTH_ATTACHMENT_WRITE_BIT,
+		};
+		vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+							 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+							 VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+							 0, 0, NULL, 0, NULL, 1, &back);
+	}
 
 	record_taau_copy(a, cb);
 	VK(a)->taau_hist_ok[a->frame] = true;

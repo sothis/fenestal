@@ -327,7 +327,7 @@ FnlResult gl_create_overlay(App *a)
 	g->prog_blit  = gl_program("fetch", SRC(fullscreen_vert), SRC(blit_frag));
 	g->prog_mlaa  = gl_program("MLAA", SRC(fullscreen_vert), SRC(mlaa_frag));
 	g->prog_taau = gl_program("TAAU", SRC(fullscreen_vert), SRC(taau_frag));
-	/* The resolve reads two images, and the 4.1 translation loses the
+	/* The resolve reads three images, and the 4.1 translation loses the
 	 * `layout(binding = N)` the 4.50 one keeps: an unset sampler reads unit 0,
 	 * which would make the history the scene and the mix a still. Set by name,
 	 * which both profiles keep. */
@@ -335,6 +335,7 @@ FnlResult gl_create_overlay(App *a)
 		gl.UseProgram(g->prog_taau);
 		gl.Uniform1i(gl.GetUniformLocation(g->prog_taau, "u_scene"), 0);
 		gl.Uniform1i(gl.GetUniformLocation(g->prog_taau, "u_history"), 1);
+		gl.Uniform1i(gl.GetUniformLocation(g->prog_taau, "u_depth"), 2);
 	}
 	g->prog_image = gl_program("image", SRC(image_vert), SRC(image_frag));
 #undef SRC

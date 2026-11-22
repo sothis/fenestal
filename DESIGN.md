@@ -7208,8 +7208,16 @@ presentable area?
   area. No offscreen image exists, nothing is sampled.
 * **Yes.** A pass of its own renders into the scene image (`VK(a)->scene`) at
   that resolution, and the window's pass draws one triangle over the area
-  with that image as its texture. One fetch per screen pixel,
-  `VK_FILTER_LINEAR`.
+  with that image as its texture. The filter is a Catmull-Rom cubic rather
+  than the bilinear one this was: the sampler is still `VK_FILTER_LINEAR` and
+  every one of the sixteen taps is one bilinear fetch, so the hardware still
+  decodes the _SRGB texels and interpolates in linear, but the negative lobe
+  of the cubic is what a bilinear stretch rounds off. At 1:1 -- an
+  antialias mode at the scene's own size, where the fetch copies the image
+  to the window -- the fraction is zero, the outer weights vanish and it is
+  the identity, so a caller that pins no scale pays what it paid before. The
+  cost is owed: sixteen taps where there was one, at the window's own
+  resolution (TODO *Temporal upscaling, measured*).
 
 A pin larger than the area on either axis is **ignored, not fitted**: fitting it
 means either distorting an aspect nobody asked to distort or picking a size
@@ -7349,17 +7357,41 @@ where a 60 Hz accumulation has the detail back; the sequence is a table rather
 than a running Halton because it is part of what the picture is, and a still
 window keeps the image it converged on rather than gathering samples for ever.
 
-The history is *clamped* to the range its 3x3 neighbourhood holds in this frame
-before it is mixed, and that clamp is the whole of the motion handling: there
-are no motion vectors here, because the scene is the caller's and the library
-never sees a camera, so moving content contributes only what it left inside
-the box and an edge the box cannot hold is dropped rather than smeared. So this
-is temporal antialiasing that happens to sit at a smaller grid than the window;
-it is not a reprojecting upscale, and what moves fast is resolved at the
-scene's resolution and no better. FSR 2's and DLSS's answer -- motion vectors,
-depth and a jittered projection handed back by the caller -- is the feature,
-and it wants an `FnlSceneTarget` of its own for the attachment, a depth that is
-kept rather than transient, and an interop entry for each renderer.
+The history is reprojected by the scene's motion -- `fnl_set_scene_motion_px()`,
+in pixels of the scene, because the library never sees a camera and only the
+caller can say how far the picture moved -- and then *clamped* to the range its
+3x3 neighbourhood holds in this frame before it is mixed. The clamp is the
+whole of the motion handling beyond the vector, and it is what still catches
+what the vector gets wrong: moving content contributes what it left inside the
+box and an edge the box cannot hold is dropped rather than smeared. So this is
+temporal antialiasing that happens to sit at a smaller grid than the window,
+with a reprojection of the history's lookup and not of the picture; it is not a
+reprojecting upscale, and what moves fast is resolved at the scene's
+resolution and no better.
+
+**Where the scene's depth is kept**, the clamp has a second input: a history
+sample further behind the frame than the pixel's own *eye depth* is dropped as
+having moved across a discontinuity. The eye depth is the reciprocal of the
+buffer's value, which is what makes a fixed step mean a fixed step in metres
+rather than a fixed step near the far plane; the threshold is
+`TAAU_DEPTH_REJECT`, relative to the pixel's own. The resolve writes the depth
+it compared against into its own alpha, and the history copy carries that with
+the colour while an `_SRGB` target transforms the RGB channels only -- so the
+depth it reads back next frame is the depth it wrote, and the fetch reads
+`.rgb` and never sees it. Every renderer keeps the depth for it: Vulkan stores
+it and leaves it in the read-only layout its descriptor names, GL makes it a
+texture where it was a renderbuffer, Direct3D 12 views it as an SRV beside the
+pair, and Metal gives it `MTLTextureUsageShaderRead`. On those three the depth
+was already an object a shader could read, so nothing extra is allocated. On
+Vulkan it was a transient attachment -- stored by nothing, costing no memory --
+so it is made resident **only where the mode is in force**: the scene target is
+rebuilt at the first frame that wants TAAU, the one place this needs a queue
+drain, the target it replaces being one that exists, and a window that never
+asks for the mode pays nothing (TODO *Temporal upscaling, measured*).
+
+FSR 2's and DLSS's answer -- motion vectors, depth *and* a jittered projection
+handed back by the caller, through an interop entry per renderer -- is the
+feature; the first two are here, and the third is what is still missing.
 
 Three of its consequences are frame-policy decisions and not details. The
 jitter is in `FnlDrawState`, so a moving frame is *never* a cached recording

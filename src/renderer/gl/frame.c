@@ -138,7 +138,7 @@ static void fetch(App *a, unsigned prog, unsigned tex)
  * bindings, so a sampler left unset reads unit 0 and would mix the frame with
  * itself. */
 static void fetch2(App *a, uint32_t slot, unsigned prog, unsigned tex0,
-				   unsigned tex1, const TaauPush *pc)
+				   unsigned tex1, unsigned tex2, const TaauPush *pc)
 {
 	gl.UseProgram(prog);
 	gl.BindVertexArray(GLS(a)->vao_empty);
@@ -146,6 +146,11 @@ static void fetch2(App *a, uint32_t slot, unsigned prog, unsigned tex0,
 	gl.BindSampler(0, GLS(a)->sampler_linear);
 	gl.BindTextureUnit(1, tex1);
 	gl.BindSampler(1, GLS(a)->sampler_linear);
+	/* The scene's depth at unit 2, for the resolve to compare the history
+	 * against. Its compare mode is the default GL_NONE, so this reads the
+	 * depth itself and not a comparison result. */
+	gl.BindTextureUnit(2, tex2);
+	gl.BindSampler(2, GLS(a)->sampler_linear);
 	gl_push(a, slot, pc, sizeof *pc);
 	gl.Disable(GL_BLEND);
 	gl.DrawArrays(GL_TRIANGLES, 0, 3);
@@ -189,12 +194,18 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 									   GLS(a)->taau_hist_ok[a->frame]);
 		const TaauPush pc = {
 			.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
-						0.0f },
-			.texel  = { 1.0f / (float)w, 1.0f / (float)h, 0.0f, 0.0f },
+						GLS(a)->scene.depth_sampled ? TAAU_DEPTH_REJECT
+											: 0.0f },
+			.texel  = { 1.0f / (float)w, 1.0f / (float)h, ds->motion_x,
+							ds->motion_y },
 		};
 		begin_target(a, &GLS(a)->taau, w, h);
+		/* A renderbuffer name is not a texture name, so a depth that is
+		 * not one hands unit 2 the default texture: the resolve reads it,
+		 * and the threshold is nought, so nothing is compared. */
 		fetch2(a, a->frame, GLS(a)->prog_taau, GLS(a)->scene.color,
-			   GLS(a)->taau_hist[a->frame].color, &pc);
+			   GLS(a)->taau_hist[a->frame].color,
+			   GLS(a)->scene.depth_sampled ? GLS(a)->scene.depth : 0, &pc);
 		gl.Disable(GL_SCISSOR_TEST);
 		gl.BlitNamedFramebuffer(GLS(a)->taau.fbo,
 								GLS(a)->taau_hist[a->frame].fbo, 0, 0, w, h, 0,

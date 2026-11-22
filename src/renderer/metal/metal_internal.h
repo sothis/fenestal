@@ -84,11 +84,13 @@ void mt_own_state(App *a, id<MTLRenderCommandEncoder> enc);
 /* The fetch or the filter, one covering triangle reading `tex` at `pso`. */
 void mt_fetch(App *a, id<MTLRenderCommandEncoder> enc,
 			  id<MTLRenderPipelineState> pso, id<MTLTexture> tex);
-/* TAAU's resolve: the same triangle reading two images -- this frame's scene
- * and the history it is mixed with -- at the offsets and weight `pc` names. */
+/* TAAU's resolve: the same triangle reading three images -- this frame's scene,
+ * the history it is mixed with, and the scene's depth, which the history is
+ * rejected against -- at the offsets and weight `pc` names. */
 void mt_fetch2(App *a, id<MTLRenderCommandEncoder> enc,
 			   id<MTLRenderPipelineState> pso, id<MTLTexture> combined,
-			   id<MTLTexture> history, const TaauPush *pc);
+			   id<MTLTexture> history, id<MTLTexture> depth,
+			   const TaauPush *pc);
 /* Whether this device draws a caller's image at all: false refuses
  * fnl_image_create() rather than drawing nothing. */
 bool mt_image_supported(const App *a);

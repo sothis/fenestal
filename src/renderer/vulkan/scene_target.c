@@ -29,7 +29,7 @@ FnlResult create_scene_objects(App *a)
 	 * MLAA's: no depth because a filter has no geometry, no clear because it
 	 * writes every pixel. */
 	const VkSampleCountFlagBits ms = scene_samples(a);
-	const PassDesc scene = { .samples = VK_SAMPLE_COUNT_1_BIT,
+	const PassDesc scene = { .samples = VK_SAMPLE_COUNT_1_BIT, .depth_sampled = true,
 									   .depth   = true,
 									   .clear   = true,
 							.sampled = true };
@@ -82,7 +82,7 @@ FnlResult create_scene_objects(App *a)
 	 * drew and the history it is mixed with. Its own layout rather than the
 	 * fetch's, because the fetch has one sampler and no push range, and both
 	 * of those would be a change to every pipeline that binds it. */
-	VkDescriptorSetLayoutBinding tb[2] = {
+	VkDescriptorSetLayoutBinding tb[3] = {
 		{ .binding         = 0,
 		  .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		  .descriptorCount = 1,
@@ -91,10 +91,16 @@ FnlResult create_scene_objects(App *a)
 		  .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		  .descriptorCount = 1,
 		  .stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT },
+		/* The scene's depth, which the resolve compares the history
+		 * against and carries out in its alpha. */
+		{ .binding         = 2,
+		  .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		  .descriptorCount = 1,
+		  .stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT },
 	};
 	VkDescriptorSetLayoutCreateInfo tdlci = {
 		.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = 2,
+		.bindingCount = 3,
 		.pBindings    = tb,
 	};
 	VK_TRY(vkCreateDescriptorSetLayout(VK(a)->device, &tdlci, NULL,
@@ -106,11 +112,11 @@ FnlResult create_scene_objects(App *a)
 	 * write_taau_sets) and chosen between at record time, so toggling a mode
 	 * never rewrites a descriptor a command buffer in flight names. MLAA's
 	 * own input is the second of the fetch's; the third is the cover's, the
-	 * frame read back before a move. Eight descriptors: the resolve's sets
-	 * hold two apiece. */
+	 * frame read back before a move. Ten descriptors: the resolve's sets
+	 * hold three apiece. */
 	VkDescriptorPoolSize ps        = { .type =
 										   VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-									   .descriptorCount = 8 };
+									   .descriptorCount = 10 };
 	VkDescriptorPoolCreateInfo pci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		.maxSets       = 6,
@@ -321,19 +327,28 @@ static void write_taau_sets(App *a)
 		const VkImageView view      = VK(a)->taau_hist[i].view != VK_NULL_HANDLE
 										  ? VK(a)->taau_hist[i].view
 										  : VK(a)->scene.view;
-		VkDescriptorImageInfo ii[2] = {
+		/* Where the depth is not -- a device that refused it -- the colour
+		 * image stands in and the resolve leaves the comparison off. */
+		const bool have_depth = VK(a)->scene_depth_resident;
+		VkDescriptorImageInfo ii[3] = {
 			{ .sampler     = VK(a)->scene_sampler,
 			  .imageView   = VK(a)->scene.view,
 			  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
 			{ .sampler     = VK(a)->scene_sampler,
 			  .imageView   = view,
 			  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+			{ .sampler     = VK(a)->scene_sampler,
+			  .imageView   = have_depth ? VK(a)->scene_depth.view
+								: VK(a)->scene.view,
+			  .imageLayout = have_depth
+						  ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+						  : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
 		};
 		VkWriteDescriptorSet wd = {
 			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			.dstSet          = VK(a)->taau_set[i],
 			.dstBinding      = 0,
-			.descriptorCount = 2,
+			.descriptorCount = 3,
 			.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			.pImageInfo      = ii,
 		};
@@ -424,6 +439,9 @@ static bool create_scene_taau(App *a)
  * A refusal costs the mode and nothing else, since the predicates in frame.c
  * ask the framebuffers. It is remembered, so a device with no room is asked
  * once per target rather than once per frame. */
+static void scene_depth_make_resident(App *a);
+static void destroy_scene_target(App *a);
+
 bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 {
 	bool built = false;
@@ -458,6 +476,10 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 		}
 	}
 	if (want_taau && VK(a)->taau_fb == VK_NULL_HANDLE && !VK(a)->taau_refused) {
+		/* The resolve reads the depth, so it has to be resident; rebuilt
+		 * here rather than at every size, which is what keeps the memory
+		 * off the frames that never ask for the mode. */
+		scene_depth_make_resident(a);
 		if (create_scene_taau(a)) {
 			built = true;
 		} else {
@@ -474,17 +496,23 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 
 /* What every offscreen frame needs whatever the mode. False leaves a
  * part-built set for the caller to destroy. */
-static bool create_scene_target(App *a, uint32_t w, uint32_t h)
+static bool create_scene_target(App *a, uint32_t w, uint32_t h, bool resident)
 {
 	if (FNL_FAULT("scene-target") ||
 		!create_target_image(
 			a, w, h, VK(a)->surf_format.format, VK_SAMPLE_COUNT_1_BIT,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			false, &VK(a)->scene) ||
+		/* Resident and sampled only where FNL_AA_TAAU is in force: a
+		 * transient depth is never stored, so a lazy one costs no memory
+		 * and cannot be read. Every other offscreen frame -- FSAA's
+		 * included, where the single-sampled depth is never touched -- gets
+		 * the lazy one (TODO *Temporal upscaling, measured*). */
 		!create_target_image(a, w, h, VK(a)->depth_format,
 							 VK_SAMPLE_COUNT_1_BIT,
-							 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, true,
-							 &VK(a)->scene_depth))
+							 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+								 (resident ? VK_IMAGE_USAGE_SAMPLED_BIT : 0),
+							 !resident, &VK(a)->scene_depth))
 		return false;
 
 	VkImageView att[2] = { VK(a)->scene.view, VK(a)->scene_depth.view };
@@ -493,8 +521,40 @@ static bool create_scene_target(App *a, uint32_t w, uint32_t h)
 		return false;
 
 	write_scene_set(a, VK(a)->blit_set_scene, VK(a)->scene.view);
+	VK(a)->scene_depth_resident = resident;
 	a->scene_extent = (Extent){ (int)w, (int)h };
 	return true;
+}
+
+/* Rebuild the scene target with its depth resident, for the one mode that
+ * reads it. Drains, since the target being replaced is one that exists and a
+ * command buffer in flight may still name it -- which is why this is not done
+ * at every size change. A refusal leaves the lazy depth in place, and the
+ * resolve then runs without the comparison. */
+static void scene_depth_make_resident(App *a)
+{
+	const uint32_t w = (uint32_t)a->scene_extent.w;
+	const uint32_t h = (uint32_t)a->scene_extent.h;
+
+	if (w == 0 || h == 0 || VK(a)->scene_depth_resident)
+		return;
+	if (VK(a)->scene.image) {
+		const VkResult r = vkQueueWaitIdle(VK(a)->queue);
+		if (vk_lost(a, r))
+			return;
+		/* Not VK_TRY: this returns nothing, and a drain that failed for
+		 * another reason is recorded and abandoned, as scene_set_size's. */
+		if (VKR(r) < 0)
+			return;
+		destroy_scene_target(a);
+	}
+	if (create_scene_target(a, w, h, true))
+		return;
+	destroy_scene_target(a);
+	fnl_log(FNL_LOG_WARN,
+			"no room for a %dx%d scene target with a depth to read; "
+			"TAAU runs without the comparison",
+			(int)w, (int)h);
 }
 
 /* Everything at the current size, built or not: destroying null does
@@ -508,6 +568,7 @@ static void destroy_scene_target(App *a)
 	vkDestroyFramebuffer(VK(a)->device, VK(a)->scene_fb, NULL);
 	VK(a)->scene_fb = VK_NULL_HANDLE;
 	destroy_target_image(a, &VK(a)->scene_depth);
+	VK(a)->scene_depth_resident = false;
 	destroy_target_image(a, &VK(a)->scene);
 
 	/* A new target is a new question for the device. */
@@ -544,7 +605,8 @@ void scene_set_size(App *a, int w, int h)
 	 * still zero, and draws the scene straight into the window. The request
 	 * stands. Not rate-limited: the loop calls this again only once the size
 	 * or the window changed (see draw_scene_w in core/frame.c). */
-	if (w > 0 && h > 0 && !create_scene_target(a, (uint32_t)w, (uint32_t)h)) {
+	if (w > 0 && h > 0 &&
+		!create_scene_target(a, (uint32_t)w, (uint32_t)h, false)) {
 		destroy_scene_target(a);
 		fnl_log(FNL_LOG_WARN,
 				"no room for a %dx%d scene target; drawing the scene at the "

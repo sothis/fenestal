@@ -27,9 +27,13 @@ static void destroy_target(GlTarget *t)
 		gl.DeleteTextures(1, &t->color);
 	else if (t->color)
 		gl.DeleteRenderbuffers(1, &t->color);
-	if (t->depth)
-		gl.DeleteRenderbuffers(1, &t->depth);
-	*t = (GlTarget){ 0, 0, 0, false };
+	if (t->depth) {
+		if (t->depth_sampled)
+			gl.DeleteTextures(1, &t->depth);
+		else
+			gl.DeleteRenderbuffers(1, &t->depth);
+	}
+	*t = (GlTarget){ 0, 0, 0, false, false };
 }
 
 /* A framebuffer of `w` x `h` with a colour image -- a texture when it is
@@ -37,11 +41,12 @@ static void destroy_target(GlTarget *t)
  * `depth`, a depth renderbuffer. `samples` above one makes both
  * multisampled. False leaves a part-built target for destroy_target(). */
 static bool make_target(GlTarget *t, int w, int h, int samples, bool sampled,
-						bool depth)
+						bool depth, bool depth_sampled)
 {
 	gl_clear_errors();
 	gl.CreateFramebuffers(1, &t->fbo);
-	t->sampled = sampled;
+	t->sampled       = sampled;
+	t->depth_sampled = depth_sampled;
 	if (sampled) {
 		gl.CreateTextures(GL_TEXTURE_2D, 1, &t->color);
 		gl.TextureStorage2D(t->color, 1, GL_COLOR_FORMAT, w, h);
@@ -57,14 +62,24 @@ static bool make_target(GlTarget *t, int w, int h, int samples, bool sampled,
 										GL_RENDERBUFFER, t->color);
 	}
 	if (depth) {
-		gl.CreateRenderbuffers(1, &t->depth);
-		if (samples > 1)
-			gl.NamedRenderbufferStorageMultisample(t->depth, samples,
-												   GL_DEPTH_FORMAT, w, h);
-		else
-			gl.NamedRenderbufferStorage(t->depth, GL_DEPTH_FORMAT, w, h);
-		gl.NamedFramebufferRenderbuffer(t->fbo, GL_DEPTH_ATTACHMENT,
-										GL_RENDERBUFFER, t->depth);
+		/* A depth FNL_AA_TAAU reads is a texture, not a renderbuffer: only a
+		 * texture has a sampler, and the compare mode stays GL_NONE so the
+		 * fetch gets the depth itself rather than a comparison. */
+		if (depth_sampled) {
+			gl.CreateTextures(GL_TEXTURE_2D, 1, &t->depth);
+			gl.TextureStorage2D(t->depth, 1, GL_DEPTH_FORMAT, w, h);
+			gl.NamedFramebufferTexture(t->fbo, GL_DEPTH_ATTACHMENT, t->depth,
+								 0);
+		} else {
+			gl.CreateRenderbuffers(1, &t->depth);
+			if (samples > 1)
+				gl.NamedRenderbufferStorageMultisample(
+					t->depth, samples, GL_DEPTH_FORMAT, w, h);
+			else
+				gl.NamedRenderbufferStorage(t->depth, GL_DEPTH_FORMAT, w, h);
+			gl.NamedFramebufferRenderbuffer(t->fbo, GL_DEPTH_ATTACHMENT,
+									GL_RENDERBUFFER, t->depth);
+		}
 	}
 	/* An allocation the driver could not make is a GL_OUT_OF_MEMORY error
 	 * and an incomplete framebuffer, either of which is a refusal here. */
@@ -127,7 +142,7 @@ FnlResult gl_window_image(App *a)
 
 	if (resized) {
 		destroy_target(&GLS(a)->window);
-		if (!make_target(&GLS(a)->window, e.w, e.h, 1, false, true)) {
+		if (!make_target(&GLS(a)->window, e.w, e.h, 1, false, true, false)) {
 			destroy_target(&GLS(a)->window);
 			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 							"could not make the window's %dx%d image", e.w,
@@ -172,7 +187,7 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 	if (want_ms && samples > 1 && !GLS(a)->scene_ms.fbo &&
 		!GLS(a)->scene_ms_refused) {
 		if (!FNL_FAULT("scene-ms") &&
-			make_target(&GLS(a)->scene_ms, w, h, samples, false, true)) {
+			make_target(&GLS(a)->scene_ms, w, h, samples, false, true, false)) {
 			built = true;
 		} else {
 			destroy_target(&GLS(a)->scene_ms);
@@ -185,7 +200,7 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 	}
 	if (want_mlaa && !GLS(a)->mlaa.fbo && !GLS(a)->mlaa_refused) {
 		if (!FNL_FAULT("scene-mlaa") &&
-			make_target(&GLS(a)->mlaa, w, h, 1, true, false)) {
+			make_target(&GLS(a)->mlaa, w, h, 1, true, false, false)) {
 			built = true;
 		} else {
 			destroy_target(&GLS(a)->mlaa);
@@ -199,9 +214,9 @@ bool gl_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 	if (want_taau && !GLS(a)->taau.fbo && !GLS(a)->taau_refused) {
 		bool all = false;
 		if (!FNL_FAULT("scene-taau")) {
-			all = make_target(&GLS(a)->taau, w, h, 1, true, false);
+			all = make_target(&GLS(a)->taau, w, h, 1, true, false, false);
 			for (int i = 0; all && i < MAX_FRAMES_IN_FLIGHT; i++)
-				all = make_target(&GLS(a)->taau_hist[i], w, h, 1, true, false);
+				all = make_target(&GLS(a)->taau_hist[i], w, h, 1, true, false, false);
 		}
 		if (all) {
 			built = true;
@@ -233,7 +248,7 @@ void gl_scene_set_size(App *a, int w, int h)
 	if (w <= 0 || h <= 0)
 		return;
 	if (FNL_FAULT("scene-target") ||
-		!make_target(&GLS(a)->scene, w, h, 1, true, true)) {
+		!make_target(&GLS(a)->scene, w, h, 1, true, true, true)) {
 		destroy_scene_target(a);
 		fnl_log(FNL_LOG_WARN,
 				"no room for a %dx%d scene target; drawing the scene at the "

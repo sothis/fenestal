@@ -409,19 +409,22 @@ void mt_fetch(App *a, id<MTLRenderCommandEncoder> enc,
 			vertexCount:3];
 }
 
-/* TAAU's resolve: the scene at unit 0 and the history at unit 1, and the
- * frame's offset and weight in the `Push` block the shader reads at buffer 0
- * (shaders/taau.frag, and FNL_MSL_FLAGS's conventions). */
+/* TAAU's resolve: the scene at unit 0, the history at unit 1 and the depth at
+ * unit 2, and the frame's offset and weight in the `Push` block the shader
+ * reads at buffer 0 (shaders/taau.frag, and FNL_MSL_FLAGS's conventions). */
 void mt_fetch2(App *a, id<MTLRenderCommandEncoder> enc,
 			   id<MTLRenderPipelineState> pso, id<MTLTexture> combined,
-			   id<MTLTexture> history, const TaauPush *pc)
+			   id<MTLTexture> history, id<MTLTexture> depth,
+			   const TaauPush *pc)
 {
 	/* As mt_fetch(): the pass owns the state these draws need. */
 	[enc setRenderPipelineState:pso];
 	[enc setFragmentTexture:combined atIndex:0];
 	[enc setFragmentTexture:history atIndex:1];
+	[enc setFragmentTexture:depth atIndex:2];
 	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:0];
 	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:1];
+	[enc setFragmentSamplerState:MT(a)->smp_linear atIndex:2];
 	[enc setFragmentBytes:pc length:sizeof *pc atIndex:0];
 	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
 			vertexCount:3];

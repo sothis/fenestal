@@ -17,6 +17,16 @@
 #ifndef FNL_D3D12_STATE_H
 #define FNL_D3D12_STATE_H
 
+/* What the state is made of: the D3D12 and DXGI types, the two counters and
+ * bool it holds, and MAX_FRAMES_IN_FLIGHT. Included here as well as from
+ * d3d12_internal.h, which is the only file that includes this one, so the
+ * header stands on its own where it is read -- the guards make the second
+ * inclusion of each a no-op. */
+#include "core/app.h"
+
+#include <d3d12.h>
+#include <dxgi1_6.h>
+
 /* The renderer's state, from an App. */
 #define D3D(a) ((a)->renderer_state)
 
@@ -52,14 +62,20 @@ enum {
 	SRV_TAAU,
 	SRV_PAIR0,
 	SRV_PAIR0_H,
+	/* FNL_AA_TAAU's resolve reads three images in one draw -- the scene,
+	 * the history, and the scene's depth -- so the depth's view sits right
+	 * after each pair, where a three-descriptor table starting at the pair
+	 * reaches it. */
+	SRV_PAIR0_D,
 	SRV_PAIR1,
 	SRV_PAIR1_H,
+	SRV_PAIR1_D,
 	SRV_COUNT
 };
 /* The resolve's two samplers are told apart by register, and both want the
  * scene's linear filter: the second is an identical sampler, not the
  * atlas's. */
-enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_LINEAR2, SMP_COUNT };
+enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_LINEAR2, SMP_LINEAR3, SMP_COUNT };
 
 /* Caller images (fnl_image_create()) take a descriptor each from the srv
  * heap, after the fixed slots above, which name the library's resources and

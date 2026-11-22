@@ -110,6 +110,7 @@ FnlResult d3d_make_heaps(App *a)
 		[SMP_NEAREST] = D3D12_FILTER_MIN_MAG_MIP_POINT,
 		[SMP_LINEAR]  = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
 		[SMP_LINEAR2] = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+		[SMP_LINEAR3] = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
 	};
 	for (int i = 0; i < SMP_COUNT; i++) {
 		const D3D12_SAMPLER_DESC s = {
@@ -214,6 +215,22 @@ static void sampled_view(App *a, ID3D12Resource *r, int slot)
 	};
 	ID3D12Device_CreateShaderResourceView(D3D(a)->device, r, &v,
 										  d3d_srv_cpu(a, slot));
+}
+
+/* A depth image as a shader resource: the SRV's format is the *resource*
+ * format of the D32_FLOAT attachment, which is R32_FLOAT, and the shader
+ * reads the depth itself out of .r -- there is no compare here, as on GL's
+ * GL_NONE. */
+static void depth_sampled_view(App *a, ID3D12Resource *r, int slot)
+{
+	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
+		.Format                  = DXGI_FORMAT_R32_FLOAT,
+		.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D,
+		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		.Texture2D               = { .MipLevels = 1, .ResourceMinLODClamp = 0 },
+	};
+	ID3D12Device_CreateShaderResourceView(D3D(a)->device, r, &v,
+										 d3d_srv_cpu(a, slot));
 }
 
 /* ---- the window's images ------------------------------------------------- */
@@ -472,10 +489,15 @@ void d3d_scene_set_size(App *a, int w, int h)
 				w, h);
 		return;
 	}
-	/* The pairs the resolve's two-descriptor table reads: the scene's view in
-	 * each, made wherever the image is. */
+	/* The pairs the resolve's three-descriptor table reads: the scene's view
+	 * in each, made wherever the image is, and the depth after it -- the same
+	 * depth in both, since the image is one and the slots are per frame. */
 	sampled_view(a, D3D(a)->scene.color, SRV_PAIR0);
 	sampled_view(a, D3D(a)->scene.color, SRV_PAIR1);
+	if (D3D(a)->scene.depth) {
+		depth_sampled_view(a, D3D(a)->scene.depth, SRV_PAIR0_D);
+		depth_sampled_view(a, D3D(a)->scene.depth, SRV_PAIR1_D);
+	}
 	a->scene_extent = (Extent){ w, h };
 }
 

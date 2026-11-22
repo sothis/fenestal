@@ -48,8 +48,9 @@ typedef struct {
 typedef struct {
 	unsigned fbo;
 	unsigned color;
-	unsigned depth; /* a renderbuffer, or 0 for colour alone */
+	unsigned depth; /* a texture where it is sampled, else a renderbuffer */
 	bool sampled;
+	bool depth_sampled;
 } GlTarget;
 
 struct RendererState {

@@ -209,6 +209,8 @@ typedef struct {
 									 * overwritten in full                   */
 	bool sampled;                   /* the result is fetched by a later pass
 									 * rather than presented                 */
+	bool depth_sampled;             /* the depth is kept and read by a later
+							 * pass (FNL_AA_TAAU)                    */
 } PassDesc;
 
 /* How much of the frame before a TAAU resolve keeps -- and its `Push` block,

@@ -100,20 +100,21 @@ static HRESULT root_make(ID3D12Device *dev, ID3D12RootSignature **out)
 {
 	const D3D12_DESCRIPTOR_RANGE srv = {
 		.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-		/* Two, because TAAU's resolve reads two images in one draw and a
-		 * table reads consecutive descriptors; a shader that declares one
-		 * (every other pipeline here) reads the first and ignores the
-		 * second. */
-		.NumDescriptors = 2,
+		/* Three, because TAAU's resolve reads three images in one draw
+		 * and a table reads consecutive descriptors; a shader that
+		 * declares one (every other pipeline here) reads the first and
+		 * ignores the rest. */
+		.NumDescriptors = 3,
 		.OffsetInDescriptorsFromTableStart =
 			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
 	};
 	const D3D12_DESCRIPTOR_RANGE smp = {
 		.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
-		/* Two, for the resolve's second texture's sampler: s0 and s1 are
-		 * registers of their own, and both want the scene's linear filter
-		 * (SMP_LINEAR and SMP_LINEAR2). */
-		.NumDescriptors = 2,
+		/* Three, for the resolve's second and third textures' samplers:
+		 * s0, s1 and s2 are registers of their own, and all three want
+		 * the scene's linear filter (SMP_LINEAR, SMP_LINEAR2 and
+		 * SMP_LINEAR3). */
+		.NumDescriptors = 3,
 		.OffsetInDescriptorsFromTableStart =
 			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
 	};
@@ -653,10 +654,10 @@ void d3d_fetch(App *a, ID3D12PipelineState *pso, int srv)
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 }
 
-/* TAAU's resolve: both tables two descriptors wide, from the pair `srv` names
- * and the two linear samplers, and the frame's offset and weight pushed as the
- * eight words the shader's `Push` block is (shaders/taau.frag, and
- * TaauPush's asserts). */
+/* TAAU's resolve: both tables three descriptors wide, from the pair `srv` names
+ * -- the scene, the history, the depth -- and the three linear samplers, and the
+ * frame's offset and weight pushed as the eight words the shader's `Push` block
+ * is (shaders/taau.frag, and TaauPush's asserts). */
 void d3d_fetch2(App *a, ID3D12PipelineState *pso, int srv, const TaauPush *pc)
 {
 	ID3D12GraphicsCommandList *l = D3D(a)->list;

@@ -123,6 +123,16 @@ static void target_to(App *a, D3dTarget *t, D3D12_RESOURCE_STATES to)
 	t->state = to;
 }
 
+/* The depth's own transition, since D3dTarget::state is the colour's: the
+ * scene pass leaves the depth in DEPTH_WRITE and the resolve reads it, and
+ * the next frame's pass writes it again. */
+static void depth_to(App *a, D3dTarget *t, D3D12_RESOURCE_STATES from,
+					 D3D12_RESOURCE_STATES to)
+{
+	if (t->depth)
+		d3d_barrier(a, t->depth, from, to);
+}
+
 /* ---- the scene ----------------------------------------------------------- */
 
 /* The seam: the list, its render target bound and cleared, the viewport on
@@ -207,15 +217,25 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 									   D3D(a)->taau_hist_ok[a->frame]);
 		const TaauPush pc = {
 			.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
-						0.0f },
-			.texel  = { 1.0f / (float)w, 1.0f / (float)h, 0.0f, 0.0f },
+						D3D(a)->scene.depth ? TAAU_DEPTH_REJECT : 0.0f },
+			.texel  = { 1.0f / (float)w, 1.0f / (float)h, ds->motion_x,
+							ds->motion_y },
 		};
 		const D3D12_CPU_DESCRIPTOR_HANDLE trtv = d3d_rtv(a, RTV_TAAU);
 		const int pair = a->frame ? SRV_PAIR1 : SRV_PAIR0;
 
+		/* The resolve reads the depth the scene pass wrote, and the next
+		 * frame's pass writes it again -- but only where that pass is the
+		 * single-sampled one, which is the only one this mode runs. */
+		if (!ms)
+			depth_to(a, &g->scene, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+					   D3D12_RESOURCE_STATE_DEPTH_READ);
 		target_to(a, &g->taau, D3D12_RESOURCE_STATE_RENDER_TARGET);
 		begin_target(a, &trtv, NULL, w, h);
 		d3d_fetch2(a, g->pso_taau, pair, &pc);
+		if (!ms)
+			depth_to(a, &g->scene, D3D12_RESOURCE_STATE_DEPTH_READ,
+					   D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		target_to(a, &g->taau, D3D12_RESOURCE_STATE_COPY_SOURCE);
 		target_to(a, &g->taau_hist[a->frame], D3D12_RESOURCE_STATE_COPY_DEST);
 		ID3D12GraphicsCommandList_CopyResource(

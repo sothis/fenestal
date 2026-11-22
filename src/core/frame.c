@@ -1276,6 +1276,7 @@ typedef struct {
 	int ow, oh, curx, cury;
 	int pin_w, pin_h;
 	FnlAntialias aa;
+	float motion_x, motion_y;
 	char outname[OUTPUT_NAME_MAX];
 	char title[TITLE_MAX];
 	uint32_t cfg_serial, user_gen;
@@ -1306,6 +1307,8 @@ static bool latch_take(App *a, Latch *l, bool *urgent, double *cb_at)
 	l->pin_w        = a->want_scene_w;
 	l->pin_h        = a->want_scene_h;
 	l->aa           = a->want_aa;
+	l->motion_x     = a->want_motion_x;
+	l->motion_y     = a->want_motion_y;
 	/* deco_apply_custom() writes the pair under this lock; latched together,
 	 * a frame cannot be laid out at one height and painted at the other. */
 	l->bar_h      = deco_client(l->fs) ? a->deco_h : 0;
@@ -1589,8 +1592,14 @@ static bool draw_state_update(App *a, const Latch *l)
 	 * with scene_time and for the same reason -- it is what re-records a
 	 * moving frame under the one mode whose recording is never reusable. */
 	float jitter_x = 0.0f, jitter_y = 0.0f;
-	if (fnl_atomic_load_bool(&a->scene_motion) ||
-		fnl_atomic_load_bool(&a->calibrating)) {
+	/* The scene's own statement that it animates, read once: the jitter, the
+	 * scene's motion and the clock all hang off it. A calibration runs it
+	 * whatever the caller set (rank.c's begin()), read here and not stored
+	 * into App::scene_motion: a store put back at its end would undo a
+	 * fnl_set_scene_motion() or an F2 made meanwhile. */
+	const bool moving = fnl_atomic_load_bool(&a->scene_motion) ||
+						fnl_atomic_load_bool(&a->calibrating);
+	if (moving) {
 		if (a->scene_motion_t0 == 0.0)
 			a->scene_motion_t0 = a->latch_time;
 		scene_time = (float)(a->latch_time - a->scene_motion_t0);
@@ -1637,7 +1646,13 @@ static bool draw_state_update(App *a, const Latch *l)
 		.scene_time = scene_time,
 		.jitter_x   = jitter_x,
 		.jitter_y   = jitter_y,
-		.veil       = veil_step(a, a->latch_time),
+		/* The scene's own motion, latched with the jitter and gated the same
+		 * way: a vector under a mode that does not reproject would be a draw
+		 * state that differs for nothing, and a stale one would keep a still
+		 * window from resting. */
+		.motion_x = moving && l->aa == FNL_AA_TAAU ? l->motion_x : 0.0f,
+		.motion_y = moving && l->aa == FNL_AA_TAAU ? l->motion_y : 0.0f,
+		.veil     = veil_step(a, a->latch_time),
 	};
 	ds.aa = l->aa;
 	memcpy(ds.output, l->outname, sizeof ds.output);

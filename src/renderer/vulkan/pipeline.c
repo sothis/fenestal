@@ -534,11 +534,18 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 			.format = VK(a)->depth_format,
 			.samples = d->samples,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-			.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			/* A depth nothing reads is never stored, and asking for it
+			 * would cost a full-resolution write on every frame. Only
+			 * the mode that compares against it keeps it, and that pass
+			 * leaves it in the read-only layout its reader names. */
+			.storeOp = d->depth_sampled ? VK_ATTACHMENT_STORE_OP_STORE
+									: VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			.finalLayout = d->depth_sampled
+							 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+							 : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 		};
 
 	VkAttachmentReference resolve_ref = {
