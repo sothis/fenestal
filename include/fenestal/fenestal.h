@@ -10,7 +10,8 @@
  *
  *   - one window, created with the app. Splitting a window handle out belongs
  *     with a second window, because "which window" is only a question once
- *     there is more than one to ask it of.
+ *     there is more than one to ask it of; the app is already the handle, and
+ *     the split is designed and not built (DESIGN *A second window*).
  *   - events are queued and you drain them, rather than being called back.
  *     One stream carries both what the user did and what the library did
  *     about it, so the two arrive in an order you can rely on. See

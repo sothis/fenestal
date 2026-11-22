@@ -3723,6 +3723,189 @@ with nothing to do. On Wayland the change needs `wp_cursor_shape_v1`; without
 it the cursor stays as the compositor left it. The Win32 half is
 `WM_SETCURSOR` for the client area, with the edges left to `DefWindowProc`.
 
+### A second window
+
+**Nothing here is built.** This is the design and the ground it was measured
+against, written down because it decides the shape of several things that are
+built; what is owed to make it real is TODO *A second window*.
+
+**One window per app, and the app is already the handle.** The header's
+scope says it outright — "one window, created with the app. Splitting a
+window handle out belongs with a second window, because 'which window' is only
+a question once there is more than one to ask it of" — and the API has been
+shaped for that day without saying so: **127 of the 143 `FNL_API` prototypes
+take an `FnlApp *`**, every callback is handed the app it runs for, and the 16
+that take none are the ones with no window in them at all (the version, the
+result and error strings, the log level, the key names, the font and text
+metrics, `fnl_image_destroy()`). What is missing is not a handle. It is the
+*other* half of the object: `FnlApp` is today the window and the process at
+once — one window-server connection, one pump, one set of signal handlers, one
+device, one GPU ranking — so a second window is a second `fnl_init()` and a
+second connection with the process's unchanged rights.
+
+**The split is host and window.** Both halves already exist, mixed together in
+one struct and a handful of file-scope variables; the design is to sort them,
+not to invent them.
+
+- **`FnlHost`** — the program's: the window-server connection and the one pump
+  (`wl_display` and its registry, `xcb_connection_t`s, the thread's Win32
+  message queue, `NSApplication` and its run loop), the registry of windows,
+  the signal handlers, the log level, and the entries that are about the program
+  rather than a window — `fnl_run()`, `fnl_pump()`, `fnl_stop()`.
+- **`FnlApp`** — one window: everything it has today that is about *this*
+  window, which is nearly everything the frame touches (below).
+
+`fnl_init()` keeps its meaning as **host and first window**, so no caller, no
+example and no round changes, and `fnl_window_create(const FnlWindowDesc *,
+FnlApp **out)` is the new door. `FnlWindowDesc` is `FnlInitDesc`'s per-window
+half — the fields that describe one window, behind the same `size` field,
+since a struct the caller fills grows at its end. `fnl_quit()` narrows to
+closing the window it is given, and the run ends when the last one has closed
+— the header's `fnl_run()` already promises "until the window closes or
+`fnl_quit()` is called". The three pumping calls keep their signature and
+their argument: an `FnlApp` carries the host it belongs to, so `fnl_pump(app)`
+is one turn of the host that app lives on and dispatches for every window
+there.
+
+The backend seam splits with it, and along a line the seam already draws:
+`open` becomes `host_open` and `window_open`, `close` becomes `window_close`
+and `host_close`, `pump`/`wakeup`/`check_error`/`absent`/`host` move to the
+host, and every entry that names a window's geometry, state, outputs, scale,
+capture, clipboard or title stays where it is. `FnlBackendVtbl` has 44
+entries and eleven are the host's — `absent`, `host`, `shared_driver`, `open`,
+`close`, `pump`, `wakeup`, `check_error` and the three `gpu_driver*`; the rest
+do not change. The renderer seam does not split at all: `create_surface` and
+everything under it is one window's device.
+
+**What is already per-window** is the evidence that the split is a sort and not
+a rewrite. Each of these hangs off `App` or `BackendState` and is touched by
+nothing but its own window:
+
+- the surface or window, its title, decorations, claims, the published size,
+  scale, output and the frame statistics (`App::pub_*`);
+- the event queue with its own lock (`App::ev_*`), so a burst in one window
+  cannot wait behind another's frame;
+- the frame policy — pacing, late latching, the off-screen skip, the veil;
+- the render thread, `App::renderer_state`, the device, the swapchain, the
+  scene targets, the caller's images;
+- the clipboard offer and the composition text, each under its own lock;
+- the held keys, the pointer, the capture, the text-input mode, the metrics
+  panel, the titlebar's controls and claims.
+
+And the dispatch is per-window wherever the API delivers an object: `wnd_proc()`
+reads its `App` from `GWLP_USERDATA`, Wayland's listeners are registered with
+the app as their `data`, and X11's `dispatch()` is handed the App because each
+app reads *its own* connection. The split keeps that where it can — a Win32
+message names its `HWND` and an `NSEvent` its window — and adds a lookup only
+where one connection now serves many windows (below).
+
+**What is process-wide today, and would break a second window.** Every row was
+read at its site; what is *not* in this table was looked for and not found.
+
+| where | what | what a second window does to it |
+|---|---|---|
+| `app.c` | `signal_app`, `signals_taken`, `prev_sig` | the second `fnl_init()` replaces the first's handler, and the first window's `fnl_quit()` from a signal is lost — the comment there already says "a second app asking replaces the first" |
+| `app.c`, `frame.c` | `this_thread`, `app_renderer_state_ours()` | "the render thread" is a process-wide label; with one render thread per window each would read the other's as its own, and `fnl_vulkan_gpu()` and its twins would hand a caller `App::renderer_state` that is not its window's |
+| `win32.c` | `RegisterClassExW(FNL_WNDCLASS)` | fails with `ERROR_CLASS_ALREADY_EXISTS`, so the second window's `open()` returns `FNL_ERR_NO_DISPLAY` and `fnl_init()` unwinds. `RAWIN_CLASS` already tolerates the error; `FNL_PRESENT_CLASS` logs and goes on |
+| `win32.c` | the pump is a window's, and it ends on `WM_QUIT` | `WM_QUIT` is the thread's, not a window's, so one pump a window cannot end for one of them; and one message queue serving N windows wants a dispatch that finds each window's app by its `HWND`, which `wnd_proc()` already does |
+| `win32_rawin.c` | one raw-input registration a usage, "the last made wins" | N windows starting a raw thread leave one holding the mouse and N−1 `has_mouse == false`, and the removal at one close is the process's |
+| `win32.c` | `ShowCursor` (a counter), `ClipCursor` (global) | two captures fight: the second `capture_apply(p, false)` gives back the first's confinement |
+| `cocoa.m` | `NSApp.delegate` | the second window's delegate replaces the first's, and the first loses Command-Q, the Dock's Quit and `applicationDidHide`; one delegate that asks the frontmost window is the fix, `windowWillClose:` being where a window leaves it |
+| `cocoa.m` | `left_held`, `left_down`, `pump_waiting`, `iso_swap` | window-drag and pump state at file scope: `pump_waiting` sends a wakeup to whichever app checks it, and `left_down` is whichever window's press was last |
+| `gl/loader.c`, `gl/gl_compat.c` | `GlFuncs gl`, `gl_profile41`, `vaos[]`, `real_delete_vertex_arrays` | one function table and one VAO record table for the process: a 4.1 context next to a 4.5 one makes `gl_profile41` wrong for one of them, and two windows' vertex-array names collide in one array of 16. `gl_load()` returns either, so the table moves to `RendererState`; `vaos` is 4.1's alone and is read and written only while that window's context is current |
+| `metal/device.m` | `s_fn[]` | `mt_functions_forget()`, from one window's overlay creation, empties another's compiled stages |
+| `vk_load.c` | the `fnl_vk*` entry table | refilled per instance; the loader's own entries are per device through its trampolines, but the table is single, and the file already requires that no two `vk_load_instance()` calls run at once |
+| `kms/kms.c` | the card as master, `outputs[]`, `scan`, the grabbed inputs, `crtcs_save()` | one window is the whole card (below) |
+
+**Not to be moved**, and deliberately so: `error.c`'s log sink (the process's,
+and the caller sets it once), `text_measure.c`'s glyph table (a property of the
+build, written once before any thread), `egl_dyn.c`'s hold count (already
+counted across apps, which is why a window's close does not close the driver),
+`cocoa.m`'s `app_launched` (one `NSApplication` a process), and X11's static
+`xcb_extension_t` objects — libxcb caches each extension's reply *per
+connection* under the object's `global_id`, so one object serves every
+connection correctly and a copy per window would only change when the server
+is asked.
+
+**On KMS a window is an output, and that is the model.** There is no window
+server to place a second window with: the program holds the card as master
+(`DRM_IOCTL_SET_MASTER` succeeding only while nobody else holds it) and one
+output whole. So:
+
+- **One master, many windows.** `card_fd` belongs to the host, and the host
+  reads the card's outputs once. A window is a *selection* — one output and
+  one of its modes — and `KMS_SEL()`'s packing, `sel_want`, `mode_w`, the
+  cursor plane, the copy path's `KmsScan` pair, and `connector_live_crtc()` all
+  move to the window's half of the state. The bridge already reads the
+  selection and dups `card_fd` (`fcntl(F_DUPFD_CLOEXEC)` in `surface_kms.c`),
+  so it needs no change but to read the window's.
+- **A second window is a second output, never a second card.** Two windows on
+  one output is refused, with the reason said: the model has no way to show
+  both.
+- **The inputs are the host's**, read and grabbed once. A second `EVIOCGRAB` of
+  a keyboard already grabbed fails (EBUSY), which today reads as "held by
+  another program" and would read as one window stealing the other's.
+- **`crtcs_save()`/`crtcs_restore()` become the host's**, one CRTC per window:
+  a window closing gives back its own output and leaves the other's lit. The
+  console comes back only when the last one has gone.
+- **`fnl_request_output()` and the output box change meaning**: moving a window
+  between outputs *is* giving that output to another window, so the box's list
+  is the outputs no window holds, plus the one this window holds, and a pick
+  exchanges two selections rather than moving one window.
+
+**One pump, one wait.** The host blocks once, on the connection or the queue,
+and dispatches what arrives to the window it belongs to. Win32, X11 and
+Cocoa already do the dispatch half — a message names its `HWND`, an xcb event
+its window, an `NSEvent` its window — and each backend's pump is a `while` over
+that queue with the app threaded in, so it becomes a `while` with a lookup.
+Wayland is the one that changes shape: a second `wl_display` would be a second
+connection and a second focus, so the host keeps *one* `wl_display`, one
+registry, one seat, and a surface per window, and focus and input route by
+the `wl_keyboard.enter`/`leave` the seat already delivers. Two connections
+would work and are rejected: the compositor treats each as another client, so
+the clipboard, the input method and the pointer each become two.
+
+**What stays single, and is not a limitation.** Focus, pointer capture, the
+clipboard offer and the text-input mode are one window's at a time, because the
+desktop says so: one window has the keyboard, one program owns the selection,
+one pointer is captured. The host routes them; each window's `FNL_EVENT_FOCUS`
+says whose turn it is, and the held-key set moves with it. The device is not
+one of these: each window builds its own, which is what every renderer already
+does, and a shared device is rejected below.
+
+**A calibration is the window's, the figures are the program's.** The ranking
+file is one per backend per program (`gpu-rank-<prog>-<backend>.txt`), so two
+windows on one display would measure the same entries twice into the same
+lines. The rank is made the host's: reading and writing it, while measuring
+stays a window's and a display's, and a second window on the display already
+measured — or being measured — waits rather than measuring again.
+
+**Rejected.** *N independent apps, one `fnl_init()` each* is the state before
+the split, and it is not multi-window: the second connection acts with the
+process's rights, Win32's second class registration fails, Wayland's second
+client duplicates the clipboard and the input method, and the ranking, the log
+sink and the signal handlers are each last-writer-wins. *One `FnlApp` owning N
+swapchains* puts "which window" into every renderer entry — the flattening
+that *Two dispatch tables* refused, one level down — and makes every
+per-window field in `App` an array. *One device shared by the windows* wants a
+swapchain per window inside every renderer, and a loss in one window takes the
+other's frames with it, where a device a window keeps the recovery story the
+tree already measures. *Letting the caller run N programs*, which is what
+`run_all.sh` does today, is a harness answer and not a library one: no shared
+input, clipboard subtlety or ranking, and no window that is dragged onto
+another monitor.
+
+**What the split costs, before any of it is written.** The header's scope block
+changes (it is the promise, and it is quoted above). `FNL_EVENT_*` needs no new
+value, but the echo line (`echo.c`) carries no window, and the harness finds a
+window by title and `_NET_WM_PID` — one process with two windows already makes
+`find_window()`'s own warning true, that a round would drive the wrong one and
+report a full set of plausible failures. `kms_grab.py` reads "the first active
+CRTC with a framebuffer" when not told an output, and would have to be told one
+per window. `pace.py` and `bench.py` measure a program, one window at a time,
+and stay that way. The ABI baseline gains the new functions and
+`FnlWindowDesc` like any other change; nothing existing moves.
+
 ## The frame
 
 ### Frame pacing and the off-screen skip

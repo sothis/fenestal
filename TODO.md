@@ -1329,3 +1329,47 @@ pixels, median 0.73 and 0.76 -- which is an analytic edge and neither a
 staircase (all 0 or all 1) nor a blur (clustered at one value). The feather
 is 0.5 physical pixels at any scale, so this is the ramp the shader
 documents rather than one that happened to look right.
+
+## A second window
+
+Designed in DESIGN *A second window*; none of it is written, and nothing
+below is started. The header's scope says "one window, created with the
+app", and the app is already the handle -- 127 of the 143 `FNL_API`
+prototypes take one -- so the work is the process state that is still in the
+app, not a handle to add.
+
+- **The host, and the split.** `FnlHost` for the connection, the one pump,
+  the signal handlers, the log level, the GPU ranking, the window registry
+  and `fnl_run`/`fnl_pump`/`fnl_stop`; `FnlApp` for one window; `fnl_init()`
+  as host and first window so that nothing existing changes;
+  `fnl_window_create()` as the door. The backend seam takes the same split
+  (`host_open`/`window_open`, `pump` and `close` moving); the renderer seam
+  does not.
+- **The process state the table in DESIGN names**, each row a site to move:
+  the signal app, `this_thread` and `app_renderer_state_ours()`, Win32's
+  window class and its one pump, its raw-input registration and the two
+  pointer calls that are the desktop's (`ShowCursor`, `ClipCursor`), Cocoa's
+  one delegate and its four file-scope variables, and the GL, Metal and
+  Vulkan tables that are one a process today.
+- **Wayland needs the most design**: one `wl_display` with a surface per
+  window and the seat routing by `enter`/`leave`, rather than a display a
+  window. Whether that is right at the input method and the clipboard is the
+  first thing to prove, on GNOME, with two windows open at once.
+- **KMS: a window is an output.** One master, one input set, a selection a
+  window, a CRTC each, and the console back only when the last window has
+  gone. Owed with it: what a second window does when the card has one
+  output, which is every machine here (`black`'s DP-1 plus a dark DVI-D-1 is
+  the nearest, and the laptops have one each). Nothing in this lab can show
+  two KMS windows until a second monitor is on a bare machine -- TODO *The
+  bare machine, without Xorg* owes the cable, and this owes the round that
+  follows it.
+- **What is measured where, once it is built.** The harness finds a window
+  by title and `_NET_WM_PID`, so a second window in one process is already
+  the case its own docstring warns about: the echo line wants a window and
+  `find_window()` a way to choose. `kms_grab.py` needs an output named, and
+  `stress.py` earns a check that opens two windows and moves the focus
+  between them -- the one thing no single-window round can say.
+- **Order.** The header and DESIGN first; then the core split with
+  `fnl_init` unchanged; then Win32 and X11, which are natively multi-window
+  and prove the split without any of Wayland's or KMS's questions; then
+  Cocoa, then Wayland, then KMS; and the harness with the backend it drives.
