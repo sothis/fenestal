@@ -36,17 +36,20 @@
 /* As in scene_vulkan.c: 36 lit wedges, two triangles each. */
 #define STAR_VERTICES (36 * 2 * 3)
 
-/* What the shaders' `Push` block holds, fed as four root constants: the
+/* What the shaders' `Push` block holds, fed as eight root constants: the
  * same bytes as scene_vulkan.c's push constant, and pinned the same way. */
 typedef struct {
-	float size[2];
-	float time;
+	float    size[2];
+	float    jitter[2];
+	float    time;
 	uint32_t srgb;
+	float    pad[2];     /* to 32, eight 32-bit root constants */
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 16, "ScenePush must match scene.frag");
-_Static_assert(offsetof(ScenePush, time) == 8, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, srgb) == 12, "ScenePush layout drifted");
+_Static_assert(sizeof(ScenePush) == 32, "ScenePush must match scene.frag");
+_Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time) == 16, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, srgb) == 20, "ScenePush layout drifted");
 
 typedef struct {
 	ID3D12RootSignature *root;
@@ -207,6 +210,7 @@ void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 
 	const ScenePush pc = {
 		.size = { (float)f->scene_w_px, (float)f->scene_h_px },
+		.jitter = { f->jitter_x, f->jitter_y },
 		.time = f->scene_time,
 		.srgb = s->srgb ? 1u : 0u,
 	};

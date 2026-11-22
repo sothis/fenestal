@@ -135,15 +135,18 @@ Owed, in this order:
   content and the clamp lets it through. The echo proves the conditions (the
   pin held at 960x600 across each `antialias` toggle, so the TAAU change was
   not a re-layout). This is the case the design is built for.
-  **The testbed's star is still owed, and it is blocked on a defect this test
-  found:** no program in the tree applied `FnlFrame::jitter_x`, and the
-  testbed's scene files (`scene_vulkan.c` and the other three) still do not --
-  so TAAU on the star rasterises every frame at the same subpixel and
-  accumulates identical samples, a false test. `demos/motion` was taught the
-  jitter in `main.c` for this run (a subpixel shift in the projection's `m[8]`,
-  which multiplies z so the divide cancels and the shift is uniform on
-  screen); the testbed's four scenes want the same before the star comparison
-  against MSAA and MLAA is worth running.
+  **The testbed's star now applies the jitter too (2026-11-22).** No program
+  in the tree was applying `FnlFrame::jitter_x`, so TAAU on the star gathered
+  identical samples -- a false test. `demos/motion` was taught it first; the
+  testbed's four scene files (`scene_vulkan.c`, `scene_gl.c`,
+  `scene_d3d12.c`, `scene_metal.m`) now shift their projection by it the same
+  way, in the two vertex shaders' shared `ScenePush` (grown 16 to 32 bytes,
+  `vec2 jitter` after `size`), verified through the HLSL, MSL and GL 4.1
+  translations and clean in every tree. So the star testbed now draws a real
+  TAAU picture. What is still owed is the *comparison* the item names: the
+  star at 60 and at 30 sizes a second, against MSAA and MLAA, a frame read
+  back off the window -- the demo's half-scale comparison answered the mode's
+  worth, not the star's against the other two.
 - **What it looks like**: the testbed's star (geometry, so a jitter has
   something to gather) at 60 and at 30 sizes a second, against MSAA and MLAA;
   and the moving cube of `demos/motion` where the clamp, not the accumulation,

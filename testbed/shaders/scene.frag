@@ -32,6 +32,7 @@
 
 layout(push_constant) uniform Push {
 	vec2  size;           /* scene resolution, pixels */
+	vec2  jitter;         /* the temporal accumulation's subpixel offset, px */
 	float time;           /* seconds; frozen at 0 when motion is off */
 	uint  srgb;           /* nonzero when the surface blends in linear light */
 } pc;

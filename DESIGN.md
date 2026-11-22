@@ -7477,11 +7477,12 @@ pinned to half the window (960x600 over 1920x1200), drifting under F2 with TAAU
 toggled by F3, is **crisper with the mode on** than the plain bilinear stretch
 of the small scene -- the cube's silhouette and face edges sharper, and holding
 through the pan rather than smearing. The half-scale case is the one the mode is
-for, and the demo is the only program that applies `FnlFrame::jitter_x` to its
-projection, without which the resolve would sample a jitter it does not need to
-undo and gather nothing. The testbed's four scene files still draw without it,
-so the star there is a false test of the mode until they are taught it -- a
-defect this run found, owed in TODO *Temporal upscaling, measured*.
+for, and the demo applies `FnlFrame::jitter_x` to its projection, without
+which the resolve would sample a jitter it does not need to undo and gather
+nothing. The testbed's four scene files apply it too now (the same subpixel
+shift in their vertex stages' shared `ScenePush`), so the star there draws a
+real TAAU picture -- the comparison of the star against MSAA and MLAA is what
+remains owed, in TODO *Temporal upscaling, measured*.
 
 What has been measured since is what it draws and that its order is agreed
 with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a

@@ -45,13 +45,16 @@
  * bytes as scene_vulkan.c's push constant, and pinned the same way. */
 typedef struct {
 	float    size[2];
+	float    jitter[2];
 	float    time;
 	uint32_t srgb;
+	float    pad[2];     /* to 32, std140's own rounding */
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 16, "ScenePush must match scene.frag");
-_Static_assert(offsetof(ScenePush, time) == 8, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, srgb) == 12, "ScenePush layout drifted");
+_Static_assert(sizeof(ScenePush) == 32, "ScenePush must match scene.frag");
+_Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time) == 16, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, srgb) == 20, "ScenePush layout drifted");
 
 /* The entry points this file calls, loaded through fnl_gl_proc() at every
  * on_gpu_created: a loss may land on another driver. */
@@ -214,6 +217,7 @@ void scene_gl_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 
 	const ScenePush pc = {
 		.size = { (float)f->scene_w_px, (float)f->scene_h_px },
+		.jitter = { f->jitter_x, f->jitter_y },
 		.time = f->scene_time,
 		.srgb = s->srgb ? 1u : 0u,
 	};

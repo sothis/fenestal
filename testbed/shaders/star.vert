@@ -23,6 +23,7 @@
 
 layout(push_constant) uniform Push {
 	vec2  size;
+	vec2  jitter;    /* the temporal accumulation's subpixel offset, px */
 	float time;
 	uint  srgb;
 } pc;
@@ -64,5 +65,10 @@ void main()
 	if (vert == 2) p = mid + R * vec2(cos(a1), sin(a1));
 
 	v_shade = pc.srgb == 0u ? 0.82 : to_linear(0.82);
-	gl_Position = vec4(p / pc.size * 2.0 - 1.0, 0.0, 1.0);
+	/* The temporal accumulation's subpixel offset (FnlFrame::jitter_x): a
+	 * uniform shift of the whole picture, which the resolve's `- jitter`
+	 * undoes. NDC is 2 * pixels / size, and the scene is orthographic, so
+	 * adding it to the clip-space xy is exactly the pixel shift. */
+	vec2 j = 2.0 * pc.jitter / pc.size;
+	gl_Position = vec4(p / pc.size * 2.0 - 1.0 + j, 0.0, 1.0);
 }

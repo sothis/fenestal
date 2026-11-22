@@ -17,8 +17,24 @@
 
 layout(location = 0) out vec2 v_uv;
 
+/* The same block scene.frag declares, so this stage can carry the temporal
+ * accumulation's subpixel offset. Declared whole though only `jitter` and
+ * `size` are read here (every stage of one program declares the block as it
+ * is), and the fields the fragment stage uses are simply not touched. */
+layout(push_constant) uniform Push {
+	vec2  size;
+	vec2  jitter;    /* the temporal accumulation's subpixel offset, px */
+	float time;
+	uint  srgb;
+} pc;
+
 void main()
 {
 	v_uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-	gl_Position = vec4(v_uv * 2.0 - 1.0, 0.0, 1.0);
+	/* The whole picture shifts by the jitter, background and star alike, so
+	 * the resolve undoes one shift and finds the samples it gathered. The
+	 * covering triangle is oversized (uv to 2), so the shift only slides the
+	 * pattern under it; NDC is 2 * pixels / size, orthographically. */
+	vec2 j = 2.0 * pc.jitter / pc.size;
+	gl_Position = vec4(v_uv * 2.0 - 1.0 + j, 0.0, 1.0);
 }

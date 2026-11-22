@@ -80,17 +80,21 @@ static bool load_vulkan(const FnlVulkanGpu *gpu)
 #define STAR_VERTICES (36 * 2 * 3)
 
 /* The pattern is laid out in scene pixels and needs the clock; the sRGB flag
- * tells the fragment stage which space this surface's blend works in. The
- * asserts pin this struct to the block scene.frag declares. */
+ * tells the fragment stage which space this surface's blend works in; jitter
+ * is the temporal accumulation's subpixel offset, applied in the vertex
+ * stages. The asserts pin this struct to the block scene.frag declares. */
 typedef struct {
 	float    size[2];
+	float    jitter[2];
 	float    time;
 	uint32_t srgb;
+	float    pad[2];     /* to 32, so std140's rounding matches */
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 16, "ScenePush must match scene.frag");
-_Static_assert(offsetof(ScenePush, time) == 8, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, srgb) == 12, "ScenePush layout drifted");
+_Static_assert(sizeof(ScenePush) == 32, "ScenePush must match scene.frag");
+_Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time) == 16, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, srgb) == 20, "ScenePush layout drifted");
 
 typedef struct {
 	VkDevice         device;
@@ -319,6 +323,7 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 
 	ScenePush pc = {
 		.size = { (float)f->scene_w_px, (float)f->scene_h_px },
+		.jitter = { f->jitter_x, f->jitter_y },
 		.time = f->scene_time,
 		.srgb = s->srgb ? 1u : 0u,
 	};
