@@ -170,11 +170,18 @@ Owed, in this order:
   `demos/motion`
   was judged too -- crisper with TAAU at half scale, edges holding through the
   pan (its own entry above).
-- **Whether a resting window keeps it**: the image a still scene converged on
-  has to stay on screen through the rest, which is `rest_owed()` reading a
-  draw state whose jitter has stopped moving. Nothing in the code asks for a
-  draw to keep converging, and that is the intent -- but it has not been
-  looked at on a screen.
+- ~~**Whether a resting window keeps it**~~ -- **yes (2026-11-22)**. The
+  testbed, TAAU on, `--freeze` (one pose) and `--frame-stats-log`: motion on to
+  converge, then motion off; the stats prove the rest (frames climbing 408-438-
+  469 while moving, then held at 500-501-502 -- the ~1-2 a half second are
+  `rest_owed()`'s figure refreshes, not the scene). The rested image is the
+  converged one, sharp and intact -- star, checkerboard, bars all present, not
+  blanked, not degraded. Two rested frames 1.5 s apart differ by a mean
+  0.69/255 (nonzero only at edge pixels), so it holds still rather than
+  gathering on; the residual is the figures-refresh redraw running the scene
+  through the accumulation again, which is `rest_owed()`'s doing and not the
+  scene moving. Nothing in the result asks for a change: the intent -- a still
+  scene keeps what it converged on -- holds on a screen.
 - **The titlebar control**: the fourth checkbox (TAAU) is 58 points of run,
   measured in `deco_min_window()` on 2026-11-21 -- the floor 556 to 614, and
   683 with the GPU box in it; that 683 is `environment.py`'s `FLOOR_W`, and
