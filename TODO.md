@@ -96,9 +96,14 @@ Owed, in this order:
   of GPU at native 2560x1440 on the RX 590, and **+0.095 ms pinned at
   1280x720, +0.030 at 640x360** -- cheapest where the mode is worth having, as
   the design expects. On lavapipe a hundredfold larger, a software cost. The
-  figures are in DESIGN *Antialiasing*. What the fill on its own costs, apart
-  from the resolve, is the one figure still owed rather than folded into the
-  pair.
+  figures are in DESIGN *Antialiasing*. **The fill on its own is measured too**
+  (2026-11-22): a second identical `vkCmdCopyImage` added to the pass (both
+  images already in TRANSFER layouts, so it changes nothing) and the delta
+  against the one-copy build taken -- **0.097 ms of GPU at 2560x1440, 0.033 at
+  1280x720**, two runs each agreeing. So of the resolve's +0.656 ms at native,
+  ~0.10 is the history fill and ~0.55 the full-screen pass; at half, ~0.03 of
+  the +0.095 is the fill and ~0.065 the pass. The fill is a real slice but the
+  resolve dominates.
 - ~~**What the scene's fetch costs now**~~ -- **measured (2026-11-22)**. The
   same method as the resolve's table: the cubic fetch against the bilinear one
   it replaced, the shader the only difference, a 2560x1440 area on the RX 590.

@@ -7461,6 +7461,15 @@ ms (15.29 direct against 218.79 with TAAU), and pinned at half +19.5 ms
 about software Vulkan rather than any GPU (TODO *Temporal upscaling,
 measured*).
 
+**The fill apart from the resolve** (2026-11-22): a second identical
+`vkCmdCopyImage` added to `record_taau_copy`, both images already in TRANSFER
+layouts so it changes nothing, and the delta against the one-copy build taken --
+**0.097 ms of GPU at 2560x1440 and 0.033 at 1280x720**, two runs each agreeing.
+So the resolve's +0.656 ms at native size is ~0.10 ms of history copy and ~0.55
+of the full-screen pass, and its +0.095 at half is ~0.03 copy and ~0.065 pass:
+the copy is a real share but the resolve dominates, which is the shape the
+design expects of one full-screen pass and one copy.
+
 **The depth comparison is free**, measured (2026-11-22) against the same pin
 with `TAAU_DEPTH_REJECT` at nought -- which leaves the depth fetch and the
 alpha write in place and turns off only the compare, so it prices the compare
