@@ -5909,6 +5909,12 @@ window is never moved to another display to be measured; a GPU new to it
 measures that GPU's entries. A GPU or a display
 taken away keeps its figures, so nothing is measured when it comes back; an
 entry that would not draw is kept at 0, or it would be tried at every start. The
+figures are a fixed table (`RANK_MAX`), and a display key is minted per output
+and mode, so a machine that changes modes or work areas over its life would fill
+it: a new figure when it is full evicts the row of the display with the fewest
+figures other than the one being written, so a lone stale key goes before any
+part of a display still known by several, and the figure being measured is never
+the one dropped. The
 window taken to another display while it is measured -- its own unplugged, which
 on KMS moves it (*Monitors come and go*) -- ends the calibration with what was
 measured where it was, the display it is on is asked about afresh, and the

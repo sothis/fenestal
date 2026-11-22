@@ -850,8 +850,25 @@ static void begin(App *a, const char *why)
 			CAL_SETTLE + CAL_SAMPLE, why);
 }
 
+/* How many kept figures a display has. A row is evicted with the fewest,
+ * so the last figure of a display taken away goes before any part of one
+ * still known by several. */
+static int display_figures(const App *a, const char *display)
+	FNL_REQUIRES(a->lock)
+{
+	int n = 0;
+	for (int i = 0; i < a->rank_n; i++)
+		if (strcmp(a->rank[i].display, display) == 0)
+			n++;
+	return n;
+}
+
 /* A figure for an entry on a display into the kept ones, in its place
- * where one was. */
+ * where one was. A new one when the table is full evicts rather than
+ * discarding: the row whose display has the fewest kept figures, so a
+ * display taken away keeps its figures (DESIGN *Ranked by measured frame
+ * rate*) until the room is wanted, and then the smallest set goes first --
+ * which is why a lone stale key never pushes out a live display's. */
 static void keep(App *a, const char *display, const char *id, double fps)
 {
 	fnl_mutex_lock(&a->lock);
@@ -862,6 +879,20 @@ static void keep(App *a, const char *display, const char *id, double fps)
 			at = i;
 	if (at < 0 && a->rank_n < RANK_MAX)
 		at = a->rank_n++;
+	if (at < 0 && a->rank_n == RANK_MAX) {
+		/* Full: the row of a display other than this one with the fewest
+		 * figures, the oldest of equals taking it. */
+		int fewest = -1;
+		for (int i = 0; i < a->rank_n; i++) {
+			if (strcmp(a->rank[i].display, display) == 0)
+				continue;
+			const int n = display_figures(a, a->rank[i].display);
+			if (fewest < 0 || n < fewest) {
+				fewest = n;
+				at     = i;
+			}
+		}
+	}
 	if (at >= 0) {
 		RankRow *r = &a->rank[at];
 		snprintf(r->display, sizeof r->display, "%s", display);
@@ -871,9 +902,9 @@ static void keep(App *a, const char *display, const char *id, double fps)
 	fnl_mutex_unlock(&a->lock);
 	if (at < 0)
 		fnl_log(FNL_LOG_WARN,
-				"GPU rank: %d figures kept already; %s on %s "
-				"is not",
-				RANK_MAX, id, display);
+				"GPU rank: %d figures kept already, every one on %s; "
+				"%s on %s is not",
+				RANK_MAX, display, id, display);
 }
 
 /* Where the window goes once the ranking has said something new -- a
