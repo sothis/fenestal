@@ -158,8 +158,16 @@ Owed, in this order:
   thin rotating wedges cleaner than MLAA's, which show stair-stepping at the
   tips. FSAA and MLAA sit close, MLAA the weaker of the two on the fine
   features, as the filter's four-pixel minimum span predicts. One pose at
-  native size on the RX 590; the 60-against-30-sizes-a-second pacing question
-  wants the moving star and is still owed. The moving cube of `demos/motion`
+  native size on the RX 590. **The 60-against-30 question is answered too**
+  (2026-11-22): the testbed's new `--fps=N` holds the present rate (verified,
+  30 reads 30 against 60's 60), so at 30 the star advances twice as far per
+  frame -- twice the displacement the clamp sees. TAAU stays clean at 30 as at
+  60, no smearing or ghosting from the larger inter-frame jump (hard edge steps
+  2769 against 2411, blended 6.3% to 5.9%, the small rise the bigger step
+  predicts), so the accumulation handles a halved rate. The two frames are at
+  different rotations -- real motion, not frozen -- so it is a
+  quality-holds-up judgment and not a pixel diff. The moving cube of
+  `demos/motion`
   was judged too -- crisper with TAAU at half scale, edges holding through the
   pan (its own entry above).
 - **Whether a resting window keeps it**: the image a still scene converged on

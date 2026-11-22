@@ -30,6 +30,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if !defined(_WIN32)
+#include <time.h>   /* nanosleep, for --fps's pacing */
+#endif
+
 #ifdef _WIN32
 /* The one Windows header this file includes, for use_parent_console(). */
 #ifndef WIN32_LEAN_AND_MEAN
@@ -49,6 +53,13 @@ static int trans_ms = -1;
  * same star to compare. Read by testbed_scene_time(). */
 static bool g_freeze;
 static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
+/* --fps=N: hold the window to N presents a second by sleeping out the rest of
+ * each frame's budget, so a scene that would draw every refresh moves further
+ * between frames -- what "30 sizes a second" means to a temporal accumulation,
+ * whose clamp sees twice the displacement at 30 that it does at 60. 0 is the
+ * display's own rate, the default. */
+static int g_fps;
+static double g_fps_next;
 
 /* The --bench* arguments, in order, for bench.c; and the first option given
  * beside them that a benchmark row sets instead, which is refused: a record
@@ -276,6 +287,11 @@ static void usage(FILE *f, const char *prog)
 		"                     while the picture holds one pose -- what lets\n"
 		"                     MSAA, MLAA and TAAU frame the same scene to\n"
 		"                     compare. Press F2 for the clock.\n"
+		"  --fps=N            hold the window to N presents a second,\n"
+		"                     sleeping out the rest of each frame, so a\n"
+		"                     moving scene advances further between frames --\n"
+		"                     30 is twice the displacement per frame the\n"
+		"                     temporal clamp sees at 60.\n"
 		"\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
@@ -412,6 +428,20 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--freeze")) {
 			g_freeze = true;
+			continue;
+		}
+		if (!strncmp(arg, "--fps=", 6)) {
+			const char *v = arg + 6;
+			char *end;
+			errno = 0;
+			long n = strtol(v, &end, 10);
+			if (errno || !*v || *end || n < 1 || n > 1000) {
+				fprintf(stderr, "--fps: expected a rate from 1 to "
+								"1000; got \"%s\"\n", v);
+				*status = EXIT_FAILURE;
+				return false;
+			}
+			g_fps = (int)n;
 			continue;
 		}
 		if (!strcmp(arg, "--text-input")) {
@@ -685,6 +715,30 @@ static void testbed_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 
 	testbed_overlay_draw(app, f);
 	testbed_titlebar_custom_draw(app, f);
+
+	/* --fps: hold the present rate by sleeping out the rest of the frame's
+	 * budget. The deadline advances by one interval each frame, and is
+	 * re-anchored to now if a frame overran it, so a slow frame does not
+	 * leave a burst of back-to-back presents after it. */
+	if (g_fps > 0) {
+		const double now  = bench_now();
+		const double want = 1.0 / (double)g_fps;
+		if (g_fps_next <= 0.0)
+			g_fps_next = now;
+		if (g_fps_next > now) {
+			const double s = g_fps_next - now;
+#if defined(_WIN32)
+			const DWORD ms = (DWORD)(s * 1e3 + 0.5);
+			Sleep(ms ? ms : 1);
+#else
+			struct timespec ts = { (time_t)s, (long)((s - (time_t)s) * 1e9) };
+			nanosleep(&ts, NULL);
+#endif
+			g_fps_next += want;
+		} else {
+			g_fps_next = now + want;
+		}
+	}
 }
 
 #ifdef _WIN32
