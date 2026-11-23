@@ -187,6 +187,18 @@ class Unavailable(RuntimeError):
     it never started."""
 
 
+class Window:
+    """One toplevel of the program under test, as a round sees it with more
+    than one open: the title it is found by, where it is in physical pixels,
+    and what aiming the harness at it takes -- an X window on an X server, and
+    its title again where a Windows agent is the way in (aim())."""
+
+    def __init__(self, title, geom, key):
+        self.title = title
+        self.geom = geom
+        self.key = key
+
+
 # The variables an environment sets for its program and never inherits from
 # the harness's own environment (Environment.forced()): one left over in a
 # shell would name a backend or a renderer the round is not about.
@@ -653,6 +665,15 @@ class Environment:
 
     def focus(self):
         """Take the input focus, as firmly as this window server allows."""
+
+    def windows(self):
+        """Every toplevel the program has, for the environments that open a
+        second one: each a Window, found by its title."""
+        raise NotImplementedError
+
+    def aim(self, win):
+        """Point rect(), focus(), click() and the picture at that Window."""
+        raise NotImplementedError
 
     def make_room(self, room):
         """Leave `room` points free around the window on its monitor, by
@@ -1345,6 +1366,24 @@ class _XEnvironment(_Placed, _Portal):
 
     def _window_pid(self):
         return self.testbed.proc.pid
+
+    def windows(self):
+        """Every toplevel the program has, in the server's tree order, with
+        the title each names itself by."""
+        out = []
+        for w in self.X.find_windows(title_substr="",
+                                     pid=self._window_pid()):
+            try:
+                title = str(w.get_wm_name() or "")
+            except Exception:
+                title = ""
+            out.append(Window(title, self.X.geom(w), w))
+        return out
+
+    def aim(self, win):
+        """Point rect(), focus(), click() and the picture at `win`: the
+        window this environment reads is this one now."""
+        self.win = win.key
 
     ENV = {}
 
@@ -2252,9 +2291,12 @@ class Win32VM(_Placed, _Portal):
     # "dead-layout": Windows composes, so there is no table to edit as
     # "remap-key" edits X11's; what can be done instead is to switch the
     # window to a layout that has a dead key, which every Windows ships.
+    # "second-window": the same win64 tree, and the agent finds each window by
+    # its title, so a round can aim at either (windows(), aim()).
     CAN = frozenset({"server-rect", "edge-resize", "unminimize",
                      "read-pixels", "composited", "multi-output",
-                     "output-pick", "dead-layout", "resizable"})
+                     "output-pick", "dead-layout", "resizable",
+                     "second-window"})
     # United States-International, by its registry name: the letters stay
     # where any Latin layout has them, and the key right of the semicolon is
     # a dead acute, a dead diaeresis with Shift. Its accent typed alone is
@@ -2534,6 +2576,28 @@ class Win32VM(_Placed, _Portal):
 
     def rect(self):
         return self.portal.rect()
+
+    # The program's windows by title: the library names the first for the
+    # renderer and GPU it drew with, and a second window keeps the title it
+    # was opened with, so each has a title of its own to be found by. The
+    # agent aims at whatever it last found, which is what aim() puts back.
+    FIRST_TITLE = "Fenestal"
+    SECOND_TITLE = "Second window"
+
+    def windows(self):
+        """Every window the program has, found by its title."""
+        out = []
+        for title in (self.FIRST_TITLE, self.SECOND_TITLE):
+            if self.portal.find(self.program, title, timeout=2.0):
+                out.append(Window(title, self.portal.rect(), title))
+        if out:
+            self.portal.find(self.program, self.FIRST_TITLE, timeout=2.0)
+        return out
+
+    def aim(self, win):
+        """Aim the agent at that window: rect(), focus(), click() and the
+        picture are its from here."""
+        self.portal.find(self.program, win.key, timeout=2.0)
 
     def monitor(self):
         return self.portal.monitor()[0][1:]

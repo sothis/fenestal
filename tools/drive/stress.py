@@ -3595,35 +3595,37 @@ def two_window(b, r):
     The program is relaunched with --second-window, which opens the second
     window from fnl_window_create() before fnl_run() and runs it under the same
     pump; the harness has just stopped the single-window program, so this is a
-    fresh one. Both are X windows on the display -- a wine-hosted Win32 window
-    is one too -- so x11_driver finds each by its title and the process's
-    _NET_WM_PID, and asks the server which has the focus."""
-    X = b.X
-    pid = b._window_pid()
-    prim = X.find_window(pid=pid)
-    try:
-        second = X.find_window(title_substr="Second window", pid=pid,
-                               timeout=15.0)
-    except Exception as e:
-        r.check("a second window opens beside the first", False, str(e))
+    fresh one. Each window is found by its own title -- the library names the
+    first for what it drew with, and the second keeps the one it was opened
+    with -- through the environment's way in: the X server's tree for an X
+    window, and the Windows agent's windows for one on a Windows desktop. The
+    harness then aims at one window or the other, and every rect, click, key
+    and picture that follows is that window's."""
+    SECOND = "second window"
+    wins = b.windows()
+    second = next((w for w in wins if SECOND in w.title.lower()), None)
+    if second is None or len(wins) < 2:
+        r.check(
+            "a second window opens beside the first",
+            False,
+            "%d window(s): %s"
+            % (len(wins), ", ".join(repr(w.title) for w in wins)),
+        )
         return
-    gp = X.geom(prim)
-    gs = X.geom(second)
+    prim = next(w for w in wins if w is not second)
+    gp, gs = prim.geom, second.geom
     r.check(
         "a second window opens beside the first",
-        second is not None,
+        True,
         "first %dx%d, second %dx%d" % (gp[2], gp[3], gs[2], gs[3]),
     )
-    # find_window() can now pick between a process's several windows: an empty
-    # title names every one, so the harness sees both rather than whichever
-    # tree walk reached first.
-    wins = X.find_windows(title_substr="", pid=pid)
-    ids = {w.id for w in wins}
+    # Every window of the process, not only the two found above: a round that
+    # drove the wrong one reports a full set of plausible failures with nothing
+    # behind them.
     r.check(
         "the harness sees both windows of the process",
-        len(wins) >= 2 and prim.id in ids and second.id in ids,
-        "%d windows, first %s, second %s"
-        % (len(wins), prim.id in ids, second.id in ids),
+        len(wins) >= 2,
+        "%d windows" % len(wins),
     )
     r.check(
         "both windows have a size",
@@ -3639,9 +3641,15 @@ def two_window(b, r):
         "first at %d,%d, second at %d,%d" % (gp[0], gp[1], gs[0], gs[1]),
     )
     r.check("the program is alive with two windows", b.alive())
-    r.check("the first window takes the focus", X.focus_settled(prim))
-    r.check("the focus moves to the second", X.focus_settled(second))
-    r.check("and back to the first", X.focus_settled(prim))
+
+    def focus_on(w):
+        b.aim(w)
+        b.focus()
+        return b.until(b.has_focus, timeout=4.0)
+
+    r.check("the first window takes the focus", focus_on(prim))
+    r.check("the focus moves to the second", focus_on(second))
+    r.check("and back to the first", focus_on(prim))
 
     # ---- the pointer captured on the second window ---------------------
     # Capture is the library's, not a caller's: a left click in a window's
@@ -3651,16 +3659,15 @@ def two_window(b, r):
     # window that both captures and the first is open beside: a second
     # window's capture has to leave the first's nothing the worse, which is
     # what the Win32 host's one ShowCursor count and ClipCursor must hold.
-    def content_click(win):
+    def content_click(w):
         # A point in the content, below the bar: the window is the presentable
-        # area plus BAR_H of bar, in window points, so the X geometry (physical
+        # area plus BAR_H of bar, in window points, so the geometry (physical
         # pixels) is divided by the scale first, as the round's own content
         # click does.
-        _x, _y, wpx, hpx = X.geom(win)
+        _x, _y, wpx, hpx = w.geom
         g = b._gain()
         wpt, hpt = wpx / g, hpx / g
-        b.win = win
-        X.focus_settled(win)
+        focus_on(w)
         b.click(int(wpt / 2), int(BAR_H + (hpt - BAR_H) / 2))
 
     def wait_second(want, timeout=3.0):
@@ -3677,6 +3684,20 @@ def two_window(b, r):
 
     content_click(second)
     r.check("the second window takes the pointer", wait_second(True))
+    # The captured second window gets its motion: by a delta, as a captured
+    # pointer's is, and through whichever path the backend has -- on Win32
+    # the host's one raw thread, whose reports go to the window holding the
+    # pointer, and on X11 the grab. A capture that only changes the shape of
+    # the pointer and never reads a report is caught here.
+    m = b.mark()
+    b.move_by(40, 30)
+    b.until(lambda: b.since(m, "relative"), timeout=2.0)
+    rel = b.since(m, "relative")
+    r.check(
+        "and its captured motion arrives as relative",
+        bool(rel),
+        " ".join(rel[-1]["parts"][:3]) if rel else "none",
+    )
     b.tap("F9")                       # the library's release
     r.check("and the second lets it go", wait_second(False))
 
@@ -3687,11 +3708,12 @@ def two_window(b, r):
     # background and its bar holds the same row. Off, the clock stops and a
     # still window records nothing, so the clock is switched on and back.
     if r.can("read-pixels"):
+        b.aim(second)
         b.press("F2")
         rows = []
         for _ in range(6):
             time.sleep(LIVE_APART)
-            rows.append(X.scene_row(second))
+            rows.append(b.scene_row())
         b.press("F2")
         rows = [row for row in rows if row is not None]
         if not rows:
@@ -3707,7 +3729,7 @@ def two_window(b, r):
                 "runs: a window that does not draw its scene"
                 % (len(rows), LIVE_APART),
             )
-    b.win = prim                      # back to the window the harness drives
+    b.aim(prim)                       # back to the window the harness drives
 
     # The second window is a renderer device, a swapchain and a render thread
     # of its own on the host's one renderer; a warning or a leak from building
