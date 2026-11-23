@@ -50,6 +50,12 @@ struct BackendHostState {
 	ATOM present_class;
 	bool present_class_ours;
 	struct RawIn *rawin; /* the process's raw-input thread, or NULL */
+	/* How many windows have confined and hidden the pointer. ClipCursor and
+	 * ShowCursor are the process's -- one pointer, one clip, one counter --
+	 * so the first window to capture applies them, the last to release gives
+	 * them back, and a window releasing while another still holds it leaves
+	 * that one's confinement on the pointer rather than taking it. [main] */
+	int cursor_confined;
 };
 
 struct BackendState {

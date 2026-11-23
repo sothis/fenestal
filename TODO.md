@@ -1406,11 +1406,14 @@ process state that is still in the app, not a handle to add.
   needs a way to choose between two of one process (today by title, which the
   second window's distinct title leans on); and `kms_grab.py` needs an output
   named where a KMS round shows two. The harness's own `_NET_WM_PID` note stands.
-- **Still owed from the DESIGN table**: Win32's two desktop-global pointer calls
-  (`ShowCursor`'s process-wide count, `ClipCursor`'s global confinement) are
-  still made per window, so two Win32 windows that capture would fight; and the
-  GL/Metal/Vulkan tables that are one a process (fine while a program has one
-  renderer, which it does).
+- **The DESIGN table's pointer row is closed**: Win32's `ShowCursor` count and
+  `ClipCursor` confinement are now the host's -- a host count of windows that
+  have confined the pointer, so the first hides it and the last gives it back,
+  and a window releasing while another still holds it leaves that one's clip on
+  the pointer rather than clearing it (which was the fight two captures had).
+  Not exercised by the harness, which cannot make the second window capture;
+  read at the site. Still owed: the GL/Metal/Vulkan tables that are one a
+  process (fine while a program has one renderer, which it does).
 - **Order.** The header and DESIGN, the core split with `fnl_init` unchanged,
   the backend seam's split and the per-window frame loop are done, and the seam
   is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one

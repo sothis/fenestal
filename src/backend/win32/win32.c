@@ -479,30 +479,64 @@ static void publish_size(App *a)
  * confinement is the desktop's and is handed back whenever this window is not
  * the one in front. See WM_KILLFOCUS.
  *
- * ShowCursor is a process-wide *counter*, not a flag; cursor_hidden keeps the
- * calls balanced across a capture that is suspended and resumed. ClipCursor
- * keeps a snapshot in screen coordinates and does not track the window, which
- * is what capture_follow() is for. */
-static void capture_apply(struct BackendState *p, bool on)
+ * ClipCursor and ShowCursor are the *process's* -- a clip is one rectangle, a
+ * ShowCursor count is one counter -- where the capture is a window's. So the
+ * host keeps how many windows have confined the pointer: the first applies
+ * ShowCursor(FALSE), the last gives it back, and a window releasing while one
+ * still holds it leaves that one's clip on the pointer instead of clearing it
+ * (which was the fight two captures had). p->cursor_hidden is this window's
+ * own half, kept balanced across a capture that is suspended and resumed. */
+static void clip_to(HWND hwnd)
 {
+	RECT r;
+	GetClientRect(hwnd, &r);
+	POINT tl = { r.left, r.top }, br = { r.right, r.bottom };
+	ClientToScreen(hwnd, &tl);
+	ClientToScreen(hwnd, &br);
+	RECT screen = { tl.x, tl.y, br.x, br.y };
+	ClipCursor(&screen);
+}
+
+static void capture_apply(App *a, bool on)
+{
+	struct BackendState *p      = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!p || !hs)
+		return;
 	if (on) {
-		RECT r;
-		GetClientRect(p->hwnd, &r);
-		POINT tl = { r.left, r.top }, br = { r.right, r.bottom };
-		ClientToScreen(p->hwnd, &tl);
-		ClientToScreen(p->hwnd, &br);
-		RECT screen = { tl.x, tl.y, br.x, br.y };
-		ClipCursor(&screen);
+		/* The clip follows this window whichever capture owns the pointer:
+		 * it is the one in front, and the pointer is confined to where the
+		 * user is. */
+		clip_to(p->hwnd);
 		if (!p->cursor_hidden) {
-			ShowCursor(FALSE);
 			p->cursor_hidden = true;
+			if (hs->cursor_confined++ == 0)
+				ShowCursor(FALSE);
 		}
 	} else {
-		ClipCursor(NULL);
-		if (p->cursor_hidden) {
+		if (!p->cursor_hidden)
+			return;
+		p->cursor_hidden = false;
+		if (hs->cursor_confined > 0 && --hs->cursor_confined == 0) {
 			ShowCursor(TRUE);
-			p->cursor_hidden = false;
+			ClipCursor(NULL);
+			return;
 		}
+		/* Another window still holds the pointer: keep it confined to that
+		 * one rather than giving it back, and to no window if the count says
+		 * one does and none is found (never, but the pointer is better
+		 * unconfined than stuck). */
+		bool held = false;
+		for (App *w = a->host->windows; w && !held; w = w->next) {
+			struct BackendState *q = w->backend_state;
+			if (q && q != p && q->cursor_hidden && q->hwnd &&
+				!IsIconic(q->hwnd)) {
+				clip_to(q->hwnd);
+				held = true;
+			}
+		}
+		if (!held)
+			ClipCursor(NULL);
 	}
 }
 
@@ -516,7 +550,7 @@ static void capture_follow(App *a, HWND hwnd)
 {
 	struct BackendState *p = a->backend_state;
 	if (p && a->pointer_captured && p->cursor_hidden && !IsIconic(hwnd))
-		capture_apply(p, true);
+		capture_apply(a, true);
 }
 
 /* The process's registration for the generic-desktop mouse, into `out`;
@@ -607,7 +641,7 @@ static void win32_capture(App *a)
 	 * been taken. */
 	app_reticle_start(a);
 	a->pointer_captured = true;
-	capture_apply(p, true);
+	capture_apply(a, true);
 	app_reticle_publish(a);
 }
 
@@ -634,7 +668,7 @@ static void win32_release(App *a)
 		SetCursorPos(at.x, at.y);
 	}
 
-	capture_apply(p, false);
+	capture_apply(a, false);
 	if (p->rawin)
 		rawin_forward(p->rawin, false);
 	/* Registered for the capture alone, the mouse goes back now; under
@@ -1219,7 +1253,7 @@ static void on_focus(App *a, bool in)
 	 * window holding both after losing focus has confined and hidden the
 	 * cursor over somebody else's window. */
 	if (a->pointer_captured)
-		capture_apply(a->backend_state, in);
+		capture_apply(a, in);
 	app_publish_focus(a, in);
 	app_post_focus(a, in);
 }
