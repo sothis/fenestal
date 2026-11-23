@@ -395,7 +395,8 @@ static bool output_read(int fd, uint32_t id, KmsOutput *o, uint32_t *type,
  * opens on: the connector FNL_KMS_OUTPUT names, or the first connected
  * panel, or the first connected anything. -1 when the card has none, or
  * none of that name. */
-static int card_read_outputs(struct BackendState *p, int fd, const char *want)
+static int card_read_outputs(struct BackendHostState *hs, int fd,
+							 const char *want)
 {
 	uint32_t ids[KMS_MAX_CONNECTORS];
 	const int n = card_connectors(fd, ids);
@@ -404,7 +405,7 @@ static int card_read_outputs(struct BackendState *p, int fd, const char *want)
 
 	int count = 0, best = -1, best_rank = 0;
 	for (int i = 0; i < n && count < KMS_MAX_OUTPUTS; i++) {
-		KmsOutput *o  = &p->outputs[count];
+		KmsOutput *o  = &hs->outputs[count];
 		uint32_t type = 0;
 		bool read;
 		if (!output_read(fd, ids[i], o, &type, &read))
@@ -418,7 +419,7 @@ static int card_read_outputs(struct BackendState *p, int fd, const char *want)
 		}
 		count++;
 	}
-	fnl_atomic_store_u32(&p->output_count, (uint32_t)count);
+	fnl_atomic_store_u32(&hs->output_count, (uint32_t)count);
 	return best;
 }
 
@@ -428,23 +429,23 @@ static int card_read_outputs(struct BackendState *p, int fd, const char *want)
  * device, the kernel's own included, so the console's can be set from
  * here. One entry a CRTC: a second connector cloned onto one would be
  * detached by a set naming the first alone. */
-static void crtcs_save(struct BackendState *p, int fd)
+static void crtcs_save(struct BackendHostState *hs, int fd)
 {
-	p->saved_count  = 0;
-	const int count = (int)fnl_atomic_load_u32(&p->output_count);
+	hs->saved_count  = 0;
+	const int count = (int)fnl_atomic_load_u32(&hs->output_count);
 	for (int i = 0; i < count; i++) {
 		struct drm_mode_crtc c = {
-			.crtc_id = connector_live_crtc(fd, p->outputs[i].connector_id),
+			.crtc_id = connector_live_crtc(fd, hs->outputs[i].connector_id),
 		};
 		if (!c.crtc_id || drm_ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &c) < 0)
 			continue;
 		bool seen = false;
-		for (int j = 0; j < p->saved_count && !seen; j++)
-			seen = p->saved[j].crtc_id == c.crtc_id;
+		for (int j = 0; j < hs->saved_count && !seen; j++)
+			seen = hs->saved[j].crtc_id == c.crtc_id;
 		if (seen)
 			continue;
-		KmsCrtcSaved *s = &p->saved[p->saved_count++];
-		s->connector_id = p->outputs[i].connector_id;
+		KmsCrtcSaved *s = &hs->saved[hs->saved_count++];
+		s->connector_id = hs->outputs[i].connector_id;
 		s->crtc_id      = c.crtc_id;
 		s->fb_id        = c.fb_id;
 		s->mode_valid   = c.mode_valid != 0;
@@ -460,12 +461,13 @@ static void crtcs_save(struct BackendState *p, int fd)
  * console will not come back on it, and that restore lights it. */
 static void crtcs_restore(struct BackendState *p)
 {
+	struct BackendHostState *hs = p->host;
 	uint32_t lit =
 		p->scan_sel >= 0
-			? connector_live_crtc(p->card_fd, kms_connector(p, p->scan_sel))
+			? connector_live_crtc(hs->card_fd, kms_connector(p, p->scan_sel))
 			: 0;
-	for (int i = 0; i < p->saved_count; i++) {
-		const KmsCrtcSaved *s    = &p->saved[i];
+	for (int i = 0; i < hs->saved_count; i++) {
+		const KmsCrtcSaved *s    = &hs->saved[i];
 		const bool shown         = s->fb_id && s->mode_valid;
 		struct drm_mode_crtc set = {
 			.set_connectors_ptr = (uintptr_t)&s->connector_id,
@@ -475,20 +477,20 @@ static void crtcs_restore(struct BackendState *p)
 			.mode_valid         = shown ? 1 : 0,
 			.mode               = s->mode,
 		};
-		if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) < 0) {
+		if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) < 0) {
 			fnl_log(FNL_LOG_WARN,
 					"KMS: the console would not come back on "
 					"connector %u (%s); off instead",
 					s->connector_id, strerror(errno));
 			struct drm_mode_crtc off = { .crtc_id = s->crtc_id };
-			drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
+			drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
 		}
 		if (s->crtc_id == lit)
 			lit = 0;
 	}
 	if (lit) {
 		struct drm_mode_crtc off = { .crtc_id = lit };
-		drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
+		drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
 	}
 }
 
@@ -496,10 +498,9 @@ static void crtcs_restore(struct BackendState *p)
  * master. Master is taken by being the first to open a card nobody holds;
  * SET_MASTER is then a no-op that says so, and fails while an X server or a
  * compositor has it. */
-static FnlResult open_output(App *a)
+static FnlResult open_output(struct BackendHostState *hs)
 {
-	struct BackendState *p = a->backend_state;
-	const char *want       = getenv("FNL_KMS_OUTPUT");
+	const char *want = getenv("FNL_KMS_OUTPUT");
 	if (want && !want[0])
 		want = NULL;
 
@@ -509,41 +510,42 @@ static FnlResult open_output(App *a)
 		const int fd = open(path, O_RDWR | O_CLOEXEC);
 		if (fd < 0)
 			continue;
-		const int first = card_read_outputs(p, fd, want);
+		const int first = card_read_outputs(hs, fd, want);
 		if (first < 0) {
 			close(fd);
 			continue;
 		}
-		const int sel = KMS_SEL(first, p->outputs[first].mode_pref);
-		mode_adopt(p, sel);
-		fnl_atomic_store_u32(&p->sel_want, (uint32_t)sel);
-		fnl_atomic_store_u32(&p->sel_good, (uint32_t)sel);
 		if (drm_ioctl(fd, DRM_IOCTL_SET_MASTER, NULL) < 0) {
 			close(fd);
 			return fnl_fail(FNL_ERR_NO_DISPLAY,
 							"%s on %s is in another program's hands -- an X "
 							"server or a compositor; this backend needs the "
 							"display to itself",
-							p->outputs[first].name, path);
+							hs->outputs[first].name, path);
 		}
-		p->card_fd    = fd;
-		p->card_index = card;
-		crtcs_save(p, fd);
+		hs->card_fd    = fd;
+		hs->card_index = card;
+		/* The output the window opens on, kept where kms_window_open() reads
+		 * it: the host's open runs before the window exists, so it cannot
+		 * set the window's selection itself. */
+		hs->first_output = first;
+		crtcs_save(hs, fd);
 		char others[KMS_MAX_OUTPUTS * 34] = "";
-		const int count = (int)fnl_atomic_load_u32(&p->output_count);
+		const int count = (int)fnl_atomic_load_u32(&hs->output_count);
+		const KmsOutput *fo = &hs->outputs[first];
+		const struct drm_mode_modeinfo *fm = &fo->modes[fo->mode_pref];
 		for (int i = 0; i < count; i++)
 			if (i != first) {
 				const size_t at = strlen(others);
 				snprintf(others + at, sizeof others - at, "%s%s",
-						 at ? ", " : "", p->outputs[i].name);
+						 at ? ", " : "", hs->outputs[i].name);
 			}
 		fnl_log(FNL_LOG_INFO,
 				"KMS: %s on %s, %dx%d at %u.%03u Hz, %d "
 				"mode%s on offer; other outputs: %s",
-				p->outputs[first].name, path, p->mode_w, p->mode_h,
-				p->refresh_mhz / 1000, p->refresh_mhz % 1000,
-				p->outputs[first].mode_count,
-				p->outputs[first].mode_count == 1 ? "" : "s",
+				fo->name, path, fm->hdisplay, fm->vdisplay,
+				kms_refresh_mhz(fm) / 1000, kms_refresh_mhz(fm) % 1000,
+				fo->mode_count, fo->mode_count == 1 ? "" : "s",
 				others[0] ? others : "none");
 		return FNL_OK;
 	}
@@ -572,10 +574,10 @@ static FnlResult open_output(App *a)
 /* Which keys are AltGr in this layout: the ones whose plain level is
  * ISO_Level3_Shift. Every other modifier is a key this backend knows by its
  * code. */
-static void keymap_note_level3(struct BackendState *p)
+static void keymap_note_level3(struct BackendHostState *hs)
 {
-	p->ralt_is_level3 =
-		p->keymap.sym[KEY_RIGHTALT + 8][0][0] == KEYSYM_ISO_LEVEL3_SHIFT;
+	hs->ralt_is_level3 =
+		hs->keymap.sym[KEY_RIGHTALT + 8][0][0] == KEYSYM_ISO_LEVEL3_SHIFT;
 }
 
 /* "de(nodeadkeys),us caps:none": the names as FNL_KMS_LAYOUT spells them,
@@ -601,22 +603,23 @@ static void keymap_names_show(const KeymapNames *n, char *out, size_t size)
 
 /* Each group's layout, "de" and "us(intl)", for the line a switch logs:
  * the comma lists side by side, as keymap_names_show() reads them. */
-static void keymap_group_names(struct BackendState *p, const KeymapNames *n)
+static void keymap_group_names(struct BackendHostState *hs,
+							   const KeymapNames *n)
 {
 	const char *l = n->layout, *v = n->variant;
-	memset(p->group_name, 0, sizeof p->group_name);
+	memset(hs->group_name, 0, sizeof hs->group_name);
 	for (unsigned g = 0; g < KEYMAP_GROUPS && *l; g++) {
 		const char *le = strchr(l, ','), *ve = *v ? strchr(v, ',') : NULL;
 		const size_t ln = le ? (size_t)(le - l) : strlen(l);
 		const size_t vn = ve ? (size_t)(ve - v) : strlen(v);
-		snprintf(p->group_name[g], sizeof p->group_name[g], "%.*s%s%.*s%s",
+		snprintf(hs->group_name[g], sizeof hs->group_name[g], "%.*s%s%.*s%s",
 				 (int)ln, l, vn ? "(" : "", (int)vn, v, vn ? ")" : "");
 		l += le ? ln + 1 : ln;
 		v += ve ? vn + 1 : vn;
 	}
 }
 
-static void keymap_load(struct BackendState *p)
+static void keymap_load(struct BackendHostState *hs)
 {
 	KeymapNames names;
 	const char *from = "the console's";
@@ -639,11 +642,11 @@ static void keymap_load(struct BackendState *p)
 	keymap_names_show(&names, shown, sizeof shown);
 	if (FNL_FAULT("kms-no-keymap"))
 		why = "FNL_FAULT";
-	else if (!keymap_load_names(&p->keymap, &names, NULL, detail,
+	else if (!keymap_load_names(&hs->keymap, &names, NULL, detail,
 								sizeof detail))
 		why = detail;
 	if (why) {
-		memset(&p->keymap, 0, sizeof p->keymap);
+		memset(&hs->keymap, 0, sizeof hs->keymap);
 		fnl_log(FNL_LOG_WARN,
 				"no keymap for layout %s: %s, so text entry "
 				"will type nothing",
@@ -652,10 +655,10 @@ static void keymap_load(struct BackendState *p)
 		fnl_log(FNL_LOG_INFO, "KMS: layout %s, %s%s%s", shown, from,
 				detail[0] ? "; left out: " : "", detail);
 	}
-	keymap_note_level3(p);
-	keymap_group_names(p, &names);
-	p->group  = 0;
-	p->groups = keymap_groups(&p->keymap);
+	keymap_note_level3(hs);
+	keymap_group_names(hs, &names);
+	hs->group  = 0;
+	hs->groups = keymap_groups(&hs->keymap);
 }
 
 /* ---- the cursor ------------------------------------------------------------
@@ -736,16 +739,16 @@ static bool glyph_make(struct BackendState *p, KmsGlyph g)
 		.bpp    = 32,
 	};
 	if (FNL_FAULT("kms-no-cursor") ||
-		drm_ioctl(p->card_fd, DRM_IOCTL_MODE_CREATE_DUMB, &cd) < 0)
+		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CREATE_DUMB, &cd) < 0)
 		return false;
 	struct drm_mode_map_dumb md = { .handle = cd.handle };
 	unsigned char *px           = MAP_FAILED;
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_MAP_DUMB, &md) == 0)
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_MAP_DUMB, &md) == 0)
 		px = mmap(NULL, (size_t)cd.size, PROT_READ | PROT_WRITE, MAP_SHARED,
-				  p->card_fd, (off_t)md.offset);
+				  p->host->card_fd, (off_t)md.offset);
 	if (px == MAP_FAILED) {
 		struct drm_mode_destroy_dumb dd = { .handle = cd.handle };
-		drm_ioctl(p->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
+		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
 		return false;
 	}
 	memset(px, 0, (size_t)cd.size);
@@ -777,7 +780,7 @@ static void cursor_hide(struct BackendState *p)
 		p->glyph_shown != KMS_GLYPH_UNSET) {
 		struct drm_mode_cursor c = { .flags   = DRM_MODE_CURSOR_BO,
 									 .crtc_id = crtc };
-		drm_ioctl(p->card_fd, DRM_IOCTL_MODE_CURSOR, &c);
+		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CURSOR, &c);
 	}
 }
 
@@ -808,9 +811,9 @@ static void cursor_show(App *a, KmsGlyph g)
 	 * and a shape set afresh once the answer is another CRTC. */
 	if (!p->cursor_crtc)
 		p->cursor_crtc = connector_live_crtc(
-			p->card_fd, p->outputs[p->out_cur].connector_id);
+			p->host->card_fd, p->host->outputs[p->out_cur].connector_id);
 	const uint32_t crtc =
-		p->cursor_crtc ? p->cursor_crtc : p->outputs[p->out_cur].crtc_id;
+		p->cursor_crtc ? p->cursor_crtc : p->host->outputs[p->out_cur].crtc_id;
 	if (!crtc)
 		return; /* nothing can drive the output */
 	/* Nothing to send: answered before the ioctl below, which a pad's
@@ -826,7 +829,7 @@ static void cursor_show(App *a, KmsGlyph g)
 	/* Not yet lit: the recheck sets the shape once a CRTC drives the output,
 	 * and a refusal from one that is off is not the output refusing a
 	 * cursor, which would be taken as the last word (cursor_warn()). */
-	if (!crtc_lit(p->card_fd, crtc)) {
+	if (!crtc_lit(p->host->card_fd, crtc)) {
 		if (!p->cursor_recheck)
 			p->cursor_recheck = CURSOR_RECHECKS;
 		return;
@@ -851,7 +854,7 @@ static void cursor_show(App *a, KmsGlyph g)
 		c.x = px - GLYPHS[g].hot_x;
 		c.y = py - GLYPHS[g].hot_y;
 	}
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_CURSOR, &c) < 0) {
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CURSOR, &c) < 0) {
 		cursor_warn(p, "the output took no cursor");
 		p->glyph_shown = g;
 		return;
@@ -881,12 +884,13 @@ static void kms_cursor_changed(App *a)
 
 static void cursor_init(struct BackendState *p)
 {
+	struct BackendHostState *hs = p->host;
 	struct drm_get_cap w = { .capability = DRM_CAP_CURSOR_WIDTH };
 	struct drm_get_cap h = { .capability = DRM_CAP_CURSOR_HEIGHT };
-	p->cursor_w = drm_ioctl(p->card_fd, DRM_IOCTL_GET_CAP, &w) == 0 && w.value
+	p->cursor_w = drm_ioctl(hs->card_fd, DRM_IOCTL_GET_CAP, &w) == 0 && w.value
 					  ? (uint32_t)w.value
 					  : 64u;
-	p->cursor_h = drm_ioctl(p->card_fd, DRM_IOCTL_GET_CAP, &h) == 0 && h.value
+	p->cursor_h = drm_ioctl(hs->card_fd, DRM_IOCTL_GET_CAP, &h) == 0 && h.value
 					  ? (uint32_t)h.value
 					  : 64u;
 	p->glyph_shown = KMS_GLYPH_UNSET;
@@ -911,9 +915,10 @@ static void cursor_moved(App *a)
 static void cursor_recheck(App *a)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	p->cursor_recheck--;
 	const uint32_t live =
-		connector_live_crtc(p->card_fd, p->outputs[p->out_cur].connector_id);
+		connector_live_crtc(hs->card_fd, hs->outputs[p->out_cur].connector_id);
 	if (!live)
 		return;
 	p->cursor_recheck = 0;
@@ -925,13 +930,13 @@ static void cursor_recheck(App *a)
 
 static void cursor_free(struct BackendState *p)
 {
-	if (p->card_fd < 0)
+	if (p->host->card_fd < 0)
 		return;
 	cursor_hide(p);
 	for (int g = 0; g < KMS_GLYPH_COUNT; g++)
 		if (p->glyph_handle[g]) {
 			struct drm_mode_destroy_dumb dd = { .handle = p->glyph_handle[g] };
-			drm_ioctl(p->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
 			p->glyph_handle[g] = 0;
 		}
 }
@@ -953,41 +958,44 @@ static void publish_mode(App *a)
 	const int w = px_to_pt(p->mode_w, s120), h = px_to_pt(p->mode_h, s120);
 	app_publish_size(a, w, h, s120);
 	app_publish_refresh(a, p->refresh_mhz);
-	app_publish_output(a, p->outputs[p->out_cur].name, w, h);
+	app_publish_output(a, p->host->outputs[p->out_cur].name, w, h);
 }
 
 /* ---- the keyboard -------------------------------------------------------- */
 
 static bool held(const struct BackendState *p, unsigned code)
 {
-	return code < 8u * sizeof p->down && (p->down[code / 8] >> (code % 8)) & 1u;
+	const struct BackendHostState *hs = p->host;
+	return code < 8u * sizeof hs->down &&
+		   (hs->down[code / 8] >> (code % 8)) & 1u;
 }
 
 static void held_set(struct BackendState *p, unsigned code, bool on)
 {
-	if (code >= 8u * sizeof p->down)
+	if (code >= 8u * sizeof p->host->down)
 		return;
 	if (on)
-		p->down[code / 8] |= (uint8_t)(1u << (code % 8));
+		p->host->down[code / 8] |= (uint8_t)(1u << (code % 8));
 	else
-		p->down[code / 8] &= (uint8_t)~(1u << (code % 8));
+		p->host->down[code / 8] &= (uint8_t)~(1u << (code % 8));
 }
 
 /* The modifiers, worked out from the keys held: on a bare output nobody
  * reports them, and the locks are this backend's own toggles. */
 static KeyMods kb_mods(const struct BackendState *p)
 {
+	struct BackendHostState *hs = p->host;
 	const bool ralt  = held(p, KEY_RIGHTALT);
-	const bool alt   = held(p, KEY_LEFTALT) || (ralt && !p->ralt_is_level3);
+	const bool alt   = held(p, KEY_LEFTALT) || (ralt && !hs->ralt_is_level3);
 	const bool ctrl  = held(p, KEY_LEFTCTRL) || held(p, KEY_RIGHTCTRL);
 	const bool super = held(p, KEY_LEFTMETA) || held(p, KEY_RIGHTMETA);
 	return (KeyMods){
 		.shift   = held(p, KEY_LEFTSHIFT) || held(p, KEY_RIGHTSHIFT),
-		.lock    = p->caps_on,
-		.num     = p->num_on,
-		.level3  = ralt && p->ralt_is_level3,
+		.lock    = hs->caps_on,
+		.num     = hs->num_on,
+		.level3  = ralt && hs->ralt_is_level3,
 		.command = alt || ctrl || super,
-		.group   = p->group,
+		.group   = hs->group,
 		.alt     = alt,
 		.ctrl    = ctrl,
 		.super   = super,
@@ -999,14 +1007,15 @@ static KeyMods kb_mods(const struct BackendState *p)
  * puts ISO_Next_Group where Caps Lock was. */
 static bool group_switch(struct BackendState *p, unsigned code)
 {
+	struct BackendHostState *hs = p->host;
 	const KeyMods mods = kb_mods(p);
 	unsigned to;
-	if (!keymap_group_key(&p->keymap, code + 8u, &mods, p->groups, &to))
+	if (!keymap_group_key(&hs->keymap, code + 8u, &mods, hs->groups, &to))
 		return false;
-	if (to != p->group) {
-		p->group = to;
+	if (to != hs->group) {
+		hs->group = to;
 		fnl_log(FNL_LOG_INFO, "KMS: typing in group %u of %u, %s", to + 1,
-				p->groups, p->group_name[to][0] ? p->group_name[to] : "?");
+				hs->groups, hs->group_name[to][0] ? hs->group_name[to] : "?");
 	}
 	return true;
 }
@@ -1014,14 +1023,15 @@ static bool group_switch(struct BackendState *p, unsigned code)
 static void key_type(App *a, unsigned code, bool repeat)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	const KeyMods mods     = kb_mods(p);
-	const uint32_t was     = p->compose.dead;
+	const uint32_t was     = hs->compose.dead;
 	const uint32_t c =
-		keymap_type(&p->keymap, &p->compose, code + 8u, &mods, repeat);
+		keymap_type(&hs->keymap, &hs->compose, code + 8u, &mods, repeat);
 	app_text(a, c);
-	if (p->compose.dead != was) {
+	if (hs->compose.dead != was) {
 		char shown[8];
-		keymap_composing(&p->compose, shown);
+		keymap_composing(&hs->compose, shown);
 		app_compose_set(a, shown);
 	}
 }
@@ -1033,7 +1043,7 @@ static void kms_text_input_changed(App *a)
 {
 	if (app_text_input(a))
 		return;
-	a->backend_state->compose.dead = 0;
+	app_backend_host(a)->compose.dead = 0;
 	app_compose_set(a, NULL);
 }
 
@@ -1041,19 +1051,20 @@ static void kms_text_input_changed(App *a)
  * keyboard shows none of its own without being told. */
 static void leds_write(struct BackendState *p)
 {
+	struct BackendHostState *hs = p->host;
 	struct input_event ev[3];
 	memset(ev, 0, sizeof ev);
 	ev[0].type  = EV_LED;
 	ev[0].code  = LED_CAPSL;
-	ev[0].value = p->caps_on;
+	ev[0].value = hs->caps_on;
 	ev[1].type  = EV_LED;
 	ev[1].code  = LED_NUML;
-	ev[1].value = p->num_on;
+	ev[1].value = hs->num_on;
 	ev[2].type  = EV_SYN;
 	ev[2].code  = SYN_REPORT;
-	for (int i = 0; i < p->input_count; i++)
-		if (p->inputs[i].kind & KMS_KEYBOARD) {
-			ssize_t n = write(p->inputs[i].fd, ev, sizeof ev);
+	for (int i = 0; i < hs->input_count; i++)
+		if (hs->inputs[i].kind & KMS_KEYBOARD) {
+			ssize_t n = write(hs->inputs[i].fd, ev, sizeof ev);
 			(void)n; /* a read-only open has no lights */
 		}
 }
@@ -1064,11 +1075,12 @@ static void leds_write(struct BackendState *p)
 static void on_key(App *a, unsigned code, int value)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	const FnlKey k         = key_from_evdev(code);
 
 	if (value == 2) {
 		if (app_text_input(a) &&
-			keymap_held_repeats(&p->keymap, code + 8u, k)) {
+			keymap_held_repeats(&hs->keymap, code + 8u, k)) {
 			app_key_repeat(a, k);
 			key_type(a, code, true);
 		}
@@ -1079,9 +1091,9 @@ static void on_key(App *a, unsigned code, int value)
 	const bool grouped = pressed && group_switch(p, code);
 	if (pressed && !grouped && (code == KEY_CAPSLOCK || code == KEY_NUMLOCK)) {
 		if (code == KEY_CAPSLOCK)
-			p->caps_on = !p->caps_on;
+			hs->caps_on = !hs->caps_on;
 		else
-			p->num_on = !p->num_on;
+			hs->num_on = !hs->num_on;
 		leds_write(p);
 	}
 
@@ -1097,7 +1109,8 @@ static void on_key(App *a, unsigned code, int value)
 static void keys_seed(App *a, const KmsInput *d)
 {
 	struct BackendState *p = a->backend_state;
-	uint8_t bits[sizeof p->down];
+	struct BackendHostState *hs = p->host;
+	uint8_t bits[sizeof hs->down];
 	memset(bits, 0, sizeof bits);
 	if (ioctl(d->fd, EVIOCGKEY(sizeof bits), bits) < 0)
 		return;
@@ -1294,16 +1307,16 @@ static unsigned device_kind(int fd)
 
 static KmsInput *input_by_fd(struct BackendState *p, int fd)
 {
-	for (int i = 0; i < p->input_count; i++)
-		if (p->inputs[i].fd == fd)
-			return &p->inputs[i];
+	for (int i = 0; i < p->host->input_count; i++)
+		if (p->host->inputs[i].fd == fd)
+			return &p->host->inputs[i];
 	return NULL;
 }
 
 static bool input_open_already(const struct BackendState *p, const char *node)
 {
-	for (int i = 0; i < p->input_count; i++)
-		if (!strcmp(p->inputs[i].node, node))
+	for (int i = 0; i < p->host->input_count; i++)
+		if (!strcmp(p->host->inputs[i].node, node))
 			return true;
 	return false;
 }
@@ -1314,6 +1327,7 @@ static bool input_open_already(const struct BackendState *p, const char *node)
 static void input_add(App *a, const char *node)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	if (strncmp(node, "event", 5) != 0 || input_open_already(p, node))
 		return;
 	char path[64];
@@ -1324,7 +1338,7 @@ static void input_add(App *a, const char *node)
 	if (fd < 0)
 		return;
 	const unsigned kind = device_kind(fd);
-	if (!kind || p->input_count >= KMS_MAX_INPUTS) {
+	if (!kind || hs->input_count >= KMS_MAX_INPUTS) {
 		if (kind)
 			fnl_log(FNL_LOG_WARN,
 					"KMS: more than %d input devices; %s is "
@@ -1345,7 +1359,7 @@ static void input_add(App *a, const char *node)
 	int clk = CLOCK_MONOTONIC;
 	ioctl(fd, EVIOCSCLOCKID, &clk);
 
-	KmsInput *d = &p->inputs[p->input_count];
+	KmsInput *d = &hs->inputs[hs->input_count];
 	memset(d, 0, sizeof *d);
 	d->fd   = fd;
 	d->kind = kind;
@@ -1366,11 +1380,11 @@ static void input_add(App *a, const char *node)
 		d->ay    = y.value;
 	}
 	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fd };
-	if (epoll_ctl(p->epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
+	if (epoll_ctl(hs->epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
 		close(fd);
 		return;
 	}
-	p->input_count++;
+	hs->input_count++;
 
 	if (kind & KMS_KEYBOARD) {
 		/* Longs, not bytes: test_bit() reads them a word at a time, and
@@ -1379,10 +1393,10 @@ static void input_add(App *a, const char *node)
 		memset(leds, 0, sizeof leds);
 		/* The locks as the first keyboard shows them, which is whatever
 		 * the console left them at. */
-		if (!p->leds_known && ioctl(fd, EVIOCGLED(sizeof leds), leds) >= 0) {
-			p->caps_on    = test_bit(leds, LED_CAPSL);
-			p->num_on     = test_bit(leds, LED_NUML);
-			p->leds_known = true;
+		if (!hs->leds_known && ioctl(fd, EVIOCGLED(sizeof leds), leds) >= 0) {
+			hs->caps_on    = test_bit(leds, LED_CAPSL);
+			hs->num_on     = test_bit(leds, LED_NUML);
+			hs->leds_known = true;
 		}
 		keys_seed(a, d);
 	}
@@ -1395,9 +1409,9 @@ static void input_remove(App *a, KmsInput *d)
 	struct BackendState *p = a->backend_state;
 	const bool keyboard    = (d->kind & KMS_KEYBOARD) != 0;
 	close(d->fd);
-	*d = p->inputs[--p->input_count];
+	*d = p->host->inputs[--p->host->input_count];
 	if (keyboard) {
-		memset(p->down, 0, sizeof p->down);
+		memset(p->host->down, 0, sizeof p->host->down);
 		app_keys_clear(a);
 	}
 }
@@ -1417,7 +1431,7 @@ static void inputs_hotplug(App *a)
 	struct BackendState *p = a->backend_state;
 	_Alignas(struct inotify_event) char buf[4096];
 	for (;;) {
-		const ssize_t n = read(p->inotify_fd, buf, sizeof buf);
+		const ssize_t n = read(p->host->inotify_fd, buf, sizeof buf);
 		if (n <= 0)
 			return;
 		const ssize_t head = (ssize_t)sizeof(struct inotify_event);
@@ -1460,8 +1474,8 @@ static bool input_read(App *a, KmsInput *d)
 				d->dx = d->dy = 0.0;
 				d->have_last  = false;
 				if (d->kind & KMS_KEYBOARD) {
-					memset(a->backend_state->down, 0,
-						   sizeof a->backend_state->down);
+					memset(app_backend_host(a)->down, 0,
+						   sizeof app_backend_host(a)->down);
 					app_keys_clear(a);
 					keys_seed(a, d);
 				}
@@ -1532,7 +1546,7 @@ static bool scan_make(struct BackendState *p, KmsScan *s,
 		.height = m->vdisplay,
 		.bpp    = 32,
 	};
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_CREATE_DUMB, &cd) < 0)
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CREATE_DUMB, &cd) < 0)
 		return false;
 	s->handle[i]                = cd.handle;
 	s->gen[i]                   = ++p->scan_gen;
@@ -1541,10 +1555,10 @@ static bool scan_make(struct BackendState *p, KmsScan *s,
 	s->w                        = m->hdisplay;
 	s->h                        = m->vdisplay;
 	struct drm_mode_map_dumb md = { .handle = cd.handle };
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_MAP_DUMB, &md) < 0)
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_MAP_DUMB, &md) < 0)
 		return false;
 	void *map = mmap(NULL, s->size, PROT_READ | PROT_WRITE, MAP_SHARED,
-					 p->card_fd, (off_t)md.offset);
+					 p->host->card_fd, (off_t)md.offset);
 	if (map == MAP_FAILED)
 		return false;
 	s->map[i] = map;
@@ -1558,7 +1572,7 @@ static bool scan_make(struct BackendState *p, KmsScan *s,
 		.depth  = 24,
 		.handle = cd.handle,
 	};
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_ADDFB, &fb) < 0)
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_ADDFB, &fb) < 0)
 		return false;
 	s->fb[i] = fb.fb_id;
 	return true;
@@ -1569,19 +1583,20 @@ static bool scan_make(struct BackendState *p, KmsScan *s,
  * no primary plane -- amdgpu -- by disabling the CRTC, which there fails
  * too: a WARNING with a stack in the journal each time (DESIGN *KMS: no
  * window server*). So a pair goes once another is set in its place
- * (scan_retire()), or its CRTC is given back or turned off (kms_close()). */
+ * (scan_retire()), or its CRTC is given back or turned off
+ * (kms_window_close()). */
 static void scan_free(struct BackendState *p, KmsScan *s)
 {
 	for (int i = 0; i < 2; i++) {
 		if (s->fb[i]) {
 			uint32_t fb = s->fb[i];
-			drm_ioctl(p->card_fd, DRM_IOCTL_MODE_RMFB, &fb);
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_RMFB, &fb);
 		}
 		if (s->map[i])
 			munmap(s->map[i], s->size);
 		if (s->handle[i]) {
 			struct drm_mode_destroy_dumb dd = { .handle = s->handle[i] };
-			drm_ioctl(p->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
 		}
 	}
 	memset(s, 0, sizeof *s);
@@ -1592,6 +1607,7 @@ static void scan_free(struct BackendState *p, KmsScan *s)
  * kernel removing it there disables the CRTC, which amdgpu refuses. */
 static uint32_t scan_shown_on(const struct BackendState *p, const KmsScan *s)
 {
+	struct BackendHostState *hs = p->host;
 	if (!s->fb[0] && !s->fb[1])
 		return 0;
 	uint32_t crtcs[KMS_MAX_CRTCS];
@@ -1599,14 +1615,14 @@ static uint32_t scan_shown_on(const struct BackendState *p, const KmsScan *s)
 	memset(&r, 0, sizeof r);
 	r.count_crtcs = KMS_MAX_CRTCS;
 	r.crtc_id_ptr = (uintptr_t)crtcs;
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
+	if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
 		return 0;
 	const uint32_t n =
 		r.count_crtcs < KMS_MAX_CRTCS ? r.count_crtcs : KMS_MAX_CRTCS;
 	for (uint32_t i = 0; i < n; i++) {
 		struct drm_mode_crtc c = { .crtc_id = crtcs[i] };
-		if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_GETCRTC, &c) == 0 && c.fb_id &&
-			(c.fb_id == s->fb[0] || c.fb_id == s->fb[1]))
+		if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETCRTC, &c) == 0 &&
+			c.fb_id && (c.fb_id == s->fb[0] || c.fb_id == s->fb[1]))
 			return crtcs[i];
 	}
 	return 0;
@@ -1626,7 +1642,7 @@ static void scan_parked_tidy(struct BackendState *p, bool off)
 			continue;
 		if (crtc) {
 			struct drm_mode_crtc dark = { .crtc_id = crtc };
-			drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &dark);
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &dark);
 		}
 		scan_free(p, s);
 	}
@@ -1687,14 +1703,14 @@ static bool flip_wait(App *a, int ms)
 {
 	struct BackendState *p = a->backend_state;
 	while (p->flip_pending) {
-		struct pollfd pf = { .fd = p->card_fd, .events = POLLIN };
+		struct pollfd pf = { .fd = p->host->card_fd, .events = POLLIN };
 		const int r      = poll(&pf, 1, ms);
 		if (r < 0 && errno == EINTR)
 			continue;
 		if (r <= 0)
 			return false;
 		_Alignas(struct drm_event) char buf[1024];
-		const ssize_t n = read(p->card_fd, buf, sizeof buf);
+		const ssize_t n = read(p->host->card_fd, buf, sizeof buf);
 		if (n <= 0)
 			return false;
 		for (ssize_t off = 0; off + (ssize_t)sizeof(struct drm_event) <= n;) {
@@ -1736,14 +1752,14 @@ static bool flip_wait(App *a, int ms)
 static void events_drain(struct BackendState *p)
 {
 	for (;;) {
-		struct pollfd pf = { .fd = p->card_fd, .events = POLLIN };
+		struct pollfd pf = { .fd = p->host->card_fd, .events = POLLIN };
 		const int r      = poll(&pf, 1, 0);
 		if (r < 0 && errno == EINTR)
 			continue;
 		if (r <= 0)
 			return;
 		char buf[1024];
-		if (read(p->card_fd, buf, sizeof buf) <= 0)
+		if (read(p->host->card_fd, buf, sizeof buf) <= 0)
 			return;
 	}
 }
@@ -1818,7 +1834,8 @@ int kms_scan_begin(App *a)
 
 void kms_scan_show(App *a, int back)
 {
-	struct BackendState *p = a->backend_state;
+	struct BackendState *p            = a->backend_state;
+	struct BackendHostState *hs       = p->host;
 	if (back < 0 || back > 1 || !p->scan.fb[back])
 		return;
 	const bool vsync                     = fnl_atomic_load_bool(&a->vsync);
@@ -1837,7 +1854,7 @@ void kms_scan_show(App *a, int back)
 		const bool forced = !good && FNL_FAULT("kms-mode-refused");
 		const bool set_ok =
 			out->crtc_id && !forced &&
-			drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
+			drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
 		if (!set_ok && !good) {
 			/* A mode the output was switched to and will not take: the
 			 * last that did comes back at the next frame. */
@@ -1869,7 +1886,7 @@ void kms_scan_show(App *a, int back)
 			DRM_MODE_PAGE_FLIP_EVENT | (async ? DRM_MODE_PAGE_FLIP_ASYNC : 0u),
 		.user_data = a->presents,
 	};
-	int r = drm_ioctl(p->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
+	int r = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
 	if (r < 0 && async && errno == EINVAL) {
 		p->flip_async_off = true;
 		fnl_log(FNL_LOG_INFO,
@@ -1877,7 +1894,7 @@ void kms_scan_show(App *a, int back)
 				"vsync a frame that finds one pending is dropped",
 				kms_name(p, p->scan_sel));
 		flip.flags = DRM_MODE_PAGE_FLIP_EVENT;
-		r          = drm_ioctl(p->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
+		r          = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
 	}
 	p->flip_async = (flip.flags & DRM_MODE_PAGE_FLIP_ASYNC) != 0;
 	if (r < 0) {
@@ -1933,7 +1950,7 @@ int kms_scan_export(App *a, int i, KmsScanBuf *out)
 		.flags  = DRM_CLOEXEC | DRM_RDWR,
 		.fd     = -1,
 	};
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &ph) < 0)
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &ph) < 0)
 		return -1;
 	*out = (KmsScanBuf){
 		.w      = p->scan.w,
@@ -1992,7 +2009,7 @@ void kms_sel_refused(App *a, int sel, bool whole)
 		fnl_atomic_store_u32(m,
 							 fnl_atomic_load_u32(m) | 1u << KMS_SEL_MODE(sel));
 	}
-	loop_wake(p->wake_fd);
+	loop_wake(p->host->wake_fd);
 }
 
 void kms_sel_shown(App *a, int sel)
@@ -2042,32 +2059,33 @@ static uint32_t connector_prop(int fd, uint32_t connector_id, const char *name)
 void kms_output_off(App *a, int out, int shown, bool unbind)
 {
 	struct BackendState *p   = a->backend_state;
-	const uint32_t connector = p->outputs[out].connector_id;
-	const uint32_t crtc      = connector_live_crtc(p->card_fd, connector);
+	struct BackendHostState *hs = p->host;
+	const uint32_t connector = hs->outputs[out].connector_id;
+	const uint32_t crtc      = connector_live_crtc(hs->card_fd, connector);
 	const uint32_t keep =
-		connector_live_crtc(p->card_fd, kms_connector(p, shown));
+		connector_live_crtc(hs->card_fd, kms_connector(p, shown));
 	if (!crtc || crtc == keep)
 		return;
 	int r;
 	if (unbind) {
 		struct drm_mode_crtc off = { .crtc_id = crtc };
-		r = drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
+		r = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
 	} else {
 		struct drm_mode_obj_set_property dpms = {
 			.value    = DRM_MODE_DPMS_OFF,
-			.prop_id  = connector_prop(p->card_fd, connector, "DPMS"),
+			.prop_id  = connector_prop(hs->card_fd, connector, "DPMS"),
 			.obj_id   = connector,
 			.obj_type = DRM_MODE_OBJECT_CONNECTOR,
 		};
 		r = dpms.prop_id
-				? drm_ioctl(p->card_fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &dpms)
+				? drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &dpms)
 				: -1;
 	}
 	if (r < 0)
 		fnl_log(FNL_LOG_WARN, "KMS: %s would not go dark (%s)",
-				p->outputs[out].name, strerror(errno));
+				hs->outputs[out].name, strerror(errno));
 	else
-		fnl_log(FNL_LOG_INFO, "KMS: %s dark", p->outputs[out].name);
+		fnl_log(FNL_LOG_INFO, "KMS: %s dark", hs->outputs[out].name);
 }
 
 /* The take-back buffer's picture: the last frame the move read back
@@ -2111,9 +2129,10 @@ void kms_scanout_take(App *a)
 	const int sel = p->surf_sel >= 0 ? p->surf_sel : kms_sel_to_show(p);
 	const uint32_t connector = kms_connector(p, sel);
 	struct drm_mode_crtc on  = {
-		 .crtc_id = connector_live_crtc(p->card_fd, connector),
+		 .crtc_id = connector_live_crtc(p->host->card_fd, connector),
 	};
-	if (!on.crtc_id || drm_ioctl(p->card_fd, DRM_IOCTL_MODE_GETCRTC, &on) < 0 ||
+	if (!on.crtc_id ||
+		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETCRTC, &on) < 0 ||
 		!on.mode_valid || !on.fb_id)
 		return;
 	flip_wait(a, FLIP_WAIT_MS);
@@ -2136,7 +2155,7 @@ void kms_scanout_take(App *a)
 		.mode_valid         = 1,
 		.mode               = on.mode,
 	};
-	if (drm_ioctl(p->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) < 0) {
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) < 0) {
 		fnl_log(FNL_LOG_WARN,
 				"KMS: %s could not be taken back from the "
 				"driver (%s)",
@@ -2169,7 +2188,7 @@ static void sel_set(App *a, int sel)
 		p->ptr_y = clampd(p->ptr_y, 0.0, p->mode_h - 1.0);
 	}
 	fnl_log(FNL_LOG_INFO, "KMS: %s at %dx%d, %u.%03u Hz",
-			p->outputs[p->out_cur].name, p->mode_w, p->mode_h,
+			p->host->outputs[p->out_cur].name, p->mode_w, p->mode_h,
 			p->refresh_mhz / 1000, p->refresh_mhz % 1000);
 	publish_mode(a);
 	pointer_moved(a);
@@ -2181,6 +2200,7 @@ static void sel_set(App *a, int sel)
 static void sel_refused_seen(App *a)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	const int now          = KMS_SEL(p->out_cur, p->mode_cur);
 	if (!kms_sel_is_refused(p, now))
 		return;
@@ -2194,7 +2214,7 @@ static void sel_refused_seen(App *a)
 	fnl_log(FNL_LOG_WARN,
 			"KMS: %s would not show %dx%d; back to %s at "
 			"%dx%d",
-			p->outputs[was].name, was_w, was_h, p->outputs[p->out_cur].name,
+			hs->outputs[was].name, was_w, was_h, hs->outputs[p->out_cur].name,
 			p->mode_w, p->mode_h);
 	publish_mode(a);
 	pointer_moved(a);
@@ -2204,7 +2224,7 @@ static void sel_refused_seen(App *a)
  * nearest, of those not refused; or -1. */
 static int mode_find(const struct BackendState *p, const FnlMode *want)
 {
-	const KmsOutput *o    = &p->outputs[p->out_cur];
+	const KmsOutput *o    = &p->host->outputs[p->out_cur];
 	int best              = -1;
 	unsigned int best_off = 0;
 	for (int i = 0; i < o->mode_count; i++) {
@@ -2234,9 +2254,10 @@ static void kms_set_mode(App *a, const FnlMode *mode)
 static void output_pick(App *a, int o)
 {
 	struct BackendState *p = a->backend_state;
-	int m                  = p->outputs[o].mode_pref;
+	struct BackendHostState *hs = p->host;
+	int m                  = hs->outputs[o].mode_pref;
 	for (int i = 0;
-		 kms_sel_is_refused(p, KMS_SEL(o, m)) && i < p->outputs[o].mode_count;
+		 kms_sel_is_refused(p, KMS_SEL(o, m)) && i < hs->outputs[o].mode_count;
 		 i++)
 		m = i;
 	if (!kms_sel_is_refused(p, KMS_SEL(o, m)))
@@ -2249,19 +2270,19 @@ static void output_pick(App *a, int o)
 static void kms_set_output(App *a, const char *name)
 {
 	struct BackendState *p = a->backend_state;
-	const int count        = (int)fnl_atomic_load_u32(&p->output_count);
-	const uint32_t gone    = fnl_atomic_load_u32(&p->outputs_gone);
-	p->away_owed           = -1;
+	const int count        = (int)fnl_atomic_load_u32(&p->host->output_count);
+	const uint32_t gone    = fnl_atomic_load_u32(&p->host->outputs_gone);
+	p->host->away_owed           = -1;
 	for (int o = 0; o < count; o++) {
-		if (strcmp(p->outputs[o].name, name) != 0 || o == p->out_cur ||
+		if (strcmp(p->host->outputs[o].name, name) != 0 || o == p->out_cur ||
 			((gone >> o) & 1u))
 			continue;
-		if ((p->outputs_away >> o) & 1u) {
-			p->away_owed = o;
+		if ((p->host->outputs_away >> o) & 1u) {
+			p->host->away_owed = o;
 			fnl_log(FNL_LOG_INFO,
 					"KMS: %s is away; the window goes there "
 					"when it is back",
-					p->outputs[o].name);
+					p->host->outputs[o].name);
 		} else {
 			output_pick(a, o);
 		}
@@ -2298,8 +2319,8 @@ static int kms_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
 	const struct BackendState *p = a->backend_state;
 	const int now          = KMS_SEL_OUT(fnl_atomic_load_u32(&p->sel_want));
 	const uint32_t refused = fnl_atomic_load_u32(&p->outputs_refused) |
-							 fnl_atomic_load_u32(&p->outputs_gone);
-	const int count = (int)fnl_atomic_load_u32(&p->output_count);
+							 fnl_atomic_load_u32(&p->host->outputs_gone);
+	const int count = (int)fnl_atomic_load_u32(&p->host->output_count);
 	int n           = 0;
 	*current        = -1;
 	for (int o = 0; o < count && n < max; o++) {
@@ -2307,7 +2328,7 @@ static int kms_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
 			continue;
 		if (o == now)
 			*current = n;
-		snprintf(names[n], OUTPUT_NAME_MAX, "%s", p->outputs[o].name);
+		snprintf(names[n], OUTPUT_NAME_MAX, "%s", p->host->outputs[o].name);
 		n++;
 	}
 	return n;
@@ -2322,11 +2343,12 @@ static int kms_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
  * probed, which takes tens of milliseconds for an HDMI EDID; on the pump's
  * thread, which has nothing else to do while monitors come and go. */
 
-static void uevent_open(struct BackendState *p)
+static void uevent_open(struct BackendHostState *hs)
 {
-	p->uevent_fd = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
-						  NETLINK_KOBJECT_UEVENT);
-	if (p->uevent_fd < 0) {
+	hs->uevent_fd = socket(AF_NETLINK,
+							SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+							NETLINK_KOBJECT_UEVENT);
+	if (hs->uevent_fd < 0) {
 		fnl_log(FNL_LOG_WARN,
 				"KMS: no uevents (%s); a monitor plugged in "
 				"later is not seen",
@@ -2334,15 +2356,15 @@ static void uevent_open(struct BackendState *p)
 		return;
 	}
 	struct sockaddr_nl at = { .nl_family = AF_NETLINK, .nl_groups = 1 };
-	struct epoll_event ev = { .events = EPOLLIN, .data.fd = p->uevent_fd };
-	if (bind(p->uevent_fd, (struct sockaddr *)&at, sizeof at) < 0 ||
-		epoll_ctl(p->epoll_fd, EPOLL_CTL_ADD, p->uevent_fd, &ev) < 0) {
+	struct epoll_event ev = { .events = EPOLLIN, .data.fd = hs->uevent_fd };
+	if (bind(hs->uevent_fd, (struct sockaddr *)&at, sizeof at) < 0 ||
+		epoll_ctl(hs->epoll_fd, EPOLL_CTL_ADD, hs->uevent_fd, &ev) < 0) {
 		fnl_log(FNL_LOG_WARN,
 				"KMS: no uevents (%s); a monitor plugged in "
 				"later is not seen",
 				strerror(errno));
-		close(p->uevent_fd);
-		p->uevent_fd = -1;
+		close(hs->uevent_fd);
+		hs->uevent_fd = -1;
 	}
 }
 
@@ -2353,7 +2375,7 @@ static bool uevent_is_ours(const struct BackendState *p, const char *buf,
 						   size_t n)
 {
 	char dev[24];
-	snprintf(dev, sizeof dev, "DEVNAME=dri/card%d", p->card_index);
+	snprintf(dev, sizeof dev, "DEVNAME=dri/card%d", p->host->card_index);
 	bool drm = false, hotplug = false, card = false;
 	for (size_t at = 0; at < n;) {
 		const char *s    = buf + at;
@@ -2383,9 +2405,9 @@ static bool modes_alike(const KmsOutput *x, const KmsOutput *y)
 static int slot_held(const struct BackendState *p, const KmsOutput *o,
 					 uint32_t gone)
 {
-	const int count = (int)fnl_atomic_load_u32(&p->output_count);
+	const int count = (int)fnl_atomic_load_u32(&p->host->output_count);
 	for (int s = count - 1; s >= 0; s--) {
-		const KmsOutput *h = &p->outputs[s];
+		const KmsOutput *h = &p->host->outputs[s];
 		if (((gone >> s) & 1u) && h->connector_id == o->connector_id &&
 			modes_alike(h, o))
 			return s;
@@ -2397,9 +2419,10 @@ static int slot_held(const struct BackendState *p, const KmsOutput *o,
 static int slot_live(const struct BackendState *p, uint32_t connector_id,
 					 uint32_t gone)
 {
-	const int count = (int)fnl_atomic_load_u32(&p->output_count);
+	struct BackendHostState *hs = p->host;
+	const int count = (int)fnl_atomic_load_u32(&hs->output_count);
 	for (int s = 0; s < count; s++)
-		if (!((gone >> s) & 1u) && p->outputs[s].connector_id == connector_id)
+		if (!((gone >> s) & 1u) && hs->outputs[s].connector_id == connector_id)
 			return s;
 	return -1;
 }
@@ -2409,13 +2432,13 @@ static int slot_live(const struct BackendState *p, uint32_t connector_id,
  * mode or else its first that is not; -1 when there is none. */
 static int sel_elsewhere(const struct BackendState *p, uint32_t skip)
 {
-	const int count = (int)fnl_atomic_load_u32(&p->output_count);
+	const int count = (int)fnl_atomic_load_u32(&p->host->output_count);
 	for (int o = 0; o < count; o++) {
 		if ((skip >> o) & 1u)
 			continue;
-		int m = p->outputs[o].mode_pref;
+		int m = p->host->outputs[o].mode_pref;
 		for (int i = 0; kms_sel_is_refused(p, KMS_SEL(o, m)) &&
-						i < p->outputs[o].mode_count;
+						i < p->host->outputs[o].mode_count;
 			 i++)
 			m = i;
 		if (!kms_sel_is_refused(p, KMS_SEL(o, m)))
@@ -2429,9 +2452,9 @@ static double away_next(const struct BackendState *p)
 {
 	double next = 0.0;
 	for (int s = 0; s < KMS_MAX_OUTPUTS; s++)
-		if (((p->outputs_away >> s) & 1u) &&
-			(next == 0.0 || p->away_until[s] < next))
-			next = p->away_until[s];
+		if (((p->host->outputs_away >> s) & 1u) &&
+			(next == 0.0 || p->host->away_until[s] < next))
+			next = p->host->away_until[s];
 	return next;
 }
 
@@ -2450,16 +2473,17 @@ static double away_next(const struct BackendState *p)
 static void outputs_rescan(App *a)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	uint32_t ids[KMS_MAX_CONNECTORS];
 	/* A list the kernel would not give is no connector read, but the away
 	 * still run out below, or the pump would wake for them for ever. */
-	int n                 = card_connectors(p->card_fd, ids);
+	int n                 = card_connectors(hs->card_fd, ids);
 	const bool listed_all = n >= 0 && n < KMS_MAX_CONNECTORS;
 	if (n < 0)
 		n = 0;
-	uint32_t gone           = fnl_atomic_load_u32(&p->outputs_gone);
+	uint32_t gone           = fnl_atomic_load_u32(&hs->outputs_gone);
 	const uint32_t was_gone = gone;
-	uint32_t away           = p->outputs_away;
+	uint32_t away           = hs->outputs_away;
 	bool came = false, back = false;
 	int revived_cur = 0;
 	/* A connector the card no longer lists -- a DisplayPort MST sink's,
@@ -2467,49 +2491,49 @@ static void outputs_rescan(App *a)
 	 * the list was cut at KMS_MAX_CONNECTORS, when not being on it says
 	 * nothing. */
 	const int count =
-		listed_all ? (int)fnl_atomic_load_u32(&p->output_count) : 0;
+		listed_all ? (int)fnl_atomic_load_u32(&hs->output_count) : 0;
 	for (int s = 0; s < count; s++) {
 		bool listed = false;
 		for (int i = 0; i < n && !listed; i++)
-			listed = ids[i] == p->outputs[s].connector_id;
+			listed = ids[i] == hs->outputs[s].connector_id;
 		if (!listed && !((gone >> s) & 1u)) {
 			gone |= 1u << s;
-			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", p->outputs[s].name);
+			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", hs->outputs[s].name);
 		}
 	}
 	for (int i = 0; i < n; i++) {
 		KmsOutput o;
 		uint32_t type = 0;
 		bool read;
-		const bool on = output_read(p->card_fd, ids[i], &o, &type, &read);
+		const bool on = output_read(hs->card_fd, ids[i], &o, &type, &read);
 		if (!read)
 			continue;
 		int live = slot_live(p, ids[i], gone);
 		if (live >= 0 && on && ((away >> live) & 1u)) {
 			away &= ~(1u << live);
-			if (modes_alike(&p->outputs[live], &o)) {
+			if (modes_alike(&hs->outputs[live], &o)) {
 				back = true;
 				revived_cur |= live == p->out_cur;
 				continue;
 			}
 			gone |= 1u << live;
-			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", p->outputs[live].name);
+			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", hs->outputs[live].name);
 			live = -1;
 		}
 		if (live >= 0 && !on) {
 			if (!((away >> live) & 1u)) {
 				away |= 1u << live;
-				p->away_until[live] =
+				hs->away_until[live] =
 					now_seconds() +
 					(live == p->out_cur ? KMS_AWAY_LIT_S : KMS_AWAY_S);
-				if (!p->away_said)
+				if (!hs->away_said)
 					fnl_log(FNL_LOG_INFO,
 							"KMS: %s left; an output counts "
 							"as unplugged once it has been away %g s, %g s "
 							"if the window is on it, since a monitor leaves "
 							"the bus as it sleeps and as it wakes",
-							p->outputs[live].name, KMS_AWAY_S, KMS_AWAY_LIT_S);
-				p->away_said = true;
+							hs->outputs[live].name, KMS_AWAY_S, KMS_AWAY_LIT_S);
+				hs->away_said = true;
 			}
 			continue;
 		}
@@ -2521,25 +2545,25 @@ static void outputs_rescan(App *a)
 			gone &= ~(1u << s);
 			revived_cur |= s == p->out_cur;
 		} else {
-			s = (int)fnl_atomic_load_u32(&p->output_count);
+			s = (int)fnl_atomic_load_u32(&hs->output_count);
 			if (s >= KMS_MAX_OUTPUTS) {
-				if (!p->slots_warned)
+				if (!hs->slots_warned)
 					fnl_log(FNL_LOG_WARN,
 							"KMS: %s plugged in, and no "
 							"slot is left for it: %d monitors have been "
 							"seen",
 							o.name, KMS_MAX_OUTPUTS);
-				p->slots_warned = true;
+				hs->slots_warned = true;
 				continue;
 			}
-			p->outputs[s] = o;
-			fnl_atomic_store_u32(&p->output_count, (uint32_t)s + 1);
+			hs->outputs[s] = o;
+			fnl_atomic_store_u32(&hs->output_count, (uint32_t)s + 1);
 		}
 		came = true;
 		fnl_log(FNL_LOG_INFO, "KMS: %s plugged in%s, %d mode%s",
-				p->outputs[s].name, again ? " again" : "",
-				p->outputs[s].mode_count,
-				p->outputs[s].mode_count == 1 ? "" : "s");
+				hs->outputs[s].name, again ? " again" : "",
+				hs->outputs[s].mode_count,
+				hs->outputs[s].mode_count == 1 ? "" : "s");
 	}
 	/* Away too long, or gone some other way meanwhile: unplugged. */
 	const double now = now_seconds();
@@ -2548,31 +2572,31 @@ static void outputs_rescan(App *a)
 			continue;
 		if ((gone >> s) & 1u) {
 			away &= ~(1u << s);
-		} else if (now >= p->away_until[s]) {
+		} else if (now >= hs->away_until[s]) {
 			away &= ~(1u << s);
 			gone |= 1u << s;
-			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", p->outputs[s].name);
+			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", hs->outputs[s].name);
 		}
 	}
-	p->outputs_away = away;
+	hs->outputs_away = away;
 	/* A move owed to an output away: made now it is back, dropped if it is
 	 * gone instead. */
 	int owed = -1;
-	if (p->away_owed >= 0 && !((away >> p->away_owed) & 1u)) {
-		if ((gone >> p->away_owed) & 1u)
+	if (hs->away_owed >= 0 && !((away >> hs->away_owed) & 1u)) {
+		if ((gone >> hs->away_owed) & 1u)
 			fnl_log(FNL_LOG_INFO,
 					"KMS: %s did not come back; the window "
 					"stays where it is",
-					p->outputs[p->away_owed].name);
+					hs->outputs[hs->away_owed].name);
 		else
-			owed = p->away_owed;
-		p->away_owed = -1;
+			owed = hs->away_owed;
+		hs->away_owed = -1;
 	}
 	const bool waiting = (gone >> p->out_cur) & 1u;
 	if (gone == was_gone && !came && owed < 0 && !(back && waiting) &&
 		!revived_cur)
 		return;
-	fnl_atomic_store_u32(&p->outputs_gone, gone);
+	fnl_atomic_store_u32(&hs->outputs_gone, gone);
 
 	if (owed >= 0)
 		output_pick(a, owed);
@@ -2602,47 +2626,102 @@ static void outputs_rescan(App *a)
 
 /* ---- the seam ------------------------------------------------------------ */
 
-static FnlResult kms_open(App *a)
+/* The host's half: the card and its outputs, the event loop, the inputs and
+ * the layout. One card a process -- SET_MASTER succeeds for one holder --
+ * and one keyboard and pointer, so these are the host's; a window is a
+ * selection of one of the card's outputs and its own scanout. A machine
+ * this backend refuses (no output, a card in another program's hands) is a
+ * display the caller steps past, so every failure here is FNL_ERR_NO_DISPLAY
+ * up to a real error. */
+static void kms_host_close(App *a);
+
+static FnlResult kms_host_open(App *a)
 {
+	struct BackendHostState *hs = calloc(1, sizeof *hs);
+	if (!hs)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the KMS host state");
+	a->host->backend_host = hs;
+	hs->card_fd = hs->wake_fd = hs->epoll_fd = hs->inotify_fd = -1;
+	hs->uevent_fd                                               = -1;
+	hs->away_owed                                               = -1;
+
+	/* Every step conditional, and every failure unwinds through
+	 * kms_host_close() here: a NO_DISPLAY refusal (no output, a card held by
+	 * another program) makes fnl_init() step to the next backend without
+	 * calling host_close() on this one. */
+	FnlResult rc = loop_wake_create(&hs->wake_fd);
+	/* The card, and the outputs the open found on it: the window picks
+	 * one of them next (kms_window_open). */
+	if (rc == FNL_OK)
+		rc = open_output(hs);
+	if (rc < 0) {
+		kms_host_close(a);
+		return rc;
+	}
+
+	hs->inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+	if (hs->inotify_fd < 0) {
+		kms_host_close(a);
+		return fnl_fail(FNL_ERR_SYSTEM, "inotify_init1() failed: %s",
+						strerror(errno));
+	}
+	/* Watched before the scan, so a device that appears between the two is
+	 * reported rather than missed; input_add() takes a node once. */
+	if (inotify_add_watch(hs->inotify_fd, "/dev/input",
+						  IN_CREATE | IN_ATTRIB) < 0)
+		fnl_log(FNL_LOG_WARN,
+				"KMS: /dev/input is not watched (%s); a "
+				"device plugged in later is not read",
+				strerror(errno));
+	rc = loop_epoll_create(&hs->epoll_fd, hs->inotify_fd, hs->wake_fd);
+	if (rc < 0) {
+		kms_host_close(a);
+		return rc;
+	}
+	uevent_open(hs);
+
+	keymap_load(hs);
+	return FNL_OK;
+}
+
+/* The window's half: the selection it is, its cursor plane and its initial
+ * figures. The host's card, inputs and event loop are already up. */
+static FnlResult kms_window_open(App *a)
+{
+	/* A window is an output, and this backend has one card and one input
+	 * set: a second window would be a second output on the same card, and
+	 * nothing yet says which of them the keyboard and pointer are the
+	 * user's (DESIGN *A second window* -- unproven in this lab, which has
+	 * one monitor a machine). The first window is the one fnl_init() made;
+	 * a later one is refused here rather than opened without a way to
+	 * reach it. */
+	if (a->host->windows != a)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"KMS: a second window would be a second output on "
+						"the one card, and this backend does not yet route "
+						"input between two (DESIGN *A second window*)");
 	struct BackendState *p = calloc(1, sizeof *p);
 	if (!p)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 						"out of memory for the KMS backend state");
 	a->backend_state = p;
-	p->card_fd = p->wake_fd = p->epoll_fd = p->inotify_fd = -1;
-	p->uevent_fd                                          = -1;
+	p->host         = app_backend_host(a);
+	/* A window is a selection, and the host's open has ranked and read one
+	 * output for it -- the first, at its preferred mode -- so this window is
+	 * that one's until a move says otherwise. */
+	const int first = p->host->first_output;
+	const int sel   = KMS_SEL(first, p->host->outputs[first].mode_pref);
+	fnl_atomic_store_u32(&p->sel_want, (uint32_t)sel);
+	fnl_atomic_store_u32(&p->sel_good, (uint32_t)sel);
 	p->disp_out = p->surf_sel = p->scan_sel = -1;
-	p->away_owed                            = -1;
-
-	FNL_TRY(loop_wake_create(&p->wake_fd));
-	FNL_TRY(open_output(a));
+	mode_adopt(p, sel);
 	cursor_init(p);
-
-	p->inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-	if (p->inotify_fd < 0)
-		return fnl_fail(FNL_ERR_SYSTEM, "inotify_init1() failed: %s",
-						strerror(errno));
-	/* Watched before the scan, so a device that appears between the two is
-	 * reported rather than missed; input_add() takes a node once. */
-	if (inotify_add_watch(p->inotify_fd, "/dev/input", IN_CREATE | IN_ATTRIB) <
-		0)
-		fnl_log(FNL_LOG_WARN,
-				"KMS: /dev/input is not watched (%s); a "
-				"device plugged in later is not read",
-				strerror(errno));
-	FNL_TRY(loop_epoll_create(&p->epoll_fd, p->inotify_fd, p->wake_fd));
-	uevent_open(p);
-
-	keymap_load(p);
 
 	/* The window is the output, and nothing will ever say otherwise. */
 	a->is_maximized = true;
 	publish_mode(a);
 
-	inputs_scan(a);
-	if (!p->input_count)
-		fnl_log(FNL_LOG_WARN, "KMS: no keyboard or pointer this user may "
-							  "read (/dev/input/event*, group input)");
 	/* In the middle, and shown there before anything moves it. */
 	p->ptr_x = p->mode_w / 2.0;
 	p->ptr_y = p->mode_h / 2.0;
@@ -2650,46 +2729,72 @@ static FnlResult kms_open(App *a)
 	a->ptr_y = px_to_ptf(p->ptr_y, want_s120(a));
 	kms_cursor_changed(a);
 
+	/* The devices, now that there is a window whose held set they seed: a
+	 * key already down is seeded without acting on it. */
+	inputs_scan(a);
+	if (!p->host->input_count)
+		fnl_log(FNL_LOG_WARN, "KMS: no keyboard or pointer this user may "
+							  "read (/dev/input/event*, group input)");
+
 	/* The keyboard is ours from the start: there is nobody to give it to. */
 	app_publish_focus(a, true);
 	app_post_focus(a, true);
 	return FNL_OK;
 }
 
-/* Innermost first and every step conditional: the failure path out of
- * kms_open() as well. */
-static void kms_close(App *a)
+/* The window's close: its scanout and its part of the display's state. The
+ * host's card, inputs and event loop stay for the windows beside it and go
+ * in kms_host_close(). */
+static void kms_window_close(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	if (!p)
 		return;
 	cursor_free(p);
-	if (p->card_fd >= 0) {
+	if (p->host->card_fd >= 0) {
 		flip_wait(a, FLIP_WAIT_MS);
 		p->flip_pending = false;
-		crtcs_restore(p);
+		/* Only the last window gives the console back: a CRTC restored
+		 * while another window still shows on the card would take that
+		 * window's output with it. */
+		if (app_backend_host(a) && a->host->window_count == 1)
+			crtcs_restore(p);
 		scan_release(p, &p->scan_old);
 		scan_release(p, &p->scan);
 		scan_parked_tidy(p, true);
 	}
-	for (int i = 0; i < p->input_count; i++)
-		close(p->inputs[i].fd);
-	p->input_count = 0;
-	if (p->inotify_fd >= 0)
-		close(p->inotify_fd);
-	if (p->uevent_fd >= 0)
-		close(p->uevent_fd);
-	if (p->card_fd >= 0)
-		close(p->card_fd);
-	/* The two a signal handler may still be writing to: see wl_close(). */
-	if (!app_signals_installed(a)) {
-		if (p->epoll_fd >= 0)
-			close(p->epoll_fd);
-		if (p->wake_fd >= 0)
-			close(p->wake_fd);
-	}
 	free(p);
 	a->backend_state = NULL;
+}
+
+/* Innermost first and every step conditional: the failure path out of
+ * kms_host_open() as well. */
+static void kms_host_close(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+	/* The console is given back in kms_window_close(), the window's last
+	 * look at the card while its selection still stands; here the card and
+	 * the devices go. */
+	for (int i = 0; i < hs->input_count; i++)
+		close(hs->inputs[i].fd);
+	hs->input_count = 0;
+	if (hs->inotify_fd >= 0)
+		close(hs->inotify_fd);
+	if (hs->uevent_fd >= 0)
+		close(hs->uevent_fd);
+	if (hs->card_fd >= 0)
+		close(hs->card_fd);
+	/* The two a signal handler may still be writing to: see wl_host_close(). */
+	if (!app_signals_installed(a)) {
+		if (hs->epoll_fd >= 0)
+			close(hs->epoll_fd);
+		if (hs->wake_fd >= 0)
+			close(hs->wake_fd);
+	}
+	free(hs);
+	a->host->backend_host = NULL;
 }
 
 /* ---- a move to another GPU --------------------------------------------------
@@ -2722,12 +2827,13 @@ static void kms_present_window_renew(App *a)
 static void kms_pump(App *a, int timeout_ms)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	struct epoll_event evs[16];
 	/* An output away is gone once its time is up, with or without another
 	 * uevent to say so. */
 	const double away_at = away_next(p);
 	int wait_ms          = p->cursor_recheck > 0 ? CURSOR_RECHECK_MS : -1;
-	if (p->outputs_away) {
+	if (hs->outputs_away) {
 		const int ms = loop_wait_ms(true, away_at);
 		if (wait_ms < 0 || ms < wait_ms)
 			wait_ms = ms;
@@ -2736,25 +2842,25 @@ static void kms_pump(App *a, int timeout_ms)
 	 * (fnl_pump()). */
 	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
 		wait_ms = timeout_ms;
-	const int n = epoll_wait(p->epoll_fd, evs, 16, wait_ms);
+	const int n = epoll_wait(hs->epoll_fd, evs, 16, wait_ms);
 	if (p->cursor_recheck > 0)
 		cursor_recheck(a);
-	if (p->outputs_away && now_seconds() >= away_at)
+	if (hs->outputs_away && now_seconds() >= away_at)
 		outputs_rescan(a);
 	for (int i = 0; i < n; i++) {
 		const int fd = evs[i].data.fd;
-		if (fd == p->wake_fd) {
-			loop_wake_drain(p->wake_fd);
+		if (fd == hs->wake_fd) {
+			loop_wake_drain(hs->wake_fd);
 			sel_refused_seen(a);
-		} else if (fd == p->inotify_fd) {
+		} else if (fd == hs->inotify_fd) {
 			inputs_hotplug(a);
-		} else if (fd == p->uevent_fd) {
+		} else if (fd == hs->uevent_fd) {
 			/* Every uevent there is, drained; one rescan for any number of
 			 * this card's. */
 			char buf[4096];
 			bool ours = false, gpu = false;
 			ssize_t got;
-			while ((got = recv(p->uevent_fd, buf, sizeof buf - 1, 0)) > 0) {
+			while ((got = recv(hs->uevent_fd, buf, sizeof buf - 1, 0)) > 0) {
 				buf[got] = '\0';
 				ours |= uevent_is_ours(p, buf, (size_t)got);
 				gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
@@ -2776,8 +2882,9 @@ static void kms_pump(App *a, int timeout_ms)
 
 static void kms_wakeup(App *a)
 {
-	if (a->backend_state)
-		loop_wake(a->backend_state->wake_fd);
+	struct BackendHostState *hs = app_backend_host(a);
+	if (hs && hs->wake_fd >= 0)
+		loop_wake(hs->wake_fd);
 }
 
 /* The output is ours for as long as the program runs -- the keyboard is
@@ -2788,7 +2895,7 @@ static bool kms_window_on_screen(const App *a)
 {
 	const struct BackendState *p = a->backend_state;
 	const int out = KMS_SEL_OUT(fnl_atomic_load_u32(&p->sel_want));
-	return !((fnl_atomic_load_u32(&p->outputs_gone) >> out) & 1u);
+	return !((fnl_atomic_load_u32(&p->host->outputs_gone) >> out) & 1u);
 }
 
 /* Nothing can change the size but a mode (set_mode), so the answer is the
@@ -2836,8 +2943,8 @@ static void kms_capture(App *a)
 		return;
 	p->captured         = true;
 	a->pointer_captured = true;
-	for (int i = 0; i < p->input_count; i++)
-		p->inputs[i].have_last = false;
+	for (int i = 0; i < p->host->input_count; i++)
+		p->host->inputs[i].have_last = false;
 	kms_cursor_changed(a);
 	app_reticle_start(a);
 	app_reticle_publish(a);
@@ -2855,8 +2962,8 @@ static void kms_release(App *a)
 	p->ptr_y            = clampd(cy + a->cur_py, 0.0, p->mode_h - 1.0);
 	p->captured         = false;
 	a->pointer_captured = false;
-	for (int i = 0; i < p->input_count; i++)
-		p->inputs[i].have_last = false;
+	for (int i = 0; i < p->host->input_count; i++)
+		p->host->inputs[i].have_last = false;
 	pointer_moved(a);
 	app_reticle_publish(a);
 }
@@ -2916,10 +3023,13 @@ const FnlBackendVtbl fnl_backend_kms = {
 	 * output's mode, chosen with set_mode and set_output. */
 	.is_output            = true,
 	/* Not split yet: one open() takes the card and its first output. */
-	.host_open            = backend_noop_host_open,
-	.host_close           = backend_noop_host_close,
-	.window_open          = kms_open,
-	.window_close         = kms_close,
+	/* The process's: the card and its outputs, the event loop, the inputs
+	 * and the layout, made once; a window is a selection of one output and
+	 * its own scanout on them. */
+	.host_open            = kms_host_open,
+	.host_close           = kms_host_close,
+	.window_open          = kms_window_open,
+	.window_close         = kms_window_close,
 	.pump                 = kms_pump,
 	.wakeup               = kms_wakeup,
 	.check_error          = backend_noop_check_error,

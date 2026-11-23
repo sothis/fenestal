@@ -395,9 +395,11 @@ typedef struct {
 	int width_pt, height_pt; /* presentable area; 0 for the default */
 
 	/* A position on the desktop, in points from the primary output's corner,
-	 * or 0/0 to let the window server place it. The first window's descriptor
-	 * has no position: a program that opens one window leaves it to the
-	 * desktop. A window placed by hand is the reason the field is here. */
+	 * or 0/0 to let the window server place it. X11 and Win32 honour it; a
+	 * window server that places windows itself (Wayland) or that is the output
+	 * (KMS) leaves it to the desktop, which is where those put a window
+	 * anyway. The first window's descriptor (FnlInitDesc) has no position: a
+	 * program that opens one window leaves it to the desktop. */
 	int x_pt, y_pt;
 
 	/* Which GPU this window opens on, by the same rules as FnlInitDesc's:

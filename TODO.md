@@ -1339,10 +1339,12 @@ seam is split too: `host_open()` makes the connection and the one pump,
 lists. The per-window frame loop is built: `fnl_start()` starts every window's
 render thread, `fnl_pump()` stops the windows whose close was asked for and
 starts any the run created, and `fnl_stop()` joins them all. **The door opens**
-(X11 and Win32 fully split, and Cocoa's host half). Not yet compiled or run:
-the working agreement leaves that to the user. The app was always the handle --
-128 of the 144 `FNL_API` prototypes take one -- so the work is the process
-state that is still in the app, not a handle to add.
+on every backend that is split: X11, Win32 and Cocoa whole, and Wayland's and
+KMS's host halves. A second window opens on X11 and Win32; Wayland and KMS
+refuse one, each with the reason its own section gives. Not yet compiled or
+run: the working agreement leaves that to the user. The app was always the
+handle -- 128 of the 144 `FNL_API` prototypes take one -- so the work is the
+process state that is still in the app, not a handle to add.
 
 - **The host, and the split.** *Written*: `FnlWindowDesc` beside
   `FnlInitDesc`, `fnl_window_create()` in the header and the core, and `Host`
@@ -1359,8 +1361,10 @@ state that is still in the app, not a handle to add.
   view the window's. The per-window frame loop is in -- `fnl_start`/`fnl_pump`/
   `fnl_stop` reach every window on the host, a window's render thread started
   with the run or the pump that follows its creation. The renderer seam does
-  not split. Still owed: the log level and the GPU ranking moving wholly to
-  the host, and the backends' own per-window gaps below.
+  not split. The GPU ranking is the host's in effect: `fnl_init()` reads it, and
+  a second window sets `App::rank_no_measure`, so it neither measures nor
+  writes the file. The log level stays a process static in `error.c`, as the log
+  sink is -- one program, one level.
 - **The process state the table in DESIGN names**, each row a site to move:
   the signal app, `this_thread` and `app_renderer_state_ours()` (done: the
   render thread's window is the thread-local `render_window`, and the accessor
@@ -1369,34 +1373,49 @@ state that is still in the app, not a handle to add.
   file-scope variables (`iso_swap`, `pump_waiting` still file-scope and main-
   thread-only), and the GL, Metal and Vulkan tables that are one a process
   today.
-- **Wayland needs the most design**: one `wl_display` with a surface per
-  window and the seat routing by `enter`/`leave`, rather than a display a
-  window. Whether that is right at the input method and the clipboard is the
-  first thing to prove, on GNOME, with two windows open at once.
-- **KMS: a window is an output.** One master, one input set, a selection a
-  window, a CRTC each, and the console back only when the last window has
-  gone. Owed with it: what a second window does when the card has one
-  output, which is every machine here (`black`'s DP-1 plus a dark DVI-D-1 is
-  the nearest, and the laptops have one each). Nothing in this lab can show
-  two KMS windows until a second monitor is on a bare machine -- TODO *The
-  bare machine, without Xorg* owes the cable, and this owes the round that
-  follows it.
+- **Wayland's split is in; its second window is not.** The host owns the one
+  `wl_display`, its registry and globals, the seat and its devices, the layout,
+  the outputs and the event loop; a window owns its surface, xdg objects,
+  viewports and frames. The listeners that fire during `host_open` (registry,
+  seat, output, keymap, presentation) touch only host state; the data device
+  and text input are made in `window_open`, so their events land in a window.
+  A second window is **refused**, because routing the seat's keyboard, pointer,
+  clipboard and input method between two windows by `enter`/`leave` is the
+  thing DESIGN says must be proven on GNOME with two windows open at once, and
+  this lab cannot. Wayland fails that test here today; the split is the ground
+  it stands on.
+- **KMS's split is in; its second window is not.** The host owns the card and
+  its outputs, the event loop, the one input set and the layout; a window is a
+  selection of one output and its own scanout and cursor plane. A second window
+  is **refused**: it would be a second output on the one card, and nothing here
+  says which of two the keyboard and pointer are the user's (DESIGN *A second
+  window*), and every machine in this lab has one monitor a machine. Proving it
+  needs a second monitor on a bare machine -- TODO *The bare machine, without
+  Xorg* owes the cable, and this the round after.
+- **The window position is wired** for X11 and Win32 (`fnl_window_create()`'s
+  `x_pt`/`y_pt`), which are the backends a second window works on today.
+  Wayland (the compositor places) and KMS (the window is the output) ignore it,
+  as their comments say. Cocoa could honour it and is owed with whatever proves
+  a second Cocoa window -- one does not open here.
 - **What is measured where, once it is built.** The harness finds a window
   by title and `_NET_WM_PID`, so a second window in one process is already
   the case its own docstring warns about: the echo line wants a window and
   `find_window()` a way to choose. `kms_grab.py` needs an output named, and
   `stress.py` earns a check that opens two windows and moves the focus
-  between them -- the one thing no single-window round can say.
+  between them -- the one thing no single-window round can say. Owed.
+- **Still owed from the DESIGN table**: Win32's two desktop-global pointer calls
+  (`ShowCursor`'s process-wide count, `ClipCursor`'s global confinement) are
+  still made per window, so two Win32 windows that capture would fight; and the
+  GL/Metal/Vulkan tables that are one a process (fine while a program has one
+  renderer, which it does).
 - **Order.** The header and DESIGN, the core split with `fnl_init` unchanged,
-  the backend seam's split and the per-window frame loop are done: the header's
-  `FnlWindowDesc` and `fnl_window_create()`, the core's `Host` with the backend
-  vtable, the signal flag and the window registry, the frame loop that makes the
-  door open, and the seam split for X11 (both halves), Win32 (the module, the
-  classes and the raw thread the host's) and Cocoa (the NSApplication, the
-  wakeup and the delegate the host's). Wayland and KMS name one `open()` as
-  their `window_open()` and leave `host_open()` a no-op until their own split --
-  Wayland needs one `wl_display` and a surface per window, KMS a card and a
-  window an output. Next: the compile and the round on this desktop (X11 and
-  Win32 are natively multi-window and prove the split without Wayland's or
-  KMS's questions), then Wayland, then KMS, and the harness with the backend it
-  drives.
+  the backend seam's split and the per-window frame loop are done, and the seam
+  is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one
+  display, globals, seat and event loop the host's) and KMS (the card, outputs,
+  inputs and event loop the host's) with their second window refused for the
+  reasons their sections give. The window position is wired for X11 and Win32.
+  Next is the compile and the two-window round on this desktop (X11 and Win32
+  are natively multi-window and prove the split without Wayland's or KMS's
+  routing questions); then the Wayland seat routing and the KMS second output,
+  each on the machine that can show them; then the harness check that opens two
+  windows and moves the focus between them.

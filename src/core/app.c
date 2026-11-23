@@ -3360,11 +3360,12 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	app_title_copy(a->title, d.title);
 	a->init_w_pt = d.width_pt > 0 ? clamp_pt(d.width_pt) : 0;
 	a->init_h_pt = d.height_pt > 0 ? clamp_pt(d.height_pt) : 0;
-	/* FnlWindowDesc carries an x_pt/y_pt a caller may set, but no backend
-	 * reads a position yet -- a window opens at 0,0 and the server places it.
-	 * Wiring it through the window's open() is owed with the backends' own
-	 * splits (TODO *A second window*), so a position asked for here is left
-	 * to the server rather than silently dropped. */
+	/* Where the caller asked for it, bounded as every point figure is; 0/0
+	 * leaves the window server to place it. A backend that places windows
+	 * itself (Wayland) or is the output (KMS) ignores it; X11 and Win32 honour
+	 * it in their window_open(). */
+	a->init_x_pt = d.x_pt != 0 ? clamp_pt(d.x_pt) : 0;
+	a->init_y_pt = d.y_pt != 0 ? clamp_pt(d.y_pt) : 0;
 
 	/* The title measured on this thread, as fnl_init() measures the first's:
 	 * the render thread draws it and the pump's thread hit-tests around it. */

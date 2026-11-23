@@ -128,8 +128,14 @@ typedef enum {
 	KMS_GLYPH_UNSET
 } KmsGlyph;
 
-/* [main], the pump's thread, unless tagged otherwise. */
-struct BackendState {
+/* What the host owns, beside the windows: the card and the outputs the open
+ * found on it, the kernel sockets (uevent, inotify), the one event loop, and
+ * the one input set with the layout read from the console. One card is a
+ * process's -- DRM_IOCTL_SET_MASTER succeeds for one holder -- and one
+ * keyboard and pointer are the seat's, so these belong to the host and a
+ * window borrows them. The window's own -- its selection, its cursor plane,
+ * its scanout -- is in BackendState. See DESIGN *A second window*. */
+struct BackendHostState {
 	/* The card and its outputs, read once at open. [any] after that: the
 	 * bridge reads them on the render thread while building a surface, and
 	 * nothing writes them again. card_fd is master, and what the bridge
@@ -158,6 +164,41 @@ struct BackendState {
 	double       away_until[KMS_MAX_OUTPUTS];
 	int          away_owed;
 	bool         away_said;
+
+	int          wake_fd, epoll_fd, inotify_fd;
+
+	/* The output the host's open ranked first, the one a window opens on
+	 * until a move says otherwise: the host's open runs before any window
+	 * exists, so it cannot set the window's selection itself. */
+	int          first_output;
+
+	KmsInput     inputs[KMS_MAX_INPUTS];
+	int          input_count;
+
+	/* The layout, and the keys down by evdev code: the modifiers are worked
+	 * out from these, since nobody sends them. KEY_MAX is 0x2ff. One
+	 * keyboard, so these are the host's even though what they type goes to
+	 * the window that has the keyboard. */
+	Keymap       keymap;
+	KeyCompose   compose;
+	uint8_t      down[0x300 / 8];
+	bool         caps_on, num_on, leds_known;
+	/* Whether the key right of the space bar is AltGr in this layout, or Alt;
+	 * read from the keymap. */
+	bool         ralt_is_level3;
+	/* The group typed in, of the groups the layout fills, kept here as the
+	 * locks are: a layout of "de,us" is two, switched by its group keys
+	 * (keymap_group_key()). And each group's layout as the log names it. */
+	unsigned     group, groups;
+	char         group_name[KEYMAP_GROUPS][48];
+};
+
+/* [main], the pump's thread, unless tagged otherwise. */
+struct BackendState {
+	/* The host's card, outputs, event loop and inputs, which this window's
+	 * selection and scanout are drawn on. */
+	struct BackendHostState *host;
+
 	/* Bumped by the pump when the output the window is on comes back, and by
 	 * the render thread at a move to another GPU: the copy path's next frame
 	 * sets the mode afresh (scan_resets_seen). A load and a store, not an
@@ -189,26 +230,6 @@ struct BackendState {
 	int          surf_sel;
 	uint64_t     surf_presents;
 	int          surf_unshown;      /* surfaces running for it, none shown */
-
-	int          wake_fd, epoll_fd, inotify_fd;
-
-	KmsInput     inputs[KMS_MAX_INPUTS];
-	int          input_count;
-
-	/* The layout, and the keys down by evdev code: the modifiers are worked
-	 * out from these, since nobody sends them. KEY_MAX is 0x2ff. */
-	Keymap       keymap;
-	KeyCompose   compose;
-	uint8_t      down[0x300 / 8];
-	bool         caps_on, num_on, leds_known;
-	/* Whether the key right of the space bar is AltGr in this layout, or Alt;
-	 * read from the keymap. */
-	bool         ralt_is_level3;
-	/* The group typed in, of the groups the layout fills, kept here as the
-	 * locks are: a layout of "de,us" is two, switched by its group keys
-	 * (keymap_group_key()). And each group's layout as the log names it. */
-	unsigned     group, groups;
-	char         group_name[KEYMAP_GROUPS][48];
 
 	/* The pointer, in pixels of the output. */
 	double       ptr_x, ptr_y;
@@ -276,13 +297,13 @@ static inline unsigned int kms_refresh_mhz(const struct drm_mode_modeinfo *m)
 static inline const KmsOutput *kms_out(const struct BackendState *p,
 									   int sel)
 {
-	return &p->outputs[KMS_SEL_OUT(sel)];
+	return &p->host->outputs[KMS_SEL_OUT(sel)];
 }
 
 static inline const struct drm_mode_modeinfo *
 kms_sel_mode(const struct BackendState *p, int sel)
 {
-	return &p->outputs[KMS_SEL_OUT(sel)].modes[KMS_SEL_MODE(sel)];
+	return &p->host->outputs[KMS_SEL_OUT(sel)].modes[KMS_SEL_MODE(sel)];
 }
 
 /* A selection's size in pixels and refresh in millihertz, its connector and

@@ -2325,10 +2325,17 @@ static FnlResult win32_open(App *a)
 						(int)(sizeof wtitle / sizeof wtitle[0]));
 
 	/* The App goes in as lpCreateParams, so WM_NCCREATE can install it before
-	 * the frame is decided -- see the top of wnd_proc. */
+	 * the frame is decided -- see the top of wnd_proc. A position the caller
+	 * asked for (fnl_window_create()'s x_pt/y_pt) is honoured; CW_USEDEFAULT
+	 * leaves it where Windows would put it. */
+	const int ws120 = want_s120(a);
+	const int cx    = a->init_x_pt ? scale_pt(a->init_x_pt, ws120)
+								   : CW_USEDEFAULT;
+	const int cy    = a->init_y_pt ? scale_pt(a->init_y_pt, ws120)
+								   : CW_USEDEFAULT;
 	p->hwnd =
-		CreateWindowExW(0, FNL_WNDCLASS, wtitle, style, CW_USEDEFAULT,
-						CW_USEDEFAULT, w_pt, h_pt, NULL, NULL, p->instance, a);
+		CreateWindowExW(0, FNL_WNDCLASS, wtitle, style, cx, cy, w_pt, h_pt,
+						NULL, NULL, p->instance, a);
 	if (!p->hwnd) {
 		rc = fnl_fail(FNL_ERR_NO_DISPLAY, "CreateWindowExW failed (%lu)",
 					  GetLastError());

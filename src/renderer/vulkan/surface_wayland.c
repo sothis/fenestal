@@ -34,7 +34,7 @@ static FnlResult create_surface(App *a)
 {
 	VkWaylandSurfaceCreateInfoKHR ci = {
 		.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-		.display = a->backend_state->display,
+		.display = app_backend_host(a)->display,
 		.surface = a->backend_state->present,
 	};
 	VkSurfaceKHR s = VK_NULL_HANDLE;
@@ -57,7 +57,7 @@ static bool presents(App *a, VkInstance inst, VkPhysicalDevice dev,
 			vkGetInstanceProcAddr(
 				inst,
 				"vkGetPhysicalDeviceWaylandPresentationSupportKHR");
-	return ask && ask(dev, family, a->backend_state->display);
+	return ask && ask(dev, family, app_backend_host(a)->display);
 }
 
 const VkBridge vk_bridge_wayland = {

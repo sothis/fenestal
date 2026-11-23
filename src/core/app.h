@@ -1254,6 +1254,12 @@ struct FnlApp {
 	/* The presentable area asked for at fnl_init, in logical points, or 0 for
 	 * the library's own default. */
 	int init_w_pt, init_h_pt;
+	/* Where fnl_window_create() was asked to place the window, in points from
+	 * the primary output's corner, or 0/0 to let the window server place it.
+	 * Read once by the backend's window_open(); a window server that places
+	 * windows itself (Wayland) or that is the output (KMS) ignores it, and the
+	 * first window, which comes from fnl_init(), has no position. */
+	int init_x_pt, init_y_pt;
 
 	/* FnlInitDesc::echo_events, or FNL_ECHO_EVENTS in the environment. */
 	bool echo_events;

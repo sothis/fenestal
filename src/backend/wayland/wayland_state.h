@@ -67,12 +67,22 @@ typedef struct {
 	char model[64];           /* make and model from wl_output.geometry */
 } WlOutput;
 
-/* [main], the pump's thread, unless tagged otherwise. */
-struct BackendState {
+/* What the host owns, beside the windows: the one wl_display, its registry and
+ * the globals bound from it, the one seat and its devices, the clipboard and
+ * text-input managers, the layout, the outputs and the event loop. One display
+ * a program -- a second would be a second client, with the clipboard and the
+ * input method each made two -- and one seat, so these are the host's and a
+ * window borrows them. The window's own -- its surface, its xdg objects, its
+ * viewports, its frames -- is in BackendState. The seat's devices dispatch to
+ * the host's one window until the routing between two is built (TODO *A second
+ * window*), which is why a second window is refused for now. */
+struct BackendHostState {
 	struct wl_display *display;
 	struct wl_registry *registry;
 	struct wl_compositor *compositor;
 	struct xdg_wm_base *wm_base;
+	struct wl_subcompositor *subcompositor;
+	struct wl_shm *shm;
 	struct wl_seat *seat;
 	struct wl_keyboard *keyboard;
 	/* Between the keyboard's enter and its leave: the one FNL_EVENT_FOCUS
@@ -90,23 +100,66 @@ struct BackendState {
 	struct zxdg_decoration_manager_v1 *decoration_manager;
 	struct zwp_pointer_constraints_v1 *pointer_constraints;
 	struct zwp_relative_pointer_manager_v1 *relative_manager;
-
-	/* Non-NULL while captured. Locked, not confined: a locked pointer reports
-	 * relative motion, so the reticle can be placed. */
-	struct zwp_locked_pointer_v1 *locked;
-	struct zwp_relative_pointer_v1 *relative;
-	/* The accelerated delta stood in for a missing unaccelerated one, and
-	 * the log has said so: once, since it is every motion after. */
-	bool relative_accel_said;
-
 	struct wp_viewporter *viewporter;
 	/* Presentation time: bound, and its clock CLOCK_MONOTONIC, the frame
 	 * clock's, which is the one a stamp is taken from as it comes. */
 	struct wp_presentation *presentation;
 	bool presentation_mono;
-	WlFeedback feedback[WL_FEEDBACK_SLOTS];
-	int feedback_cur; /* -1: none */
 	struct wp_fractional_scale_manager_v1 *fractional_manager;
+
+	/* The card's outputs and their modes, as the registry saw them. With one
+	 * window their `on_surface` is that window's surface; a second would want
+	 * it per window, which is the routing a second window still owes. */
+	WlOutput outputs[WL_MAX_OUTPUTS];
+	int output_count;
+	/* The one the window is following. */
+	struct wl_output *current_output;
+
+	/* eventfd and epoll: Linux, not merely POSIX. */
+	int wake_fd;
+	int epoll_fd;
+	/* The uevent socket (loop_uevent_open()), in the epoll set beside the
+	 * display: a GPU that came or went. -1 where the kernel has no such
+	 * group, which is a hotplug nobody hears. */
+	int uevent_fd;
+	/* The display's descriptor is watched for room as well as for input:
+	 * only while a flush has found the socket full (display_watch_out()). */
+	bool display_out;
+
+	/* The compositor's layout, and its modifiers as the union of depressed,
+	 * latched and locked, which is what selects a level. One keyboard, so the
+	 * layout is the host's even though what it types goes to the window. */
+	Keymap keymap;
+	uint32_t kb_mods;
+	uint32_t kb_group;
+
+	/* Key repeat is the client's on Wayland: a timerfd, armed while text entry
+	 * is on and a repeating key is down. -1 costs repeats alone. One
+	 * keyboard, one repeat. */
+	int repeat_fd;
+	int32_t repeat_rate;  /* per second; 0 is off */
+	int32_t repeat_delay; /* milliseconds before the first */
+	uint32_t repeat_key;  /* evdev code */
+	bool repeat_armed;
+
+	/* zwp_text_input_v3 is the seat's. */
+	struct zwp_text_input_manager_v3 *ti_manager;
+	struct zwp_text_input_v3 *ti;
+
+	/* The clipboard's manager and the one data device made from it: the
+	 * selection is the seat's. `clip_marker` is a mime type nobody else
+	 * offers, which marks our own selection come back. */
+	struct wl_data_device_manager *ddm;
+	struct wl_data_device *dd;
+	char clip_marker[48];
+};
+
+/* [main], the pump's thread, unless tagged otherwise. */
+struct BackendState {
+	/* The host's display, seat and event loop, on which this window's
+	 * surface, xdg objects and frames are made. */
+	struct BackendHostState *host;
+
 	struct wp_viewport *viewport;
 	struct wp_fractional_scale_v1 *fractional;
 	struct wl_surface *surface;
@@ -118,8 +171,6 @@ struct BackendState {
 	 * viewport stretches over it. `parent_dirty` is window state -- an
 	 * ack, the geometry, the viewport -- waiting for the window's own
 	 * commit, which follows the present (`presenting`, wl_flush()). */
-	struct wl_subcompositor *subcompositor;
-	struct wl_shm *shm;
 	struct wl_surface *present;
 	struct wl_subsurface *present_sub;
 	struct wp_viewport *present_viewport;
@@ -144,6 +195,14 @@ struct BackendState {
 	struct xdg_surface *xdg_surface;
 	struct xdg_toplevel *xdg_toplevel;
 	struct zxdg_toplevel_decoration_v1 *decoration;
+
+	/* Non-NULL while captured. Locked, not confined: a locked pointer reports
+	 * relative motion, so the reticle can be placed. */
+	struct zwp_locked_pointer_v1 *locked;
+	struct zwp_relative_pointer_v1 *relative;
+	/* The accelerated delta stood in for a missing unaccelerated one, and
+	 * the log has said so: once, since it is every motion after. */
+	bool relative_accel_said;
 
 	/* The last button *press*, which xdg_toplevel.move and .resize want; never
 	 * `pointer_serial`, an enter's, which a compositor rejects. `left_serial`
@@ -175,12 +234,8 @@ struct BackendState {
 	 * xdg_wm_base, or an explicit "unknown". */
 	int bounds_w, bounds_h;
 
-	/* ---- outputs and scale ---------------------------------------------- */
-	WlOutput outputs[WL_MAX_OUTPUTS];
-	int output_count;
-	/* The one being followed. */
-	struct wl_output *current_output;
-	/* wp_fractional_scale_v1's figure, in 120ths; 0 until it has said. */
+	/* ---- scale ---------------------------------------------------------
+	 * wp_fractional_scale_v1's figure, in 120ths; 0 until it has said. */
 	int preferred_scale120;
 	/* [render] The viewport destination last set, in surface points. */
 	int applied_vp_w, applied_vp_h;
@@ -188,6 +243,11 @@ struct BackendState {
 	 * on the frames' own, in buffer pixels from the corner: zero for none,
 	 * the whole buffer (crop_apply()). */
 	int src_w, src_h, present_src_w, present_src_h;
+
+	/* Presentation feedback: asked on a commit and answered when the frame
+	 * was shown, so per surface and so per window. */
+	WlFeedback feedback[WL_FEEDBACK_SLOTS];
+	int feedback_cur; /* -1: none */
 
 	/* [App::lock] `frame_cb` is non-NULL while an invitation is outstanding,
 	 * so at most one is; `frame_ready` is what the render thread waits on. */
@@ -202,41 +262,14 @@ struct BackendState {
 	 * twice; libwayland keeps the proxy alive for an event in dispatch. */
 	struct wl_callback *frame_cb_orphan;
 
-	/* eventfd and epoll: Linux, not merely POSIX. */
-	int wake_fd;
-	int epoll_fd;
-	/* The uevent socket (loop_uevent_open()), in the epoll set beside the
-	 * display: a GPU that came or went. -1 where the kernel has no such
-	 * group, which is a hotplug nobody hears. */
-	int uevent_fd;
-	/* The display's descriptor is watched for room as well as for input:
-	 * only while a flush has found the socket full (display_watch_out()). */
-	bool display_out;
-
-	/* ---- text entry ----------------------------------------------------
-	 * The compositor's layout, and its modifiers as the union of depressed,
-	 * latched and locked, which is what selects a level. */
-	Keymap keymap;
-	uint32_t kb_mods;
-	uint32_t kb_group;
-
-	/* Key repeat is the client's on Wayland: a timerfd, armed while text entry
-	 * is on and a repeating key is down. -1 costs repeats alone. */
-	int repeat_fd;
-	int32_t repeat_rate;  /* per second; 0 is off */
-	int32_t repeat_delay; /* milliseconds before the first */
-	uint32_t repeat_key;  /* evdev code */
-	bool repeat_armed;
-
 	/* The held accent, where no input method holds it instead. */
 	KeyCompose compose;
 
-	/* zwp_text_input_v3. `ti_focus` is its own enter and leave, not the
-	 * keyboard's; `ti_enabled` is whether it was asked to compose. The strings
-	 * are one transaction, acted on at `done`. Fixed buffers: a heap pointer
-	 * stored through a listener's `void *` reads as a leak to -fanalyzer. */
-	struct zwp_text_input_manager_v3 *ti_manager;
-	struct zwp_text_input_v3 *ti;
+	/* zwp_text_input_v3's transaction for this window: `ti_focus` is its own
+	 * enter and leave, not the keyboard's; `ti_enabled` is whether it was
+	 * asked to compose. The strings are one transaction, acted on at `done`.
+	 * Fixed buffers: a heap pointer stored through a listener's `void *`
+	 * reads as a leak to -fanalyzer. */
 	bool ti_focus;
 	bool ti_enabled;
 	bool ti_has_commit;
@@ -251,12 +284,8 @@ struct BackendState {
 	 *
 	 * clip_fd is a paste's pipe, in the epoll set until end of file and -1
 	 * otherwise; `clip` is what has arrived of it (clip_linux.h).
-	 * `clip_marker` is a mime type nobody else offers, which marks our own
-	 * selection come back: having *asked* to own it shows nothing.
 	 * `clip_sync` is outstanding from a set until the compositor has
 	 * answered it, while `offer_sel` is still the selection before. */
-	struct wl_data_device_manager *ddm;
-	struct wl_data_device *dd;
 	struct wl_data_source *clip_source;
 	struct wl_callback *clip_sync;
 	struct wl_data_offer *offer_new;
@@ -265,13 +294,11 @@ struct BackendState {
 	int offer_sel_kind;
 	bool offer_new_ours;
 	bool offer_sel_ours;
-	char clip_marker[48];
 	int clip_fd;
 	ClipIn clip;
 	/* The newest input serial: set_selection wants one from a real event. */
 	uint32_t input_serial;
 };
-
 /* wl_surface.set_buffer_scale arrived in wl_compositor v3. Without it -- and
  * without a viewport -- the only scale we can express is 1.0. */
 static inline bool wl_can_set_buffer_scale(const struct BackendState *p)

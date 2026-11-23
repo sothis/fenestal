@@ -18,16 +18,22 @@ promised: before 1.0, nothing between minor releases.
   the host owns the process module, the window and presentation classes and the
   raw-input thread, each window its own HWND and state. Cocoa is split: the
   host owns the one NSApplication, the wakeup pipe and the application delegate,
-  each window its own NSWindow, view and layer. Wayland and KMS are not split
-  yet; they name their one `open()` as `window_open()` behind a no-op
-  `host_open()`, so the seam's two halves are filled without a second
-  connection. **The door opens**: a second window is built on the host's
+  each window its own NSWindow, view and layer. Wayland is split: the host owns
+  the one `wl_display`, its globals, the seat and its devices, the layout and
+  the event loop, each window its own surface, xdg objects and frames. KMS is
+  split: the host owns the card and its outputs, the event loop and the one
+  input set, a window is a selection of one output and its own scanout.
+  **The door opens**: a second window is built on the host's
   renderer (one graphics API a program), its own device, swapchain and render
   thread, and the host's one pump. `fnl_start()` starts every window's render
   thread, `fnl_pump()` stops the windows whose close was asked for and starts
   any the run created, and `fnl_stop()` joins them all. A window closed during a
   run is torn down but not freed -- it is the caller's to give back with
-  `fnl_shutdown()`, which is also where the host goes with its last. The ABI
+  `fnl_shutdown()`, which is also where the host goes with its last.
+  `FnlWindowDesc::x_pt`/`y_pt` place the window on X11 and Win32. A second
+  window opens on X11 and Win32; Wayland and KMS refuse one, the seat's input
+  between two and a second output on the one card not being built because this
+  lab cannot prove them. The ABI
   baseline gains the struct and the function; nothing existing moves.
 
 - `fnl_set_scene_motion_px()`: how far the scene moved since the frame before

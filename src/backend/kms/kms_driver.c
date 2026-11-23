@@ -385,7 +385,7 @@ int gpu_driver_list(const App *a, GpuDriver *out, int max)
 			continue;
 		/* The display's own card (see the top). */
 		snprintf(path, sizeof path, PCI_DEVICES "/%s/drm/card%d", e->d_name,
-				 p->card_index);
+				 p->host->card_index);
 		if (access(path, F_OK) == 0) {
 			fnl_log(FNL_LOG_INFO,
 					"GPU driver: %s is the display's card, "

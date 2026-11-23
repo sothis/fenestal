@@ -2590,7 +2590,9 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 			XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_PROPERTY_CHANGE,
 	};
 	xcb_create_window(
-		p->conn, XCB_COPY_FROM_PARENT, p->window, p->root, 0, 0,
+		p->conn, XCB_COPY_FROM_PARENT, p->window, p->root,
+		(int16_t)scale_pt(a->init_x_pt, want_s120(a)),
+		(int16_t)scale_pt(a->init_y_pt, want_s120(a)),
 		(uint16_t)p->win_w, (uint16_t)p->win_h, 0,
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, p->screen->root_visual,
 		XCB_CW_BACK_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_EVENT_MASK, values);

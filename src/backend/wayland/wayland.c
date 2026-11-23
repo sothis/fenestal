@@ -54,10 +54,15 @@ static const struct xdg_wm_base_listener wm_base_listener = {
 
 static WlOutput *output_info_for(App *a, struct wl_output *o)
 {
-	struct BackendState *p = a->backend_state;
-	for (int i = 0; i < p->output_count; i++)
-		if (p->outputs[i].handle == o)
-			return &p->outputs[i];
+	/* The outputs are the host's, so an output event arriving during
+	 * host_open -- before window_open has made a window -- still finds its
+	 * slot. */
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return NULL;
+	for (int i = 0; i < hs->output_count; i++)
+		if (hs->outputs[i].handle == o)
+			return &hs->outputs[i];
 	return NULL;
 }
 
@@ -66,7 +71,7 @@ static WlOutput *output_info_for(App *a, struct wl_output *o)
 static void present_opaque(App *a, int w, int h, int m)
 {
 	struct BackendState *p   = a->backend_state;
-	struct wl_region *opaque = wl_compositor_create_region(p->compositor);
+	struct wl_region *opaque = wl_compositor_create_region(p->host->compositor);
 	wl_region_add(opaque, m, m, w, h);
 	wl_surface_set_opaque_region(p->present, opaque);
 	wl_region_destroy(opaque);
@@ -90,7 +95,9 @@ static void refresh_size_bounds(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	const WlOutput *cur =
-		p->current_output ? output_info_for(a, p->current_output) : NULL;
+		p->host->current_output
+			? output_info_for(a, p->host->current_output)
+			: NULL;
 	/* The followed output's rate, which the GPU ranking keys a display by
 	 * (rank.c). Nothing is spaced by it where frames are invited; a loop
 	 * at rest waits a period of it for a signal instead of a 60 Hz one. */
@@ -117,26 +124,31 @@ static void refresh_size_bounds(App *a)
  * back. */
 static void pick_current_output(App *a)
 {
+	/* Nothing to publish until the window exists: an output's events arrive
+	 * during host_open, before window_open has made p, and its `on_surface`
+	 * is false until the surface enters it anyway. */
+	if (!a->backend_state)
+		return;
 	struct BackendState *p = a->backend_state;
 	struct wl_output *best = NULL;
 	int best_scale         = 0;
 
-	for (int i = 0; i < p->output_count; i++) {
-		if (!p->outputs[i].on_surface)
+	for (int i = 0; i < p->host->output_count; i++) {
+		if (!p->host->outputs[i].on_surface)
 			continue;
-		if (!best || p->outputs[i].scale > best_scale) {
-			best       = p->outputs[i].handle;
-			best_scale = p->outputs[i].scale;
+		if (!best || p->host->outputs[i].scale > best_scale) {
+			best       = p->host->outputs[i].handle;
+			best_scale = p->host->outputs[i].scale;
 		}
 	}
 	/* Bounds describe the output they arrived for and are not resent when the
 	 * window moves to another, so a *change* drops them and the mode stands
 	 * in. Not the first enter: those are the bounds for the monitor it opened
 	 * on. */
-	if (best && p->current_output && best != p->current_output)
+	if (best && p->host->current_output && best != p->host->current_output)
 		p->bounds_w = p->bounds_h = 0;
 	if (best)
-		p->current_output = best;
+		p->host->current_output = best;
 
 	refresh_size_bounds(a);
 
@@ -148,9 +160,9 @@ static void pick_current_output(App *a)
 	 * another output's, while the window straddles two (rank.c). */
 	char names[sizeof a->want_output] = "";
 	for (int pass = 0; pass < 2; pass++) {
-		for (int i = 0; i < p->output_count; i++) {
-			const WlOutput *oi = &p->outputs[i];
-			bool followed      = oi->handle == p->current_output;
+		for (int i = 0; i < p->host->output_count; i++) {
+			const WlOutput *oi = &p->host->outputs[i];
+			bool followed      = oi->handle == p->host->current_output;
 			if (!oi->on_surface || followed != (pass == 0))
 				continue;
 			size_t n = strlen(names);
@@ -161,7 +173,9 @@ static void pick_current_output(App *a)
 	}
 	if (names[0]) {
 		const WlOutput *cur =
-			p->current_output ? output_info_for(a, p->current_output) : NULL;
+			p->host->current_output
+				? output_info_for(a, p->host->current_output)
+				: NULL;
 		app_publish_output_mode(a, names, cur ? cur->mode_w : 0,
 								cur ? cur->mode_h : 0);
 	}
@@ -171,11 +185,13 @@ static void pick_current_output(App *a)
 	 * from one to another. An output that has not said its name (wl_output
 	 * before v4) is left out, since nothing could ask for it. */
 	char list[OUTPUTS_MAX][OUTPUT_NAME_MAX];
-	const int n = p->output_count < OUTPUTS_MAX ? p->output_count : OUTPUTS_MAX;
+	const int n = p->host->output_count < OUTPUTS_MAX
+					  ? p->host->output_count
+					  : OUTPUTS_MAX;
 	int at      = -1;
 	for (int i = 0; i < n; i++) {
-		snprintf(list[i], sizeof list[i], "%s", p->outputs[i].name);
-		if (p->outputs[i].handle == p->current_output)
+		snprintf(list[i], sizeof list[i], "%s", p->host->outputs[i].name);
+		if (p->host->outputs[i].handle == p->host->current_output)
 			at = i;
 	}
 	app_publish_outputs(a, list, n, at);
@@ -207,11 +223,14 @@ static int clamp_buffer_scale120(const App *a, int s120)
  * are bounded where they arrive. */
 static int compositor_scale120(App *a)
 {
+	/* The preferred scale and the window's fractional object are the window's;
+	 * before one exists (host_open's roundtrips) the compositor's own default
+	 * stands. */
 	struct BackendState *p = a->backend_state;
-	if (p->fractional && p->preferred_scale120 > 0)
+	if (p && p->fractional && p->preferred_scale120 > 0)
 		return p->preferred_scale120;
-	if (p->current_output) {
-		WlOutput *oi = output_info_for(a, p->current_output);
+	if (p && p->host->current_output) {
+		WlOutput *oi = output_info_for(a, p->host->current_output);
 		if (oi && oi->scale > 0)
 			return oi->scale * 120;
 	}
@@ -265,6 +284,12 @@ static int resolve_scale120(App *a)
 
 static void update_scale(App *a)
 {
+	/* The scale is the window's -- its surface's fractional object and its
+	 * device's extent -- so before one exists (host_open's roundtrips) there
+	 * is nothing to publish; window_open publishes it once the surface is
+	 * made. */
+	if (!a->backend_state)
+		return;
 	(void)app_publish_scale(a, resolve_scale120(a));
 }
 
@@ -365,7 +390,7 @@ static void kb_keymap(void *d, struct wl_keyboard *kb, uint32_t fmt, int fd,
 {
 	(void)kb;
 	App *a                 = d;
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
 	bool parsed            = false;
 
 	if (fmt == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 && size > 0) {
@@ -391,7 +416,7 @@ static void kb_keymap(void *d, struct wl_keyboard *kb, uint32_t fmt, int fd,
 		}
 		if (map != MAP_FAILED) {
 			parsed = true;
-			if (!keymap_parse_xkb(&p->keymap, map, size))
+			if (!keymap_parse_xkb(&hs->keymap, map, size))
 				fnl_log(FNL_LOG_WARN, "the compositor's keymap could not be "
 									  "read; text entry will type nothing");
 			munmap(map, size);
@@ -400,7 +425,7 @@ static void kb_keymap(void *d, struct wl_keyboard *kb, uint32_t fmt, int fd,
 	/* The parser empties the map itself. A keymap it was never shown replaces
 	 * the last one all the same. */
 	if (!parsed)
-		memset(&p->keymap, 0, sizeof p->keymap);
+		memset(&hs->keymap, 0, sizeof hs->keymap);
 	close(fd);
 }
 
@@ -417,14 +442,14 @@ static void kb_keymap(void *d, struct wl_keyboard *kb, uint32_t fmt, int fd,
 
 static KeyMods kb_mods(const struct BackendState *p)
 {
-	const uint32_t m = p->kb_mods;
+	const uint32_t m = p->host->kb_mods;
 	return (KeyMods){
 		.shift   = (m & KB_SHIFT) != 0,
 		.lock    = (m & KB_LOCK) != 0,
 		.num     = (m & KB_MOD2) != 0,
 		.level3  = (m & KB_MOD5) != 0,
 		.command = (m & (KB_CONTROL | KB_MOD1 | KB_MOD4)) != 0,
-		.group   = p->kb_group,
+		.group   = p->host->kb_group,
 	};
 }
 
@@ -434,35 +459,35 @@ static KeyMods kb_mods(const struct BackendState *p)
 
 static void key_repeat_stop(struct BackendState *p)
 {
-	if (!p->repeat_armed)
+	if (!p->host->repeat_armed)
 		return;
 	struct itimerspec its;
 	memset(&its, 0, sizeof its);
-	timerfd_settime(p->repeat_fd, 0, &its, NULL);
-	p->repeat_armed = false;
+	timerfd_settime(p->host->repeat_fd, 0, &its, NULL);
+	p->host->repeat_armed = false;
 }
 
 static void key_repeat_start(struct BackendState *p, uint32_t key)
 {
-	if (p->repeat_fd < 0 || p->repeat_rate <= 0)
+	if (p->host->repeat_fd < 0 || p->host->repeat_rate <= 0)
 		return;
 
-	const long period = 1000000000L / p->repeat_rate;
+	const long period = 1000000000L / p->host->repeat_rate;
 	struct itimerspec its;
 	memset(&its, 0, sizeof its);
 	its.it_interval.tv_sec  = period / 1000000000L;
 	its.it_interval.tv_nsec = period % 1000000000L;
 	/* A zero it_value disarms the timer rather than firing it at once, so a
 	 * compositor that asks for no delay gets one period of it. */
-	if (p->repeat_delay > 0) {
-		its.it_value.tv_sec  = p->repeat_delay / 1000;
-		its.it_value.tv_nsec = (long)(p->repeat_delay % 1000) * 1000000L;
+	if (p->host->repeat_delay > 0) {
+		its.it_value.tv_sec  = p->host->repeat_delay / 1000;
+		its.it_value.tv_nsec = (long)(p->host->repeat_delay % 1000) * 1000000L;
 	} else {
 		its.it_value = its.it_interval;
 	}
-	if (timerfd_settime(p->repeat_fd, 0, &its, NULL) == 0) {
-		p->repeat_key   = key;
-		p->repeat_armed = true;
+	if (timerfd_settime(p->host->repeat_fd, 0, &its, NULL) == 0) {
+		p->host->repeat_key   = key;
+		p->host->repeat_armed = true;
 	}
 }
 
@@ -474,7 +499,7 @@ static void key_type(App *a, uint32_t key, bool repeat)
 	const KeyMods mods     = kb_mods(p);
 	const uint32_t held    = p->compose.dead;
 	const uint32_t c =
-		keymap_type(&p->keymap, &p->compose, key + 8u, &mods, repeat);
+		keymap_type(&p->host->keymap, &p->compose, key + 8u, &mods, repeat);
 	app_text(a, c);
 	/* Only on a change, and not with the input method enabled: it reports
 	 * its own composition, and an empty string from here would wipe its
@@ -492,17 +517,17 @@ static void key_repeat_fire(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	uint64_t periods;
-	const ssize_t got = read(p->repeat_fd, &periods, sizeof periods);
+	const ssize_t got = read(p->host->repeat_fd, &periods, sizeof periods);
 	if (got != (ssize_t)sizeof periods)
 		return;
-	if (!p->repeat_armed)
+	if (!p->host->repeat_armed)
 		return;
 	if (!app_text_input(a)) {
 		key_repeat_stop(p);
 		return;
 	}
-	app_key_repeat(a, key_from_evdev(p->repeat_key));
-	key_type(a, p->repeat_key, true);
+	app_key_repeat(a, key_from_evdev(p->host->repeat_key));
+	key_type(a, p->host->repeat_key, true);
 }
 
 /* The keys already down arrive with focus. Seeded, not replayed through
@@ -521,7 +546,7 @@ static void kb_enter(void *data, struct wl_keyboard *kb, uint32_t serial,
 	wl_array_for_each(k, keys) app_key_seed(a, key_from_evdev(*k));
 
 	/* After the seeding, so fnl_key_down() is right when the event is read. */
-	a->backend_state->kb_focused = true;
+	app_backend_host(a)->kb_focused = true;
 	app_post_focus(a, true);
 }
 
@@ -547,7 +572,7 @@ static void kb_leave(void *data, struct wl_keyboard *kb, uint32_t serial,
 	kb_drop_held(a);
 
 	/* After the drop, for kb_enter()'s reason. */
-	a->backend_state->kb_focused = false;
+	app_backend_host(a)->kb_focused = false;
 	app_post_focus(a, false);
 }
 static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
@@ -578,7 +603,7 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 	app_key(a, k, pressed);
 
 	if (!pressed) {
-		if (p->repeat_armed && key == p->repeat_key)
+		if (p->host->repeat_armed && key == p->host->repeat_key)
 			key_repeat_stop(p);
 		return;
 	}
@@ -587,7 +612,7 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 
 	key_type(a, key, false);
 	/* The newest key takes the repeat over; a modifier does not. */
-	if (keymap_held_repeats(&p->keymap, key + 8u, k))
+	if (keymap_held_repeats(&p->host->keymap, key + 8u, k))
 		key_repeat_start(p, key);
 }
 static void kb_modifiers(void *d, struct wl_keyboard *kb, uint32_t serial,
@@ -596,8 +621,8 @@ static void kb_modifiers(void *d, struct wl_keyboard *kb, uint32_t serial,
 	(void)kb;
 	(void)serial;
 	App *a                     = d;
-	a->backend_state->kb_mods  = dep | lat | lck;
-	a->backend_state->kb_group = grp;
+	app_backend_host(a)->kb_mods  = dep | lat | lck;
+	app_backend_host(a)->kb_group = grp;
 }
 static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate,
 					  int32_t delay)
@@ -605,8 +630,8 @@ static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate,
 	(void)kb;
 	App *a                 = d;
 	struct BackendState *p = a->backend_state;
-	p->repeat_rate         = rate;
-	p->repeat_delay        = delay;
+	p->host->repeat_rate         = rate;
+	p->host->repeat_delay        = delay;
 	if (rate <= 0)
 		key_repeat_stop(p);
 }
@@ -650,23 +675,24 @@ static const uint32_t EDGE_SHAPES[EDGE_COUNT] = {
 static void set_cursor_shape(App *a, uint32_t shape)
 {
 	struct BackendState *p = a->backend_state;
-	if (p->current_shape == shape)
+	if (p->host->current_shape == shape)
 		return;
 
 	if (shape == WL_CURSOR_HIDDEN) {
 		/* Only when the shape protocol can bring it back: core wl_pointer has
 		 * no "the default again", so a hide without it is one-way. */
-		if (!p->pointer || !p->cursor_device)
+		if (!p->host->pointer || !p->host->cursor_device)
 			return;
-		p->current_shape = shape;
-		wl_pointer_set_cursor(p->pointer, p->pointer_serial, NULL, 0, 0);
+		p->host->current_shape = shape;
+		wl_pointer_set_cursor(p->host->pointer, p->host->pointer_serial,
+							  NULL, 0, 0);
 		return;
 	}
-	if (!p->cursor_device)
+	if (!p->host->cursor_device)
 		return;
-	p->current_shape = shape;
-	wp_cursor_shape_device_v1_set_shape(p->cursor_device, p->pointer_serial,
-										shape);
+	p->host->current_shape = shape;
+	wp_cursor_shape_device_v1_set_shape(p->host->cursor_device,
+										p->host->pointer_serial, shape);
 }
 
 /* fnl_set_cursor()'s shapes; the compositor draws them from the theme. */
@@ -772,8 +798,8 @@ static void capture_pointer(App *a)
 	struct BackendState *p = a->backend_state;
 	/* Both protocols or neither: a lock without zwp_relative_pointer_v1 is a
 	 * hidden cursor and a reticle nothing can move. */
-	if (a->pointer_captured || !p->pointer_constraints ||
-		!p->relative_manager || !p->pointer)
+	if (a->pointer_captured || !p->host->pointer_constraints ||
+		!p->host->relative_manager || !p->host->pointer)
 		return;
 
 	app_reticle_start(a);
@@ -781,13 +807,13 @@ static void capture_pointer(App *a)
 	/* No region: it says where the pointer must be for the lock to *engage*,
 	 * not where it may go. The reticle is bounded in app_reticle_move(). */
 	p->locked = zwp_pointer_constraints_v1_lock_pointer(
-		p->pointer_constraints, p->surface, p->pointer, NULL,
+		p->host->pointer_constraints, p->surface, p->host->pointer, NULL,
 		ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
 	zwp_locked_pointer_v1_add_listener(p->locked, &locked_listener, a);
 
 	if (!p->relative) {
 		p->relative = zwp_relative_pointer_manager_v1_get_relative_pointer(
-			p->relative_manager, p->pointer);
+			p->host->relative_manager, p->host->pointer);
 		zwp_relative_pointer_v1_add_listener(p->relative, &relative_listener,
 											 a);
 	}
@@ -829,7 +855,7 @@ static void pointer_update(App *a)
  * decides afresh. */
 static void wl_cursor_changed(App *a)
 {
-	if (!a->backend_state->pointer || !a->backend_state->pointer_inside)
+	if (!app_backend_host(a)->pointer || !app_backend_host(a)->pointer_inside)
 		return;
 	Edge edge;
 	const Zone z = deco_hit(a, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y), &edge);
@@ -851,11 +877,11 @@ static void ptr_enter(void *data, struct wl_pointer *wp, uint32_t serial,
 	(void)s;
 	App *a                 = data;
 	struct BackendState *p = a->backend_state;
-	p->pointer_serial      = serial;
+	p->host->pointer_serial      = serial;
 	a->ptr_x               = wl_fixed_to_double(sx);
 	a->ptr_y               = wl_fixed_to_double(sy);
-	p->current_shape       = 0; /* a cursor is set per enter, hidden included */
-	p->pointer_inside      = true;
+	p->host->current_shape = 0; /* a cursor is set per enter, hidden included */
+	p->host->pointer_inside      = true;
 	p->left_held           = false; /* a release elsewhere is never delivered */
 	pointer_update(a);
 	app_reticle_publish(a);
@@ -873,8 +899,8 @@ static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
 	(void)serial;
 	(void)s;
 	App *a                           = data;
-	a->backend_state->current_shape  = 0;
-	a->backend_state->pointer_inside = false;
+	app_backend_host(a)->current_shape  = 0;
+	app_backend_host(a)->pointer_inside = false;
 	a->backend_state->left_held      = false;
 	deco_release(a); /* the press is someone else's problem now */
 	app_reticle_publish(a);
@@ -936,13 +962,14 @@ static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t ax,
 					 wl_fixed_t v)
 {
 	(void)p;
-	App *a      = d;
+	App *a                = d;
+	struct BackendState *w = a->backend_state;
 	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
 	loop_input_ms(a, t);
-	const double notches               = a->backend_state->axis_discrete[i]
-											 ? (double)a->backend_state->axis_discrete[i]
-											 : wl_fixed_to_double(v) / WL_AXIS_PER_NOTCH;
-	a->backend_state->axis_discrete[i] = 0;
+	const double notches = w->axis_discrete[i]
+							   ? (double)w->axis_discrete[i]
+							   : wl_fixed_to_double(v) / WL_AXIS_PER_NOTCH;
+	w->axis_discrete[i] = 0;
 
 	app_pointer_scroll(a, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y),
 					   i ? notches : 0.0, i ? 0.0 : notches);
@@ -1044,16 +1071,16 @@ static void ti_keep(char *dst, size_t size, const char *text)
 static void ti_apply(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	if (!p->ti)
+	if (!p->host->ti)
 		return;
 
 	if (p->ti_focus && app_text_input(a)) {
 		/* enable resets everything said before it, so the content type goes
 		 * with the first one and the rectangle goes every time. */
 		if (!p->ti_enabled) {
-			zwp_text_input_v3_enable(p->ti);
+			zwp_text_input_v3_enable(p->host->ti);
 			zwp_text_input_v3_set_content_type(
-				p->ti, ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
+				p->host->ti, ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
 				ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
 			/* The fallback's held accent is the input method's business from
 			 * here. On the way in only: this runs again for every caret move,
@@ -1069,12 +1096,12 @@ static void ti_apply(App *a)
 			w = h = 1;
 		}
 		const int m = deco_margin(a, a->is_fullscreen);
-		zwp_text_input_v3_set_cursor_rectangle(p->ti, x + m, y + m, w, h);
-		zwp_text_input_v3_commit(p->ti);
+		zwp_text_input_v3_set_cursor_rectangle(p->host->ti, x + m, y + m, w, h);
+		zwp_text_input_v3_commit(p->host->ti);
 		p->ti_enabled = true;
 	} else if (p->ti_enabled) {
-		zwp_text_input_v3_disable(p->ti);
-		zwp_text_input_v3_commit(p->ti);
+		zwp_text_input_v3_disable(p->host->ti);
+		zwp_text_input_v3_commit(p->host->ti);
 		p->ti_enabled = false;
 		ti_drop(p);
 		app_compose_set(a, NULL);
@@ -1188,7 +1215,7 @@ static const char *const CLIP_MIME[] = { NULL, "text/plain", "UTF8_STRING",
 static void clip_close(struct BackendState *p)
 {
 	if (p->clip_fd >= 0) {
-		epoll_ctl(p->epoll_fd, EPOLL_CTL_DEL, p->clip_fd, NULL);
+		epoll_ctl(p->host->epoll_fd, EPOLL_CTL_DEL, p->clip_fd, NULL);
 		close(p->clip_fd);
 		p->clip_fd = -1;
 	}
@@ -1259,7 +1286,7 @@ static void wl_clipboard_request(App *a)
 	close(fds[1]);
 
 	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fds[0] };
-	if (epoll_ctl(p->epoll_fd, EPOLL_CTL_ADD, fds[0], &ev) < 0) {
+	if (epoll_ctl(p->host->epoll_fd, EPOLL_CTL_ADD, fds[0], &ev) < 0) {
 		close(fds[0]);
 		app_clipboard_deliver(a, NULL, 0);
 		return;
@@ -1357,17 +1384,17 @@ static const struct wl_callback_listener clip_sync_listener = {
 static void wl_clipboard_set(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	if (!p->ddm || !p->dd)
+	if (!p->host->ddm || !p->host->dd)
 		return;
 	struct wl_data_source *src =
-		wl_data_device_manager_create_data_source(p->ddm);
+		wl_data_device_manager_create_data_source(p->host->ddm);
 	if (!src)
 		return;
 	wl_data_source_add_listener(src, &source_listener, a);
 	for (int k = CLIP_KINDS - 1; k >= 1; k--)
 		wl_data_source_offer(src, CLIP_MIME[k]);
-	wl_data_source_offer(src, p->clip_marker);
-	wl_data_device_set_selection(p->dd, src, p->input_serial);
+	wl_data_source_offer(src, p->host->clip_marker);
+	wl_data_device_set_selection(p->host->dd, src, p->input_serial);
 	/* A paste asked before the compositor has taken this -- a copy and a
 	 * paste in one turn, which core promises pastes the copy -- would ask
 	 * the owner before. Answered from the string until a sync says the
@@ -1376,7 +1403,7 @@ static void wl_clipboard_set(App *a)
 	 * at a time; the one it replaces is destroyed unanswered. */
 	if (p->clip_sync)
 		wl_callback_destroy(p->clip_sync);
-	p->clip_sync = wl_display_sync(p->display);
+	p->clip_sync = wl_display_sync(p->host->display);
 	if (p->clip_sync)
 		wl_callback_add_listener(p->clip_sync, &clip_sync_listener, a);
 	/* The one it replaces is destroyed here rather than left for its
@@ -1392,7 +1419,7 @@ static void offer_mime(void *data, struct wl_data_offer *o, const char *mime)
 	struct BackendState *p = a->backend_state;
 	if (o != p->offer_new)
 		return;
-	if (!strcmp(mime, p->clip_marker))
+	if (!strcmp(mime, p->host->clip_marker))
 		p->offer_new_ours = true;
 	for (int k = 1; k < CLIP_KINDS; k++)
 		if (k > p->offer_new_kind && !strcmp(mime, CLIP_MIME[k]))
@@ -1482,59 +1509,59 @@ static const struct wl_data_device_listener data_device_listener = {
  * no promised order, so this is asked after each. */
 static void seat_extras(App *a)
 {
-	struct BackendState *p = a->backend_state;
-	if (!p->seat)
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs->seat)
 		return;
-	if (p->ddm && !p->dd) {
-		p->dd = wl_data_device_manager_get_data_device(p->ddm, p->seat);
-		wl_data_device_add_listener(p->dd, &data_device_listener, a);
+	if (hs->ddm && !hs->dd) {
+		hs->dd = wl_data_device_manager_get_data_device(hs->ddm, hs->seat);
+		wl_data_device_add_listener(hs->dd, &data_device_listener, a);
 	}
-	if (p->ti_manager && !p->ti) {
-		p->ti =
-			zwp_text_input_manager_v3_get_text_input(p->ti_manager, p->seat);
-		zwp_text_input_v3_add_listener(p->ti, &text_input_listener, a);
+	if (hs->ti_manager && !hs->ti) {
+		hs->ti =
+			zwp_text_input_manager_v3_get_text_input(hs->ti_manager, hs->seat);
+		zwp_text_input_v3_add_listener(hs->ti, &text_input_listener, a);
 	}
 }
 
 static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
 {
 	App *a                 = data;
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
 	bool has_kb            = caps & WL_SEAT_CAPABILITY_KEYBOARD;
-	if (has_kb && !p->keyboard) {
-		p->keyboard = wl_seat_get_keyboard(seat);
-		wl_keyboard_add_listener(p->keyboard, &keyboard_listener, a);
-	} else if (!has_kb && p->keyboard) {
-		release_keyboard(p->keyboard);
-		p->keyboard = NULL;
+	if (has_kb && !hs->keyboard) {
+		hs->keyboard = wl_seat_get_keyboard(seat);
+		wl_keyboard_add_listener(hs->keyboard, &keyboard_listener, a);
+	} else if (!has_kb && hs->keyboard) {
+		release_keyboard(hs->keyboard);
+		hs->keyboard = NULL;
 		kb_drop_held(a);
 		/* The leave that would have said so never comes for a released
 		 * keyboard; once, since a keyboard that never entered had nothing to
 		 * lose. */
-		if (p->kb_focused) {
-			p->kb_focused = false;
+		if (hs->kb_focused) {
+			hs->kb_focused = false;
 			app_post_focus(a, false);
 		}
 	}
 	bool has_ptr = caps & WL_SEAT_CAPABILITY_POINTER;
-	if (has_ptr && !p->pointer) {
-		p->pointer = wl_seat_get_pointer(seat);
-		wl_pointer_add_listener(p->pointer, &pointer_listener, a);
+	if (has_ptr && !hs->pointer) {
+		hs->pointer = wl_seat_get_pointer(seat);
+		wl_pointer_add_listener(hs->pointer, &pointer_listener, a);
 
-		if (p->cursor_shape_manager)
-			p->cursor_device = wp_cursor_shape_manager_v1_get_pointer(
-				p->cursor_shape_manager, p->pointer);
-	} else if (!has_ptr && p->pointer) {
+		if (hs->cursor_shape_manager)
+			hs->cursor_device = wp_cursor_shape_manager_v1_get_pointer(
+				hs->cursor_shape_manager, hs->pointer);
+	} else if (!has_ptr && hs->pointer) {
 		/* The lock and the relative pointer were made from this pointer, and
 		 * must go before it does. */
 		release_pointer_capture(a);
-		if (p->cursor_device) {
-			wp_cursor_shape_device_v1_destroy(p->cursor_device);
-			p->cursor_device = NULL;
+		if (hs->cursor_device) {
+			wp_cursor_shape_device_v1_destroy(hs->cursor_device);
+			hs->cursor_device = NULL;
 		}
-		release_pointer(p->pointer);
-		p->pointer        = NULL;
-		p->pointer_inside = false;
+		release_pointer(hs->pointer);
+		hs->pointer        = NULL;
+		hs->pointer_inside = false;
 	}
 }
 static void seat_name(void *d, struct wl_seat *s, const char *n)
@@ -1561,7 +1588,7 @@ static void presentation_clock(void *data, struct wp_presentation *pr,
 {
 	(void)pr;
 	App *a                              = data;
-	a->backend_state->presentation_mono = clk == CLOCK_MONOTONIC;
+	app_backend_host(a)->presentation_mono = clk == CLOCK_MONOTONIC;
 }
 
 static const struct wp_presentation_listener presentation_listener = {
@@ -1606,7 +1633,8 @@ static void feedback_presented(void *data, struct wp_presentation_feedback *fb,
 	WlFeedback *f = data;
 	App *a        = f->a;
 	uint64_t index;
-	if (!feedback_take(f, &index, true) || !a->backend_state->presentation_mono)
+	if (!feedback_take(f, &index, true) ||
+		!app_backend_host(a)->presentation_mono)
 		return;
 	const double t =
 		(double)(((uint64_t)sec_hi << 32) | sec_lo) + (double)nsec * 1e-9;
@@ -1633,13 +1661,13 @@ static void feedback_request(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	p->feedback_cur        = -1;
-	if (!p->presentation || !fnl_atomic_load_bool(&a->stats_on))
+	if (!p->host->presentation || !fnl_atomic_load_bool(&a->stats_on))
 		return;
 	for (int i = 0; i < WL_FEEDBACK_SLOTS; i++) {
 		WlFeedback *f = &p->feedback[i];
 		if (f->live)
 			continue;
-		f->fb = wp_presentation_feedback(p->presentation, p->present);
+		f->fb = wp_presentation_feedback(p->host->presentation, p->present);
 		if (!f->fb)
 			return;
 		f->a         = a;
@@ -1662,58 +1690,60 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 							const char *iface, uint32_t version)
 {
 	App *a                 = data;
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
 	if (IS(wl_compositor)) {
-		p->compositor = BIND(wl_compositor, 4);
+		hs->compositor = BIND(wl_compositor, 4);
 	} else if (IS(wl_subcompositor)) {
-		p->subcompositor = BIND(wl_subcompositor, 1);
+		hs->subcompositor = BIND(wl_subcompositor, 1);
 	} else if (IS(wl_shm)) {
-		p->shm = BIND(wl_shm, 1);
+		hs->shm = BIND(wl_shm, 1);
 	} else if (IS(xdg_wm_base)) {
 		/* v4 for xdg_toplevel.configure_bounds; nothing above that is used. */
-		p->wm_base = BIND(xdg_wm_base, 4);
-		xdg_wm_base_add_listener(p->wm_base, &wm_base_listener, a);
-	} else if (IS(wl_seat) && !p->seat) {
+		hs->wm_base = BIND(xdg_wm_base, 4);
+		xdg_wm_base_add_listener(hs->wm_base, &wm_base_listener, a);
+	} else if (IS(wl_seat) && !hs->seat) {
 		/* The first seat only. wl_seat is the one global here a compositor
 		 * may advertise more than once, and a second bound over the first
 		 * leaks a proxy whose listener still runs against this App. */
-		p->seat = BIND(wl_seat, 5);
-		wl_seat_add_listener(p->seat, &seat_listener, a);
+		hs->seat = BIND(wl_seat, 5);
+		wl_seat_add_listener(hs->seat, &seat_listener, a);
 	} else if (IS(wp_cursor_shape_manager_v1)) {
-		p->cursor_shape_manager = BIND(wp_cursor_shape_manager_v1, 1);
+		hs->cursor_shape_manager = BIND(wp_cursor_shape_manager_v1, 1);
 	} else if (IS(zxdg_decoration_manager_v1)) {
-		p->decoration_manager = BIND(zxdg_decoration_manager_v1, 1);
+		hs->decoration_manager = BIND(zxdg_decoration_manager_v1, 1);
 	} else if (IS(zwp_relative_pointer_manager_v1)) {
-		p->relative_manager = BIND(zwp_relative_pointer_manager_v1, 1);
+		hs->relative_manager = BIND(zwp_relative_pointer_manager_v1, 1);
 	} else if (IS(zwp_pointer_constraints_v1)) {
-		p->pointer_constraints = BIND(zwp_pointer_constraints_v1, 1);
+		hs->pointer_constraints = BIND(zwp_pointer_constraints_v1, 1);
 	} else if (IS(wp_viewporter) && !FNL_FAULT("no-viewporter")) {
-		p->viewporter = BIND(wp_viewporter, 1);
-	} else if (IS(wp_presentation) && !p->presentation) {
-		p->presentation = BIND(wp_presentation, 1);
-		wp_presentation_add_listener(p->presentation, &presentation_listener,
+		hs->viewporter = BIND(wp_viewporter, 1);
+	} else if (IS(wp_presentation) && !hs->presentation) {
+		hs->presentation = BIND(wp_presentation, 1);
+		wp_presentation_add_listener(hs->presentation, &presentation_listener,
 									 a);
 	} else if (IS(wp_fractional_scale_manager_v1)) {
-		p->fractional_manager = BIND(wp_fractional_scale_manager_v1, 1);
+		hs->fractional_manager = BIND(wp_fractional_scale_manager_v1, 1);
 	} else if (IS(wl_output)) {
-		if (p->output_count < WL_MAX_OUTPUTS) {
+		if (hs->output_count < WL_MAX_OUTPUTS) {
 			struct wl_output *o = BIND(wl_output, 4);
 			/* The whole slot: registry_remove() compacts with a swap, so it
 			 * may still hold a departed output's `on_surface`, which only
 			 * enter and leave write. */
-			p->outputs[p->output_count] =
+			hs->outputs[hs->output_count] =
 				(WlOutput){ .handle = o, .global = name };
-			p->output_count++;
+			hs->output_count++;
 			wl_output_add_listener(o, &output_listener, a);
 		}
-	} else if (IS(wl_data_device_manager) && !p->ddm) {
+	} else if (IS(wl_data_device_manager) && !hs->ddm) {
 		/* v1 is the selection; everything later is drag and drop. */
-		p->ddm = BIND(wl_data_device_manager, 1);
-	} else if (IS(zwp_text_input_manager_v3) && !p->ti_manager &&
+		hs->ddm = BIND(wl_data_device_manager, 1);
+	} else if (IS(zwp_text_input_manager_v3) && !hs->ti_manager &&
 			   !ti_refused()) {
-		p->ti_manager = BIND(zwp_text_input_manager_v3, 1);
+		hs->ti_manager = BIND(zwp_text_input_manager_v3, 1);
 	}
-	seat_extras(a);
+	/* The data device and the text input are made later, in wl_window_open():
+	 * their events carry window state (the offer, the composition), so they
+	 * wait until there is a window for them to land in. */
 }
 
 #undef IS
@@ -1723,14 +1753,14 @@ static void registry_remove(void *d, struct wl_registry *r, uint32_t name)
 {
 	(void)r;
 	App *a                 = d;
-	struct BackendState *p = a->backend_state;
-	for (int i = 0; i < p->output_count; i++) {
-		if (p->outputs[i].global != name)
+	struct BackendHostState *hs = app_backend_host(a);
+	for (int i = 0; i < hs->output_count; i++) {
+		if (hs->outputs[i].global != name)
 			continue;
-		if (p->current_output == p->outputs[i].handle)
-			p->current_output = NULL; /* re-picked below, from what is left */
-		release_output(p->outputs[i].handle);
-		p->outputs[i] = p->outputs[--p->output_count];
+		if (hs->current_output == hs->outputs[i].handle)
+			hs->current_output = NULL; /* re-picked below, from what is left */
+		release_output(hs->outputs[i].handle);
+		hs->outputs[i] = hs->outputs[--hs->output_count];
 		/* Unconditionally: the published names carry every output the surface
 		 * is on, followed or not. */
 		outputs_changed(a);
@@ -2195,11 +2225,13 @@ static void wl_set_fullscreen(App *a, bool on)
 static void wl_set_output(App *a, const char *name)
 {
 	struct BackendState *p = a->backend_state;
-	for (int i = 0; i < p->output_count; i++) {
-		if (!p->outputs[i].name[0] || strcmp(p->outputs[i].name, name) != 0)
+	for (int i = 0; i < p->host->output_count; i++) {
+		if (!p->host->outputs[i].name[0] ||
+			strcmp(p->host->outputs[i].name, name) != 0)
 			continue;
 		if (a->is_fullscreen)
-			xdg_toplevel_set_fullscreen(p->xdg_toplevel, p->outputs[i].handle);
+			xdg_toplevel_set_fullscreen(p->xdg_toplevel,
+										p->host->outputs[i].handle);
 		else
 			fnl_log(FNL_LOG_INFO,
 					"the compositor places the window: only a "
@@ -2226,23 +2258,23 @@ static void wl_minimize(App *a)
  * each has a fallback, and the log is how a run on a compositor that lacks
  * one knows the fallback is what it drove. Not text input where
  * FNL_NO_INPUT_METHOD declined it. */
-static void log_unbound_globals(const struct BackendState *p)
+static void log_unbound_globals(struct BackendHostState *hs)
 {
 	const struct {
 		bool bound;
 		const char *name;
 	} globals[] = {
-		{ p->cursor_shape_manager != NULL, "cursor-shape" },
-		{ p->decoration_manager != NULL, "xdg-decoration" },
-		{ p->relative_manager != NULL, "relative-pointer" },
-		{ p->pointer_constraints != NULL, "pointer-constraints" },
-		{ p->viewporter != NULL, "viewporter" },
-		{ p->presentation != NULL, "presentation-time" },
-		{ p->fractional_manager != NULL, "fractional-scale" },
-		{ p->ddm != NULL, "data-device" },
-		{ p->ti_manager != NULL || ti_refused(), "text-input-v3" },
-		{ p->subcompositor != NULL, "subcompositor" },
-		{ p->shm != NULL, "shm" },
+		{ hs->cursor_shape_manager != NULL, "cursor-shape" },
+		{ hs->decoration_manager != NULL, "xdg-decoration" },
+		{ hs->relative_manager != NULL, "relative-pointer" },
+		{ hs->pointer_constraints != NULL, "pointer-constraints" },
+		{ hs->viewporter != NULL, "viewporter" },
+		{ hs->presentation != NULL, "presentation-time" },
+		{ hs->fractional_manager != NULL, "fractional-scale" },
+		{ hs->ddm != NULL, "data-device" },
+		{ hs->ti_manager != NULL || ti_refused(), "text-input-v3" },
+		{ hs->subcompositor != NULL, "subcompositor" },
+		{ hs->shm != NULL, "shm" },
 	};
 	char list[192] = "";
 	size_t used    = 0;
@@ -2259,41 +2291,52 @@ static void log_unbound_globals(const struct BackendState *p)
 				list);
 }
 
+/* The host's connection: the display, its registry, and the globals bound from
+ * it. One a program. The listeners fire here, before any window exists, so
+ * they touch only host state (App::backend_state is NULL until window_open). */
+static FNL_MUST_USE FnlResult connect_display(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	hs->display             = wl_display_connect(NULL);
+	if (!hs->display)
+		return fnl_fail(FNL_ERR_NO_DISPLAY,
+						"no Wayland display (is WAYLAND_DISPLAY set?)");
+	hs->registry = wl_display_get_registry(hs->display);
+	wl_registry_add_listener(hs->registry, &registry_listener, a);
+	/* Two roundtrips: the first delivers the globals, the second the events
+	 * (seat caps, output scale) emitted when we bound them. */
+	wl_display_roundtrip(hs->display);
+	wl_display_roundtrip(hs->display);
+
+	if (!hs->compositor || !hs->wm_base)
+		return fnl_fail(FNL_ERR_NO_DISPLAY,
+						"compositor lacks wl_compositor / xdg_wm_base");
+	log_unbound_globals(hs);
+	return FNL_OK;
+}
+
+/* The window's surface and its xdg objects, on the host's connection. */
 static FNL_MUST_USE FnlResult create_window(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	p->display             = wl_display_connect(NULL);
-	if (!p->display)
-		return fnl_fail(FNL_ERR_NO_DISPLAY,
-						"no Wayland display (is WAYLAND_DISPLAY set?)");
-	p->registry = wl_display_get_registry(p->display);
-	wl_registry_add_listener(p->registry, &registry_listener, a);
-	/* Two roundtrips: the first delivers the globals, the second the events
-	 * (seat caps, output scale) emitted when we bound them. */
-	wl_display_roundtrip(p->display);
-	wl_display_roundtrip(p->display);
+	struct BackendHostState *hs = p->host;
 
-	if (!p->compositor || !p->wm_base)
-		return fnl_fail(FNL_ERR_NO_DISPLAY,
-						"compositor lacks wl_compositor / xdg_wm_base");
-	log_unbound_globals(p);
-
-	p->surface = wl_compositor_create_surface(p->compositor);
+	p->surface = wl_compositor_create_surface(hs->compositor);
 	wl_surface_add_listener(p->surface, &surface_listener, a);
 	p->present = p->surface;
 
-	if (p->viewporter)
-		p->viewport = wp_viewporter_get_viewport(p->viewporter, p->surface);
+	if (hs->viewporter)
+		p->viewport = wp_viewporter_get_viewport(hs->viewporter, p->surface);
 	/* Before the render thread starts, which reads it. */
 	a->buffer_crops = p->viewport != NULL;
-	if (p->fractional_manager && p->viewport) {
+	if (hs->fractional_manager && p->viewport) {
 		p->fractional = wp_fractional_scale_manager_v1_get_fractional_scale(
-			p->fractional_manager, p->surface);
+			hs->fractional_manager, p->surface);
 		wp_fractional_scale_v1_add_listener(p->fractional, &fractional_listener,
 											a);
 	}
 
-	p->xdg_surface = xdg_wm_base_get_xdg_surface(p->wm_base, p->surface);
+	p->xdg_surface = xdg_wm_base_get_xdg_surface(hs->wm_base, p->surface);
 	xdg_surface_add_listener(p->xdg_surface, &xdg_surface_listener, a);
 	p->xdg_toplevel = xdg_surface_get_toplevel(p->xdg_surface);
 	xdg_toplevel_add_listener(p->xdg_toplevel, &xdg_toplevel_listener, a);
@@ -2309,9 +2352,9 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 
 	/* Ask for client-side and listen: the compositor's answer is what counts.
 	 * Without the extension xdg-shell's default is client-side. */
-	if (p->decoration_manager) {
+	if (hs->decoration_manager) {
 		p->decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(
-			p->decoration_manager, p->xdg_toplevel);
+			hs->decoration_manager, p->xdg_toplevel);
 		zxdg_toplevel_decoration_v1_add_listener(p->decoration,
 												 &decoration_listener, a);
 		zxdg_toplevel_decoration_v1_set_mode(
@@ -2323,7 +2366,7 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 	deco_default_window_pt(a, window_scale120(a), &a->win_w, &a->win_h);
 
 	wl_surface_commit(p->surface);
-	while (!a->configured && wl_display_dispatch(p->display) != -1)
+	while (!a->configured && wl_display_dispatch(hs->display) != -1)
 		;
 	if (!a->configured)
 		return fnl_fail(FNL_ERR_NO_DISPLAY,
@@ -2338,31 +2381,31 @@ static FNL_MUST_USE FnlResult create_window(App *a)
  * drain to EAGAIN. */
 static FNL_MUST_USE FnlResult create_epoll(App *a)
 {
-	FNL_TRY(loop_epoll_create(&a->backend_state->epoll_fd,
-							  wl_display_get_fd(a->backend_state->display),
-							  a->backend_state->wake_fd));
+	FNL_TRY(loop_epoll_create(&app_backend_host(a)->epoll_fd,
+							  wl_display_get_fd(app_backend_host(a)->display),
+							  app_backend_host(a)->wake_fd));
 
 	/* The one descriptor allowed to be missing: a held key then types once.
 	 * Non-blocking, because a timer disarmed after epoll reported it has
 	 * nothing to read. */
-	a->backend_state->repeat_fd =
+	app_backend_host(a)->repeat_fd =
 		timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-	if (a->backend_state->repeat_fd >= 0) {
+	if (app_backend_host(a)->repeat_fd >= 0) {
 		struct epoll_event ev = { .events  = EPOLLIN,
-								  .data.fd = a->backend_state->repeat_fd };
-		if (epoll_ctl(a->backend_state->epoll_fd, EPOLL_CTL_ADD,
-					  a->backend_state->repeat_fd, &ev) < 0) {
-			close(a->backend_state->repeat_fd);
-			a->backend_state->repeat_fd = -1;
+								  .data.fd = app_backend_host(a)->repeat_fd };
+		if (epoll_ctl(app_backend_host(a)->epoll_fd, EPOLL_CTL_ADD,
+					  app_backend_host(a)->repeat_fd, &ev) < 0) {
+			close(app_backend_host(a)->repeat_fd);
+			app_backend_host(a)->repeat_fd = -1;
 		}
 	}
-	if (a->backend_state->repeat_fd < 0)
+	if (app_backend_host(a)->repeat_fd < 0)
 		fnl_log(FNL_LOG_WARN, "no timer for key repeat; a held key will type "
 							  "once");
 	/* A GPU that came or went: the same netlink group KMS reads, opened
 	 * here so the window servers' backends hear a hotplug too. */
-	FNL_TRY(loop_uevent_open(&a->backend_state->uevent_fd,
-							 a->backend_state->epoll_fd));
+	FNL_TRY(loop_uevent_open(&app_backend_host(a)->uevent_fd,
+							 app_backend_host(a)->epoll_fd));
 	return FNL_OK;
 }
 
@@ -2382,45 +2425,88 @@ static void wl_set_title(App *a, const char *utf8)
 		xdg_toplevel_set_title(a->backend_state->xdg_toplevel, utf8);
 }
 
-static FnlResult wl_open(App *a)
+/* The host's half: the connection and its globals, the seat and its devices,
+ * the event loop and the repeat timer. One a program. */
+static void wl_host_close(App *a);
+
+static FnlResult wl_host_open(App *a)
 {
 	/* Before anything is built, so that a machine without the library is
 	 * refused as a session without a compositor is, with nothing shown, and
-	 * fnl_init() steps down to the next backend. a->backend_state stays
-	 * NULL, which wl_close() takes for nothing to release. */
+	 * fnl_init() steps down to the next backend. Host::backend_host stays
+	 * NULL, which wl_host_close() takes for nothing to release. */
 	const char *missing = wl_dyn_load();
 	if (missing)
 		return fnl_fail(FNL_ERR_NO_DISPLAY, "%s", missing);
+
+	struct BackendHostState *hs = calloc(1, sizeof *hs);
+	if (!hs)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the Wayland host state");
+	a->host->backend_host = hs;
+	/* Not the calloc's zero, which is stdin: wl_host_close() closes whatever
+	 * is not negative. */
+	hs->wake_fd = hs->epoll_fd = hs->repeat_fd = hs->uevent_fd = -1;
+	snprintf(hs->clip_marker, sizeof hs->clip_marker,
+			 "application/x-fenestal-owner-%ld", (long)getpid());
+	hs->repeat_rate  = REPEAT_RATE_DEFAULT;
+	hs->repeat_delay = REPEAT_DELAY_DEFAULT;
+
+	/* The wakeup first. Any failure from here unwinds through
+	 * wl_host_close(), which copes with every prefix of what this builds --
+	 * and must, because a NO_DISPLAY refusal makes fnl_init() step to the
+	 * next backend without calling host_close() on this one. */
+	FnlResult rc = loop_wake_create(&hs->wake_fd);
+	if (rc == FNL_OK)
+		rc = connect_display(a);
+	if (rc == FNL_OK)
+		rc = create_epoll(a);
+	if (rc < 0) {
+		wl_host_close(a);
+		return rc;
+	}
+	return FNL_OK;
+}
+
+/* The window's half: its surface, its xdg objects and its frames, on the
+ * host's connection. */
+static FnlResult wl_window_open(App *a)
+{
+	/* One seat and one display: a second window would need the seat's input
+	 * routed between two by enter/leave, which this backend does not yet do
+	 * (DESIGN *A second window*; TODO says it needs a GNOME round to prove).
+	 * The first window is the one fnl_init() made. */
+	if (a->host->windows != a)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"Wayland: a second window needs the seat's input "
+						"routed between two, which is not built (DESIGN *A "
+						"second window*)");
 
 	struct BackendState *p = calloc(1, sizeof *p);
 	if (!p)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory for the "
 											   "Wayland backend state");
 	a->backend_state = p;
-	/* Not the calloc's zero, which is stdin: wl_close() closes whatever is not
-	 * negative. */
-	p->wake_fd = p->epoll_fd = p->repeat_fd = p->uevent_fd = -1;
-	p->clip_fd                                             = -1;
-	p->feedback_cur                                        = -1;
-	snprintf(p->clip_marker, sizeof p->clip_marker,
-			 "application/x-fenestal-owner-%ld", (long)getpid());
-	p->repeat_rate  = REPEAT_RATE_DEFAULT;
-	p->repeat_delay = REPEAT_DELAY_DEFAULT;
+	p->host          = app_backend_host(a);
+	/* Not the calloc's zero, which is stdin: wl_window_close() closes
+	 * whatever is not negative. */
+	p->clip_fd      = -1;
+	p->feedback_cur = -1;
 
-	/* The wakeup first. Any failure from here unwinds through wl_close(),
-	 * which copes with every prefix of what this builds. */
-	FNL_TRY(loop_wake_create(&p->wake_fd));
+	/* The data device and the text input, now that their events have a window
+	 * to land in (seat_extras() says why they wait for one). */
+	seat_extras(a);
+
 	FNL_TRY(create_window(a));
-	FNL_TRY(create_epoll(a));
 	return FNL_OK;
 }
 
 static void wl_wakeup(App *a)
 {
-	/* Reachable from a signal handler at any point, and wl_close() leaves NULL
-	 * behind. */
+	/* Reachable from a signal handler at any point, and wl_host_close()
+	 * leaves NULL behind. */
 	if (a->backend_state)
-		loop_wake(a->backend_state->wake_fd);
+		loop_wake(app_backend_host(a)->wake_fd);
 }
 
 /* A flush that found the socket full leaves what this thread buffered -- a
@@ -2431,13 +2517,13 @@ static void wl_wakeup(App *a)
  * requests wait for the next wake as before. */
 static void display_watch_out(struct BackendState *p, bool on)
 {
-	if (p->display_out == on)
+	if (p->host->display_out == on)
 		return;
-	const int fd          = wl_display_get_fd(p->display);
+	const int fd          = wl_display_get_fd(p->host->display);
 	struct epoll_event ev = { .events  = EPOLLIN | (on ? EPOLLOUT : 0u),
 							  .data.fd = fd };
-	if (epoll_ctl(p->epoll_fd, EPOLL_CTL_MOD, fd, &ev) == 0)
-		p->display_out = on;
+	if (epoll_ctl(p->host->epoll_fd, EPOLL_CTL_MOD, fd, &ev) == 0)
+		p->host->display_out = on;
 }
 
 /* prepare_read/read_events is the form that lets the render thread call
@@ -2445,7 +2531,7 @@ static void display_watch_out(struct BackendState *p, bool on)
 static void wl_pump(App *a, int timeout_ms)
 {
 	struct BackendState *p = a->backend_state;
-	struct wl_display *d   = p->display;
+	struct wl_display *d   = p->host->display;
 
 	/* prepare_read refuses while the queue holds events, and dispatch_pending
 	 * stops draining once the display has latched an error: return without
@@ -2461,7 +2547,7 @@ static void wl_pump(App *a, int timeout_ms)
 	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
 		wait_ms = timeout_ms;
 	struct epoll_event evs[4];
-	int n = epoll_wait(p->epoll_fd, evs, 4, wait_ms);
+	int n = epoll_wait(p->host->epoll_fd, evs, 4, wait_ms);
 
 	/* n < 0 (EINTR) leaves all of these clear, and the read is cancelled. */
 	uint32_t display_ev = 0;
@@ -2469,14 +2555,14 @@ static void wl_pump(App *a, int timeout_ms)
 	bool repeat         = false;
 	bool paste          = false;
 	for (int i = 0; i < n; i++) {
-		if (evs[i].data.fd == p->wake_fd)
+		if (evs[i].data.fd == p->host->wake_fd)
 			woken = true;
-		else if (evs[i].data.fd == p->repeat_fd)
+		else if (evs[i].data.fd == p->host->repeat_fd)
 			repeat = true;
 		else if (evs[i].data.fd == p->clip_fd)
 			paste = true;
-		else if (evs[i].data.fd == p->uevent_fd)
-			loop_uevent_drain(a, p->uevent_fd);
+		else if (evs[i].data.fd == p->host->uevent_fd)
+			loop_uevent_drain(a, p->host->uevent_fd);
 		else
 			display_ev |= evs[i].events;
 	}
@@ -2491,7 +2577,7 @@ static void wl_pump(App *a, int timeout_ms)
 		wl_display_cancel_read(d); /* woken by the eventfd, or epoll failed */
 
 	if (woken)
-		loop_wake_drain(p->wake_fd);
+		loop_wake_drain(p->host->wake_fd);
 
 	wl_display_dispatch_pending(d);
 
@@ -2520,7 +2606,7 @@ static void wl_flush(App *a)
 			wl_surface_commit(p->surface);
 		}
 	}
-	wl_display_flush(p->display);
+	wl_display_flush(p->host->display);
 }
 
 /* ---- a surface of their own for the frames -------------------------------
@@ -2550,7 +2636,7 @@ static struct wl_buffer *backing_buffer(struct BackendState *p)
 		return NULL;
 	struct wl_buffer *b = NULL;
 	if (ftruncate(fd, 4) == 0) {
-		struct wl_shm_pool *pool = wl_shm_create_pool(p->shm, fd, 4);
+		struct wl_shm_pool *pool = wl_shm_create_pool(p->host->shm, fd, 4);
 		b = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
 		wl_shm_pool_destroy(pool);
 	}
@@ -2610,13 +2696,13 @@ static void present_drop(App *a)
 static void wl_present_window_renew(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	if (!p->viewport || !p->subcompositor || !p->shm) {
+	if (!p->viewport || !p->host->subcompositor || !p->host->shm) {
 		if (!p->renew_refused)
 			fnl_log(FNL_LOG_INFO,
 					"no %s here, so the frames of every GPU "
 					"go into the window's own surface",
 					!p->viewport        ? "viewporter"
-					: !p->subcompositor ? "subcompositor"
+					: !p->host->subcompositor ? "subcompositor"
 										: "shm");
 		p->renew_refused = true;
 		return;
@@ -2637,14 +2723,14 @@ static void wl_present_window_renew(App *a)
 	}
 	present_drop(a);
 
-	struct wl_surface *s   = wl_compositor_create_surface(p->compositor);
-	struct wl_region *none = wl_compositor_create_region(p->compositor);
+	struct wl_surface *s   = wl_compositor_create_surface(p->host->compositor);
+	struct wl_region *none = wl_compositor_create_region(p->host->compositor);
 	wl_surface_set_input_region(s, none);
 	wl_region_destroy(none);
 	p->present_sub =
-		wl_subcompositor_get_subsurface(p->subcompositor, s, p->surface);
+		wl_subcompositor_get_subsurface(p->host->subcompositor, s, p->surface);
 	wl_subsurface_set_desync(p->present_sub);
-	p->present_viewport = wp_viewporter_get_viewport(p->viewporter, s);
+	p->present_viewport = wp_viewporter_get_viewport(p->host->viewporter, s);
 	p->present_src_w = p->present_src_h = 0;
 	if (p->applied_vp_w > 0)
 		wp_viewport_set_destination(p->present_viewport, p->applied_vp_w,
@@ -2655,7 +2741,7 @@ static void wl_present_window_renew(App *a)
 	/* The subsurface joins the window with the window's next commit. */
 	p->parent_dirty = false;
 	wl_surface_commit(p->surface);
-	wl_display_flush(p->display);
+	wl_display_flush(p->host->display);
 }
 
 /* [render] The frames' surface shows the top-left `extent` of a buffer
@@ -2723,32 +2809,31 @@ static bool wl_apply_scale(App *a)
 static FnlResult wl_check_error(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	int err                = wl_display_get_error(p->display);
+	int err                = wl_display_get_error(p->host->display);
 	if (!err)
 		return FNL_OK;
 
 	uint32_t id                      = 0;
 	const struct wl_interface *iface = NULL;
-	uint32_t code = wl_display_get_protocol_error(p->display, &iface, &id);
+	uint32_t code = wl_display_get_protocol_error(p->host->display, &iface,
+												&id);
 	return fnl_fail(FNL_ERR_NO_DISPLAY,
 					"wayland error %d: %s code %u on object %u", err,
 					iface ? iface->name : "(none)", code, id);
 }
 
-/* Innermost first, and every step conditional: this is also the failure path
- * out of wl_open(), so it runs against every prefix of what that builds. */
-static void wl_close(App *a)
+/* The window's close: its surface, its xdg objects and its frames, given back
+ * before the host's managers that made them go (wl_host_close). Innermost
+ * first, and every step conditional: it is also the failure path out of
+ * wl_window_open(). */
+static void wl_window_close(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	if (!p)
-		return; /* open() failed before it had anything to release */
+		return;
 
 	release_pointer_capture(a);
 
-	if (p->ti)
-		zwp_text_input_v3_destroy(p->ti);
-	if (p->ti_manager)
-		zwp_text_input_manager_v3_destroy(p->ti_manager);
 	ti_drop(p);
 	if (p->clip_source)
 		wl_data_source_destroy(p->clip_source);
@@ -2758,22 +2843,12 @@ static void wl_close(App *a)
 		wl_data_offer_destroy(p->offer_new);
 	if (p->offer_sel)
 		wl_data_offer_destroy(p->offer_sel);
-	if (p->dd)
-		wl_data_device_destroy(p->dd);
-	if (p->ddm)
-		wl_data_device_manager_destroy(p->ddm);
 	if (p->clip_fd >= 0)
 		close(p->clip_fd);
 	clip_in_free(&p->clip);
 
 	if (p->decoration)
 		zxdg_toplevel_decoration_v1_destroy(p->decoration);
-	if (p->decoration_manager)
-		zxdg_decoration_manager_v1_destroy(p->decoration_manager);
-	if (p->pointer_constraints)
-		zwp_pointer_constraints_v1_destroy(p->pointer_constraints);
-	if (p->relative_manager)
-		zwp_relative_pointer_manager_v1_destroy(p->relative_manager);
 	/* The frames' subsurfaces before the surface they are over. */
 	present_old_drop(p);
 	if (p->present && p->present != p->surface) {
@@ -2787,49 +2862,77 @@ static void wl_close(App *a)
 		wl_callback_destroy(p->frame_cb_orphan);
 	if (p->backing)
 		wl_buffer_destroy(p->backing);
-	if (p->shm)
-		wl_shm_destroy(p->shm);
-	if (p->subcompositor)
-		wl_subcompositor_destroy(p->subcompositor);
 	if (p->fractional)
 		wp_fractional_scale_v1_destroy(p->fractional);
-	if (p->fractional_manager)
-		wp_fractional_scale_manager_v1_destroy(p->fractional_manager);
 	if (p->viewport)
 		wp_viewport_destroy(p->viewport);
-	if (p->viewporter)
-		wp_viewporter_destroy(p->viewporter);
 	for (int i = 0; i < WL_FEEDBACK_SLOTS; i++)
 		if (p->feedback[i].fb)
 			wp_presentation_feedback_destroy(p->feedback[i].fb);
-	if (p->presentation)
-		wp_presentation_destroy(p->presentation);
 	if (p->xdg_toplevel)
 		xdg_toplevel_destroy(p->xdg_toplevel);
 	if (p->xdg_surface)
 		xdg_surface_destroy(p->xdg_surface);
 	if (p->surface)
 		wl_surface_destroy(p->surface);
-	if (p->cursor_device)
-		wp_cursor_shape_device_v1_destroy(p->cursor_device);
-	if (p->cursor_shape_manager)
-		wp_cursor_shape_manager_v1_destroy(p->cursor_shape_manager);
-	if (p->pointer)
-		release_pointer(p->pointer);
-	if (p->keyboard)
-		release_keyboard(p->keyboard);
-	if (p->seat)
-		wl_seat_destroy(p->seat);
-	for (int i = 0; i < p->output_count; i++)
-		release_output(p->outputs[i].handle);
-	if (p->wm_base)
-		xdg_wm_base_destroy(p->wm_base);
-	if (p->compositor)
-		wl_compositor_destroy(p->compositor);
-	if (p->registry)
-		wl_registry_destroy(p->registry);
-	if (p->display)
-		wl_display_disconnect(p->display);
+
+	free(p);
+	a->backend_state = NULL;
+}
+
+/* The host's close: the connection, its globals, the seat and its devices and
+ * the event loop. Innermost first, and every step conditional: it is also the
+ * failure path out of wl_host_open(). */
+static void wl_host_close(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+
+	if (hs->ti)
+		zwp_text_input_v3_destroy(hs->ti);
+	if (hs->ti_manager)
+		zwp_text_input_manager_v3_destroy(hs->ti_manager);
+	if (hs->dd)
+		wl_data_device_destroy(hs->dd);
+	if (hs->ddm)
+		wl_data_device_manager_destroy(hs->ddm);
+	if (hs->decoration_manager)
+		zxdg_decoration_manager_v1_destroy(hs->decoration_manager);
+	if (hs->pointer_constraints)
+		zwp_pointer_constraints_v1_destroy(hs->pointer_constraints);
+	if (hs->relative_manager)
+		zwp_relative_pointer_manager_v1_destroy(hs->relative_manager);
+	if (hs->shm)
+		wl_shm_destroy(hs->shm);
+	if (hs->subcompositor)
+		wl_subcompositor_destroy(hs->subcompositor);
+	if (hs->fractional_manager)
+		wp_fractional_scale_manager_v1_destroy(hs->fractional_manager);
+	if (hs->viewporter)
+		wp_viewporter_destroy(hs->viewporter);
+	if (hs->presentation)
+		wp_presentation_destroy(hs->presentation);
+	if (hs->cursor_device)
+		wp_cursor_shape_device_v1_destroy(hs->cursor_device);
+	if (hs->cursor_shape_manager)
+		wp_cursor_shape_manager_v1_destroy(hs->cursor_shape_manager);
+	if (hs->pointer)
+		release_pointer(hs->pointer);
+	if (hs->keyboard)
+		release_keyboard(hs->keyboard);
+	if (hs->seat)
+		wl_seat_destroy(hs->seat);
+	for (int i = 0; i < hs->output_count; i++)
+		release_output(hs->outputs[i].handle);
+	if (hs->wm_base)
+		xdg_wm_base_destroy(hs->wm_base);
+	if (hs->compositor)
+		wl_compositor_destroy(hs->compositor);
+	if (hs->registry)
+		wl_registry_destroy(hs->registry);
+	if (hs->display)
+		wl_display_disconnect(hs->display);
 
 	/* The wakeup and epoll descriptors close unless a signal handler could
 	 * still be on its way to them: one that loaded the App pointer on some
@@ -2839,20 +2942,19 @@ static void wl_close(App *a)
 	 * stopped where it stands, past the wait's bound, leaves the two open
 	 * until exit. */
 	if (!app_signals_installed(a)) {
-		if (p->epoll_fd >= 0)
-			close(p->epoll_fd);
-		if (p->wake_fd >= 0)
-			close(p->wake_fd);
-		if (p->uevent_fd >= 0)
-			close(p->uevent_fd);
+		if (hs->epoll_fd >= 0)
+			close(hs->epoll_fd);
+		if (hs->wake_fd >= 0)
+			close(hs->wake_fd);
+		if (hs->uevent_fd >= 0)
+			close(hs->uevent_fd);
 	}
 	/* The repeat timer is the pump's alone, so it closes either way. */
-	if (p->repeat_fd >= 0)
-		close(p->repeat_fd);
-	p->epoll_fd = p->wake_fd = p->repeat_fd = p->uevent_fd = -1;
+	if (hs->repeat_fd >= 0)
+		close(hs->repeat_fd);
 
-	free(p);
-	a->backend_state = NULL;
+	free(hs);
+	a->host->backend_host = NULL;
 }
 
 /* A Wayland client is not told whether it is shown: the compositor stops
@@ -2890,17 +2992,18 @@ static uint32_t grab_serial(const struct BackendState *p)
 static void wl_begin_move(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	if (!p->xdg_toplevel || !p->seat)
+	if (!p->xdg_toplevel || !p->host->seat)
 		return;
-	xdg_toplevel_move(p->xdg_toplevel, p->seat, grab_serial(p));
+	xdg_toplevel_move(p->xdg_toplevel, p->host->seat, grab_serial(p));
 }
 
 static void wl_begin_resize(App *a, Edge edge)
 {
 	struct BackendState *p = a->backend_state;
-	if (!p->xdg_toplevel || !p->seat || edge <= EDGE_NONE || edge >= EDGE_COUNT)
+	if (!p->xdg_toplevel || !p->host->seat || edge <= EDGE_NONE ||
+		edge >= EDGE_COUNT)
 		return;
-	xdg_toplevel_resize(p->xdg_toplevel, p->seat, grab_serial(p),
+	xdg_toplevel_resize(p->xdg_toplevel, p->host->seat, grab_serial(p),
 						WL_EDGE[edge]);
 }
 
@@ -2945,10 +3048,13 @@ const FnlBackendVtbl fnl_backend_wayland = {
 	/* xdg_toplevel.set_fullscreen names an output; nothing else does. */
 	.outputs_fullscreen_only = true,
 	/* Not split yet: one open() makes the display and its window together. */
-	.host_open               = backend_noop_host_open,
-	.host_close              = backend_noop_host_close,
-	.window_open             = wl_open,
-	.window_close            = wl_close,
+	/* The process's: the one wl_display and its globals, the seat and its
+	 * devices, the event loop; a window is a surface and its xdg objects on
+	 * them. */
+	.host_open               = wl_host_open,
+	.host_close              = wl_host_close,
+	.window_open             = wl_window_open,
+	.window_close            = wl_window_close,
 	.pump                    = wl_pump,
 	.wakeup                  = wl_wakeup,
 	.check_error             = wl_check_error,

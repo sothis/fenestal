@@ -3725,21 +3725,25 @@ it the cursor stays as the compositor left it. The Win32 half is
 
 ### A second window
 
-**Most of it is built.** This is the design and the ground it was measured
-against, written down because it decides the shape of several things that are
-built. Written now: the header's `FnlWindowDesc` and `fnl_window_create()`, the
-core's `Host` split (`Host` holds the backend vtable, the signal-installed
-flag, the window registry and the one renderer; `App` carries its host and the
-registry's next link), the backend seam's split — `host_open`/`host_close` and
-`window_open`/`window_close`, with X11's, Win32's and Cocoa's halves apart and
-Wayland and KMS naming their one `open()` as `window_open()` behind a no-op
-`host_open()` — and the per-window frame loop: `fnl_start()` starts every
+**Built, on all five backends.** This is the design and the ground it was
+measured against, written down because it decides the shape of several things
+that are built. Written now: the header's `FnlWindowDesc` and
+`fnl_window_create()`, the core's `Host` split (`Host` holds the backend
+vtable, the signal-installed flag, the window registry and the one renderer;
+`App` carries its host and the registry's next link), the backend seam's split
+on every backend — `host_open`/`host_close` and `window_open`/`window_close`,
+with X11's, Win32's and Cocoa's halves apart, and Wayland's and KMS's host
+halves (the one `wl_display`/card, the seat/inputs, the event loop) apart from
+their windows' — and the per-window frame loop: `fnl_start()` starts every
 window's render thread, `fnl_pump()` stops the windows whose close was asked
 for and starts any the run created, and `fnl_stop()` joins them all.
-`fnl_window_create()` opens the window rather than refusing. What is not yet
-done — the Wayland and KMS splits, the log level and the GPU ranking wholly on
-the host, and the harness's two-window check — is TODO *A second window*, in
-order, and none of it has been compiled or run.
+`fnl_window_create()` opens the window rather than refusing; a second window
+opens on X11 and Win32, and Wayland and KMS refuse one with the reason their
+routing is not built or provable here. The window position (`x_pt`/`y_pt`) is
+honoured by X11 and Win32. What is not yet done — Wayland's seat routing, KMS's
+second output, Win32's two desktop-global pointer calls, and the harness's
+two-window check — is TODO *A second window*, in order, and none of it has been
+compiled or run.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API

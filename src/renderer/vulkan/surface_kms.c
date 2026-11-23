@@ -171,13 +171,13 @@ static bool acquire_display(App *a, char *why, size_t size)
 			vkGetPhysicalDeviceProperties(devs[i], &props);
 			snprintf(by, sizeof by, "%s", props.deviceName);
 			VkDisplayKHR d = VK_NULL_HANDLE;
-			last = get_display(devs[i], p->card_fd, kms_connector(p, sel),
+			last = get_display(devs[i], p->host->card_fd, kms_connector(p, sel),
 							   &d);
 			if (last != VK_SUCCESS || d == VK_NULL_HANDLE) {
 				refused = "vkGetDrmDisplayEXT";
 				continue;
 			}
-			const int lent = fcntl(p->card_fd, F_DUPFD_CLOEXEC, 3);
+			const int lent = fcntl(p->host->card_fd, F_DUPFD_CLOEXEC, 3);
 			if (lent < 0) {
 				refused = "dup of the DRM descriptor";
 				last = VK_ERROR_INITIALIZATION_FAILED;
@@ -237,10 +237,10 @@ static bool take_display(App *a, struct BackendState *p, int out)
 			p->disp_out = -1;
 		}
 		VkDisplayKHR d = VK_NULL_HANDLE;
-		VkResult r = get_display(VK(a)->surface_phys, p->card_fd,
-								 p->outputs[to].connector_id, &d);
+		VkResult r = get_display(VK(a)->surface_phys, p->host->card_fd,
+								 p->host->outputs[to].connector_id, &d);
 		const int lent = r == VK_SUCCESS && d != VK_NULL_HANDLE
-							 ? fcntl(p->card_fd, F_DUPFD_CLOEXEC, 3) : -1;
+							 ? fcntl(p->host->card_fd, F_DUPFD_CLOEXEC, 3) : -1;
 		if (lent >= 0) {
 			r = acquire(VK(a)->surface_phys, lent, d);
 			if (r == VK_SUCCESS) {
@@ -252,7 +252,7 @@ static bool take_display(App *a, struct BackendState *p, int out)
 		}
 		if (pass == 0)
 			fnl_log(FNL_LOG_WARN, "KMS: %s will not be taken by %s: %s "
-					"(%d)", p->outputs[out].name, a->gpu_name,
+					"(%d)", p->host->outputs[out].name, a->gpu_name,
 					vk_result_str(r), (int)r);
 	}
 	return false;
@@ -424,7 +424,7 @@ static FnlResult pick_plane(App *a, const DisplayFns *d, uint32_t *plane,
 	if (rc == FNL_OK && !found)
 		rc = fnl_fail(
 			FNL_ERR_NO_DISPLAY, "no display plane can show %s",
-			a->backend_state->outputs[a->backend_state->disp_out].name);
+			app_backend_host(a)->outputs[a->backend_state->disp_out].name);
 	return rc;
 }
 

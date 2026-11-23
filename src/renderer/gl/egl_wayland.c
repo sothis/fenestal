@@ -88,7 +88,7 @@ static bool native_display(App *a, EglNative *out)
 {
 	*out = (EglNative){
 		.platform = EGL_PLATFORM_WAYLAND_KHR,
-		.display  = a->backend_state->display,
+		.display  = app_backend_host(a)->display,
 		.attrs    = { EGL_NONE },
 	};
 	return true;
