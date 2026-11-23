@@ -1412,11 +1412,13 @@ process state that is still in the app, not a handle to add.
   can say. The capture is driven on the second window alone: the two open nearly
   on top of each other under wine, and a covered window parks and the driver
   cannot find it to click. It passes on `x11-vulkan` and `win64-vulkan`
-  (release, 2026-11-23), 10 checks a round. Still
-  owed: the harness finds a window by title and `_NET_WM_PID`, so `find_window()`
-  needs a way to choose between two of one process (today by title, which the
-  second window's distinct title leans on); and `kms_grab.py` needs an output
-  named where a KMS round shows two. The harness's own `_NET_WM_PID` note stands.
+  (release, 2026-11-23), 11 checks a round. `find_window()` picks between a
+  process's several windows now -- `index=` into them, and `find_windows()`
+  naming every one (an empty title) -- so the check sees both rather than
+  whichever tree walk reached first. Still owed: `kms_grab.py` needs an output
+  named where a KMS round shows two, and the order `find_windows()` returns is
+  the tree's, stable per round but not across a restack. The harness's own
+  `_NET_WM_PID` note stands.
 - **The DESIGN table's pointer row is closed**: Win32's `ShowCursor` count and
   `ClipCursor` confinement are now the host's -- a host count of windows that
   have confined the pointer, so the first hides it and the last gives it back,

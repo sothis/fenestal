@@ -3743,10 +3743,11 @@ input routed between two, a second output on the one card, and a second macOS
 window, none of them built or proven here. The window position (`x_pt`/`y_pt`)
 is honoured by X11 and Win32. Built and exercised on this desktop (release,
 2026-11-23): the single-window rounds and the two-window check pass on
-`x11-vulkan` and `win64-vulkan`, and Win32's two desktop-global pointer calls
-are the host's. What remains — Wayland's seat routing, KMS's second output,
-Cocoa's second window, and a harness `find_window()` that picks between two
-windows of one process — is TODO *A second window*, in order.
+`x11-vulkan` and `win64-vulkan`, Win32's two desktop-global pointer calls
+are the host's, and `find_window()` picks between a process's several windows
+(an `index` into them, and `find_windows()` naming every one). What remains —
+Wayland's seat routing, KMS's second output and Cocoa's second window — is
+TODO *A second window*, in order.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API

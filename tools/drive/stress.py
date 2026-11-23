@@ -3614,6 +3614,17 @@ def two_window(b, r):
         second is not None,
         "first %dx%d, second %dx%d" % (gp[2], gp[3], gs[2], gs[3]),
     )
+    # find_window() can now pick between a process's several windows: an empty
+    # title names every one, so the harness sees both rather than whichever
+    # tree walk reached first.
+    wins = X.find_windows(title_substr="", pid=pid)
+    ids = {w.id for w in wins}
+    r.check(
+        "the harness sees both windows of the process",
+        len(wins) >= 2 and prim.id in ids and second.id in ids,
+        "%d windows, first %s, second %s"
+        % (len(wins), prim.id in ids, second.id in ids),
+    )
     r.check(
         "both windows have a size",
         min(gp[2], gp[3], gs[2], gs[3]) > 100,

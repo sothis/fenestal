@@ -30,20 +30,41 @@ root = d.screen().root
 
 # ---- finding the window ---------------------------------------------------
 
-def find_window(title_substr="Fenestal", timeout=20.0, pid=None):
-    """The toplevel, by title, and pinned to one process by _NET_WM_PID.
+def find_window(title_substr="Fenestal", timeout=20.0, pid=None, index=0):
+    """One toplevel, by title, and pinned to one process by _NET_WM_PID.
 
     Pass the pid: any other Fenestal window on the display carries a
     matching title, and a round that drives one of those reports a full set
-    of plausible failures with nothing behind them."""
+    of plausible failures with nothing behind them.
+
+    `index` picks between several when the process has more than one window
+    that matches -- two windows on one host, a `--second-window` beside the
+    first. An empty `title_substr` matches every window of the process, so
+    index=0, 1, ... walk them and find_windows() counts them; the order is
+    the tree's, stable for a round's length but not across a restack. The
+    default, the first, is what a single-window round sees."""
     end = time.time() + timeout
     while time.time() < end:
-        found = _walk(root, title_substr, pid)
-        if found:
-            return found
+        wins = _collect(root, title_substr, pid)
+        if len(wins) > index:
+            return wins[index]
         time.sleep(0.2)             # poll: a tree walk is not free
-    raise RuntimeError("no window titled %r for pid %s appeared"
-                       % (title_substr, pid))
+    raise RuntimeError("no window titled %r for pid %s appeared%s"
+                       % (title_substr, pid,
+                          "" if index == 0 else " (index %d)" % index))
+
+
+def find_windows(title_substr="Fenestal", pid=None, timeout=5.0):
+    """Every toplevel of the process whose title holds `title_substr`, or, for
+    an empty `title_substr`, every window the process has. Waits up to
+    `timeout` for at least one, and returns them in the tree's order (see
+    find_window()). Empty when none appears."""
+    end = time.time() + timeout
+    while True:
+        wins = _collect(root, title_substr, pid)
+        if wins or time.time() >= end:
+            return wins
+        time.sleep(0.2)
 
 
 def _net_wm_pid(win):
@@ -55,7 +76,10 @@ def _net_wm_pid(win):
         return None
 
 
-def _walk(win, needle, pid=None):
+def _collect(win, needle, pid=None):
+    """Every window at or below `win` matching, in tree order. A match is not
+    searched into: a window's own title is the one that names it, not a
+    child's."""
     try:
         name = win.get_wm_name()
     except Exception:
@@ -69,16 +93,21 @@ def _walk(win, needle, pid=None):
             g = None
         if g and g.width > 100 and g.height > 100:
             if pid is None or _net_wm_pid(win) == pid:
-                return win
+                return [win]
     try:
         kids = win.query_tree().children
     except Exception:
-        return None
+        return []
+    out = []
     for k in kids:
-        r = _walk(k, needle, pid)
-        if r:
-            return r
-    return None
+        out.extend(_collect(k, needle, pid))
+    return out
+
+
+def _walk(win, needle, pid=None):
+    """The first match, for the callers that want one and no more."""
+    first = _collect(win, needle, pid)
+    return first[0] if first else None
 
 
 def kill_stale():
