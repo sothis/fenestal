@@ -3738,9 +3738,10 @@ their windows' — and the per-window frame loop: `fnl_start()` starts every
 window's render thread, `fnl_pump()` stops the windows whose close was asked
 for and starts any the run created, and `fnl_stop()` joins them all.
 `fnl_window_create()` opens the window rather than refusing; a second window
-opens on X11 and Win32, and Wayland, KMS and Cocoa refuse one -- the seat's
-input routed between two, a second output on the one card, and a second macOS
-window, none of them built or proven here. The window position (`x_pt`/`y_pt`)
+opens on X11, Win32 and KMS, and Wayland and Cocoa refuse one -- the seat's
+input routed between two, and a second macOS window, none of them built or
+proven here. KMS opens it on a free output, the input routed by the pointer
+(below). The window position (`x_pt`/`y_pt`)
 is honoured by X11 and Win32. Built and exercised on this desktop (release,
 2026-11-23): the single-window rounds and the two-window check pass on
 `x11-vulkan`, `x11-gl`, `win64-vulkan` and `win64-d3d12`, Win32's two
@@ -3752,9 +3753,10 @@ found a fault on the main thread: it holds one GL context, and a window
 created after `fnl_init()` builds its own, leaving that current in place of
 the first's — so `window_start()` now enters each window's renderer for its
 own `on_gpu_created`, where before the first's callback built in the second's
-context and the second's in none. What remains —
-Wayland's seat routing, KMS's second output and Cocoa's second window — is
-TODO *A second window*, in order.
+context and the second's in none. KMS's second window is built (below): it
+opens on a free output, drawn by the copy path, the pointer routing between
+the windows. What remains — Wayland's seat routing and Cocoa's second window
+— is TODO *A second window*, in order.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API
@@ -3867,19 +3869,33 @@ output whole. So:
   move to the window's half of the state. The bridge already reads the
   selection and dups `card_fd` (`fcntl(F_DUPFD_CLOEXEC)` in `surface_kms.c`),
   so it needs no change but to read the window's.
-- **A second window is a second output, never a second card.** Two windows on
-  one output is refused, with the reason said: the model has no way to show
-  both.
+- **A second window is a second output, never a second card.** It opens on an
+  output no other window holds, at that output's preferred mode; two windows on
+  one output, and a second window with every output taken, are refused with the
+  reason said, since the model has no way to show both on one.
 - **The inputs are the host's**, read and grabbed once. A second `EVIOCGRAB` of
   a keyboard already grabbed fails (EBUSY), which today reads as "held by
-  another program" and would read as one window stealing the other's.
+  another program" and would read as one window stealing the other's. So one
+  seat is routed rather than read twice: the windows are laid left to right,
+  each at its output's mode, and the pointer moves over them; the window whose
+  output holds it has the pointer and the keyboard, and the focus follows it
+  (`pointer_route()`, `focus_set()`). A window whose output is gone is in none
+  of the desktop; a captured pointer stays with its window and moves relative.
+  The held-key set is the host's, so a key held across a focus change is not
+  lost.
 - **`crtcs_save()`/`crtcs_restore()` become the host's**, one CRTC per window:
   a window closing gives back its own output and leaves the other's lit. The
   console comes back only when the last one has gone.
-- **`fnl_request_output()` and the output box change meaning**: moving a window
-  between outputs *is* giving that output to another window, so the box's list
-  is the outputs no window holds, plus the one this window holds, and a pick
-  exchanges two selections rather than moving one window.
+- **`fnl_request_output()` and the output box change meaning**: the box's list
+  is the outputs no window holds, plus the one this window holds, and a window
+  is moved only onto a free one; another window's output is not offered, and a
+  request for it says so.
+- **The direct-scanout display is one window's.** Two windows share the host's
+  Vulkan device, and Mesa's display WSI faults anv when a display surface and a
+  second swapchain share it, so a host of more than one window draws by the
+  copy path (the frames into the backend's own buffers, which it flips), and a
+  window already showing lets its display go (`surface_kms.c`). One window
+  keeps the display path it had.
 
 **One pump, one wait.** The host blocks once, on the connection or the queue,
 and dispatches what arrives to the window it belongs to. Win32, X11 and
@@ -9424,8 +9440,9 @@ the other two are tried in turn:
   the copy (`wsi_display_wait_thread`, started at the first acquire that
   waits and stopped by `vkReleaseDisplayEXT`), and one set of client
   caps: the backend's descriptor carries `DRM_CLIENT_CAP_ATOMIC` from the
-  moment the display is acquired, which the legacy calls it makes do not
-  mind. The queue is the hazard. A flip of the backend's still queued
+  open (`kms_atomic_enable()`), which the legacy calls it makes do not
+  mind, and so does Mesa's view of the shared file. The queue is the
+  hazard. A flip of the backend's still queued
   when the copy is lent -- the copy path's or OpenGL's last, whose event
   is read only at the next frame without vsync -- is read by Mesa as one
   of its own images and its `user_data`, 0 for ours, dereferenced
@@ -9472,6 +9489,26 @@ the other two are tried in turn:
   buffers' reason. The bridge's extensions are optional for this: it asks for
   the display set and the headless one together, and takes whichever way the
   loader and the devices allow, saying which at open.
+
+**The commits are atomic where the card has them.** `kms_atomic_enable()`
+sets `DRM_CLIENT_CAP_ATOMIC` on the card's descriptor at open and reads each
+CRTC's primary plane and the property ids a commit names by name
+(`kms_atomic.c`). A mode set is then one `DRM_IOCTL_MODE_ATOMIC` naming the
+CRTC's `ACTIVE` and `MODE_ID` (a blob, freed once the commit has issued), the
+connector's `CRTC_ID` and the plane's `CRTC_ID`, `FB_ID`, `SRC_*` and
+`CRTC_*`; a page flip moves the plane's `FB_ID` alone. The output a window
+leaves is unbound and switched off in one commit, and the console's return at
+close is that same set. A driver with no atomic -- nouveau without
+`nouveau.atomic=1` -- is found at open and keeps every legacy `SETCRTC` and
+`PAGE_FLIP` this section describes, and a mode set the atomic commit refuses
+is tried once more by the legacy call before it is taken as refused.
+
+One call stays legacy. The display path darkens an output by setting the
+connector's DPMS off, which keeps the connector bound to its CRTC, because
+Mesa takes a bound connector's CRTC and the primary plane it chose first
+(`kms_output_off()`); atomic cannot leave a connector bound to an inactive
+CRTC, so that one remains a property set. The cursor too stays the legacy
+plane ioctl; it is owed a commit of its own (TODO *KMS atomic commits*).
 
 **No framebuffer is removed while a plane shows it, and the console is
 given back at close.** The kernel removes a framebuffer that is shown by

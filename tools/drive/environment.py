@@ -4025,6 +4025,8 @@ class KmsBare(WaylandBare):
     # frames go the copy path's way there; and with no headless surface
     # for the device (NVIDIA's own driver), into images of its own.
     EXPECTED_LOG = (r"^KMS: \S+ on /dev/dri/card\d+, \d+x\d+ at [\d.]+ Hz, ",
+                    # The commit path the card took (kms_atomic_enable()).
+                    r"^KMS: atomic commits on card\d+$",
                     r"^KMS: \S+ at \d+x\d+, [\d.]+ Hz$",
                     r"^KMS: .+; drawing offscreen and copying each frame onto "
                     r"\S+$",

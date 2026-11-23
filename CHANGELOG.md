@@ -4,6 +4,25 @@ What each release changed for a program that uses Fenestal. `DESIGN.md` is
 why; `fenestal.h` is the API, and its *stability* block says what is
 promised: before 1.0, nothing between minor releases.
 
+## Unreleased
+
+- KMS opens a second window on a free output: `fnl_window_create()` on KMS
+  takes the next output no other window holds, at its preferred mode, and one
+  seat is routed by the pointer over the outputs laid left to right (the window
+  under the pointer has the keyboard and the pointer). A host of more than one
+  window draws by the copy path — Mesa's display WSI faults anv on a display
+  surface beside a second swapchain, so a window already scanning out directly
+  lets its display go; one window keeps the display path. `fnl_request_output()`
+  offers only the free outputs and this window's, and the console returns when
+  the last window closes.
+- A terminating signal (`SIGINT`, `SIGTERM`) now closes every window on the
+  host, not only the one that installed the handler, so a multi-window program
+  ends on it.
+- KMS makes its mode set, page flip, output unbind and console return as
+  atomic commits (`DRM_IOCTL_MODE_ATOMIC`) where the card offers them, and
+  says so once in the log (`KMS: atomic commits on cardN`); a driver without
+  atomic keeps the legacy `SETCRTC` and `PAGE_FLIP`. The API is unchanged.
+
 ## 0.9.0
 
 - `FnlWindowDesc` and `fnl_window_create()`: the door to a second window on the

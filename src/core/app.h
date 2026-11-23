@@ -1160,6 +1160,13 @@ struct Host {
 	 * rather than in the window. */
 	bool installed_signals;
 
+	/* A terminating signal asked the whole program to stop. The handler
+	 * cannot walk the window list, which the main thread may be changing, so
+	 * it sets this and wakes the pump; fnl_pump() then asks every window to
+	 * close, since a signal meant for the process ends it and not one of its
+	 * windows (a second window would otherwise keep the run alive). */
+	FnlAtomicBool quit;
+
 	/* Whether fnl_start() has begun a run on this host and fnl_stop() not yet
 	 * ended it. The run is the host's, not a window's: fnl_pump() is refused
 	 * outside it and answers FNL_SKIPPED from within it once every window has

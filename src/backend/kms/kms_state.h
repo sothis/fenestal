@@ -16,6 +16,8 @@
 
 #include <drm/drm_mode.h>
 
+struct KmsAtomic;
+
 /* Modes an output is offered at: a monitor lists twenty or thirty, many of
  * them one size at several rates. Past this many the smallest go. 32 is
  * also the width of an output's refused set. */
@@ -142,6 +144,12 @@ struct BackendHostState {
 	 * lends Vulkan is a dup of it -- one open file, so one master. */
 	int          card_fd, card_index;
 	KmsOutput    outputs[KMS_MAX_OUTPUTS];
+	/* The card's atomic state -- the CRTCs, their primary planes and the
+	 * properties a commit names -- where the driver took the atomic client
+	 * capability, and NULL where it did not, so every mode set, flip and
+	 * darkening then goes by the legacy ioctls (kms_atomic.c). One card a
+	 * process, so it lives as long as the host. */
+	struct KmsAtomic *atomic;
 	/* How many slots are published: [any], written by the pump alone and
 	 * only after the slot it counts is filled. outputs_gone is the slots
 	 * whose monitor is unplugged, a bit each, likewise. */
@@ -171,6 +179,27 @@ struct BackendHostState {
 	 * until a move says otherwise: the host's open runs before any window
 	 * exists, so it cannot set the window's selection itself. */
 	int          first_output;
+
+	/* The window that has the keyboard and the pointer, and the pointer in
+	 * the desktop the windows make -- laid left to right, each at its
+	 * output's mode. One seat, one pointer: the window under the pointer is
+	 * the one the keyboard goes to (DESIGN *A second window*), and a window
+	 * whose output is gone is in none of it. The pump's thread owns these;
+	 * NULL focus with no window on screen. */
+	App    *focus;
+	double  gx, gy;
+
+	/* The window the Vulkan display path has taken an output for, or NULL:
+	 * the direct-scanout display is one window's at a time, since a second
+	 * acquire of a display on the one descriptor is Mesa's to get wrong (it
+	 * caches a plane per connector) and has faulted anv. A window that finds
+	 * it taken draws by the copy path instead (surface_kms.c). */
+	FnlAtomicPtr display_owner;
+
+	/* A second window exists, so the direct-scanout display cannot be shared:
+	 * every window draws by the copy path and the backend flips its frames
+	 * (kms_window_open(), and surface_kms.c letting a held display go). */
+	FnlAtomicBool force_copy;
 
 	KmsInput     inputs[KMS_MAX_INPUTS];
 	int          input_count;

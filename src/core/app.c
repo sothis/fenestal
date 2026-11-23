@@ -46,7 +46,10 @@ static void on_terminate(int sig)
 	fnl_atomic_add_u32(&signal_busy, 1);
 	App *a = fnl_atomic_load_ptr(&signal_app);
 	if (a) {
+		/* One window's close, and the host's: a terminating signal ends the
+		 * program, not the window that installed the handler. */
 		fnl_atomic_store_bool(&a->should_close, true);
+		fnl_atomic_store_bool(&a->host->quit, true);
 		app_wakeup(a);
 	}
 	fnl_atomic_add_u32(&signal_busy, UINT32_MAX);
@@ -3649,6 +3652,11 @@ FnlResult fnl_pump(App *a, int timeout_ms)
 	 * memory it still holds. fnl_shutdown() on each is what frees them, and
 	 * the host with its last. */
 	Host *h = a->host;
+	/* A terminating signal ends every window's run, not just the one that
+	 * installed the handler. */
+	if (fnl_atomic_load_bool(&h->quit))
+		for (App *w = h->windows; w; w = w->next)
+			fnl_atomic_store_bool(&w->should_close, true);
 	for (App *w = h->windows; w; w = w->next)
 		if (w->in_run && fnl_atomic_load_bool(&w->should_close))
 			window_stop(w);

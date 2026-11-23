@@ -37,6 +37,7 @@
 
 #include "backend/kms/kms_state.h"
 #include "backend/evdev_keys.h"
+#include "backend/kms/kms_atomic.h"
 #include "backend/kms/kms_driver.h"
 #include "backend/loop_linux.h"
 
@@ -300,9 +301,30 @@ static int card_connectors(int fd, uint32_t ids[KMS_MAX_CONNECTORS])
 
 /* The CRTC driving a connector now, or 0: what lit it, the console or a
  * mode set since, Vulkan's included -- which picks its own CRTC for a
- * display, so the one read at open is a guess for any output not lit then. */
+ * display, so the one read at open is a guess for any output not lit then.
+ * The connector's CRTC_ID property is asked first, which an atomic commit
+ * sets and the encoder path may leave stale or zero; a driver that keeps no
+ * property answers through the encoder it names. */
 static uint32_t connector_live_crtc(int fd, uint32_t connector_id)
 {
+	uint32_t ids[64];
+	uint64_t vals[64];
+	struct drm_mode_obj_get_properties gp = {
+		.props_ptr       = (uintptr_t)ids,
+		.prop_values_ptr = (uintptr_t)vals,
+		.count_props     = 64,
+		.obj_id          = connector_id,
+		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
+	};
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) == 0) {
+		const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
+		for (uint32_t i = 0; i < n; i++) {
+			struct drm_mode_get_property prop = { .prop_id = ids[i] };
+			if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &prop) == 0 &&
+				strcmp(prop.name, "CRTC_ID") == 0 && vals[i])
+				return (uint32_t)vals[i];
+		}
+	}
 	struct drm_mode_modeinfo one;
 	struct drm_mode_get_connector c = {
 		.connector_id = connector_id,
@@ -469,6 +491,20 @@ static void crtcs_restore(struct BackendState *p)
 	for (int i = 0; i < hs->saved_count; i++) {
 		const KmsCrtcSaved *s    = &hs->saved[i];
 		const bool shown         = s->fb_id && s->mode_valid;
+		if (hs->atomic) {
+			/* Atomic where the card has it: the console's mode and frame on
+			 * its CRTC, or the CRTC off. A failure falls through to the
+			 * legacy set, which is what this did before. */
+			const bool ok = shown
+				? kms_atomic_set(hs->atomic, s->connector_id, s->crtc_id,
+								 &s->mode, s->fb_id)
+				: kms_atomic_crtc_off(hs->atomic, s->crtc_id);
+			if (ok) {
+				if (s->crtc_id == lit)
+					lit = 0;
+				continue;
+			}
+		}
 		struct drm_mode_crtc set = {
 			.set_connectors_ptr = (uintptr_t)&s->connector_id,
 			.count_connectors   = shown ? 1 : 0,
@@ -489,6 +525,8 @@ static void crtcs_restore(struct BackendState *p)
 			lit = 0;
 	}
 	if (lit) {
+		if (hs->atomic && kms_atomic_crtc_off(hs->atomic, lit))
+			return;
 		struct drm_mode_crtc off = { .crtc_id = lit };
 		drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
 	}
@@ -980,6 +1018,15 @@ static void held_set(struct BackendState *p, unsigned code, bool on)
 		p->host->down[code / 8] &= (uint8_t)~(1u << (code % 8));
 }
 
+/* The window that has the keyboard and the pointer, or `a` before one does:
+ * one seat, one pointer, and the window under the pointer is both the
+ * pointer's and the keyboard's (DESIGN *A second window*). */
+static App *kms_focus(App *a)
+{
+	App *f = app_backend_host(a)->focus;
+	return f ? f : a;
+}
+
 /* The modifiers, worked out from the keys held: on a bare output nobody
  * reports them, and the locks are this backend's own toggles. */
 static KeyMods kb_mods(const struct BackendState *p)
@@ -1074,6 +1121,7 @@ static void leds_write(struct BackendState *p)
  * types again where the layout says the key repeats. */
 static void on_key(App *a, unsigned code, int value)
 {
+	a = kms_focus(a);
 	struct BackendState *p = a->backend_state;
 	struct BackendHostState *hs = p->host;
 	const FnlKey k         = key_from_evdev(code);
@@ -1142,39 +1190,126 @@ static void pointer_moved(App *a)
 	cursor_update(a, z, edge);
 }
 
+/* A window whose output is gone is on no desktop the pointer moves over;
+ * kms_window_on_screen() is below, the pump's answer. */
+static bool kms_window_on_screen(const App *a);
+
+/* The desktop the windows make, laid left to right each at its output's
+ * mode; a window whose output is gone is in none of it. */
+static void desktop_size(App *a, double *w, double *h)
+{
+	double tw = 0.0, th = 0.0;
+	for (App *o = a->host->windows; o; o = o->next) {
+		const struct BackendState *q = o->backend_state;
+		if (!q || !kms_window_on_screen(o))
+			continue;
+		tw += q->mode_w;
+		if (q->mode_h > th)
+			th = q->mode_h;
+	}
+	*w = tw > 0.0 ? tw : 1.0;
+	*h = th > 0.0 ? th : 1.0;
+}
+
+/* The window whose output holds the desktop point, and the point in that
+ * output; the last window past the end. NULL where none is on screen. */
+static App *desktop_win(App *a, double gx, double gy, double *lx, double *ly)
+{
+	App *last = NULL;
+	double ox = 0.0;
+	for (App *o = a->host->windows; o; o = o->next) {
+		const struct BackendState *q = o->backend_state;
+		if (!q || !kms_window_on_screen(o))
+			continue;
+		if (gx < ox + q->mode_w) {
+			*lx = gx - ox;
+			*ly = gy;
+			return o;
+		}
+		ox += q->mode_w;
+		last = o;
+	}
+	if (!last)
+		return NULL;
+	*lx = last->backend_state->mode_w - 1.0;
+	*ly = gy;
+	return last;
+}
+
+/* The keyboard and pointer move to `win`: the old window's cursor comes off
+ * and it is told it lost the focus, the new one the other way. */
+static void focus_set(App *a, App *win)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (hs->focus == win)
+		return;
+	if (hs->focus) {
+		cursor_show(hs->focus, KMS_GLYPH_NONE);
+		app_publish_focus(hs->focus, false);
+		app_post_focus(hs->focus, false);
+	}
+	hs->focus = win;
+	if (win) {
+		app_publish_focus(win, true);
+		app_post_focus(win, true);
+	}
+}
+
+/* The pointer put where the desktop says, the window under it told, and the
+ * focus followed; `a` is any window, to reach the host's list. */
+static void pointer_route(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	double tw, th;
+	desktop_size(a, &tw, &th);
+	hs->gx = clampd(hs->gx, 0.0, tw - 1.0);
+	hs->gy = clampd(hs->gy, 0.0, th - 1.0);
+	double lx, ly;
+	App *win = desktop_win(a, hs->gx, hs->gy, &lx, &ly);
+	if (!win)
+		return;
+	struct BackendState *p = win->backend_state;
+	p->ptr_x = clampd(lx, 0.0, p->mode_w - 1.0);
+	p->ptr_y = clampd(ly, 0.0, p->mode_h - 1.0);
+	focus_set(a, win);
+	pointer_moved(win);
+}
+
 /* A delta in pixels: the pointer moves, or a captured one reports it. */
 static void pointer_by(App *a, double dx, double dy)
 {
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
+	App *win                   = hs->focus ? hs->focus : a;
+	struct BackendState *p     = win->backend_state;
 	if (dx == 0.0 && dy == 0.0)
 		return;
-	if (p->captured) {
-		const int s120 = want_s120(a);
-		app_pointer_relative(a, px_to_ptf(dx, s120), px_to_ptf(dy, s120));
+	if (p && p->captured) {
+		const int s120 = want_s120(win);
+		app_pointer_relative(win, px_to_ptf(dx, s120), px_to_ptf(dy, s120));
 		if (p->captured)
-			app_reticle_move(a, dx, dy);
+			app_reticle_move(win, dx, dy);
 		return;
 	}
-	p->ptr_x = clampd(p->ptr_x + dx, 0.0, p->mode_w - 1.0);
-	p->ptr_y = clampd(p->ptr_y + dy, 0.0, p->mode_h - 1.0);
-	pointer_moved(a);
+	hs->gx += dx;
+	hs->gy += dy;
+	pointer_route(a);
 }
 
-/* An absolute device's report, onto the output. The axes are the device's
- * to state, so every difference of them is taken as a double, where no
- * pair of ints can overflow it. */
+/* An absolute device's report, onto the desktop. The axes are the device's
+ * to state, so every difference of them is taken as a double, where no pair
+ * of ints can overflow it. */
 static void pointer_to(App *a, KmsInput *d)
 {
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
+	App *win                   = hs->focus ? hs->focus : a;
+	struct BackendState *p     = win->backend_state;
 	const double sx = d->x_max > d->x_min ? (double)d->x_max - d->x_min : 1;
 	const double sy = d->y_max > d->y_min ? (double)d->y_max - d->y_min : 1;
-	const double kx = (p->mode_w - 1) / sx, ky = (p->mode_h - 1) / sy;
-	const double x = ((double)d->ax - d->x_min) * kx;
-	const double y = ((double)d->ay - d->y_min) * ky;
-	if (p->captured) {
+	if (p && p->captured) {
 		/* Taken in the device's units, which last_x holds exactly: against
 		 * a pixel position kept as an int, every report would lose up to a
 		 * pixel on each axis, always the same way. */
+		const double kx = (p->mode_w - 1) / sx, ky = (p->mode_h - 1) / sy;
 		if (d->have_last)
 			pointer_by(a, ((double)d->ax - d->last_x) * kx,
 					   ((double)d->ay - d->last_y) * ky);
@@ -1183,9 +1318,11 @@ static void pointer_to(App *a, KmsInput *d)
 		d->have_last = true;
 		return;
 	}
-	p->ptr_x = clampd(x, 0.0, p->mode_w - 1.0);
-	p->ptr_y = clampd(y, 0.0, p->mode_h - 1.0);
-	pointer_moved(a);
+	double tw, th;
+	desktop_size(a, &tw, &th);
+	hs->gx = ((double)d->ax - d->x_min) * (tw - 1.0) / sx;
+	hs->gy = ((double)d->ay - d->y_min) * (th - 1.0) / sy;
+	pointer_route(a);
 }
 
 /* A millimetre of finger on a touchpad, in pixels, unaccelerated: about a
@@ -1249,14 +1386,16 @@ static void on_button(App *a, KmsInput *d, unsigned code, int value,
 	default: return;
 	}
 	report_motion(a, d);
-	app_pointer_button(a, b, value != 0, a->ptr_x, a->ptr_y, ms);
+	App *win = kms_focus(a);
+	app_pointer_button(win, b, value != 0, win->ptr_x, win->ptr_y, ms);
 }
 
 /* The wheel's detents: positive is towards the user, which is down. */
 static void on_wheel(App *a, KmsInput *d, double dx, double dy)
 {
 	report_motion(a, d);
-	app_pointer_scroll(a, a->ptr_x, a->ptr_y, dx, dy);
+	App *win = kms_focus(a);
+	app_pointer_scroll(win, win->ptr_x, win->ptr_y, dx, dy);
 }
 
 /* ---- the devices --------------------------------------------------------- */
@@ -1476,8 +1615,9 @@ static bool input_read(App *a, KmsInput *d)
 				if (d->kind & KMS_KEYBOARD) {
 					memset(app_backend_host(a)->down, 0,
 						   sizeof app_backend_host(a)->down);
-					app_keys_clear(a);
-					keys_seed(a, d);
+					App *t = kms_focus(a);
+					app_keys_clear(t);
+					keys_seed(t, d);
 				}
 			} else if (e->code == SYN_REPORT) {
 				report_motion(a, d);
@@ -1641,8 +1781,13 @@ static void scan_parked_tidy(struct BackendState *p, bool off)
 		if (crtc && !off)
 			continue;
 		if (crtc) {
-			struct drm_mode_crtc dark = { .crtc_id = crtc };
-			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &dark);
+			bool darkened = false;
+			if (p->host->atomic)
+				darkened = kms_atomic_crtc_off(p->host->atomic, crtc);
+			if (!darkened) {
+				struct drm_mode_crtc dark = { .crtc_id = crtc };
+				drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &dark);
+			}
 		}
 		scan_free(p, s);
 	}
@@ -1842,19 +1987,27 @@ void kms_scan_show(App *a, int back)
 	const struct drm_mode_modeinfo *mode = kms_sel_mode(p, p->scan_sel);
 	const KmsOutput *out                 = kms_out(p, p->scan_sel);
 	if (p->scan_front < 0 || p->scan_set_owed) {
-		struct drm_mode_crtc set = {
-			.set_connectors_ptr = (uintptr_t)&out->connector_id,
-			.count_connectors   = 1,
-			.crtc_id            = out->crtc_id,
-			.fb_id              = p->scan.fb[back],
-			.mode_valid         = 1,
-			.mode               = *mode,
-		};
 		const bool good = (int)fnl_atomic_load_u32(&p->sel_good) == p->scan_sel;
 		const bool forced = !good && FNL_FAULT("kms-mode-refused");
-		const bool set_ok =
-			out->crtc_id && !forced &&
-			drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
+		bool set_ok = false;
+		if (hs->atomic && !forced && out->crtc_id)
+			set_ok = kms_atomic_set(hs->atomic, out->connector_id,
+									out->crtc_id, mode, p->scan.fb[back]);
+		/* The legacy set where the card has no atomic, and where one it
+		 * offered refused this commit: the same call the backend made before
+		 * atomic, so a mode it will not take is refused by both. */
+		if (!set_ok) {
+			struct drm_mode_crtc set = {
+				.set_connectors_ptr = (uintptr_t)&out->connector_id,
+				.count_connectors   = 1,
+				.crtc_id            = out->crtc_id,
+				.fb_id              = p->scan.fb[back],
+				.mode_valid         = 1,
+				.mode               = *mode,
+			};
+			set_ok = out->crtc_id && !forced &&
+					 drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
+		}
 		if (!set_ok && !good) {
 			/* A mode the output was switched to and will not take: the
 			 * last that did comes back at the next frame. */
@@ -1876,28 +2029,51 @@ void kms_scan_show(App *a, int back)
 		return;
 	}
 	const bool async = !vsync && !p->flip_async_off;
-	/* The frame's index rides on the flip and comes back in its event
-	 * (flip_wait()): the renderer counts the present after this returns,
-	 * so a->presents is still this frame's FnlFrame::index. */
-	struct drm_mode_crtc_page_flip flip = {
-		.crtc_id = out->crtc_id,
-		.fb_id   = p->scan.fb[back],
-		.flags =
-			DRM_MODE_PAGE_FLIP_EVENT | (async ? DRM_MODE_PAGE_FLIP_ASYNC : 0u),
-		.user_data = a->presents,
-	};
-	int r = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
-	if (r < 0 && async && errno == EINVAL) {
-		p->flip_async_off = true;
-		fnl_log(FNL_LOG_INFO,
-				"KMS: %s takes no asynchronous flip; without "
-				"vsync a frame that finds one pending is dropped",
-				kms_name(p, p->scan_sel));
-		flip.flags = DRM_MODE_PAGE_FLIP_EVENT;
-		r          = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
+	bool async_now    = async;
+	bool flipped      = false;
+	if (hs->atomic) {
+		flipped = kms_atomic_flip(hs->atomic, out->crtc_id, p->scan.fb[back],
+								  async_now, a->presents);
+		if (!flipped && async_now && errno == EINVAL) {
+			p->flip_async_off = true;
+			fnl_log(FNL_LOG_INFO,
+					"KMS: %s takes no asynchronous flip; without "
+					"vsync a frame that finds one pending is dropped",
+					kms_name(p, p->scan_sel));
+			async_now = false;
+			flipped = kms_atomic_flip(hs->atomic, out->crtc_id,
+									  p->scan.fb[back], false, a->presents);
+		}
 	}
-	p->flip_async = (flip.flags & DRM_MODE_PAGE_FLIP_ASYNC) != 0;
-	if (r < 0) {
+	if (!flipped) {
+		/* The legacy flip: a card with no atomic, and a CRTC the atomic table
+		 * does not name (a driver whose CRTC has no primary plane to set a
+		 * mode through), which the mode set above already fell back for. The
+		 * frame's index rides on it and comes back in its event
+		 * (flip_wait()). */
+		struct drm_mode_crtc_page_flip flip = {
+			.crtc_id = out->crtc_id,
+			.fb_id   = p->scan.fb[back],
+			.flags   = DRM_MODE_PAGE_FLIP_EVENT |
+					 (async_now ? DRM_MODE_PAGE_FLIP_ASYNC : 0u),
+			.user_data = a->presents,
+		};
+		flipped =
+			drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip) == 0;
+		if (!flipped && async_now && errno == EINVAL) {
+			p->flip_async_off = true;
+			fnl_log(FNL_LOG_INFO,
+					"KMS: %s takes no asynchronous flip; without "
+					"vsync a frame that finds one pending is dropped",
+					kms_name(p, p->scan_sel));
+			flip.flags = DRM_MODE_PAGE_FLIP_EVENT;
+			flipped =
+				drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip) == 0;
+			async_now = false;
+		}
+	}
+	p->flip_async = async_now;
+	if (!flipped) {
 		scan_refuse(p, "the flip was refused");
 		return;
 	}
@@ -2068,8 +2244,12 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 		return;
 	int r;
 	if (unbind) {
-		struct drm_mode_crtc off = { .crtc_id = crtc };
-		r = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
+		if (hs->atomic && kms_atomic_unbind(hs->atomic, crtc, connector))
+			r = 0;
+		else {
+			struct drm_mode_crtc off = { .crtc_id = crtc };
+			r = drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
+		}
 	} else {
 		struct drm_mode_obj_set_property dpms = {
 			.value    = DRM_MODE_DPMS_OFF,
@@ -2147,15 +2327,22 @@ void kms_scanout_take(App *a)
 	}
 	const int back = p->scan_front == 0 ? 1 : 0;
 	scan_fill(p, back, &on.mode, a);
-	struct drm_mode_crtc set = {
-		.set_connectors_ptr = (uintptr_t)&connector,
-		.count_connectors   = 1,
-		.crtc_id            = on.crtc_id,
-		.fb_id              = p->scan.fb[back],
-		.mode_valid         = 1,
-		.mode               = on.mode,
-	};
-	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) < 0) {
+	bool took = false;
+	if (p->host->atomic)
+		took = kms_atomic_set(p->host->atomic, connector, on.crtc_id,
+							  &on.mode, p->scan.fb[back]);
+	if (!took) {
+		struct drm_mode_crtc set = {
+			.set_connectors_ptr = (uintptr_t)&connector,
+			.count_connectors   = 1,
+			.crtc_id            = on.crtc_id,
+			.fb_id              = p->scan.fb[back],
+			.mode_valid         = 1,
+			.mode               = on.mode,
+		};
+		took = drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
+	}
+	if (!took) {
 		fnl_log(FNL_LOG_WARN,
 				"KMS: %s could not be taken back from the "
 				"driver (%s)",
@@ -2264,6 +2451,20 @@ static void output_pick(App *a, int o)
 		sel_set(a, KMS_SEL(o, m));
 }
 
+/* The outputs a window other than `a` holds, a bit each: a second window is
+ * a second output, never a second card, and no two windows share one
+ * (DESIGN *A second window*). */
+static uint32_t held_by_others(const App *a)
+{
+	uint32_t held = 0;
+	for (const App *w = a->host->windows; w; w = w->next) {
+		const struct BackendState *q = w->backend_state;
+		if (w != a && q)
+			held |= 1u << KMS_SEL_OUT(fnl_atomic_load_u32(&q->sel_want));
+	}
+	return held;
+}
+
 /* An output that is away has no monitor for the kernel to light, so the
  * move is owed until it is back (outputs_rescan()); a later request
  * replaces the one owed. */
@@ -2272,11 +2473,19 @@ static void kms_set_output(App *a, const char *name)
 	struct BackendState *p = a->backend_state;
 	const int count        = (int)fnl_atomic_load_u32(&p->host->output_count);
 	const uint32_t gone    = fnl_atomic_load_u32(&p->host->outputs_gone);
+	const uint32_t held    = held_by_others(a);
 	p->host->away_owed           = -1;
 	for (int o = 0; o < count; o++) {
 		if (strcmp(p->host->outputs[o].name, name) != 0 || o == p->out_cur ||
 			((gone >> o) & 1u))
 			continue;
+		if ((held >> o) & 1u) {
+			fnl_log(FNL_LOG_INFO,
+					"KMS: %s is another window's; the window stays on %s",
+					p->host->outputs[o].name,
+					p->host->outputs[p->out_cur].name);
+			return;
+		}
 		if ((p->host->outputs_away >> o) & 1u) {
 			p->host->away_owed = o;
 			fnl_log(FNL_LOG_INFO,
@@ -2320,11 +2529,15 @@ static int kms_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
 	const int now          = KMS_SEL_OUT(fnl_atomic_load_u32(&p->sel_want));
 	const uint32_t refused = fnl_atomic_load_u32(&p->outputs_refused) |
 							 fnl_atomic_load_u32(&p->host->outputs_gone);
+	/* The outputs no other window holds, and this window's own. */
+	const uint32_t held = held_by_others(a);
 	const int count = (int)fnl_atomic_load_u32(&p->host->output_count);
 	int n           = 0;
 	*current        = -1;
 	for (int o = 0; o < count && n < max; o++) {
 		if ((refused >> o) & 1u)
+			continue;
+		if (o != now && ((held >> o) & 1u))
 			continue;
 		if (o == now)
 			*current = n;
@@ -2601,7 +2814,7 @@ static void outputs_rescan(App *a)
 	if (owed >= 0)
 		output_pick(a, owed);
 	if ((gone >> p->out_cur) & 1u) {
-		const int to = sel_elsewhere(p, gone | away);
+		const int to = sel_elsewhere(p, gone | away | held_by_others(a));
 		if (to >= 0)
 			sel_set(a, to);
 		else if (away)
@@ -2659,6 +2872,12 @@ static FnlResult kms_host_open(App *a)
 		kms_host_close(a);
 		return rc;
 	}
+	/* The card's atomic state, where the driver offers it. NULL leaves every
+	 * mode set, flip and darkening to the legacy ioctls, which is nouveau
+	 * without nouveau.atomic=1 and any driver that never took atomic. */
+	hs->atomic = kms_atomic_enable(hs->card_fd);
+	if (hs->atomic)
+		fnl_log(FNL_LOG_INFO, "KMS: atomic commits on card%d", hs->card_index);
 
 	hs->inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 	if (hs->inotify_fd < 0) {
@@ -2689,29 +2908,45 @@ static FnlResult kms_host_open(App *a)
  * figures. The host's card, inputs and event loop are already up. */
 static FnlResult kms_window_open(App *a)
 {
-	/* A window is an output, and this backend has one card and one input
-	 * set: a second window would be a second output on the same card, and
-	 * nothing yet says which of them the keyboard and pointer are the
-	 * user's (DESIGN *A second window* -- unproven in this lab, which has
-	 * one monitor a machine). The first window is the one fnl_init() made;
-	 * a later one is refused here rather than opened without a way to
-	 * reach it. */
-	if (a->host->windows != a)
-		return fnl_fail(FNL_ERR_UNSUPPORTED,
-						"KMS: a second window would be a second output on "
-						"the one card, and this backend does not yet route "
-						"input between two (DESIGN *A second window*)");
+	struct BackendHostState *hs = app_backend_host(a);
+	/* A window is an output, and one card is a process's: a second window is
+	 * a second output, never a second card, so it takes an output no other
+	 * window holds; two windows on one output are refused for want of a way
+	 * to show both (DESIGN *A second window*). */
+	int out;
+	if (a->host->windows == a) {
+		out = hs->first_output;
+	} else {
+		const uint32_t held = held_by_others(a);
+		const uint32_t gone = fnl_atomic_load_u32(&hs->outputs_gone);
+		const int n         = (int)fnl_atomic_load_u32(&hs->output_count);
+		out                 = -1;
+		for (int o = 0; o < n && out < 0; o++)
+			if (!((gone >> o) & 1u) && !((held >> o) & 1u))
+				out = o;
+		if (out < 0)
+			return fnl_fail(FNL_ERR_UNSUPPORTED,
+							"KMS: every output is another window's; a second "
+							"window needs one free (DESIGN *A second window*)");
+	}
 	struct BackendState *p = calloc(1, sizeof *p);
 	if (!p)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 						"out of memory for the KMS backend state");
 	a->backend_state = p;
-	p->host         = app_backend_host(a);
-	/* A window is a selection, and the host's open has ranked and read one
-	 * output for it -- the first, at its preferred mode -- so this window is
-	 * that one's until a move says otherwise. */
-	const int first = p->host->first_output;
-	const int sel   = KMS_SEL(first, p->host->outputs[first].mode_pref);
+	p->host          = hs;
+	/* A second window means the direct-scanout display cannot be shared on
+	 * the one device: the whole host draws by the copy path from here, and a
+	 * window already showing lets its display go on its next build
+	 * (surface_kms.c). */
+	if (a->host->windows != a) {
+		fnl_atomic_store_bool(&hs->force_copy, true);
+		for (App *w = a->host->windows; w; w = w->next)
+			app_surface_remake(w);
+	}
+	/* This window's selection: its output at the preferred mode, until a move
+	 * says otherwise. */
+	const int sel = KMS_SEL(out, hs->outputs[out].mode_pref);
 	fnl_atomic_store_u32(&p->sel_want, (uint32_t)sel);
 	fnl_atomic_store_u32(&p->sel_good, (uint32_t)sel);
 	p->disp_out = p->surf_sel = p->scan_sel = -1;
@@ -2722,23 +2957,32 @@ static FnlResult kms_window_open(App *a)
 	a->is_maximized = true;
 	publish_mode(a);
 
-	/* In the middle, and shown there before anything moves it. */
+	/* The pointer in the middle of this window's output, and shown there if
+	 * this window is the one the keyboard and pointer are with: the first
+	 * window, or one the pointer has since come to (focus_set()). */
 	p->ptr_x = p->mode_w / 2.0;
 	p->ptr_y = p->mode_h / 2.0;
 	a->ptr_x = px_to_ptf(p->ptr_x, want_s120(a));
 	a->ptr_y = px_to_ptf(p->ptr_y, want_s120(a));
-	kms_cursor_changed(a);
+	if (!hs->focus) {
+		hs->focus = a;
+		hs->gx    = p->mode_w / 2.0;
+		hs->gy    = p->mode_h / 2.0;
+		kms_cursor_changed(a);
+	}
 
 	/* The devices, now that there is a window whose held set they seed: a
-	 * key already down is seeded without acting on it. */
+	 * key already down is seeded without acting on it. A second window finds
+	 * them already open and grabbed. */
 	inputs_scan(a);
-	if (!p->host->input_count)
+	if (!hs->input_count)
 		fnl_log(FNL_LOG_WARN, "KMS: no keyboard or pointer this user may "
 							  "read (/dev/input/event*, group input)");
 
-	/* The keyboard is ours from the start: there is nobody to give it to. */
-	app_publish_focus(a, true);
-	app_post_focus(a, true);
+	/* The keyboard is the focused window's: the first has it, a second waits
+	 * for the pointer to come to its output. */
+	app_publish_focus(a, hs->focus == a);
+	app_post_focus(a, hs->focus == a);
 	return FNL_OK;
 }
 
@@ -2750,6 +2994,17 @@ static void kms_window_close(App *a)
 	struct BackendState *p = a->backend_state;
 	if (!p)
 		return;
+	/* The keyboard and pointer move to a window still open, before this
+	 * one's cursor and state go. */
+	if (p->host->focus == a) {
+		App *next = NULL;
+		for (App *w = a->host->windows; w && !next; w = w->next)
+			if (w != a && w->backend_state)
+				next = w;
+		focus_set(a, next);
+	}
+	if (fnl_atomic_load_ptr(&p->host->display_owner) == a)
+		fnl_atomic_store_ptr(&p->host->display_owner, NULL);
 	cursor_free(p);
 	if (p->host->card_fd >= 0) {
 		flip_wait(a, FLIP_WAIT_MS);
@@ -2780,6 +3035,8 @@ static void kms_host_close(App *a)
 	for (int i = 0; i < hs->input_count; i++)
 		close(hs->inputs[i].fd);
 	hs->input_count = 0;
+	kms_atomic_disable(hs->atomic);
+	hs->atomic = NULL;
 	if (hs->inotify_fd >= 0)
 		close(hs->inotify_fd);
 	if (hs->uevent_fd >= 0)

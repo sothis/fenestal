@@ -1337,6 +1337,7 @@ else()
     if(kms IN_LIST FNL_BACKENDS)
         list(APPEND FNL_BACKEND_SOURCES src/backend/keymap_rules.c
                                         src/backend/kms/kms.c
+                                        src/backend/kms/kms_atomic.c
                                         src/backend/kms/kms_driver.c)
     endif()
 endif()

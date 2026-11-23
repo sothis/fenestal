@@ -130,6 +130,20 @@ static bool acquire_display(App *a, char *why, size_t size)
 		snprintf(why, size, "FNL_FAULT: no device takes %s", output);
 		return false;
 	}
+	/* The display is one window's at a time: a second acquire on the one
+	 * descriptor is a plane-cache hazard in Mesa's WSI (DESIGN *KMS*) and has
+	 * faulted anv, and a display swapchain beside a second window's on the
+	 * one device has too. So a host drawing more than one window, or one
+	 * whose display another window already has, draws by the copy path. */
+	if (a->host->window_count > 1) {
+		snprintf(why, size, "more than one window draws by the copy path");
+		return false;
+	}
+	App *own = fnl_atomic_load_ptr(&p->host->display_owner);
+	if (own && own != a) {
+		snprintf(why, size, "another window has the display");
+		return false;
+	}
 	if ((VK(a)->backend_ext_on & EXT_DISPLAY_ALL) != EXT_DISPLAY_ALL) {
 		snprintf(why, size, "the Vulkan loader has no "
 				 "VK_EXT_acquire_drm_display");
@@ -192,6 +206,7 @@ static bool acquire_display(App *a, char *why, size_t size)
 			VK(a)->surface_phys = devs[i];
 			VK(a)->vk_display = d;
 			p->disp_out = KMS_SEL_OUT(sel);
+			fnl_atomic_store_ptr(&p->host->display_owner, a);
 			free(devs);
 			return true;
 		}
@@ -235,6 +250,8 @@ static bool take_display(App *a, struct BackendState *p, int out)
 			release(VK(a)->surface_phys, VK(a)->vk_display);
 			VK(a)->vk_display = VK_NULL_HANDLE;
 			p->disp_out = -1;
+			if (fnl_atomic_load_ptr(&p->host->display_owner) == a)
+				fnl_atomic_store_ptr(&p->host->display_owner, NULL);
 		}
 		VkDisplayKHR d = VK_NULL_HANDLE;
 		VkResult r = get_display(VK(a)->surface_phys, p->host->card_fd,
@@ -246,6 +263,7 @@ static bool take_display(App *a, struct BackendState *p, int out)
 			if (r == VK_SUCCESS) {
 				VK(a)->vk_display = d;
 				p->disp_out = to;
+				fnl_atomic_store_ptr(&p->host->display_owner, a);
 				return to == out;
 			}
 			close(lent);
@@ -444,6 +462,8 @@ static void let_display_go(App *a)
 			release(VK(a)->surface_phys, VK(a)->vk_display);
 		VK(a)->vk_display = VK_NULL_HANDLE;
 		p->disp_out = -1;
+		if (fnl_atomic_load_ptr(&p->host->display_owner) == a)
+			fnl_atomic_store_ptr(&p->host->display_owner, NULL);
 	}
 	VK(a)->surface_phys = VK_NULL_HANDLE;
 	VK(a)->present_copy = false;
@@ -456,6 +476,13 @@ static void let_display_go(App *a)
 static FnlResult create_surface(App *a)
 {
 	if (a->gpu_switching)
+		let_display_go(a);
+	/* A second window on the card means no window may scan out directly: the
+	 * display a first window took is let go here, and both draw by the copy
+	 * path (kms_window_open() sets force_copy). */
+	if (!a->gpu_switching &&
+		fnl_atomic_load_bool(&a->backend_state->host->force_copy) &&
+		VK(a)->vk_display != VK_NULL_HANDLE)
 		let_display_go(a);
 	/* Across a move to another kernel driver the renderer drawn meanwhile
 	 * takes the copy path whatever it could take: the backend's own pair

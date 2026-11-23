@@ -712,6 +712,28 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   do not already say (NVK's display queries fail on a connector of
   nouveau without `nouveau.atomic=1`); and outputs on a second card, not
   listed.
+- **KMS atomic commits** (DESIGN *The commits are atomic where the card has
+  them*): built (2026-11-23) -- `kms_atomic_enable()` at open sets
+  `DRM_CLIENT_CAP_ATOMIC` and reads each CRTC's primary plane, and the mode
+  set, page flip, output unbind and console return each go by
+  `DRM_IOCTL_MODE_ATOMIC` where the driver takes it, the legacy `SETCRTC`
+  and `PAGE_FLIP` kept as the fallback. **Run on schenker's CachyOS**
+  (Intel HD 630, eDP-1 + HDMI-A-1), 2026-11-23, `release`: the single window
+  on the display path (anv, Y-tiled) and on the copy path (llvmpipe and the
+  NVIDIA proprietary surfaceless path), `KMS: atomic commits on card2` in the
+  log, no refusal; and two windows on the two outputs, both by the copy path,
+  the two flips serialised by a commit lock (two render threads committing on
+  the one node took `EBUSY` for a modeset colliding with a flip, and an Intel
+  primary plane shared by two CRTCs was found and fixed). Owed, in order:
+  the display path's own mode change and console return, and the same on
+  `black`'s amdgpu, which is where `remove_fb` fails, and on nouveau with and
+  without `nouveau.atomic=1`, at `release` and `asan`;
+  `DRM_MODE_ATOMIC_TEST_ONLY` before a mode set, so a mode that will not show
+  is refused before the screen changes rather than by a failed set; and the
+  **cursor plane** as a commit of its own
+  (`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`, `drm_plane_type.CURSOR`), which
+  today is still the legacy `DRM_IOCTL_MODE_CURSOR` its per-move cost in
+  `GETCRTC` was fixed for.
 - **The unplug section with a force that reaches the program and two
   outputs**: no machine has both today -- `black`'s kernel sends no uevent
   for a forced status (DESIGN *KMS*), and the laptops have one output each.
@@ -1384,14 +1406,26 @@ process state that is still in the app, not a handle to add.
   thing DESIGN says must be proven on GNOME with two windows open at once, and
   this lab cannot. Wayland fails that test here today; the split is the ground
   it stands on.
-- **KMS's split is in; its second window is not.** The host owns the card and
-  its outputs, the event loop, the one input set and the layout; a window is a
-  selection of one output and its own scanout and cursor plane. A second window
-  is **refused**: it would be a second output on the one card, and nothing here
-  says which of two the keyboard and pointer are the user's (DESIGN *A second
-  window*), and every machine in this lab has one monitor a machine. Proving it
-  needs a second monitor on a bare machine -- TODO *The bare machine, without
-  Xorg* owes the cable, and this the round after.
+- **KMS's second window is built** (2026-11-23; DESIGN *On KMS a window is an
+  output*). The host owns the card and its outputs, the event loop, the one
+  input set and the layout; a window is a selection of one output and its own
+  scanout and cursor plane, and a second window opens on a free output at its
+  preferred mode. Input is routed by the pointer over the windows laid left to
+  right (pointer-follows-focus; the focused window has the keyboard), and the
+  output box lists the free outputs plus this window's. Since a second window
+  shares the host's Vulkan device and Mesa's display WSI faults anv on a
+  display surface beside a second swapchain, a host of more than one window
+  draws by the copy path and a window already showing lets its display go.
+  **Proven on schenker's CachyOS** (Intel HD 630, eDP-1 + HDMI-A-1), 2026-11-23,
+  `release`: the single window on the display path unaffected; two windows on
+  the two outputs (`--second-window`) drawing both, the cursor on the focused
+  first window, at `--kms` with the Intel copy path and with `FNL_GPU=nvidia`
+  (proprietary, its surfaceless copy path); SIGTERM/SIGINT now closes every
+  window, not only the one that installed the handler. Owed: the harness's
+  two-window check on KMS (it drives a window by the echo and `kms_grab.py`
+  needs an output named per window), and a display path that is not one
+  window's -- a DRM lease per output, or a per-window device, closes Mesa's
+  sharing for good.
 - **Cocoa's split is in; its second window is refused** -- `cocoa_open()` says
   so. The host's half is one NSApplication, one wakeup pipe and one delegate
   asking the frontmost, and the window's is its NSWindow, view and layer; but
