@@ -806,7 +806,7 @@ static void device_recover(App *a)
 		 * polls. FNL_EVENT_GPU closes it, posted when the device is back. */
 		FnlEvent ev        = { .type = FNL_EVENT_IMAGE_LOST };
 		ev.image_lost.lost = true;
-		app_event(a, &ev);
+		app_event_post(a, &ev);   /* the render thread's, which this is */
 	}
 
 	/* A renderer owed after a swap that failed both ways, a move to
@@ -933,6 +933,23 @@ static void gpu_switch_owed(App *a)
 	 * moved: the wish is kept for the turn after (app_gpu_driver_poll()). */
 	if (RENDERER(a)->lost(a) || a->mover_started || a->gpu_cross_landing)
 		return;
+	/* Not while a second window is open: the device is every window's
+	 * (DESIGN *A second window*), and a move rebuilds it under the other,
+	 * whose scene is the caller's to lose. Refused where the wish is spent,
+	 * so that fnl_request_gpu() and the titlebar's box both take it. The
+	 * count moves only as windows open and close, on the main thread. */
+	if (a->host->window_count > 1) {
+		fnl_mutex_lock(&a->lock);
+		const bool wished = a->gpu_req != 0;
+		a->gpu_req        = 0;
+		fnl_mutex_unlock(&a->lock);
+		if (wished) {
+			fnl_log(FNL_LOG_WARN,
+					"a GPU is not moved to while a second window is open");
+			veil_lift(a);
+		}
+		return;
+	}
 	/* A wish for nowhere is spent at once; one for another GPU stands
 	 * while the veil comes down over the frames this renderer still draws
 	 * (app_veil_gate()), and is read again then, so the latest wish is

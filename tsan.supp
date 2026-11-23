@@ -41,6 +41,29 @@ race_top:pthread_barrier_wait
 # and libwayland-client is then reported racing with itself, both accesses
 # holding the same mutex.
 
+# ---- RADV's per-device caches, reached from two windows --------------------
+# Two windows now draw on one VkDevice (DESIGN *A second window*), so their
+# render threads record on the same device at once -- which the specification
+# allows and drivers are written for. Mesa's caches are the device's, not a
+# context's, and each is published under its own simple_mtx, a bare futex TSan
+# cannot see: a cache key is malloc'd and filled on the thread that misses it
+# (cache_key_create(), radv_pipeline_cache_object_create()) and memcmp'd on
+# the thread that then finds it (cache_key_equal(), object_keys_equal()).
+#
+# Checked against the x11-vulkan tsan round on this desk's RX 590 GME (RADV
+# POLARIS10, Mesa 26.0.8) of 2026-11-23, its two-window check: eight reports,
+# every one of them a key of vk_pipeline_cache.c's or vk_meta.c's compared on
+# one render thread against the malloc of the same block on the other, and
+# radv_bind_dynamic_state() reading the meta cache's blit pipeline, published
+# the same way. No frame of this project's is on any stack above the Vulkan
+# entry point it called, and none of the three names is ours (`grep -rn` over
+# src/). The pipeline cache is internally synchronised by the specification,
+# as vk_raw_data_cache_object_create's entry below says; two threads making
+# pipelines at once is the interface's, not a misuse of it.
+race:object_keys_equal
+race:cache_key_equal
+race:radv_bind_dynamic_state
+
 # ---- NVK's GPU address heap ------------------------------------------------
 # Checked against the x11-vulkan-bare round on schenker's GTX 1050 Ti (NVK,
 # Mesa 26.2.4, Arch): a free in util_vma_heap_free() on the render thread,

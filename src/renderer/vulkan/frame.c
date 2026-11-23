@@ -669,7 +669,7 @@ static bool ensure_snap_buf(App *a)
 	if (need <= VK(a)->snap_bytes)
 		return true;
 	if (VK(a)->snap_bytes) {
-		if (vkQueueWaitIdle(VK(a)->queue) != VK_SUCCESS)
+		if (vk_queue_wait_idle(a) != VK_SUCCESS)
 			return false;
 		destroy_instance_buffers(a, 1, VK(a)->snap_buf, &VK(a)->snap_mem,
 								 VK(a)->snap_map);
@@ -731,7 +731,7 @@ static bool frame_bail(App *a, uint32_t frame, bool fence_reset)
 	 * its reset refused, leaves a signalled fence that lets the next acquire
 	 * hand over the semaphore this submit may still be waiting on.
 	 * Recovery is what makes both again. */
-	const VkResult sr = vkQueueSubmit(VK(a)->queue, 1, &si, fence);
+	const VkResult sr = vk_queue_submit(a, 1, &si, fence);
 	if (!vk_lost(a, sr) && (sr != VK_SUCCESS || fence == VK_NULL_HANDLE))
 		a->device_lost = true;
 	return false;
@@ -1175,7 +1175,7 @@ static void frame_present(App *a, uint32_t frame, uint32_t img,
 	 * readback below is the present (RendererState::surfaceless). */
 	VkResult pr = VK(a)->dxgi ? VK(a)->bridge->present_own(a, img)
 				: VK(a)->surfaceless ? VK_SUCCESS
-									 : vkQueuePresentKHR(VK(a)->queue, &pi);
+									 : vk_queue_present(a, &pi);
 	a->present_calls++;
 	if (VK(a)->present_copy && (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR))
 		present_copied(a, frame, img);
@@ -1419,7 +1419,7 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	};
 	/* Past the reset: the fence is unsignalled and this submit was the only
 	 * thing that would have signalled it, so the bail has to. */
-	VkResult sr = vkQueueSubmit(VK(a)->queue, 1, &si, VK(a)->in_flight[frame]);
+	VkResult sr = vk_queue_submit(a, 1, &si, VK(a)->in_flight[frame]);
 	if (vk_lost(a, sr) || VKR(sr) < 0)
 		return frame_bail(a, frame, true);
 	VK(a)->ts_unread[img] = VK(a)->ts_pool != VK_NULL_HANDLE;

@@ -203,6 +203,24 @@ void app_event(App *a, FnlEvent *ev)
 	fnl_mutex_unlock(&a->lock);
 }
 
+/* The library's own notification, posted from the render thread: the same
+ * queue as app_event(), without its input stamping, which is the main
+ * thread's bookkeeping and not the renderer's to touch. Today the one caller
+ * is the image lost beside a device's (frame.c's device_recover()). */
+void app_event_post(App *a, FnlEvent *ev)
+{
+	FNL_ASSERT_THREAD(APP_THREAD_RENDER);
+	static const EvBorn none;
+	ev->time = now_seconds() - a->started_at;
+	fnl_mutex_lock(&a->ev_lock);
+	queue_push(a, ev, &none);
+	fnl_mutex_unlock(&a->ev_lock);
+	/* As app_event(): a loop at rest draws the frame that drains it. */
+	fnl_mutex_lock(&a->lock);
+	fnl_cond_signal(&a->cond);
+	fnl_mutex_unlock(&a->lock);
+}
+
 /* ---- what the frame calls ------------------------------------------------
  *
  * Everything the library can change behind an application's back, diffed once

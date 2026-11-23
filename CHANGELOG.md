@@ -35,6 +35,12 @@ promised: before 1.0, nothing between minor releases.
   seat's input between two, a second output on the one card, and a second
   macOS window, none of them built or proven here. The ABI
   baseline gains the struct and the function; nothing existing moves.
+  **`fnl_request_gpu()` is refused while a second window is open**, with one
+  line in the log: a move rebuilds the device, and on Vulkan the device is
+  every window's now -- one `VkInstance` and one `VkDevice` for the host, a
+  second surface and swapchain a window, a loss every window's to rebuild --
+  so the other window's scene would be lost with it. A single-window program
+  moves between GPUs as before.
 
 - `fnl_set_scene_motion_px()`: how far the scene moved since the frame before
   it, in pixels of the scene. `FNL_AA_TAAU`'s resolve reads the history where

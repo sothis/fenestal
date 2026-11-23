@@ -26,6 +26,65 @@
 /* The renderer's state, from an App. */
 #define VK(a) ((a)->renderer_state)
 
+/* The renderer's state for the host, from an App
+ * (App::host->renderer_host): one VkInstance and one VkDevice for every
+ * window on it. A second window is a second surface and swapchain on that
+ * device, never a device of its own -- Intel's driver loses its device again
+ * and again with two of them open on one GPU, and its fifth creation after
+ * the losses faults. The first window to arrive makes them, the last to leave
+ * gives them up, and every window between borrows them. */
+struct VkHost {
+	/* The host's lock, and under it: the windows attached (create_instance()
+	 * to destroy_instance()) and the windows with objects live on the
+	 * device. The last of the second kind out destroys the device, and no
+	 * device is made while one of them is still on a dead one
+	 * (create_device_objects()). */
+	FnlMutex lock;
+	int      users;
+	int      live;
+	/* Bumped by each device made. RendererState::generation is the one a
+	 * window's objects were built on: a window still on `lost_gen` is on a
+	 * device that went, and rebuilds -- the loss is every window's, since
+	 * the device is. Not cleared by the rebuild: the new device's generation
+	 * is a different number, which is what ends the loss. */
+	uint32_t     generation;
+	FnlAtomicU32 lost_gen;
+
+	/* The instance, and what make_instance() settled about it. */
+	VkInstance  instance;
+	const struct VkBridge *bridge;
+	uint32_t    backend_ext_on;
+	bool        surface_maint;
+	PFN_vkGetPhysicalDeviceFeatures2KHR get_features2;
+	PFN_vkGetPhysicalDeviceMemoryProperties2KHR get_memory2;
+	PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
+
+	/* The device, what pick_device() chose and create_device() made. */
+	VkPhysicalDevice phys;
+	uint32_t         queue_family;
+	bool             phys_software;
+	bool             phys_vram_unkept;
+	VkDevice         device;
+	VkQueue          queue;
+	char             gpu_name[GPU_NAME_MAX];
+	uint32_t         msaa_samples;
+	/* The physical device's extension names, asked once for every window
+	 * (device_has_extension()). */
+	VkExtensionProperties *dev_exts;
+	uint32_t               dev_ext_n;
+	VkPhysicalDevice       dev_ext_phys;
+
+	/* One queue, so its calls are serialised across the render threads:
+	 * vkQueueSubmit() and vkQueuePresentKHR() are externally synchronised
+	 * per queue. Taken by vk_queue_submit(), vk_queue_present() and
+	 * vk_queue_wait_idle() alone. */
+	FnlMutex queue_lock;
+};
+
+/* The host's Vulkan state, from an App: non-NULL from create_instance() to
+ * destroy_instance(), which is the window's whole life on the renderer. */
+#define VKH(a) ((struct VkHost *)(a)->host->renderer_host)
+
 _Static_assert(GPU_NAME_MAX >= VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
 			   "GPU_NAME_MAX must hold a VkPhysicalDeviceProperties name");
 
@@ -115,15 +174,10 @@ struct RendererState {
 	void                 *readback_map[OVERLAY_MAX_IMAGES];
 	VkDeviceSize          readback_bytes;
 	VkPhysicalDevice      phys;
-	/* The physical device's extension names, enumerated once when
-	 * create_device() first asks about one: it asks about ten of them, and
-	 * each ask used to be a second full enumeration of the same list.
-	 * `dev_ext_phys` is whose list it is, so a device creation that lands on
-	 * another physical device asks again. Owned here and freed with the
-	 * instance. */
-	VkExtensionProperties *dev_exts;
-	uint32_t               dev_ext_n;
-	VkPhysicalDevice       dev_ext_phys;
+	/* The device's generation (VkHost::generation) that this window's objects
+	 * were built on: a window still on the generation a loss was reported at
+	 * is drawing on a device that is gone, and rebuilds with every other. */
+	uint32_t              generation;
 	/* A CPU rasteriser: its present blocks on the frame being drawn, so the
 	 * block is work and App::present_block is left unmeasured. */
 	bool                  phys_software;

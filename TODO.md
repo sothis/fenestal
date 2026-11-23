@@ -1429,19 +1429,6 @@ process state that is still in the app, not a handle to add.
   each window's renderer before its `on_gpu_created` (`thread_enter`, a no-op for
   Vulkan and Direct3D 12). Metal is unchanged: Cocoa refuses a second window, so
   it has none to draw.
-- **Intel Vulkan loses a second window's device, and its fifth build crashes.**
-  On schenker's HD 630 (driver 31.0.101.2145), a second Vulkan window loses its
-  device on each input event it takes -- focus, capture, release -- and after
-  the fifth `vkCreateDevice` on the same physical device the driver faults
-  (0xC0000005), which is where the two-window round ends. Localized with
-  step logs: the loss is the driver's, the recovery is not at fault, and the
-  crash is inside the driver's own call. NVIDIA on the same machine has no
-  losses, and Direct3D 12 on the same Intel GPU passes. Owed: a workaround,
-  each a design decision -- one `VkDevice` shared by the windows, the
-  D3D11-present path not used for a second window, or a cap on a window's
-  rebuilds. Win32's swapchain serial is now process-wide (it was the window's),
-  because the `vkDestroySwapchainKHR`/`vkCreateSwapchainKHR` fault the reaper's
-  comment records is otherwise reachable with two windows.
 - **The DESIGN table's pointer row is closed**: Win32's `ShowCursor` count and
   `ClipCursor` confinement are now the host's -- a host count of windows that
   have confined the pointer, so the first hides it and the last gives it back,

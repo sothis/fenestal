@@ -783,9 +783,9 @@ FnlResult end_oneshot(App *a, VkCommandBuffer cb)
 			.commandBufferCount = 1,
 			.pCommandBuffers = &cb,
 		};
-		rc = VKR(vkQueueSubmit(VK(a)->queue, 1, &si, VK_NULL_HANDLE));
+		rc = VKR(vk_queue_submit(a, 1, &si, VK_NULL_HANDLE));
 		if (rc >= 0)
-			rc = VKR(vkQueueWaitIdle(VK(a)->queue));
+			rc = VKR(vk_queue_wait_idle(a));
 	}
 	vkFreeCommandBuffers(VK(a)->device, VK(a)->cmd_pool, 1, &cb);
 	return rc;

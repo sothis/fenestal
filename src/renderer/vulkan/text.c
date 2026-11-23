@@ -296,7 +296,7 @@ FnlResult text_set_scale(App *a, int s120)
 	 * frame, so it is where a loss usually surfaces. Flag it and leave the
 	 * atlas alone: the caller's create_swapchain sees the same loss, and the
 	 * rebuild uploads the atlas for whatever scale is current by then. */
-	VkResult r = vkQueueWaitIdle(VK(a)->queue);
+	VkResult r = vk_queue_wait_idle(a);
 	if (vk_lost(a, r))
 		return FNL_OK;      /* flagged; the caller's rebuild answers it */
 	VK_TRY(r);

@@ -213,7 +213,7 @@ static bool exts_have(const char *const *exts, uint32_t n, const char *name)
 static const VkBridge *const BRIDGES[] = { FNL_BACKENDS(BRIDGE_ENTRY) };
 #undef BRIDGE_ENTRY
 
-static FnlResult make_instance(App *a, struct RendererState *g)
+static FnlResult make_instance(App *a, struct VkHost *g)
 {
 	for (size_t i = 0; i < sizeof BRIDGES / sizeof BRIDGES[0]; i++)
 		if (BRIDGES[i]->backend == BACKEND(a)->id)
@@ -394,19 +394,56 @@ static FnlResult make_instance(App *a, struct RendererState *g)
 	return FNL_OK;
 }
 
-/* The seam's first entry, so the renderer's state is born here: zeroed, which
- * is every handle VK_NULL_HANDLE. app.c calls destroy_instance() only once
- * this has succeeded, so a failure frees the state itself; make_instance()
- * leaves no instance behind a failure of its own, destroying the one it
- * made where the loader then refuses an entry. */
+/* The window's state, and the host's on the first call: zeroed, which is
+ * every handle VK_NULL_HANDLE. app.c calls destroy_instance() only once this
+ * has succeeded, so a failure frees the state itself; make_instance() leaves
+ * no instance behind a failure of its own, destroying the one it made where
+ * the loader then refuses an entry.
+ *
+ * The instance is the host's, and the second window copies what make_instance()
+ * settled rather than making another: two instances on one GPU is how Intel's
+ * driver came to lose its devices. Everything here is written before the
+ * window does anything with it, and stays the same for every window. */
 static FnlResult create_instance(App *a)
 {
 	FNL_ASSERT(!a->renderer_state);
 	a->renderer_state = calloc(1, sizeof *a->renderer_state);
 	if (!a->renderer_state)
 		return out_of_memory("the Vulkan renderer's state");
-	FnlResult rc = make_instance(a, a->renderer_state);
+	if (!a->host->renderer_host) {
+		struct VkHost *h = calloc(1, sizeof *h);
+		if (!h) {
+			free(a->renderer_state);
+			a->renderer_state = NULL;
+			return out_of_memory("the Vulkan renderer's host state");
+		}
+		fnl_mutex_init(&h->lock);
+		fnl_mutex_init(&h->queue_lock);
+		a->host->renderer_host = h;
+	}
+	struct VkHost *h = VKH(a);
+	FnlResult rc = FNL_OK;
+	fnl_mutex_lock(&h->lock);
+	if (h->users == 0)
+		rc = make_instance(a, h);
+	if (rc >= 0) {
+		h->users++;
+		VK(a)->instance       = h->instance;
+		VK(a)->bridge         = h->bridge;
+		VK(a)->backend_ext_on = h->backend_ext_on;
+		VK(a)->surface_maint  = h->surface_maint;
+		VK(a)->get_features2  = h->get_features2;
+		VK(a)->get_memory2    = h->get_memory2;
+		VK(a)->surface_caps2  = h->surface_caps2;
+	}
+	fnl_mutex_unlock(&h->lock);
 	if (rc < 0) {
+		/* Nothing was attached, so the host goes with the window's state: a
+		 * make_instance() that failed left no instance behind. */
+		fnl_mutex_destroy(&h->lock);
+		fnl_mutex_destroy(&h->queue_lock);
+		free(h);
+		a->host->renderer_host = NULL;
 		free(a->renderer_state);
 		a->renderer_state = NULL;
 	}
@@ -677,7 +714,7 @@ static FnlResult pick_device(App *a)
  * bridge's can_draw where it has one, else whether a graphics queue family
  * presents to the window server (VkBridge::presents), else whether there
  * is a graphics queue at all. */
-static bool listed_without_surface(App *a, const struct RendererState *g,
+static bool listed_without_surface(App *a, const struct VkHost *g,
 								   VkPhysicalDevice dev)
 {
 	const VkBridge *b = g->bridge;
@@ -708,7 +745,7 @@ static bool listed_without_surface(App *a, const struct RendererState *g,
  * move to Vulkan can start meanwhile. */
 static int vk_list_gpus(App *a, GpuEntry *out, int max)
 {
-	struct RendererState *g = calloc(1, sizeof *g);
+	struct VkHost *g = calloc(1, sizeof *g);
 	if (!g)
 		return 0;
 	int n = 0;
@@ -767,18 +804,19 @@ static bool swapchain_maintenance(VkPhysicalDevice phys,
 /* Whether the device offers an extension, asked of the driver: a device
  * extension the device lacks fails vkCreateDevice outright. */
 /* Whether the physical device offers `name`. The list is enumerated once and
- * kept on the renderer's state: a device creation asks about ten names, and
- * each ask was a second full enumeration of the same list -- two driver round
- * trips apiece, about twenty before the first frame. Asked again only where
- * the creation landed on another physical device, which a move or a recovery
- * may do. */
+ * kept on the host's state, which the windows share: a device creation asks
+ * about ten names, and each ask was a second full enumeration of the same
+ * list -- two driver round trips apiece, about twenty before the first frame.
+ * Asked again only where the creation landed on another physical device,
+ * which a move or a recovery may do. */
 static bool device_has_extension(App *a, const char *name)
 {
-	if (!VK(a)->dev_exts || VK(a)->dev_ext_phys != VK(a)->phys) {
-		free(VK(a)->dev_exts);
-		VK(a)->dev_exts      = NULL;
-		VK(a)->dev_ext_n     = 0;
-		VK(a)->dev_ext_phys  = VK(a)->phys;
+	struct VkHost *h = VKH(a);
+	if (!h->dev_exts || h->dev_ext_phys != VK(a)->phys) {
+		free(h->dev_exts);
+		h->dev_exts      = NULL;
+		h->dev_ext_n     = 0;
+		h->dev_ext_phys  = VK(a)->phys;
 
 		uint32_t n = 0;
 		if (vkEnumerateDeviceExtensionProperties(VK(a)->phys, NULL, &n, NULL) !=
@@ -793,11 +831,11 @@ static bool device_has_extension(App *a, const char *name)
 			free(props);
 			return false;
 		}
-		VK(a)->dev_exts  = props;
-		VK(a)->dev_ext_n = n;
+		h->dev_exts  = props;
+		h->dev_ext_n = n;
 	}
-	for (uint32_t i = 0; i < VK(a)->dev_ext_n; i++)
-		if (strcmp(VK(a)->dev_exts[i].extensionName, name) == 0)
+	for (uint32_t i = 0; i < h->dev_ext_n; i++)
+		if (strcmp(h->dev_exts[i].extensionName, name) == 0)
 			return true;
 	return false;
 }
@@ -826,7 +864,14 @@ static bool calibrates_monotonic(VkInstance inst, VkPhysicalDevice phys)
 }
 #endif
 
-static FnlResult create_device(App *a)
+/* The device, and what it was made with. `borrow` is the host's device for
+ * every window after the first: the derivation below is the physical
+ * device's answer, the same for every window on it, so that the second
+ * window reaches exactly what the first did, and only the creation itself is
+ * skipped. Its own state (scale_refused) is the window's, and where that
+ * differs the window is the more careful of the two -- it does not use what
+ * the device has but its own rebuild has not asked for. */
+static FnlResult create_device(App *a, VkDevice borrow)
 {
 	float prio = 1.0f;
 	VkDeviceQueueCreateInfo qci = {
@@ -1002,7 +1047,10 @@ static FnlResult create_device(App *a)
 		.ppEnabledExtensionNames = exts,
 		.pEnabledFeatures = &want,
 	};
-	VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &VK(a)->device));
+	if (borrow != VK_NULL_HANDLE)
+		VK(a)->device = borrow;
+	else
+		VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &VK(a)->device));
 	VK(a)->memory_budget =
 		VK(a)->get_memory2 &&
 		device_has_extension(a, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
@@ -1275,12 +1323,89 @@ int vk_dxgi_env(void)
 	return v && (v[0] == '0' || v[0] == '1') ? v[0] - '0' : -1;
 }
 
+/* The host's device as the window that made it left it: the second window
+ * takes these rather than choosing and creating its own. The caller holds
+ * VkHost::lock. */
+static void host_publish_device(App *a)
+{
+	struct VkHost *h = VKH(a);
+
+	h->phys             = VK(a)->phys;
+	h->queue_family     = VK(a)->queue_family;
+	h->phys_software    = VK(a)->phys_software;
+	h->phys_vram_unkept = VK(a)->phys_vram_unkept;
+	h->device           = VK(a)->device;
+	h->queue            = VK(a)->queue;
+	fnl_mutex_lock(&a->lock);
+	snprintf(h->gpu_name, sizeof h->gpu_name, "%s", a->gpu_name);
+	fnl_mutex_unlock(&a->lock);
+	h->msaa_samples = fnl_atomic_load_u32(&a->msaa_samples);
+	/* The generation the new device is, which every window that joins it
+	 * reads; the loss (VkHost::lost_gen) is behind it. */
+	h->generation++;
+	VK(a)->generation = h->generation;
+}
+
+/* The window that is not the first: the host's device is its device too, and
+ * it is not asked about or chosen again. The caller holds VkHost::lock. */
+static FnlResult attach_device(App *a, struct VkHost *h)
+{
+	VK(a)->phys             = h->phys;
+	VK(a)->queue_family     = h->queue_family;
+	VK(a)->phys_software    = h->phys_software;
+	VK(a)->phys_vram_unkept = h->phys_vram_unkept;
+	VK(a)->generation       = h->generation;
+	/* No list of its own: the GPU is the host's, and a move is refused
+	 * while a second window is open (fnl_request_gpu()). */
+	VK(a)->pick_n   = 0;
+	VK(a)->pick_cur = -1;
+	VK(a)->pick_via = -1;
+	fnl_mutex_lock(&a->lock);
+	snprintf(a->gpu_name, sizeof a->gpu_name, "%s", h->gpu_name);
+	fnl_mutex_unlock(&a->lock);
+	fnl_atomic_store_u32(&a->msaa_samples, h->msaa_samples);
+	return create_device(a, h->device);
+}
+
 /* Everything below the VkInstance, in dependency order. Startup and loss
- * recovery both go through here, so they cannot build different sets. */
+ * recovery both go through here, so they cannot build different sets.
+ *
+ * The device is made once for every window on the host, and a window that is
+ * not the first borrows it. Where a loss took it down, the last window to
+ * destroy its objects destroys the device, and no window makes another until
+ * none of them is on the old one -- two devices on one GPU is what Intel's
+ * driver does not survive. */
 static FnlResult create_device_objects(App *a)
 {
-	FNL_TRY(pick_device(a));
-	FNL_TRY(create_device(a));
+	struct VkHost *h = VKH(a);
+	FnlResult rc;
+	fnl_mutex_lock(&h->lock);
+	/* Bounded: a window that never lets go is a run already ending. Giving
+	 * up here leaves the loss raised, and the loop comes back next turn. */
+	int spins = 0;
+	while (h->device == VK_NULL_HANDLE && h->live > 0) {
+		if (++spins > 2500) {
+			fnl_mutex_unlock(&h->lock);
+			return fnl_fail(FNL_ERR_NO_DEVICE,
+							"the device is still held by another window");
+		}
+		fnl_mutex_unlock(&h->lock);
+		fnl_sleep_seconds(0.002);
+		fnl_mutex_lock(&h->lock);
+	}
+	if (h->device == VK_NULL_HANDLE) {
+		rc = pick_device(a);
+		if (rc == FNL_OK)
+			rc = create_device(a, VK_NULL_HANDLE);
+		if (rc == FNL_OK)
+			host_publish_device(a);
+	} else {
+		rc = attach_device(a, h);
+	}
+	if (rc == FNL_OK)
+		h->live++;
+	fnl_mutex_unlock(&h->lock);
+	FNL_TRY(rc);
 	if (VK(a)->bridge->choose_present)
 		FNL_TRY(VK(a)->bridge->choose_present(a));
 	/* The entry in use is the one the frames now go by: the one beside a
@@ -1336,6 +1461,7 @@ static void destroy_device_objects(App *a, bool save_cache)
 {
 	if (VK(a)->device == VK_NULL_HANDLE)
 		return;
+	struct VkHost *h = VKH(a);
 
 	/* A device the drain finds lost has no cache worth keeping, whatever
 	 * the caller expected of it. */
@@ -1382,7 +1508,18 @@ static void destroy_device_objects(App *a, bool save_cache)
 	destroy_text_pipeline(a);
 	destroy_scene_objects(a);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->render_pass, NULL);
-	vkDestroyDevice(VK(a)->device, NULL);
+	/* The device is every window's: the last one out destroys it, and the
+	 * ones before leave it to the window still drawing (or rebuilding) on
+	 * it. A count of zero is what lets the next window make one. */
+	fnl_mutex_lock(&h->lock);
+	if (h->live > 0)
+		h->live--;
+	if (h->live == 0 && h->device == VK(a)->device) {
+		vkDestroyDevice(VK(a)->device, NULL);
+		h->device = VK_NULL_HANDLE;
+		h->queue  = VK_NULL_HANDLE;
+	}
+	fnl_mutex_unlock(&h->lock);
 
 	VK(a)->device         = VK_NULL_HANDLE;
 	VK(a)->queue          = VK_NULL_HANDLE;
@@ -1414,6 +1551,25 @@ static void recover_from_loss(App *a)
 	 * said as one and paced as one. */
 	const bool remake = a->surface_remake;
 	a->surface_remake = false;
+	/* The device is every window's, so its rebuilding is too: a loss on one
+	 * window is the host's, and each other window on this generation finds
+	 * it through lost() and destroys its own objects, so that the last one
+	 * out can destroy the device (destroy_device_objects()) before any
+	 * window makes the next (create_device_objects()). Signalled once; the
+	 * rebuild ends it by giving the device a new generation. */
+	struct VkHost *h = VKH(a);
+	fnl_mutex_lock(&h->lock);
+	const int users = h->users;
+	fnl_mutex_unlock(&h->lock);
+	if (users > 1) {
+		const uint32_t gen = VK(a)->generation;
+		if (fnl_atomic_load_u32(&h->lost_gen) != gen) {
+			fnl_atomic_store_u32(&h->lost_gen, gen);
+			fnl_log(FNL_LOG_ERROR,
+					"the device is every window's -- all %d rebuild", users);
+		}
+		a->device_lost = true;
+	}
 	/* A move to another GPU was said by the loop (gpu_switch_owed()). */
 	if (remake)
 		fnl_log(FNL_LOG_INFO, "the surface is made again for the output's "
@@ -1487,20 +1643,40 @@ static void vk_destroy_instance(App *a)
 {
 	if (!a->renderer_state)
 		return;
-	/* A display the bridge acquired is handed back, which is also where the
-	 * driver lets go of the descriptor it was lent (VK_EXT_direct_mode_
-	 * display); the entry is looked up because only that bridge enables
-	 * the extension. */
-	if (VK(a)->instance && VK(a)->vk_display != VK_NULL_HANDLE) {
-		PFN_vkReleaseDisplayEXT release =
-			(PFN_vkReleaseDisplayEXT)vkGetInstanceProcAddr(
-				VK(a)->instance, "vkReleaseDisplayEXT");
-		if (release)
-			release(VK(a)->surface_phys, VK(a)->vk_display);
+	struct VkHost *h = VKH(a);
+	bool last = false;
+	if (h) {
+		/* The display is this window's, the instance every window's: the
+		 * display goes back under the lock, and the instance only with the
+		 * last window attached to it. */
+		fnl_mutex_lock(&h->lock);
+		if (VK(a)->instance && VK(a)->vk_display != VK_NULL_HANDLE) {
+			/* A display the bridge acquired is handed back, which is also
+			 * where the driver lets go of the descriptor it was lent
+			 * (VK_EXT_direct_mode_display); the entry is looked up because
+			 * only that bridge enables the extension. */
+			PFN_vkReleaseDisplayEXT release =
+				(PFN_vkReleaseDisplayEXT)vkGetInstanceProcAddr(
+					VK(a)->instance, "vkReleaseDisplayEXT");
+			if (release)
+				release(VK(a)->surface_phys, VK(a)->vk_display);
+		}
+		if (h->users > 0)
+			h->users--;
+		last = h->users == 0;
+		if (last && h->instance) {
+			vkDestroyInstance(h->instance, NULL);
+			h->instance = VK_NULL_HANDLE;
+		}
+		fnl_mutex_unlock(&h->lock);
+		if (last) {
+			free(h->dev_exts);
+			fnl_mutex_destroy(&h->lock);
+			fnl_mutex_destroy(&h->queue_lock);
+			free(h);
+			a->host->renderer_host = NULL;
+		}
 	}
-	if (VK(a)->instance)
-		vkDestroyInstance(VK(a)->instance, NULL);
-	free(VK(a)->dev_exts);
 	free(a->renderer_state);
 	a->renderer_state = NULL;
 	/* Written by this renderer alone (create_device_objects()), and ""
@@ -1520,15 +1696,50 @@ static void vk_destroy_surface(App *a)
 	}
 }
 
+/* The host's queue, shared by the windows on it. */
+VkResult vk_queue_submit(App *a, uint32_t n, const VkSubmitInfo *s, VkFence f)
+{
+	struct VkHost *h = VKH(a);
+	fnl_mutex_lock(&h->queue_lock);
+	const VkResult r = vkQueueSubmit(VK(a)->queue, n, s, f);
+	fnl_mutex_unlock(&h->queue_lock);
+	return r;
+}
+
+VkResult vk_queue_present(App *a, const VkPresentInfoKHR *p)
+{
+	struct VkHost *h = VKH(a);
+	fnl_mutex_lock(&h->queue_lock);
+	const VkResult r = vkQueuePresentKHR(VK(a)->queue, p);
+	fnl_mutex_unlock(&h->queue_lock);
+	return r;
+}
+
+VkResult vk_queue_wait_idle(App *a)
+{
+	struct VkHost *h = VKH(a);
+	fnl_mutex_lock(&h->queue_lock);
+	const VkResult r = vkQueueWaitIdle(VK(a)->queue);
+	fnl_mutex_unlock(&h->queue_lock);
+	return r;
+}
+
 static void vk_wait_idle(App *a)
 {
 	if (VK(a)->device)
 		vkDeviceWaitIdle(VK(a)->device);
 }
 
+/* The window's own loss, or the host's: a device lost on another window is
+ * this one's too (recover_from_loss() says which generation went). Lock-free,
+ * since the loop asks it every turn. */
 static bool vk_is_lost(const App *a)
 {
-	return a->device_lost || a->surface_lost;
+	if (a->device_lost || a->surface_lost)
+		return true;
+	const struct VkHost *h = VKH(a);
+	return h && VK(a)->device != VK_NULL_HANDLE &&
+		   fnl_atomic_load_u32(&h->lost_gen) == VK(a)->generation;
 }
 
 /* A display surface names its mode (VkDisplaySurfaceCreateInfoKHR), so

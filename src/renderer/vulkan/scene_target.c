@@ -539,7 +539,7 @@ static void scene_depth_make_resident(App *a)
 	if (w == 0 || h == 0 || VK(a)->scene_depth_resident)
 		return;
 	if (VK(a)->scene.image) {
-		const VkResult r = vkQueueWaitIdle(VK(a)->queue);
+		const VkResult r = vk_queue_wait_idle(a);
 		if (vk_lost(a, r))
 			return;
 		/* Not VK_TRY: this returns nothing, and a drain that failed for
@@ -590,7 +590,7 @@ void scene_set_size(App *a, int w, int h)
 	 * the images and their descriptors, and this runs from the rebuild path,
 	 * which recovers from a lost device rather than failing on one. */
 	if (VK(a)->scene.image) {
-		VkResult r = vkQueueWaitIdle(VK(a)->queue);
+		VkResult r = vk_queue_wait_idle(a);
 		if (vk_lost(a, r))
 			return;
 		/* Not VK_TRY: this returns nothing, so a drain that failed for another
@@ -626,7 +626,7 @@ void scene_set_size(App *a, int w, int h)
 static bool cover_upload(App *a)
 {
 	if (VK(a)->cover.image != VK_NULL_HANDLE) {
-		const VkResult wr = vkQueueWaitIdle(VK(a)->queue);
+		const VkResult wr = vk_queue_wait_idle(a);
 		if (vk_lost(a, wr) || wr != VK_SUCCESS)
 			return false;
 		destroy_target_image(a, &VK(a)->cover);
@@ -736,7 +736,7 @@ void vk_cover_release(App *a)
 {
 	if (VK(a)->cover.image == VK_NULL_HANDLE && VK(a)->snap_bytes == 0)
 		return;
-	const VkResult wr = vkQueueWaitIdle(VK(a)->queue);
+	const VkResult wr = vk_queue_wait_idle(a);
 	if (vk_lost(a, wr) || wr != VK_SUCCESS)
 		return;
 	destroy_target_image(a, &VK(a)->cover);

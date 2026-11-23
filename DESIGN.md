@@ -3801,7 +3801,9 @@ capture, clipboard or title stays where it is. `FnlBackendVtbl` has 44
 entries and eleven are the host's — `absent`, `host`, `shared_driver`, `open`,
 `close`, `pump`, `wakeup`, `check_error` and the three `gpu_driver*`; the rest
 do not change. The renderer seam does not split at all: `create_surface` and
-everything under it is one window's device.
+everything under it is one window's — except, on Vulkan, the instance and the
+device, which are the host's and are what `App::host->renderer_host` holds
+(below).
 
 **What is already per-window** is the evidence that the split is a sort and not
 a rewrite. Each of these hangs off `App` or `BackendState` and is touched by
@@ -3896,8 +3898,57 @@ clipboard offer and the text-input mode are one window's at a time, because the
 desktop says so: one window has the keyboard, one program owns the selection,
 one pointer is captured. The host routes them; each window's `FNL_EVENT_FOCUS`
 says whose turn it is, and the held-key set moves with it. The device is not
-one of these: each window builds its own, which is what every renderer already
-does, and a shared device is rejected below.
+one of these, but on Vulkan it is the host's (below): a window's own device is
+what the other renderers still build, and what Vulkan built until a driver said
+otherwise.
+
+**The Vulkan device is the host's.** Measured on 2026-11-23 on schenker's
+Intel HD 630 (driver 31.0.101.2145): a second Vulkan window losing its device
+on each input event it took — focus, capture, release — and the driver faulting
+(0xC0000005) on the fifth `vkCreateDevice` on that GPU. Two `VkDevice`s on one
+GPU is what that driver does not survive; NVIDIA's on the same machine lost
+nothing, and Direct3D 12 drew the same two windows on the same Intel GPU
+through the round. So one `VkInstance` and one `VkDevice` with its one queue
+are the host's: `VkHost`, in `src/renderer/vulkan/vk_state.h`, behind
+`App::host->renderer_host`. The first window to arrive makes them and
+publishes what it settled — the physical device, the queue family, the
+extension list, the present timing, the multisample count; each window after
+it borrows them, deriving the same device-level answers from the physical
+device rather than asking the driver again; and the last to leave gives them
+up. A window keeps what is its own: a surface, a swapchain, its pipelines, its
+command pool and buffers. Following a device a window does not own costs three
+things:
+
+- **A loss is every window's.** The window that finds the device gone records
+  its generation in `VkHost::lost_gen`; each other window on that generation
+  reads it in `lost()`, so every one destroys its own objects, and the last of
+  them destroys the device. No window makes another until `VkHost::live` says
+  none is still on the old one (`create_device_objects()` waits, bounded),
+  because two devices on the GPU for however short a time is the fault above.
+  The device made next is a new generation, which is what ends the loss.
+- **The queue is one.** `vkQueueSubmit()`, `vkQueuePresentKHR()` and
+  `vkQueueWaitIdle()` are externally synchronised per queue, so no file calls
+  them directly: `vk_queue_submit()`, `vk_queue_present()` and
+  `vk_queue_wait_idle()` (device.c) hold `VkHost::queue_lock` around them.
+- **A GPU is not moved to while a second window is open.** A move rebuilds the
+  device, and the other window's scene is the caller's to lose: refused where
+  the wish is spent (`gpu_switch_owed()`), so that `fnl_request_gpu()` and the
+  titlebar's box both take it, with one line said.
+
+And one thing it costs the checker: Mesa's per-device caches — the pipeline
+cache's and `vk_meta`'s — are reached from two render threads at once for the
+first time, and publish their keys under a `simple_mtx` TSan cannot see.
+`tsan.supp` names the three functions the reports were in
+(`object_keys_equal`, `cache_key_equal`, `radv_bind_dynamic_state`), checked
+against `x11-vulkan`'s two-window check under tsan on this desk's RX 590.
+Passing now: the two-window check on `x11-vulkan`, `wayland-vulkan`,
+`win64-vulkan` (wine) and `win64-vulkan-native@schenker` on both of its GPUs,
+three Intel rounds and one NVIDIA round, 116 checks each; `x11-vulkan` under
+asan; and the tsan round's own checks, its two-window check failing on the
+harness's pointer sweep of a slow build and not on a check of the library's.
+Direct3D 12, OpenGL and Metal still build a device a window, measured green on
+the same Intel GPU; if a driver is found to want them shared, `VkHost`'s shape
+is the one to follow.
 
 **A calibration is the window's, the figures are the program's.** The ranking
 file is one per backend per program (`gpu-rank-<prog>-<backend>.txt`), so two
@@ -3913,10 +3964,11 @@ client duplicates the clipboard and the input method, and the ranking, the log
 sink and the signal handlers are each last-writer-wins. *One `FnlApp` owning N
 swapchains* puts "which window" into every renderer entry — the flattening
 that *Two dispatch tables* refused, one level down — and makes every
-per-window field in `App` an array. *One device shared by the windows* wants a
-swapchain per window inside every renderer, and a loss in one window takes the
-other's frames with it, where a device a window keeps the recovery story the
-tree already measures. *Letting the caller run N programs*, which is what
+per-window field in `App` an array. *One device shared by the windows* was
+rejected for exactly that cost — a swapchain per window, and a loss in one
+taking the other's frames with it — and is now what Vulkan does, because a
+driver measured losing the device it was given is worse than a rebuild every
+window shares (above). *Letting the caller run N programs*, which is what
 `run_all.sh` does today, is a harness answer and not a library one: no shared
 input, clipboard subtlety or ranking, and no window that is dragged onto
 another monitor.

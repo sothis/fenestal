@@ -554,7 +554,7 @@ static FnlResult depth_ensure(App *a, VkExtent2D e,
 		if (r && r->depth.image == VK_NULL_HANDLE) {
 			r->depth = VK(a)->depth;
 		} else {
-			const VkResult wr = vkQueueWaitIdle(VK(a)->queue);
+			const VkResult wr = vk_queue_wait_idle(a);
 			if (vk_lost(a, wr))
 				return FNL_ERR_DEVICE_LOST;
 			VK_TRY(wr);
@@ -944,7 +944,7 @@ void free_all_retired(App *a)
 {
 	if (VK(a)->retired_count == 0)
 		return;
-	vkQueueWaitIdle(VK(a)->queue); /* one drain covers every entry */
+	vk_queue_wait_idle(a); /* one drain covers every entry */
 	for (int i = 0; i < VK(a)->retired_count; i++)
 		retired_destroy(a, &VK(a)->retired[i], false);
 	VK(a)->retired_count = 0;
@@ -1033,7 +1033,7 @@ bool recreate_swapchain(App *a)
 	const double t_now = now_seconds();
 	if (VK(a)->swapchain != VK_NULL_HANDLE &&
 		t_now - VK(a)->swap_rebuilt_at > SWAP_REST_AFTER) {
-		vkQueueWaitIdle(VK(a)->queue);
+		vk_queue_wait_idle(a);
 		fnl_sleep_seconds(SWAP_REST);
 	}
 	VK(a)->swap_rebuilt_at = now_seconds();
@@ -1062,7 +1062,7 @@ void vk_retire_tick(App *a)
 	for (int i = VK(a)->retired_count - 1; i >= 0; i--)
 		if (--VK(a)->retired[i].countdown == 0) {
 			if (!drained) {
-				vkQueueWaitIdle(VK(a)->queue);
+				vk_queue_wait_idle(a);
 				drained = true;
 			}
 			retired_destroy(a, &VK(a)->retired[i], true);

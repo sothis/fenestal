@@ -1189,6 +1189,14 @@ struct Host {
 	/* Whether the listed GPUs span more than one renderer (renderer_spans),
 	 * as renderer_choose_and_build() computed it for the first window. */
 	bool gpu_spans;
+	/* The renderer's own state for the host, where it has one that is the
+	 * host's rather than a window's: Vulkan's VkInstance, VkDevice and queue
+	 * are one for every window on it, and a second window is a second
+	 * swapchain and surface on that device rather than a device of its own.
+	 * Allocated by the renderer's create_instance() for the first window and
+	 * freed by destroy_instance() for the last; opaque, in the renderer's
+	 * state header, and no file outside src/renderer/<g>/ reads it. */
+	void *renderer_host;
 };
 
 /* Tagged `FnlApp` and typedef'd `App`: `FnlApp` is what the installed header
@@ -2839,8 +2847,11 @@ void app_park(App *a, bool break_on_urgent);
 /* ---- events.c and echo.c ------------------------------------------------ */
 
 /* Queue one event for the application, stamping its time. Every input path in
- * every backend goes through this; see src/core/events.c. */
+ * every backend goes through this; see src/core/events.c. Main thread. */
 void app_event(App *a, FnlEvent *ev);
+/* The library's own notification, queued from the render thread: the same
+ * queue, with no input stamping (frame.c's device_recover()). */
+void app_event_post(App *a, FnlEvent *ev);
 /* How long ago the input the backend is about to hand in was made, by the
  * window server's or the device's own stamp on it: the start of what
  * fnl_input_latency_ms() measures, for the next counted event app_event()
