@@ -1397,12 +1397,15 @@ process state that is still in the app, not a handle to add.
   Wayland (the compositor places) and KMS (the window is the output) ignore it,
   as their comments say. Cocoa could honour it and is owed with whatever proves
   a second Cocoa window -- one does not open here.
-- **What is measured where, once it is built.** The harness finds a window
-  by title and `_NET_WM_PID`, so a second window in one process is already
-  the case its own docstring warns about: the echo line wants a window and
-  `find_window()` a way to choose. `kms_grab.py` needs an output named, and
-  `stress.py` earns a check that opens two windows and moves the focus
-  between them -- the one thing no single-window round can say. Owed.
+- **What is measured where.** *Done for X11 and Win32*: `stress.py` opens a
+  second window (the testbed's `--second-window`, relaunched after the
+  single-window round) and checks both windows open, are distinct and focused in
+  turn -- the one thing no single-window round can say. It passes on
+  `x11-vulkan` and `win64-vulkan` (release, 2026-11-23), 8 checks a round. Still
+  owed: the harness finds a window by title and `_NET_WM_PID`, so `find_window()`
+  needs a way to choose between two of one process (today by title, which the
+  second window's distinct title leans on); and `kms_grab.py` needs an output
+  named where a KMS round shows two. The harness's own `_NET_WM_PID` note stands.
 - **Still owed from the DESIGN table**: Win32's two desktop-global pointer calls
   (`ShowCursor`'s process-wide count, `ClipCursor`'s global confinement) are
   still made per window, so two Win32 windows that capture would fight; and the

@@ -3585,6 +3585,56 @@ def given_back(hold):
     return hold.by_hand
 
 
+def two_window(b, r):
+    """A second window beside the first on the same host: open, drawn, and
+    focused in turn. The one thing a single-window round cannot say.
+
+    The program is relaunched with --second-window, which opens the second
+    window from fnl_window_create() before fnl_run() and runs it under the same
+    pump; the harness has just stopped the single-window program, so this is a
+    fresh one. Both are X windows on the display -- a wine-hosted Win32 window
+    is one too -- so x11_driver finds each by its title and the process's
+    _NET_WM_PID, and asks the server which has the focus."""
+    X = b.X
+    pid = b._window_pid()
+    prim = X.find_window(pid=pid)
+    try:
+        second = X.find_window(title_substr="Second window", pid=pid,
+                               timeout=15.0)
+    except Exception as e:
+        r.check("a second window opens beside the first", False, str(e))
+        return
+    gp = X.geom(prim)
+    gs = X.geom(second)
+    r.check(
+        "a second window opens beside the first",
+        second is not None,
+        "first %dx%d, second %dx%d" % (gp[2], gp[3], gs[2], gs[3]),
+    )
+    r.check(
+        "both windows have a size",
+        min(gp[2], gp[3], gs[2], gs[3]) > 100,
+        "first %dx%d at %d,%d, second %dx%d at %d,%d"
+        % (gp[2], gp[3], gp[0], gp[1], gs[2], gs[3], gs[0], gs[1]),
+    )
+    # The position asked for in --second-window (120,120), where the backend
+    # honours it: the two do not open on top of one another.
+    r.check(
+        "and one is placed off the other",
+        (gp[0], gp[1]) != (gs[0], gs[1]),
+        "first at %d,%d, second at %d,%d" % (gp[0], gp[1], gs[0], gs[1]),
+    )
+    r.check("the program is alive with two windows", b.alive())
+    r.check("the first window takes the focus", X.focus_settled(prim))
+    r.check("the focus moves to the second", X.focus_settled(second))
+    r.check("and back to the first", X.focus_settled(prim))
+    # The second window is a renderer device, a swapchain and a render thread
+    # of its own on the host's one renderer; a warning or a leak from building
+    # it is what this reads.
+    bad = complaints(b)
+    r.check("log is clean with two windows", not bad, "; ".join(bad[:3]))
+
+
 def run_rounds(run, description, program=None, pictures=False, program_args=()):
     """Parse the command line, run `run` against each environment asked for,
     print the totals, and return the exit status.
@@ -3826,6 +3876,38 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
             output=os.environ.get(getattr(b, "WANT_OUTPUT", B.OUTPUT_ENV), ""),
             **kept_log(b, r),
         )
+        # ---- a second window, where the backend opens one ----------------
+        # The single-window round is over and its program stopped; this is a
+        # fresh one, opened with --second-window, that the harness drives for
+        # the one thing a one-window round cannot say.
+        if (
+            "second-window" in b.CAN
+            and b.program == "fenestal-testbed"
+            and not given_back(hold)
+        ):
+            r2 = Round(b, False)
+            try:
+                b.start(
+                    args.variant,
+                    args=tuple(program_args) + ("--second-window",),
+                    env=env
+                    if isinstance(b, B._OnBare)
+                    else dict(env, **desk),
+                )
+                two_window(b, r2)
+            except Exception as e:
+                r2.check(
+                    "a second window opens beside the first",
+                    False,
+                    "%s: %s" % (type(e).__name__, e),
+                )
+            finally:
+                for stop in (b.stop, b.close):
+                    try:
+                        stop()
+                    except Exception:
+                        pass
+            rounds.append(r2)
         if given_back(hold):
             break
 

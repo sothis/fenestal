@@ -60,6 +60,12 @@ static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
  * display's own rate, the default. */
 static int g_fps;
 static double g_fps_next;
+/* --second-window: open a second window on the same host after fnl_init(), and
+ * keep it to run beside the first. It draws the library's titlebar only (no
+ * scene), which is enough to prove a second window on the host is opened,
+ * drawn and focused -- the check no single-window round can make. */
+static bool g_second_window;
+static FnlApp *g_second;
 
 /* The --bench* arguments, in order, for bench.c; and the first option given
  * beside them that a benchmark row sets instead, which is refused: a record
@@ -259,6 +265,12 @@ static void usage(FILE *f, const char *prog)
 		"                     FNL_ECHO_EVENTS=1 in the environment does the\n"
 		"                     same for any program built on it.\n"
 		"\n"
+		"  --second-window    open a second window on the same host and run\n"
+		"                     it beside the first: the library's bar alone,\n"
+		"                     no scene, so a harness sees two windows open,\n"
+		"                     drawn and focused. A backend that does not\n"
+		"                     route a second window refuses it.\n"
+		"\n"
 		"  --footprint-log    print this process's CPU, RAM and VRAM -- the\n"
 		"                     metrics panel's figures -- to stderr twice a\n"
 		"                     second, \"footprint: ...\", for a harness that\n"
@@ -407,6 +419,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--echo-events")) {
 			d->echo_events = true;
+			continue;
+		}
+		if (!strcmp(arg, "--second-window")) {
+			g_second_window = true;
 			continue;
 		}
 		if (!strcmp(arg, "--footprint-log")) {
@@ -882,12 +898,41 @@ int main(int argc, char **argv)
 		.on_overlay     = testbed_overlay,
 	};
 
+	/* --second-window: a window beside the first on the same host, before the
+	 * run starts, so both draw from the same pump. It draws the library's
+	 * titlebar only -- no scene, so no callbacks -- which is enough for a
+	 * harness to see two windows open, drawn and focused. A position on the
+	 * desktop is asked for, where the backend honours one, so the two do not
+	 * land on top of each other. */
+	if (g_second_window) {
+		FnlWindowDesc wd = {
+			.size           = sizeof wd,
+			.header_version = FNL_VERSION,
+			.title          = "Second window",
+			.width_pt       = 800,
+			.height_pt      = 600,
+			.x_pt           = 120,
+			.y_pt           = 120,
+		};
+		rc = fnl_window_create(app, &wd, NULL, &g_second);
+		if (rc < 0) {
+			fprintf(stderr, "second window: %s: %s\n", fnl_result_str(rc),
+					fnl_last_error());
+			fnl_shutdown(app);
+			return EXIT_FAILURE;
+		}
+	}
+
 	rc = fnl_run(app, &cb);
 	/* Copied first: fnl_last_error() holds only until the next call, and
 	 * fnl_shutdown() is one. */
 	char why[512] = "";
 	if (rc < 0)
 		snprintf(why, sizeof why, "%s", fnl_last_error());
+	/* The second window first: the host goes with its last window, so the
+	 * first's shutdown frees it. */
+	if (g_second)
+		fnl_shutdown(g_second);
 	fnl_shutdown(app);
 
 	if (rc < 0) {

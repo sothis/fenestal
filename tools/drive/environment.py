@@ -1529,7 +1529,8 @@ class X11(_XEnvironment):
     # which has its own idea of the layout, and not Wayland, where the keymap
     # is the compositor's to send.
     CAN = _XEnvironment.CAN | frozenset({"wm-props", "multi-output",
-                                         "output-pick", "remap-key"})
+                                         "output-pick", "remap-key",
+                                         "second-window"})
 
     # A keycode with nothing on it in any evdev-derived keymap: 97 is evdev
     # 89, KEY_RO, a key only a Japanese board has.
@@ -1748,7 +1749,8 @@ class Win32(_DeskWine, _XEnvironment):
     # wine's names for the two and not this desktop's. "output-pick": the
     # bar's output list calls fnl_request_output(), which under wine moves a
     # window as it does on X11.
-    CAN = _XEnvironment.CAN | frozenset({"multi-output", "output-pick"})
+    CAN = _XEnvironment.CAN | frozenset({"multi-output", "output-pick",
+                                         "second-window"})
 
 
 def wine_clear():
