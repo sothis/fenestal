@@ -627,9 +627,12 @@ static void win32_capture(App *a)
 		return;
 
 	/* Where the raw input thread has the process's raw mouse, the motion is
-	 * handed on from there; otherwise registered here. */
+	 * handed on from there; otherwise registered here. One raw thread
+	 * serves every window on the host, so its reports go to this window:
+	 * the one that is taking the pointer now. */
 	if (p->rawin && rawin_has_mouse(p->rawin)) {
 		rawin_moves_spend(p->rawin);
+		rawin_target(p->rawin, p->hwnd);
 		rawin_forward(p->rawin, true);
 	} else if (!raw_register(p)) {
 		fnl_log(FNL_LOG_WARN, "raw mouse input unavailable; the "
@@ -669,8 +672,10 @@ static void win32_release(App *a)
 	}
 
 	capture_apply(a, false);
-	if (p->rawin)
+	if (p->rawin) {
 		rawin_forward(p->rawin, false);
+		rawin_target(p->rawin, NULL);
+	}
 	/* Registered for the capture alone, the mouse goes back now; under
 	 * wine the wheel keeps it to the close. */
 	if (!p->wheel_raw)

@@ -162,6 +162,7 @@ static void rawin_take(struct RawIn *r, HRAWINPUT h)
 	}
 
 	bool post = false;
+	HWND to     = NULL;
 	fnl_mutex_lock(&r->lock);
 	/* A captured pointer's movement is handed on, and not kept for a
 	 * WM_MOUSEMOVE, which a capture has none of. Only movement: the
@@ -185,6 +186,7 @@ static void rawin_take(struct RawIn *r, HRAWINPUT h)
 		}
 		post = !r->posted;
 		r->posted = true;
+		to        = r->target;
 	}
 	if (!rec_dead(&rec)) {
 		if (r->rec_n == RAW_RECORDS) {
@@ -195,8 +197,10 @@ static void rawin_take(struct RawIn *r, HRAWINPUT h)
 		r->rec_n++;
 	}
 	fnl_mutex_unlock(&r->lock);
-	if (post)
-		PostMessageW(r->target, FNL_WM_RAW, 0, 0);
+	/* No window is capturing: nothing to hand the report to, and the record
+	 * ring keeps it for the timing alone. */
+	if (post && to)
+		PostMessageW(to, FNL_WM_RAW, 0, 0);
 }
 
 static LRESULT CALLBACK rawin_proc(HWND hwnd, UINT msg, WPARAM wp,
@@ -365,8 +369,23 @@ void rawin_forward(struct RawIn *r, bool on)
 {
 	fnl_mutex_lock(&r->lock);
 	r->forwarding = on;
-	if (!on)
-		r->fwd_n = 0;
+	/* The reports queued for the last capture are not this one's, and the
+	 * post that announced them names a queue that is now empty: a flag left
+	 * set would keep the next capture's first report from being posted at
+	 * all, which is a target switched between two windows. */
+	r->fwd_n  = 0;
+	r->posted = false;
+	fnl_mutex_unlock(&r->lock);
+}
+
+/* The window a captured pointer's reports are posted to -- the one that took
+ * the pointer, since one raw thread serves every window on the host and each
+ * window drains its own FNL_WM_RAW -- and NULL while none holds it. The lock
+ * is the thread's too: it reads the target as it posts. */
+void rawin_target(struct RawIn *r, HWND hwnd)
+{
+	fnl_mutex_lock(&r->lock);
+	r->target = hwnd;
 	fnl_mutex_unlock(&r->lock);
 }
 

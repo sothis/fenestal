@@ -24,9 +24,10 @@ typedef struct {
 /* The thread, its window and whichever of the process's raw keyboard and
  * mouse the program has not registered for itself; NULL where none of them
  * will be had. The window's messages then keep their GetMessageTime()
- * alone, and a capture registers raw input on the window itself. `target`
- * is the window forwarded reports are posted to, as FNL_WM_RAW. And the
- * stop, which gives back only what is still the thread's. */
+ * alone, and a capture registers raw input on the window itself. `target` is
+ * where forwarded reports are posted as FNL_WM_RAW until a capture names its
+ * own (rawin_target()). And the stop, which gives back only what is still
+ * the thread's. */
 struct RawIn *rawin_start(HINSTANCE instance, HWND target);
 void rawin_stop(struct RawIn *r);
 /* Whether the thread holds the raw mouse now, and so whether a capture's
@@ -39,6 +40,10 @@ bool rawin_has_mouse(const struct RawIn *r);
  * to `max`; how many. Window thread. */
 void rawin_forward(struct RawIn *r, bool on);
 int rawin_forwarded(struct RawIn *r, RawForward *out, int max);
+/* The window those reports are posted to, while it holds the pointer, and
+ * NULL when it lets go: the capture's window, which need not be the first --
+ * one raw thread serves them all. Window thread. */
+void rawin_target(struct RawIn *r, HWND hwnd);
 
 /* The age, in seconds, of the report the message being handled stands for:
  * a key by its scancode, extended bit and direction, a button's or the
