@@ -1394,11 +1394,11 @@ lists. The per-window frame loop is built: `fnl_start()` starts every window's
 render thread, `fnl_pump()` stops the windows whose close was asked for and
 starts any the run created, and `fnl_stop()` joins them all. **The door opens**
 on every backend that is split: X11, Win32 and Cocoa whole, and Wayland's and
-KMS's host halves. A second window opens on X11 and Win32; Wayland, KMS and
+KMS's host halves. A second window opens on X11, Win32 and KMS; Wayland and
 Cocoa refuse one, each with the reason its own section gives. Compiled and run
-on X11 and Win32 (release, 2026-11-23). The app was always the
-handle -- 128 of the 144 `FNL_API` prototypes take one -- so the work is the
-process state that is still in the app, not a handle to add.
+on X11 and Win32 (release, 2026-11-23), and on KMS in a round of its own. The
+app was always the handle -- 128 of the 144 `FNL_API` prototypes take one --
+so the work is the process state that is still in the app, not a handle to add.
 
 - **The host, and the split.** *Written*: `FnlWindowDesc` beside
   `FnlInitDesc`, `fnl_window_create()` in the header and the core, and `Host`
@@ -1483,12 +1483,12 @@ process state that is still in the app, not a handle to add.
   been run, and the only Mac here is reached over ssh. Owed: proving it needs
   the Mac driven with two windows open, the way X11 and Win32 were here.
 - **The window position is wired** for X11 and Win32 (`fnl_window_create()`'s
-  `x_pt`/`y_pt`), which are the backends a second window works on today.
+  `x_pt`/`y_pt`), which are the backends a second window can be placed on.
   Wayland (the compositor places) and KMS (the window is the output) ignore it,
   as their comments say. Cocoa refuses a second window, so a position there is
   owed with whatever proves one -- it would honour `x_pt`/`y_pt` when a second
   Cocoa window is built.
-- **What is measured where.** *Done for X11 and Win32*: `stress.py` opens a
+- **What is measured where.** *Done for X11, Win32 and KMS*: `stress.py` opens a
   second window (the testbed's `--second-window`, relaunched after the
   single-window round) and checks both windows open, are distinct and focused in
   turn, that the second window draws the scene (its clock on with F2, a row of
@@ -1500,10 +1500,13 @@ process state that is still in the app, not a handle to add.
   `win64-vulkan` and `win64-d3d12` (release, 2026-11-23), 12 checks a round.
   `find_window()` picks between a process's several windows now -- `index=` into
   them, and `find_windows()` naming every one (an empty title) -- so the check
-  sees both rather than whichever tree walk reached first. Still owed:
-  `kms_grab.py` needs an output named where a KMS round shows two, and the order
-  `find_windows()` returns is the tree's, stable per round but not across a
-  restack. The harness's own `_NET_WM_PID` note stands.
+  sees both rather than whichever tree walk reached first. KMS has a check of
+  its own (`two_window_kms()`): a window is an output, so each is captured by
+  `kms_grab.py --output` from the scanout, and the pointer crosses from one
+  output to the other with the seat (`kms-vulkan-bare@schenker`, release and
+  `gc`, 2026-11-23). Still owed: the order `find_windows()` returns is the
+  tree's, stable per round but not across a restack. The harness's own
+  `_NET_WM_PID` note stands.
 - **The scene is one per window.** Each renderer's `testbed/scene_*.c` keys its
   pipelines by the `FnlApp` the callbacks name, so a host's second window draws
   its own rather than overwriting the first's. This found a library fault: the
@@ -1527,9 +1530,10 @@ process state that is still in the app, not a handle to add.
   is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one
   display, globals, seat and event loop the host's) and KMS (the card, outputs,
   inputs and event loop the host's) with their host halves apart. A second
-  window opens on X11 and Win32 and is refused on Wayland, KMS and Cocoa, each
+  window opens on X11, Win32 and KMS and is refused on Wayland and Cocoa, each
   for the reason its own section gives. The window position is wired for X11
-  and Win32, both windows draw the scene, and the two-window round passes on
-  both, drawn with Vulkan, OpenGL and Direct3D 12 (release, 2026-11-23).
-  Next is the Wayland seat routing and the KMS second output, each on the
-  machine that can show them, and Cocoa's second window on the Mac.
+  and Win32, which KMS has no use for. Both windows draw the scene, and the
+  two-window round passes on X11 and Win32, drawn with Vulkan, OpenGL and
+  Direct3D 12 (release, 2026-11-23), and on KMS, which has a check of its own
+  (release and `gc`, 2026-11-23). Next is the Wayland seat routing, on the
+  machine that can show it, and Cocoa's second window on the Mac.
