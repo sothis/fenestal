@@ -3317,8 +3317,11 @@ def complaints(b):
     is the library's at every level with none named, so a warning is told
     from a notice only by that. The table LeakSanitizer prints at exit when
     a suppression matched is no complaint; a leak it did not suppress is a
-    report above it."""
+    report above it. A round that armed a fault (FNL_FAULT in its own
+    environment, which the program inherits) asked for that site's chatter:
+    armed, and each firing, are the library saying it did what was asked."""
     lines = b.dump(1 << 30)
+    faults = bool(os.environ.get("FNL_FAULT"))
     table = set()
     for i, l in enumerate(lines):
         if (
@@ -3342,7 +3345,11 @@ def complaints(b):
         and i not in table
         and not expected(l)
         and not b.expected_line(l)
+        and not (faults and FAULT_LINE.match(l))
     ]
+
+
+FAULT_LINE = re.compile(r"^FNL_FAULT: '")
 
 
 DASHES = re.compile(r"-{20,}$")
@@ -3684,7 +3691,20 @@ def two_window_kms(b, r):
         a.size != c.size or a.tobytes() != c.tobytes(),
         "%dx%d and %dx%d" % (a.size + c.size),
     )
-    said = [ln for ln in b.dump(1 << 30) if "KMS: " in ln and "cursor" in ln]
+    def cursor_said():
+        return [ln for ln in b.dump(1 << 30)
+                if "KMS: " in ln and "cursor" in ln]
+
+    # The line is written when a shape is first put on the plane; under the
+    # forced legacy fault that is the third motion, so where the round's own
+    # moves have not yet brought it, a nudge asks again.
+    said = cursor_said()
+    for _ in range(3):
+        if said:
+            break
+        b.portal.rel(3, 0)
+        time.sleep(0.3)
+        said = cursor_said()
     r.check(
         "the pointer is on a cursor plane, and the log names it",
         bool(said),
