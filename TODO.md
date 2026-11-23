@@ -1461,7 +1461,7 @@ process state that is still in the app, not a handle to add.
   right past its width, the seat goes to HDMI-A-1 and comes back to eDP-1
   with the pointer, and it reads the log's line for the cursor plane the
   pointer went on -- eight checks, none failed, the round 185 with none, a
-  second round after. Owed: proving more than two outputs -- this lab has two
+  second round after. `:nouveau` the same day gave the same figures. Owed: proving more than two outputs -- this lab has two
   on schenker and no spare monitor, and forcing a connector's status on its
   i915 sent no uevent, so the N-ary hotplug path is reasoned and built but
   not driven; a display path that is not one window's -- a DRM lease per
