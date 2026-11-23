@@ -2682,7 +2682,7 @@ static void kms_close(App *a)
 	if (p->card_fd >= 0)
 		close(p->card_fd);
 	/* The two a signal handler may still be writing to: see wl_close(). */
-	if (!a->installed_signals) {
+	if (!app_signals_installed(a)) {
 		if (p->epoll_fd >= 0)
 			close(p->epoll_fd);
 		if (p->wake_fd >= 0)
@@ -2915,8 +2915,11 @@ const FnlBackendVtbl fnl_backend_kms = {
 	/* The window is the mode: no minimize or maximize, and its size is the
 	 * output's mode, chosen with set_mode and set_output. */
 	.is_output            = true,
-	.open                 = kms_open,
-	.close                = kms_close,
+	/* Not split yet: one open() takes the card and its first output. */
+	.host_open            = backend_noop_host_open,
+	.host_close           = backend_noop_host_close,
+	.window_open          = kms_open,
+	.window_close         = kms_close,
 	.pump                 = kms_pump,
 	.wakeup               = kms_wakeup,
 	.check_error          = backend_noop_check_error,

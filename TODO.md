@@ -1332,19 +1332,28 @@ documents rather than one that happened to look right.
 
 ## A second window
 
-Designed in DESIGN *A second window*; none of it is written, and nothing
-below is started. The header's scope says "one window, created with the
-app", and the app is already the handle -- 127 of the 143 `FNL_API`
-prototypes take one -- so the work is the process state that is still in the
-app, not a handle to add.
+Designed in DESIGN *A second window*. The header and the core's first sort
+are in -- `FnlWindowDesc`, `fnl_window_create()` and the `Host` split -- and
+the backend seam is split too: `host_open()` makes the connection and the one
+pump, `window_open()` makes a window on it, and the pump serves every window
+the host lists. `fnl_window_create()` still refuses, now because a second
+window needs its own frame loop driven from the host's pump. The app was always
+the handle -- 128 of the 144 `FNL_API` prototypes take one -- so the work is
+the process state that is still in the app, not a handle to add.
 
-- **The host, and the split.** `FnlHost` for the connection, the one pump,
-  the signal handlers, the log level, the GPU ranking, the window registry
-  and `fnl_run`/`fnl_pump`/`fnl_stop`; `FnlApp` for one window; `fnl_init()`
-  as host and first window so that nothing existing changes;
-  `fnl_window_create()` as the door. The backend seam takes the same split
-  (`host_open`/`window_open`, `pump` and `close` moving); the renderer seam
-  does not.
+- **The host, and the split.** *The header and the core's first sort are
+  written*: `FnlWindowDesc` beside `FnlInitDesc`, `fnl_window_create()` in the
+  header and the core, and `Host` in `app.h` holding the backend vtable, the
+  signal-installed flag and the window registry; `App` carries its host and
+  the registry's next link. `fnl_init()` is unchanged in behaviour and creates
+  the host and its first window. The backend seam is split: `host_open`/
+  `host_close` and `window_open`/`window_close` are separate entries, `pump`,
+  `wakeup` and `check_error` are the host's, and X11's state is in two halves
+  -- the event loop the host's, the connections and window the window's. Still
+  owed: the per-window frame loop (a second window's render thread started and
+  driven from the host's pump), the log level and the GPU ranking moving to the
+  host, and `fnl_run`/`fnl_pump`/`fnl_stop` reaching every window on the host.
+  The renderer seam does not split.
 - **The process state the table in DESIGN names**, each row a site to move:
   the signal app, `this_thread` and `app_renderer_state_ours()`, Win32's
   window class and its one pump, its raw-input registration and the two
@@ -1369,7 +1378,14 @@ app, not a handle to add.
   `find_window()` a way to choose. `kms_grab.py` needs an output named, and
   `stress.py` earns a check that opens two windows and moves the focus
   between them -- the one thing no single-window round can say.
-- **Order.** The header and DESIGN first; then the core split with
-  `fnl_init` unchanged; then Win32 and X11, which are natively multi-window
-  and prove the split without any of Wayland's or KMS's questions; then
-  Cocoa, then Wayland, then KMS; and the harness with the backend it drives.
+- **Order.** The header and DESIGN first, then the core split with
+  `fnl_init` unchanged -- both are done: the header's `FnlWindowDesc` and
+  `fnl_window_create()`, and the core's `Host` with the backend vtable, the
+  signal flag and the window registry. The backend seam's split is done for
+  X11 (the four lifetime entries, the host's `pump`/`wakeup`/`check_error`,
+  and the two halves of its state); the other four name one `open()` as their
+  `window_open()` and leave `host_open()` a no-op until their own split. Next
+  is the per-window frame loop, which is what makes the door open; then Win32
+  and X11's own split, which are natively multi-window and prove the split
+  without any of Wayland's or KMS's questions; then Cocoa, then Wayland, then
+  KMS; and the harness with the backend it drives.

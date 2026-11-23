@@ -315,7 +315,7 @@ bool fnl_vsync(const FnlApp *app)
 void fnl_set_fullscreen(FnlApp *app, bool on)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.fullscreen     = true;
@@ -327,7 +327,7 @@ void fnl_set_fullscreen(FnlApp *app, bool on)
 void fnl_minimize(FnlApp *app)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.minimize = true;
@@ -338,7 +338,7 @@ void fnl_minimize(FnlApp *app)
 void fnl_set_maximized(FnlApp *app, bool on)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.maximized     = true;
@@ -358,7 +358,7 @@ void fnl_set_maximized(FnlApp *app, bool on)
 bool fnl_begin_move(FnlApp *app)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return false;
 
 	fnl_mutex_lock(&a->lock);
@@ -376,7 +376,7 @@ bool fnl_begin_move(FnlApp *app)
 bool fnl_begin_resize(FnlApp *app, FnlEdge edge)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return false;
 	if (edge <= FNL_EDGE_NONE || edge > FNL_EDGE_BOTTOM_RIGHT)
 		return false;
@@ -678,7 +678,7 @@ void app_aa_settle(App *a)
 void fnl_release_pointer(FnlApp *app)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.release_ptr = true;
@@ -691,7 +691,7 @@ void fnl_release_pointer(FnlApp *app)
 void fnl_set_cursor(FnlApp *app, FnlCursor shape)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	/* One unsigned compare, so a negative value from a caller's own
 	 * arithmetic is out of range rather than an index. */
@@ -718,7 +718,7 @@ void fnl_set_cursor(FnlApp *app, FnlCursor shape)
 void fnl_set_title(FnlApp *app, const char *utf8)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	char t[TITLE_MAX];
 	app_title_copy(t, utf8);
@@ -746,11 +746,11 @@ void fnl_set_text_input(FnlApp *app, bool on)
 	const bool moved = fnl_atomic_load_bool(&a->text_input) != on;
 	if (moved) {
 		fnl_atomic_store_bool(&a->text_input, on);
-		if (a->backend)
+		if (a->host->backend)
 			a->req.text_mode = true;
 	}
 	fnl_mutex_unlock(&a->lock);
-	if (moved && a->backend)
+	if (moved && a->host->backend)
 		app_wakeup(a);
 }
 
@@ -763,7 +763,7 @@ bool fnl_is_text_input(const FnlApp *app)
 void fnl_set_text_rect_pt(FnlApp *app, int x, int y, int w, int h)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	const uint32_t v[4] = { (uint32_t)x, (uint32_t)y, (uint32_t)w,
 							(uint32_t)h };
@@ -791,7 +791,7 @@ void fnl_set_text_rect_pt(FnlApp *app, int x, int y, int w, int h)
 bool fnl_clipboard_set(FnlApp *app, const char *utf8)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend || !utf8)
+	if (!a || !a->host->backend || !utf8)
 		return false;
 	const size_t n = strlen(utf8);
 	char *copy = malloc(n + 1);
@@ -811,7 +811,7 @@ bool fnl_clipboard_set(FnlApp *app, const char *utf8)
 void fnl_clipboard_request(FnlApp *app)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.clip_get = true;
@@ -877,13 +877,13 @@ const char *fnl_present_mode(const FnlApp *app)
 const char *fnl_backend_name(const FnlApp *app)
 {
 	const App *a = (const App *)app;
-	return a && a->backend ? BACKEND(a)->name : "";
+	return a && a->host->backend ? BACKEND(a)->name : "";
 }
 
 const char *fnl_window_host(const FnlApp *app)
 {
 	const App *a = (const App *)app;
-	return a && a->backend ? BACKEND(a)->host(a) : "";
+	return a && a->host->backend ? BACKEND(a)->host(a) : "";
 }
 
 const char *fnl_renderer_name(const FnlApp *app)
@@ -933,7 +933,7 @@ int fnl_scale120(const FnlApp *app)
 int fnl_mode_count(const FnlApp *app)
 {
 	const App *a = (const App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return 0;
 	FnlMode modes[OUTPUT_MODES_MAX];
 	int cur;
@@ -943,7 +943,7 @@ int fnl_mode_count(const FnlApp *app)
 bool fnl_mode_get(const FnlApp *app, int i, FnlMode *mode)
 {
 	const App *a = (const App *)app;
-	if (!a || !a->backend || !mode || i < 0)
+	if (!a || !a->host->backend || !mode || i < 0)
 		return false;
 	FnlMode modes[OUTPUT_MODES_MAX];
 	int cur;
@@ -957,7 +957,7 @@ bool fnl_mode_get(const FnlApp *app, int i, FnlMode *mode)
 bool fnl_mode_current(const FnlApp *app, FnlMode *mode)
 {
 	const App *a = (const App *)app;
-	if (!a || !a->backend || !mode)
+	if (!a || !a->host->backend || !mode)
 		return false;
 	FnlMode modes[OUTPUT_MODES_MAX];
 	int cur;
@@ -971,7 +971,7 @@ bool fnl_mode_current(const FnlApp *app, FnlMode *mode)
 void fnl_request_mode(FnlApp *app, const FnlMode *mode)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend || !mode || mode->w_px <= 0 || mode->h_px <= 0)
+	if (!a || !a->host->backend || !mode || mode->w_px <= 0 || mode->h_px <= 0)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.mode     = true;
@@ -983,7 +983,7 @@ void fnl_request_mode(FnlApp *app, const FnlMode *mode)
 int fnl_output_count(const FnlApp *app)
 {
 	const App *a = (const App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return 0;
 	char names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
 	int cur;
@@ -995,7 +995,7 @@ const char *fnl_output_name_at(const FnlApp *app, int i)
 	static FNL_THREAD_LOCAL char snap[OUTPUT_NAME_MAX];
 	const App *a = (const App *)app;
 	snap[0] = '\0';
-	if (!a || !a->backend || i < 0)
+	if (!a || !a->host->backend || i < 0)
 		return snap;
 	char names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
 	int cur;
@@ -1007,7 +1007,7 @@ const char *fnl_output_name_at(const FnlApp *app, int i)
 void fnl_request_output(FnlApp *app, const char *name)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend || !name || !name[0])
+	if (!a || !a->host->backend || !name || !name[0])
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->req.output = true;
@@ -1130,7 +1130,7 @@ void fnl_request_gpu(FnlApp *app, int i)
 void fnl_request_size_pt(FnlApp *app, int w_pt, int h_pt)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return;
 	/* Bounded before it is recorded (see clamp_pt in app.h). The backends
 	 * already refuse the other end -- a request of zero or less is not a

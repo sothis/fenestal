@@ -136,6 +136,31 @@ static void restore_signal_handlers(void)
 	signals_taken = false;
 }
 
+/* ---- the host ------------------------------------------------------------ */
+
+/* The host's accessor. A window's host is where the process-wide state lives;
+ * a window with no host is one whose creation failed before the host was
+ * made. The field's home is App's, so a second window's host is the first's. */
+Host *app_host(App *a)
+{
+	return a ? a->host : NULL;
+}
+
+/* The host's backend state. The core never names a backend's type, so this is
+ * the pointer alone; the seam's host entries are what read it. */
+struct BackendHostState *app_backend_host(App *a)
+{
+	return a && a->host ? a->host->backend_host : NULL;
+}
+
+/* Whether the host's signals are installed. The window's teardown asks this
+ * before giving the process's dispositions back, so a second window's close
+ * does not clear the first's registration. */
+bool app_signals_installed(const App *a)
+{
+	return a && a->host && a->host->installed_signals;
+}
+
 /* ---- whose thread -------------------------------------------------------- */
 
 static FNL_THREAD_LOCAL AppThread this_thread;
@@ -189,17 +214,19 @@ static void app_teardown(App *a)
 	 * app_wakeup(), which reaches the backend's state -- freed by close()
 	 * below. The disposition goes back before the pointer is cleared. Only
 	 * for the app that installed them: any other would be clearing somebody
-	 * else's registration. */
-	if (a->installed_signals) {
+	 * else's registration. The flag is the host's, set once for the window
+	 * that asked, so every window on the host sees it -- the second test is
+	 * what narrows the restore to the one app the handler reaches. */
+	if (a->host && a->host->installed_signals &&
+		fnl_atomic_load_ptr(&signal_app) == a) {
 		restore_signal_handlers();
-		if (fnl_atomic_load_ptr(&signal_app) == a)
-			fnl_atomic_store_ptr(&signal_app, NULL);
+		fnl_atomic_store_ptr(&signal_app, NULL);
 		/* Drained, no handler can reach this App again, and the backends'
 		 * close() may shut the wakeup descriptor it would have written to;
 		 * they keep it open while installed_signals says a handler might.
 		 * Not drained -- one is stopped where it stands -- they still do. */
 		if (signal_handlers_drain())
-			a->installed_signals = false;
+			a->host->installed_signals = false;
 	}
 
 	render_thread_stop(a);
@@ -226,8 +253,10 @@ static void app_teardown(App *a)
 		RENDERER(a)->destroy_surface(a);
 		RENDERER(a)->destroy_instance(a);
 	}
-	if (a->backend)
-		BACKEND(a)->close(a);
+	/* The window's own state goes here; the host's connection and pump stay
+	 * open for the windows beside it and go when the last one does. */
+	if (a->host->backend)
+		BACKEND(a)->window_close(a);
 
 	if (a->sync_ready) {
 		fnl_cond_destroy(&a->cond);
@@ -873,6 +902,30 @@ static void note_other_backends_vars(const FnlBackendVtbl *p)
 				p->name);
 }
 
+/* Open one backend's host and its first window. The host's open() makes the
+ * connection and puts the connection's state in Host::backend_host; the
+ * window's open() makes the window on it and puts the window's state in
+ * App::backend_state. A backend with nothing process-wide names the same
+ * function for both, or leaves window_open() to add nothing.
+ *
+ * A refusal at either step unwinds what it built: the window's close() first,
+ * then the host's. FNL_ERR_NO_DISPLAY says there is no window server here and
+ * nothing else, so where the backend was chosen fnl_init() steps to the next
+ * in the order; any other failure ends fnl_init(). */
+static FnlResult backend_open_one(const FnlBackendVtbl *p, App *a)
+{
+	FnlResult rc = p->host_open(a);
+	if (rc < 0)
+		return rc;
+	rc = p->window_open(a);
+	if (rc < 0) {
+		p->window_close(a);
+		p->host_close(a);
+		return rc;
+	}
+	return FNL_OK;
+}
+
 FnlResult backend_choose_and_open(App *a)
 {
 	FNL_TRY(refuse_old_name("FNL_PLATFORM", "FNL_BACKEND"));
@@ -882,11 +935,11 @@ FnlResult backend_choose_and_open(App *a)
 	if (want && want[0]) {
 		for (size_t i = 0; i < BACKEND_COUNT; i++)
 			if (strcmp(BACKENDS[i]->key, want) == 0) {
-				a->backend = BACKENDS[i];
+				a->host->backend = BACKENDS[i];
 				fnl_log(FNL_LOG_INFO, "backend: %s, named by FNL_BACKEND",
 						BACKENDS[i]->name);
 				note_other_backends_vars(BACKENDS[i]);
-				return BACKENDS[i]->open(a);
+				return backend_open_one(BACKENDS[i], a);
 			}
 		char have[64] = "";
 		for (size_t i = 0; i < BACKEND_COUNT; i++) {
@@ -899,7 +952,7 @@ FnlResult backend_choose_and_open(App *a)
 	}
 
 	/* Chosen: the first that is not absent, stepping past one that finds no
-	 * window server. Its close() is its open()'s failure path, so what it
+	 * window server. backend_open_one() is its own failure path, so what it
 	 * built is gone before the next one starts. */
 	char passed[512] = "";
 	for (size_t i = 0; i < BACKEND_COUNT; i++) {
@@ -910,11 +963,11 @@ FnlResult backend_choose_and_open(App *a)
 			note_append(passed, sizeof passed, p->name, why);
 			continue;
 		}
-		a->backend         = p;
+		a->host->backend   = p;
 		const FnlResult rc = FNL_FAULT("backend-no-display")
 								 ? fnl_fail(FNL_ERR_NO_DISPLAY,
 											"%s refused (FNL_FAULT)", p->name)
-								 : p->open(a);
+								 : backend_open_one(p, a);
 		if (rc == FNL_OK) {
 			fnl_log(FNL_LOG_INFO, "backend: %s%s%s", p->name,
 					passed[0] ? "; passed over " : "", passed);
@@ -924,8 +977,7 @@ FnlResult backend_choose_and_open(App *a)
 		if (rc != FNL_ERR_NO_DISPLAY)
 			return rc; /* app_teardown() closes it */
 		note_append(passed, sizeof passed, p->name, fnl_last_error());
-		p->close(a);
-		a->backend = NULL;
+		a->host->backend = NULL;
 	}
 	return fnl_fail(FNL_ERR_NO_DISPLAY, "no backend here -- %s",
 					passed[0] ? passed : "this build has none");
@@ -1762,6 +1814,32 @@ FnlResult backend_noop_check_error(App *a)
 {
 	(void)a;
 	return FNL_OK;
+}
+
+/* A backend whose host has nothing process-wide to make. Its one open() runs
+ * as window_open(); the seam's host half is this. */
+FnlResult backend_noop_host_open(App *a)
+{
+	(void)a;
+	return FNL_OK;
+}
+
+void backend_noop_host_close(App *a)
+{
+	(void)a;
+}
+
+/* A backend whose window's open() is its host's: it makes no separate window
+ * state. */
+FnlResult backend_noop_window_open(App *a)
+{
+	(void)a;
+	return FNL_OK;
+}
+
+void backend_noop_window_close(App *a)
+{
+	(void)a;
 }
 
 /* Seed the held set from a key that is *already* down as focus arrives,
@@ -2876,13 +2954,27 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	 * including the failures of this very function. */
 	fnl_set_log_fn(d.log, d.log_ud);
 
+	/* The host first: it owns the process-wide state and the window
+	 * registry, and the window's teardown asks it whether the signals are
+	 * still installed. A failed allocation leaves nothing to unwind. */
+	Host *h = fnl_aligned_alloc(FNL_ALIGNOF(Host), sizeof(Host));
+	if (!h)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory for the host");
+	memset(h, 0, sizeof(Host));
+
 	/* Aligned rather than plain malloc: App has _Alignas(64) members keeping
 	 * what each thread writes on cache lines of its own, and malloc guarantees
 	 * only max_align_t. See compiler.h for the wrapper. */
 	App *a = fnl_aligned_alloc(FNL_ALIGNOF(App), sizeof(App));
-	if (!a)
+	if (!a) {
+		fnl_aligned_free(h);
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory for the app");
+	}
 	memset(a, 0, sizeof(App));
+	a->host = h;
+	h->windows = a;
+	h->windows_tail = a;
+	h->window_count = 1;
 
 	/* Vsync is the window's for its life; FNL_VSYNC=0 is the one way out,
 	 * a diagnostic read once, as FNL_ECHO_EVENTS is. */
@@ -2976,9 +3068,9 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 		goto fail;
 	/* Recorded as well as done: the backends' teardown asks whether there is a
 	 * handler that could still reach app_wakeup() before it decides whether
-	 * its wakeup descriptors may be closed. See App::installed_signals. */
+	 * its wakeup descriptors may be closed. See Host::installed_signals. */
 	if (d.install_signal_handlers) {
-		a->installed_signals = true;
+		a->host->installed_signals = true;
 		install_signal_handlers(a);
 	}
 	BACKEND(a)->update_scale(a);
@@ -3007,7 +3099,14 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 
 fail:
 	app_teardown(a);
+	/* The host goes with its last window: the first window never made it
+	 * this far, so there is nothing else on it. host_close() takes the
+	 * connection and pump while the app is still valid; a host that never
+	 * opened finds nothing to close. */
+	if (h->backend)
+		h->backend->host_close(a);
 	fnl_aligned_free(a);
+	fnl_aligned_free(h);
 	return rc;
 }
 
@@ -3025,7 +3124,85 @@ void fnl_shutdown(App *a)
 		return;
 	}
 	app_teardown(a);
+
+	/* The window leaves the host's registry first. The host goes with the
+	 * last window on it: a program with one window sees what it always has,
+	 * and a program with several gives each back one at a time. */
+	Host *h = a->host;
+	if (h) {
+		App *prev = NULL;
+		for (App *w = h->windows; w; prev = w, w = w->next)
+			if (w == a) {
+				if (prev)
+					prev->next = w->next;
+				else
+					h->windows = w->next;
+				if (h->windows_tail == w)
+					h->windows_tail = prev;
+				h->window_count--;
+				break;
+			}
+	}
+
+	/* The last window takes the host's connection and pump with it: the
+	 * window's own state went in app_teardown(), and the host's goes here,
+	 * once nothing is left to serve. host_close() runs while the app is still
+	 * valid -- a backend reads its own host state through it. */
+	const bool last = h && h->window_count == 0;
+	if (last && h->backend)
+		h->backend->host_close(a);
+
 	fnl_aligned_free(a);
+	if (last)
+		fnl_aligned_free(h);
+}
+
+/* A second window on the sibling's host. The backend seam is split: host_open()
+ * makes the connection and pump, window_open() makes a window on it, and the
+ * pump serves every window the host lists. What is not yet built is the per-
+ * window frame loop -- fnl_start() starts one render thread for the window it
+ * is given, and a second window needs its own started as well, driven from the
+ * same pump. Until that wiring exists, the door refuses and says why rather
+ * than hand back a window that opens and never draws. A caller that reaches it
+ * gets a negative result and nothing open, which is what a door that cannot yet
+ * deliver owes its caller. */
+FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
+							const FnlCallbacks *cb, App **out)
+{
+	if (!out)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_window_create(): out is NULL");
+	*out = NULL;
+	if (!sibling)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_window_create(): sibling is NULL");
+	if (!desc)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_window_create(): desc is NULL");
+	/* The same three tests fnl_init() makes of FnlInitDesc, for the same
+	 * reasons: a size from the future, a size too small to carry the fields
+	 * this build reads, and a size that is not a multiple of the struct's
+	 * alignment. */
+	if (desc->size < sizeof(FnlWindowDesc))
+		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
+						"FnlWindowDesc is %zu bytes; this build reads %zu",
+						desc->size, sizeof(FnlWindowDesc));
+	if (desc->size % FNL_ALIGNOF(FnlWindowDesc) != 0)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"FnlWindowDesc's size is not a multiple of its "
+						"alignment");
+	/* The sibling's host is the one the window would join; asked for here so
+	 * that a sibling whose creation failed short of a host is refused as
+	 * the argument it is, and so the accessor has the caller its name
+	 * promises. */
+	if (!app_host(sibling))
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_window_create(): sibling has no host");
+	(void)cb;
+	return fnl_fail(FNL_ERR_UNSUPPORTED,
+					"a second window needs its own frame loop driven from the "
+					"host's pump, which is not yet built (DESIGN *A second "
+					"window*); fnl_init() opens one window");
 }
 
 /* Null-tolerant, like every public entry point: a caller holding a handle

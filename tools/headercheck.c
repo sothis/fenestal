@@ -67,7 +67,9 @@ int headercheck(void);
 int headercheck(void)
 {
 	FnlInitDesc d;
+	FnlWindowDesc wd;
 	FnlCallbacks cb;
+	FnlApp *second = 0;
 #ifdef FNL_CHECK_VULKAN
 	FnlVulkanGpu gpu;
 	FnlVulkanSceneLayout layout;
@@ -87,6 +89,9 @@ int headercheck(void)
 	d.header_version = FNL_VERSION;
 	cb.size          = sizeof cb;
 	cb.on_overlay    = on_overlay;
+	wd.size          = sizeof wd;
+	wd.header_version = FNL_VERSION;
+	wd.title         = "second";
 #ifdef FNL_CHECK_VULKAN
 	(void)gpu;
 	(void)layout;
@@ -101,5 +106,9 @@ int headercheck(void)
 	(void)mtl_gpu;
 	(void)mtl_layout;
 	(void)mtl_scene;
-	return fnl_init(&d, &app) == FNL_OK ? 0 : 1;
+	if (fnl_init(&d, &app) != FNL_OK)
+		return 1;
+	/* A second window on the same host, and its own callbacks. */
+	(void)fnl_window_create(app, &wd, &cb, &second);
+	return 0;
 }

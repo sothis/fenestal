@@ -10,16 +10,20 @@
  * or to move the pointer: Wayland cannot answer any of the three, and a seam
  * entry one backend cannot fill is one to renegotiate.
  *
- * Every entry takes the App; the backend's own state hangs off it as
- * App::backend_state.
+ * Every entry takes the App; the window's own state hangs off it as
+ * App::backend_state, and the host's as Host::backend_host. The seam splits
+ * along the same line the core does: a host opens the connection and runs
+ * the one pump, and a window opens on that connection. The entries that are
+ * the host's are marked so in the comment on each; the rest are one window's.
  *
  * ---- when an entry can be called -------------------------------------------
  *
- * Every entry except close() and wakeup() runs only between a successful
- * open() and the start of close(), so a backend does not test
- * App::backend_state or its window there. close() is also the failed-open
- * path out of fnl_init(), and wakeup() may arrive from a signal handler or
- * from another thread at any moment, close() included; those two test.
+ * Every entry except window_close() and wakeup() runs only between a
+ * successful host_open() and window_open() and the start of window_close(),
+ * so a backend does not test App::backend_state or its window there.
+ * window_close() is also the failed-open path out of fnl_init(), and
+ * wakeup() may arrive from a signal handler or from another thread at any
+ * moment, window_close() included; those two test.
  *
  * Which thread: the pump's, except the entries the frame makes -- frame_wait,
  * frame_request, frame_cancel, window_on_screen, set_geometry, ack_configure,
@@ -150,22 +154,41 @@ typedef struct FnlBackendVtbl {
 	 * inert there, since the bar is never shown in fullscreen. */
 	bool outputs_fullscreen_only;
 
-	/* ---- lifetime ------------------------------------------------------ */
+	/* ---- lifetime ------------------------------------------------------
+	 *
+	 * The host's two and the window's two. host_open() connects to the
+	 * window server and puts what the connection owns in Host::backend_host;
+	 * window_open() makes a window on that connection and puts what the
+	 * window owns in App::backend_state. A host without a window_open() --
+	 * one whose backend opens a window with its connection, as KMS's card
+	 * and its first output do -- may name the same function for both, or
+	 * have window_open() add nothing. */
 
-	/* Connect, bind the globals, create the window, and block until the
-	 * server has configured it. Everything this allocates is released by
-	 * close(), which must be safe on a partly-opened backend because this is
-	 * also the failure path out of fnl_init().
+	/* Connect, bind the globals, and put the connection's own state in
+	 * Host::backend_host. Everything this allocates is released by
+	 * host_close(), which must be safe on a partly-opened host because this
+	 * is also the failure path out of fnl_init().
 	 *
 	 * FNL_ERR_NO_DISPLAY says there is no window server here to speak to,
 	 * and only that: where the backend was chosen, fnl_init() closes this
-	 * one and opens the next in the order. So it is returned before the
-	 * window exists, and never for a failure the next backend would meet
-	 * as well -- memory, a descriptor -- which ends fnl_init() instead. */
-	FNL_MUST_USE FnlResult (*open)(App *a);
-	void (*close)(App *a);
+	 * one and opens the next in the order. So it is returned before there is
+	 * a connection, and never for a failure the next backend would meet as
+	 * well -- memory, a descriptor -- which ends fnl_init() instead. */
+	FNL_MUST_USE FnlResult (*host_open)(App *a);
+	void (*host_close)(App *a);
 
-	/* ---- the event loop ------------------------------------------------ */
+	/* Create a window on the host's connection, and block until the server
+	 * has configured it. Everything this allocates is released by
+	 * window_close(), which must be safe on a partly-opened window because
+	 * this is also the failure path out of fnl_window_create(). The host's
+	 * connection stays open across it. */
+	FNL_MUST_USE FnlResult (*window_open)(App *a);
+	void (*window_close)(App *a);
+
+	/* ---- the event loop, the host's ------------------------------------
+	 *
+	 * One pump serves every window on the host: it blocks on the one
+	 * connection and dispatches what arrives to the window it belongs to. */
 
 	/* One turn: block until something arrives, then dispatch it. `timeout_ms`
 	 * bounds the block -- -1 for as long as it takes, 0 to not wait at all --
@@ -421,10 +444,12 @@ extern const FnlBackendVtbl fnl_backend_cocoa;
 
 /* Open a backend: the one FNL_BACKEND names in the environment, or else
  * the first in the order that is not absent and does not refuse with
- * FNL_ERR_NO_DISPLAY. Sets App::backend. In app.c. */
+ * FNL_ERR_NO_DISPLAY. Sets Host::backend. In app.c. */
 FNL_MUST_USE FnlResult backend_choose_and_open(App *a);
 
-#define BACKEND(a) ((a)->backend)
+/* The host's backend. The vtable is the program's -- one backend a process --
+ * so it lives on the host and a window reaches it through its host. */
+#define BACKEND(a) ((a)->host->backend)
 
 /* ---- entries a backend may name rather than write --------------------------
  * In src/core/app.c. For a window server that has nothing to do there;
@@ -467,5 +492,14 @@ FNL_MUST_USE FnlResult backend_noop_check_error(App *a);
 bool     backend_frame_wait_shown(App *a, bool break_on_urgent);
 /* absent() where there is nothing to choose: NULL. */
 const char *backend_always_present(void);
+
+/* host_open()/host_close() and window_open()/window_close() where a backend
+ * has nothing process-wide or nothing per-window to do. A backend not yet
+ * split names its one open() as window_open() and leaves host_open() here,
+ * so the seam's two halves are filled without a second connection. */
+FNL_MUST_USE FnlResult backend_noop_host_open(App *a);
+void     backend_noop_host_close(App *a);
+FNL_MUST_USE FnlResult backend_noop_window_open(App *a);
+void     backend_noop_window_close(App *a);
 
 #endif /* FNL_BACKEND_H */

@@ -29,8 +29,14 @@
 
 /* The backend's own state, defined by whichever one was compiled in and
  * opaque to everything else -- src/backend/<p>/<p>_state.h. The pointer is
- * App::backend_state. */
+ * App::backend_state.
+ *
+ * The window's half of a backend's state is there; the host's -- the
+ * connection, its one pump and what the connection owns -- is beside it as
+ * struct BackendHostState, reached as Host::backend_host. A backend that owns
+ * nothing of its own at the host leaves the pointer NULL. */
 struct BackendState;
+struct BackendHostState;
 /* The same for the graphics API: src/renderer/<g>/<g>_state.h,
  * App::renderer_state. */
 struct RendererState;
@@ -48,6 +54,8 @@ struct RendererState;
 
 /* Defined further down; the two dispatch tables name it first. */
 typedef struct FnlApp App;
+/* The process-wide half of the split; defined below App. */
+typedef struct Host Host;
 
 /* Record a failure and return the code, so a caller can write
  * `return fnl_fail(FNL_ERR_SYSTEM, "...")` and have both happen at once. */
@@ -95,6 +103,20 @@ AppThread app_thread(void);
  * on_gpu_lost's. Asked by the interop getters a caller may call from
  * anywhere; the library's own paths assert the thread instead. */
 bool app_renderer_state_ours(const App *a); /* app.c */
+
+/* ---- the host --------------------------------------------------------------
+ * An App's host, which owns the process-wide state and the window registry.
+ * A window's host is reached through app_host(), so the field's home can move
+ * without touching every reader. */
+Host *app_host(App *a); /* app.c */
+/* The backend's state for the host -- the connection and its one pump -- as
+ * the backend's own type, or NULL where the host owns nothing of its own. A
+ * window's backend's code reads it through its own BackendState's host link;
+ * the core reaches it only through the seam's host entries. */
+struct BackendHostState *app_backend_host(App *a); /* app.c */
+/* The window that installed the signal handlers, or NULL. The host's, so a
+ * second window's teardown does not tear down the first's registration. */
+bool app_signals_installed(const App *a); /* app.c */
 
 /* A recovery or fallback path made to run by name, from FNL_FAULT in the
  * environment (core/fault.c has the grammar and the list of sites). Debug
@@ -1098,24 +1120,76 @@ _Static_assert(offsetof(GlyphCell, x) == 0 && offsetof(GlyphCell, y) == 2 &&
 #include "core/backend.h"
 #include "core/renderer.h"
 
+/* ---- the host and the window ----------------------------------------------
+ *
+ * What a program has rather than what a window has. The connection to the
+ * window server and its one pump, the signal dispositions, the log level and
+ * the GPU ranking are the program's: there is one of each a process, and every
+ * window on the host shares them. A window is an App; the host is the Host its
+ * App::host points at. See DESIGN *A second window*.
+ *
+ * A host owns its windows. The first is made by fnl_init() and the rest by
+ * fnl_window_create(); the host outlives each of them and goes when the last
+ * one does. The seam is split: host_open() makes the connection and the pump
+ * and puts them in Host::backend_host, window_open() makes a window on that
+ * connection and puts what the window owns in App::backend_state. The backend's
+ * state is thus the window's, and the connection's its host's. */
+struct Host {
+	/* The backend the host's windows are on. Set once, by
+	 * backend_choose_and_open(); a window reads it through BACKEND(). */
+	const FnlBackendVtbl *backend;
+
+	/* The backend's own state for the host: the connection, its one pump and
+	 * what the connection owns. Allocated by backend->host_open() and freed
+	 * by host_close(); a window's BackendState points back at it through its
+	 * host, and reaches the connection through Host::backend_host. NULL for a
+	 * backend that owns nothing process-wide. */
+	struct BackendHostState *backend_host;
+
+	/* Whether the process's terminating signals are installed for this host.
+	 * Installed once, for the window that asked at its creation; the handler
+	 * closes that window. A second window does not install them again --
+	 * which is the row DESIGN's table names, and the reason this is here
+	 * rather than in the window. */
+	bool installed_signals;
+
+	/* The windows on this host, in the order they were made. A host with no
+	 * windows left goes. */
+	struct FnlApp *windows;
+	struct FnlApp *windows_tail;
+	size_t window_count;
+};
+
 /* Tagged `FnlApp` and typedef'd `App`: `FnlApp` is what the installed header
  * declares and never defines, `App` the spelling used inside. */
 struct FnlApp {
+
+	/* ---- the host ------------------------------------------------------
+	 * The program's, shared with every window on it: the connection, the
+	 * one pump, the signal dispositions, the log level and the GPU ranking.
+	 * A window reaches it here and nowhere else. Set once at creation. */
+	Host *host;
+	/* The next window on the host, or NULL for the last. The host's list;
+	 * written only by fnl_window_create() and fnl_shutdown(). */
+	struct FnlApp *next;
 
 	/* ---- set once -----------------------------------------------------
 	 * Written by fnl_init() or fnl_run() before the render thread exists,
 	 * and only read after, by either thread. */
 
-	const FnlBackendVtbl *backend;
+	/* The backend's own state for this window: its connection to the server,
+	 * the window handle, its surface, its geometry and its clipboard.
+	 * Allocated by backend->window_open() and freed by window_close(). The
+	 * event loop that serves every window's connection is the host's, in
+	 * Host::backend_host; each window's connection is its own. */
+	struct BackendState *backend_state;
+
 	/* The exception to "set once": a move to another renderer's GPU
 	 * writes it, on the render thread (renderer_swap()), which alone reads
 	 * it while it runs. Any other thread reads renderer_pub
 	 * (renderer_any()). */
 	const FnlRendererVtbl *renderer;
 
-	/* Allocated by backend->open(). Anything only one backend needs
-	 * belongs there rather than here. */
-	struct BackendState *backend_state;
 	/* Allocated by renderer->create_instance() and freed by destroy_instance().
 	 * Everything only the graphics API needs -- its device, swapchain,
 	 * pipelines and targets -- is there, and nothing outside src/renderer/<g>/
@@ -1156,14 +1230,6 @@ struct FnlApp {
 	 * interface, so a press in it is the caller's event and takes no pointer
 	 * (deco_hit()). Read by the pump alone; written once at fnl_init. */
 	bool content_is_ui;
-	/* Whether a handler on the process's terminating signals could still
-	 * reach this app (FnlInitDesc::install_signal_handlers). The handler
-	 * reaches app_wakeup(), so while this is set the backends leave their
-	 * wakeup descriptors open rather than risk a write to a recycled number.
-	 * app_teardown() clears it once it has waited every handler out, which
-	 * is every teardown but one whose handler was stopped mid-way. */
-	bool installed_signals;
-
 	/* ---- pump thread ---------------------------------------------------
 	 * The thread that called fnl_init() and runs fnl_run(): it owns the
 	 * window server. Nothing here is read by the render thread except where

@@ -2821,8 +2821,11 @@ const FnlBackendVtbl fnl_backend_win32 = {
 	 * the frame is on the screen. */
 	.ack_when_shown       = true,
 	.ack_release          = win32_ack_release,
-	.open                 = win32_open,
-	.close                = win32_close,
+	/* Not split yet: one open() makes the class and its window together. */
+	.host_open            = backend_noop_host_open,
+	.host_close           = backend_noop_host_close,
+	.window_open          = win32_open,
+	.window_close         = win32_close,
 	.pump                 = win32_pump,
 	.wakeup               = win32_wakeup,
 	.check_error          = backend_noop_check_error,

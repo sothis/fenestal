@@ -1349,7 +1349,7 @@ static bool wake_open(App *a)
 }
 
 /* The descriptors stay open while a signal handler could still write to
- * them (App::installed_signals), as the Linux backends' do and for their
+ * them (Host::installed_signals), as the Linux backends' do and for their
  * reason. */
 static void wake_close(App *a)
 {
@@ -1366,7 +1366,7 @@ static void wake_close(App *a)
 		CFRelease((CFFileDescriptorRef)p->wake_cf);
 		p->wake_cf = NULL;
 	}
-	if (!a->installed_signals) {
+	if (!app_signals_installed(a)) {
 		for (int i = 0; i < 2; i++)
 			if (p->wake_fd[i] >= 0)
 				close(p->wake_fd[i]);
@@ -2001,8 +2001,11 @@ const FnlBackendVtbl fnl_backend_cocoa = {
 	 * answer for. */
 	.ack_when_shown     = false,
 	.is_output          = false,
-	.open               = cocoa_open,
-	.close              = cocoa_close,
+	/* Not split yet: one open() makes the app and its window together. */
+	.host_open          = backend_noop_host_open,
+	.host_close         = backend_noop_host_close,
+	.window_open        = cocoa_open,
+	.window_close       = cocoa_close,
 	.pump               = cocoa_pump,
 	.wakeup             = cocoa_wakeup,
 	.check_error        = backend_noop_check_error,

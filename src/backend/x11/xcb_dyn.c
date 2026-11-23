@@ -18,7 +18,7 @@ X11_XCB_FUNCS(X11_XCB_DEFINE)
 const char *x11_xcb_load(void)
 {
 	/* 0 untried, 1 loaded, -1 refused with `why`. Only fnl_init()'s thread
-	 * comes here, in x11_open(). */
+	 * comes here, in x11_host_open(). */
 	static int state;
 	static char why[256];
 	if (state)

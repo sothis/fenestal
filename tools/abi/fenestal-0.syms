@@ -4,6 +4,7 @@ fnl_last_error
 fnl_error_copy
 fnl_set_log_level
 fnl_init
+fnl_window_create
 fnl_shutdown
 fnl_run
 fnl_start

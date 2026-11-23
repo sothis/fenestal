@@ -3725,19 +3725,27 @@ it the cursor stays as the compositor left it. The Win32 half is
 
 ### A second window
 
-**Nothing here is built.** This is the design and the ground it was measured
-against, written down because it decides the shape of several things that are
-built; what is owed to make it real is TODO *A second window*.
+**Part of it is built, and the rest is not.** This is the design and the ground
+it was measured against, written down because it decides the shape of several
+things that are built. Written now: the header's `FnlWindowDesc` and
+`fnl_window_create()`, the core's `Host` split (`Host` holds the backend
+vtable, the signal-installed flag and the window registry; `App` carries its
+host and the registry's next link), and the backend seam's split — `host_open`/
+`host_close` and `window_open`/`window_close`, with X11's two halves already
+apart and the other four naming their one `open()` as `window_open()` behind a
+no-op `host_open()`. `fnl_window_create()` still refuses
+(`FNL_ERR_UNSUPPORTED`): a second window needs its own frame loop driven from
+the host's pump, and that wiring is what is owed. TODO *A second window* has
+the rest, in order.
 
 **One window per app, and the app is already the handle.** The header's
-scope says it outright — "one window, created with the app. Splitting a
-window handle out belongs with a second window, because 'which window' is only
-a question once there is more than one to ask it of" — and the API has been
-shaped for that day without saying so: **127 of the 143 `FNL_API` prototypes
-take an `FnlApp *`**, every callback is handed the app it runs for, and the 16
-that take none are the ones with no window in them at all (the version, the
-result and error strings, the log level, the key names, the font and text
-metrics, `fnl_image_destroy()`). What is missing is not a handle. It is the
+scope once said it outright — "one window, created with the app" — and the API
+has been shaped for that day without saying so: **128 of the 144 `FNL_API`
+prototypes take an `FnlApp *`** (the door itself among them), every callback is
+handed the app it runs for, and the 16 that take none are the ones with no
+window in them at all (the version, the result and error strings, the log
+level, the font notice and licence, the key names, the font and text metrics,
+`fnl_image_destroy()`). What was missing is not a handle. It is the
 *other* half of the object: `FnlApp` is today the window and the process at
 once — one window-server connection, one pump, one set of signal handlers, one
 device, one GPU ranking — so a second window is a second `fnl_init()` and a

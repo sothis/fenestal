@@ -6,6 +6,22 @@ promised: before 1.0, nothing between minor releases.
 
 ## 0.9.0
 
+- `FnlWindowDesc` and `fnl_window_create()`: the door to a second window on the
+  same host. `fnl_init()` is unchanged and still gives a program the host and
+  its first window together; the descriptor is the per-window half of
+  `FnlInitDesc`, and the door takes the window's callbacks. The backend seam
+  is split -- `host_open()` makes the connection and the one pump,
+  `window_open()` makes a window on it, and the pump serves every window the
+  host lists. X11 is split whole: the host owns the epoll set, the wakeup and
+  the uevent socket, each window owns its two connections, and the pump
+  dispatches each ready connection to the window that owns it. The other four
+  backends are not split yet; they name their one `open()` as `window_open()`
+  behind a no-op `host_open()`, so the seam's two halves are filled without a
+  second connection. **The door still refuses**, because a second window needs
+  its own frame loop driven from the host's pump and that wiring is not built
+  yet; the call returns `FNL_ERR_UNSUPPORTED` with the reason. The ABI baseline
+  gains the struct and the function; nothing existing moves.
+
 - `fnl_set_scene_motion_px()`: how far the scene moved since the frame before
   it, in pixels of the scene. `FNL_AA_TAAU`'s resolve reads the history where
   the picture was rather than at the same pixel, so moving content is gathered

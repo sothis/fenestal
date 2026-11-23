@@ -23,6 +23,8 @@
 
 #include "core/app.h"
 
+#include <poll.h>
+
 #include "backend/x11/x11_state.h"
 #include "backend/loop_linux.h"
 
@@ -1704,7 +1706,7 @@ static void on_map(App *a, const xcb_map_notify_event_t *e)
 	fnl_atomic_store_bool(&p->on_screen, true);
 	/* The window exists at a size now, whether or not a ConfigureNotify came
 	 * with it -- a manager that grants exactly what was asked for sends none.
-	 * This is what ends the wait in x11_open(). */
+	 * This is what ends the wait in x11_window_open(). */
 	a->configured      = true;
 	p->publish_pending = true;
 }
@@ -1955,19 +1957,31 @@ static void gfx_drain(App *a)
 	}
 }
 
-/* Block until the connection, the wakeup or the uevent socket has something,
- * or the timeout runs out; negative waits indefinitely. */
+/* Block until a window's connection, the wakeup or the uevent socket has
+ * something, or the timeout runs out; negative waits indefinitely. Each ready
+ * connection's events are dispatched to the window that owns it. */
 static void wait_fds(App *a, int timeout_ms)
 {
-	struct BackendState *p = a->backend_state;
-	struct epoll_event evs[3];
+	Host *h                    = a->host;
+	struct BackendHostState *hs = app_backend_host(a);
+	struct epoll_event evs[16];
 
-	const int n = epoll_wait(p->epoll_fd, evs, 3, timeout_ms);
+	const int n = epoll_wait(hs->epoll_fd, evs, 16, timeout_ms);
 	for (int i = 0; i < n; i++) {
-		if (evs[i].data.fd == p->wake_fd)
-			loop_wake_drain(p->wake_fd);
-		else if (evs[i].data.fd == p->uevent_fd)
-			loop_uevent_drain(a, p->uevent_fd);
+		if (evs[i].data.fd == hs->wake_fd)
+			loop_wake_drain(hs->wake_fd);
+		else if (evs[i].data.fd == hs->uevent_fd)
+			loop_uevent_drain(a, hs->uevent_fd);
+		else {
+			for (App *w = h->windows; w; w = w->next) {
+				struct BackendState *p = w->backend_state;
+				if (p && xcb_get_file_descriptor(p->conn) ==
+							 evs[i].data.fd) {
+					dispatch_read(w);
+					break;
+				}
+			}
+		}
 	}
 }
 
@@ -1978,69 +1992,108 @@ static void wait_fds(App *a, int timeout_ms)
 static int sync_await_ms(struct BackendState *p);
 static void sync_await_expire(struct BackendState *p);
 
+/* One turn over every window on the host. This is also where every request
+ * made on the pump's thread is flushed -- before the wait, and at the end --
+ * so a handler under dispatch() and a vtable entry spent by
+ * app_drain_requests() queue theirs and leave it. recentre_pointer() is the
+ * one that cannot wait, and says why. */
 static void x11_pump(App *a, int timeout_ms)
 {
-	struct BackendState *p = a->backend_state;
+	Host *h = a->host;
 
 	/* Never block with a request unsent, and the flush ahead of the queued
 	 * pass rather than between it and the wait: a flush that writes also
 	 * reads what the socket holds into xcb's queue, where the wait would
 	 * not see it. */
-	xcb_flush(p->conn);
+	for (App *w = h->windows; w; w = w->next)
+		if (w->backend_state)
+			xcb_flush(w->backend_state->conn);
+
+	bool any = false;
+	bool refresh_owed = false;
+	for (App *w = h->windows; w; w = w->next) {
+		struct BackendState *p = w->backend_state;
+		if (!p)
+			continue;
+		if (dispatch_queued(w))
+			any = true;
+		if (p->refresh_stale)
+			refresh_owed = true;
+	}
 	/* Not with the refresh rates owed: they are read on the turn after the
 	 * list, and a window that is left alone once open has no event to wake
 	 * that turn -- an idle window would be spaced by no refresh at all. */
-	if (!dispatch_queued(a) && !p->refresh_stale) {
-		/* For ever, unless a paste is owed: then only for as long as its
-		 * owner is given to send the next piece. */
-		int ms = loop_wait_ms(p->clip_waiting, p->clip.deadline);
-		/* And back by a sync request's deadline, where its configure has
-		 * not come: the publish that answers it is owed then. */
-		if (p->sync_asked && !p->sync_configured) {
-			const int sync_ms = loop_wait_ms(true, p->sync_deadline);
-			ms                = ms < 0 || sync_ms < ms ? sync_ms : ms;
+	if (!any && !refresh_owed) {
+		int ms = -1;
+		for (App *w = h->windows; w; w = w->next) {
+			struct BackendState *p = w->backend_state;
+			if (!p)
+				continue;
+			/* For ever, unless a paste is owed: then only for as long as
+			 * its owner is given to send the next piece. */
+			int wms = loop_wait_ms(p->clip_waiting, p->clip.deadline);
+			/* And back by a sync request's deadline, where its configure
+			 * has not come: the publish that answers it is owed then. */
+			if (p->sync_asked && !p->sync_configured) {
+				const int sync_ms = loop_wait_ms(true, p->sync_deadline);
+				wms = wms < 0 || sync_ms < wms ? sync_ms : wms;
+			}
+			/* And by a size's hold, which a frame presented also ends. */
+			const int held_ms = size_wait_ms(p);
+			if (held_ms >= 0)
+				wms = wms < 0 || held_ms < wms ? held_ms : wms;
+			/* And by a sync value kept for its frame's completion. */
+			const int await_ms = sync_await_ms(p);
+			if (await_ms >= 0)
+				wms = wms < 0 || await_ms < wms ? await_ms : wms;
+			if (wms >= 0 && (ms < 0 || wms < ms))
+				ms = wms;
 		}
-		/* And by a size's hold, which a frame presented also ends. */
-		const int held_ms = size_wait_ms(p);
-		if (held_ms >= 0)
-			ms = ms < 0 || held_ms < ms ? held_ms : ms;
-		/* And by a sync value kept for its frame's completion. */
-		const int await_ms = sync_await_ms(p);
-		if (await_ms >= 0)
-			ms = ms < 0 || await_ms < ms ? await_ms : ms;
 		/* And by the caller's own bound, for a loop that is not
 		 * fnl_run()'s (fnl_pump()). */
 		if (timeout_ms >= 0 && (ms < 0 || timeout_ms < ms))
 			ms = timeout_ms;
 		wait_fds(a, ms);
-		dispatch_read(a);
 	}
-	size_release(p);
-	sync_await_expire(p);
-	x11_clip_expire(a);
-	/* One answer per turn, however many events asked for it. */
-	outputs_flush(a);
-	publish_flush(a);
-	background_update(a);
-	gfx_drain(a);
-	xcb_flush(p->conn);
+	for (App *w = h->windows; w; w = w->next) {
+		struct BackendState *p = w->backend_state;
+		if (!p)
+			continue;
+		size_release(p);
+		sync_await_expire(p);
+		x11_clip_expire(w);
+		/* One answer per turn, however many events asked for it. */
+		outputs_flush(w);
+		publish_flush(w);
+		background_update(w);
+		gfx_drain(w);
+		xcb_flush(p->conn);
+	}
 }
 
 static void x11_wakeup(App *a)
 {
-	if (a->backend_state)
-		loop_wake(a->backend_state->wake_fd);
+	struct BackendHostState *hs = app_backend_host(a);
+	if (hs && hs->wake_fd >= 0)
+		loop_wake(hs->wake_fd);
 }
 
 static FnlResult x11_check_error(App *a)
 {
-	/* Both: a graphics connection that dropped is as fatal as the window's, and
-	 * is otherwise reported only as whatever the next present returns. */
+	/* Every window's two connections. A graphics connection that dropped is
+	 * as fatal as its window's, and is otherwise reported only as whatever
+	 * the next present returns. */
 	const char *which = "window";
-	int err           = xcb_connection_has_error(a->backend_state->conn);
-	if (!err && a->backend_state->gfx) {
-		err   = xcb_connection_has_error(a->backend_state->gfx);
-		which = "graphics";
+	int err           = 0;
+	for (App *w = a->host->windows; w && !err; w = w->next) {
+		struct BackendState *p = w->backend_state;
+		if (!p)
+			continue;
+		err = xcb_connection_has_error(p->conn);
+		if (!err && p->gfx) {
+			err   = xcb_connection_has_error(p->gfx);
+			which = "graphics";
+		}
 	}
 	if (!err)
 		return FNL_OK;
@@ -2063,8 +2116,9 @@ static FnlResult x11_check_error(App *a)
 
 /* ---- the backend seam -----------------------------------------------------
  *
- * Only close() and wakeup() test a->backend_state: core/backend.h has the
- * rule. */
+ * The pump, check_error() and the window's own close() walk the host's window
+ * list and test each window's backend_state: core/backend.h has the rule on
+ * which entries may arrive outside a window's open and close. */
 
 /* [render] The frame answering a sync request is about to be presented:
  * the counter is owed, and set by the flush after the present
@@ -2217,7 +2271,7 @@ static void x11_frame_request(App *a)
 			sent = sync_release_owed(p);
 		fnl_mutex_unlock(&p->sync_lock);
 		if (sent)
-			loop_wake(p->wake_fd);
+			loop_wake(p->host->wake_fd);
 		if (p->present_log)
 			fnl_log(FNL_LOG_INFO,
 					"X11 present: swapchain %u, %llu's queue discarded",
@@ -2273,7 +2327,7 @@ static void x11_frame_cancel(App *a)
 		sent = sync_release_owed(p);
 	fnl_mutex_unlock(&p->sync_lock);
 	if (sent)
-		loop_wake(p->wake_fd);
+		loop_wake(p->host->wake_fd);
 }
 
 static void x11_flush(App *a)
@@ -2326,7 +2380,7 @@ static void x11_flush(App *a)
 	if (sent)
 		xcb_flush(p->conn);
 	if (kept || sent)
-		loop_wake(p->wake_fd);
+		loop_wake(p->host->wake_fd);
 	/* The size the frame just presented was drawn at, for a size held
 	 * behind it (size_give()), and the pump woken for that size. */
 	if (a->presents != p->flush_presents) {
@@ -2335,7 +2389,7 @@ static void x11_flush(App *a)
 		fnl_atomic_store_u32(&p->shown_h, (uint32_t)a->extent.h);
 		if (fnl_atomic_load_bool(&p->held_wake)) {
 			fnl_atomic_store_bool(&p->held_wake, false);
-			loop_wake(p->wake_fd);
+			loop_wake(p->host->wake_fd);
 		}
 	}
 }
@@ -2354,7 +2408,7 @@ static void x11_ack_release(App *a)
 	if (!sent)
 		return;
 	xcb_flush(p->conn);
-	loop_wake(p->wake_fd);
+	loop_wake(p->host->wake_fd);
 }
 
 /* Mapped, and not hidden by the manager. Not "covered": no window server
@@ -2431,8 +2485,8 @@ static void x11_nudge_size(App *a)
 /* The presentation engine's own connection; see BackendState::conn.
  *
  * xcb_connect never returns NULL -- a failure is a connection with its error
- * set, which xcb_disconnect still accepts -- so x11_close() copes with this
- * having failed as readily as with it never having been called. */
+ * set, which xcb_disconnect still accepts -- so x11_window_close() copes with
+ * this having failed as readily as with it never having been called. */
 static FNL_MUST_USE FnlResult create_gfx_connection(App *a)
 {
 	struct BackendState *p = a->backend_state;
@@ -2582,8 +2636,13 @@ static void wait_for_map(App *a)
 		const double left = deadline - now_seconds();
 		if (left <= 0.0)
 			break;
-		wait_fds(a, (int)(left * 1000.0) + 1);
-		dispatch_read(a);
+		/* This window's connection alone: the host's epoll carries every
+		 * window's, and a second window's open must not dispatch the first's
+		 * events while it waits for its own map. */
+		struct pollfd pfd = { .fd = xcb_get_file_descriptor(p->conn),
+							  .events = POLLIN };
+		if (poll(&pfd, 1, (int)(left * 1000.0) + 1) > 0)
+			dispatch_read(a);
 	}
 
 	if (!a->configured) {
@@ -2603,50 +2662,109 @@ static void wait_for_map(App *a)
 	publish_flush(a);
 }
 
-static FnlResult x11_open(App *a)
+/* Add a descriptor to the host's epoll set. The set is made before any window
+ * connects, so the wakeup and the uevent socket go in here and each window's
+ * connection joins as it opens. */
+static FnlResult epoll_watch(int epoll_fd, int fd)
+{
+	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fd };
+	if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0)
+		return fnl_fail(FNL_ERR_SYSTEM, "epoll_ctl(ADD) failed: %s",
+						strerror(errno));
+	return FNL_OK;
+}
+
+/* The host's half: the event loop every window's connection joins. It owns no
+ * connection itself -- each window connects on its own -- so this only makes
+ * the descriptors the pump waits on. libxcb is loaded here, once, before any
+ * window's open() needs it. */
+static FnlResult x11_host_open(App *a)
 {
 	/* libxcb before the state: without it this is a display fnl_init()
-	 * steps past, and x11_close(), which calls through what this fills,
+	 * steps past, and x11_host_close(), which calls through what this fills,
 	 * finds no state and returns. */
 	const char *no_xcb = x11_xcb_load();
 	if (no_xcb)
 		return fnl_fail(FNL_ERR_NO_DISPLAY, "%s", no_xcb);
 
-	a->backend_state = calloc(1, sizeof *a->backend_state);
-	if (!a->backend_state)
+	struct BackendHostState *hs = calloc(1, sizeof *hs);
+	if (!hs)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"out of memory for the X11 backend state");
-	a->backend_state->cursor_applied    = X11_CURSOR_UNKNOWN;
-	a->backend_state->published_monitor = -1;
-	const char *plog                    = getenv("FNL_X11_PRESENT_LOG");
-	a->backend_state->present_log       = plog && strcmp(plog, "1") == 0;
-	fnl_mutex_init(&a->backend_state->sync_lock);
-	fnl_mutex_init(&a->backend_state->present_lock);
-	/* Not left at the calloc's zero, which is stdin: x11_close() decides
+						"out of memory for the X11 host state");
+	a->host->backend_host = hs;
+	/* Not left at the calloc's zero, which is stdin: x11_host_close() decides
 	 * whether to close these, and "never made" has to be a value that is not
 	 * somebody else's descriptor. */
-	a->backend_state->wake_fd       = a->backend_state->epoll_fd =
-		a->backend_state->uevent_fd = -1;
+	hs->wake_fd = hs->epoll_fd = hs->uevent_fd = -1;
 
-	/* The wakeup first: everything after this can fail, and x11_close() -- the
-	 * failure path out of here -- is written to cope with any prefix. */
-	FNL_TRY(loop_wake_create(&a->backend_state->wake_fd));
-	FNL_TRY(create_window_x11(a));
-	FNL_TRY(create_gfx_connection(a));
-	FNL_TRY(loop_epoll_create(&a->backend_state->epoll_fd,
-							  xcb_get_file_descriptor(a->backend_state->conn),
-							  a->backend_state->wake_fd));
+	/* The wakeup first: everything after this can fail, and x11_host_close()
+	 * -- the failure path out of here -- is written to cope with any prefix. */
+	FNL_TRY(loop_wake_create(&hs->wake_fd));
+	hs->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+	if (hs->epoll_fd < 0)
+		return fnl_fail(FNL_ERR_SYSTEM, "epoll_create1 failed: %s",
+						strerror(errno));
+	FNL_TRY(epoll_watch(hs->epoll_fd, hs->wake_fd));
 	/* A GPU that came or went: the same netlink group KMS reads, opened
 	 * here so the window servers' backends hear a hotplug too. */
-	FNL_TRY(loop_uevent_open(&a->backend_state->uevent_fd,
-							 a->backend_state->epoll_fd));
+	FNL_TRY(loop_uevent_open(&hs->uevent_fd, hs->epoll_fd));
+	return FNL_OK;
+}
+
+/* Innermost first, and every step conditional: this is also the failure path
+ * out of x11_host_open(), so it runs against every prefix of what that
+ * builds. */
+static void x11_host_close(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+
+	/* The wakeup and epoll descriptors, closed unless a signal handler could
+	 * still reach them through app_wakeup(): app_teardown() clears the
+	 * host's installed_signals once it has waited every handler out. */
+	if (!app_signals_installed(a)) {
+		if (hs->epoll_fd >= 0)
+			close(hs->epoll_fd);
+		if (hs->wake_fd >= 0)
+			close(hs->wake_fd);
+		if (hs->uevent_fd >= 0)
+			close(hs->uevent_fd);
+	}
+	hs->epoll_fd = hs->wake_fd = hs->uevent_fd = -1;
+	free(hs);
+	a->host->backend_host = NULL;
+}
+
+/* The window's half: its own connection to the server, its presentation
+ * connection and its window. The host's event loop is already up; this joins
+ * the window's connection to it. */
+static FnlResult x11_window_open(App *a)
+{
+	struct BackendState *p = calloc(1, sizeof *p);
+	if (!p)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the X11 backend state");
+	a->backend_state = p;
+	p->host         = app_backend_host(a);
+	p->cursor_applied    = X11_CURSOR_UNKNOWN;
+	p->published_monitor = -1;
+	const char *plog     = getenv("FNL_X11_PRESENT_LOG");
+	p->present_log       = plog && strcmp(plog, "1") == 0;
+	fnl_mutex_init(&p->sync_lock);
+	fnl_mutex_init(&p->present_lock);
+
+	FNL_TRY(create_window_x11(a));
+	FNL_TRY(create_gfx_connection(a));
+	FNL_TRY(epoll_watch(p->host->epoll_fd, xcb_get_file_descriptor(p->conn)));
 	wait_for_map(a);
 	return FNL_OK;
 }
 
 /* Innermost first, and every step conditional: this is also the failure path
- * out of x11_open(), so it runs against every prefix of what that builds. */
-static void x11_close(App *a)
+ * out of x11_window_open(), so it runs against every prefix of what that
+ * builds. */
+static void x11_window_close(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	if (!p)
@@ -2678,23 +2796,10 @@ static void x11_close(App *a)
 	 * NULL -- which is what a failed xcb_connect leaves. */
 	xcb_disconnect(p->conn);
 
-	/* The wakeup and epoll descriptors, closed unless a signal handler could
-	 * still reach them through app_wakeup(): app_teardown() clears
-	 * installed_signals once it has waited every handler out. */
-	if (!a->installed_signals) {
-		if (p->epoll_fd >= 0)
-			close(p->epoll_fd);
-		if (p->wake_fd >= 0)
-			close(p->wake_fd);
-		if (p->uevent_fd >= 0)
-			close(p->uevent_fd);
-	}
-	p->epoll_fd = p->wake_fd = p->uevent_fd = -1;
-
-	clip_in_free(&a->backend_state->clip);
-	fnl_mutex_destroy(&a->backend_state->sync_lock);
-	fnl_mutex_destroy(&a->backend_state->present_lock);
-	free(a->backend_state);
+	clip_in_free(&p->clip);
+	fnl_mutex_destroy(&p->sync_lock);
+	fnl_mutex_destroy(&p->present_lock);
+	free(p);
 	a->backend_state = NULL;
 }
 
@@ -2761,8 +2866,10 @@ const FnlBackendVtbl fnl_backend_x11 = {
 	.invites              = false,
 	.display_waits        = true,
 	.ack_when_shown       = true,
-	.open                 = x11_open,
-	.close                = x11_close,
+	.host_open            = x11_host_open,
+	.host_close           = x11_host_close,
+	.window_open          = x11_window_open,
+	.window_close         = x11_window_close,
 	.pump                 = x11_pump,
 	.wakeup               = x11_wakeup,
 	.check_error          = x11_check_error,

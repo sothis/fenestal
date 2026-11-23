@@ -615,7 +615,7 @@ bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y, int *w,
 bool fnl_titlebar_custom(FnlApp *app, int height_pt, int min_width_pt)
 {
 	App *a = (App *)app;
-	if (!a || !a->backend)
+	if (!a || !a->host->backend)
 		return false;
 	/* Both bounded (see clamp_pt in app.h). Zero means "the library's own
 	 * bar" for the first and "no width floor" for the second, so a negative

@@ -2835,9 +2835,10 @@ static void wl_close(App *a)
 	 * still be on its way to them: one that loaded the App pointer on some
 	 * other thread before teardown cleared it must not write() to a closed --
 	 * or recycled -- descriptor number. app_teardown() waits every handler
-	 * out and then clears installed_signals; only a handler stopped where it
-	 * stands, past the wait's bound, leaves the two open until exit. */
-	if (!a->installed_signals) {
+	 * out and then clears the host's installed_signals; only a handler
+	 * stopped where it stands, past the wait's bound, leaves the two open
+	 * until exit. */
+	if (!app_signals_installed(a)) {
 		if (p->epoll_fd >= 0)
 			close(p->epoll_fd);
 		if (p->wake_fd >= 0)
@@ -2943,8 +2944,11 @@ const FnlBackendVtbl fnl_backend_wayland = {
 	.invites = true,
 	/* xdg_toplevel.set_fullscreen names an output; nothing else does. */
 	.outputs_fullscreen_only = true,
-	.open                    = wl_open,
-	.close                   = wl_close,
+	/* Not split yet: one open() makes the display and its window together. */
+	.host_open               = backend_noop_host_open,
+	.host_close              = backend_noop_host_close,
+	.window_open             = wl_open,
+	.window_close            = wl_close,
 	.pump                    = wl_pump,
 	.wakeup                  = wl_wakeup,
 	.check_error             = wl_check_error,

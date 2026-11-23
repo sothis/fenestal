@@ -120,7 +120,26 @@ typedef struct {
  * lets the oldest go. */
 #define X11_PRESENT_Q 16
 
+/* The host's own half: the event loop that serves every window's connection.
+ * One epoll set, one eventfd to wake it and one uevent socket, made once when
+ * the first window opens and held until the last window goes. The connections
+ * themselves are the windows' (BackendState::conn): each window connects to
+ * the server on its own, as the "Two connections" comment below says, so the
+ * host owns no connection -- only the set that waits on all of them. */
+struct BackendHostState {
+	/* The eventfd any thread can wake the pump with, and the epoll set
+	 * watching it beside every window's connection. */
+	int wake_fd;
+	int epoll_fd;
+	/* The uevent socket (loop_uevent_open()), in the epoll set: a GPU that
+	 * came or went. -1 where the kernel has no such group. */
+	int uevent_fd;
+};
+
 struct BackendState {
+	/* The host's event loop, which this window's connection is added to. */
+	struct BackendHostState *host;
+
 	/* Two connections to the one server, and which is which is load-bearing.
 	 * `conn` is the window's: the main thread creates the window on it and is
 	 * the only thread that ever reads it. `gfx` is handed to
@@ -450,14 +469,6 @@ struct BackendState {
 	/* How many X errors have been reported. Capped, because a mistake on the
 	 * pointer path would otherwise write one line per motion event. */
 	int errors_logged;
-
-	/* The event loop's two descriptors: an eventfd any thread can wake the
-	 * pump with, and the epoll set watching it beside the connection. */
-	int wake_fd;
-	int epoll_fd;
-	/* The uevent socket (loop_uevent_open()), in the epoll set: a GPU that
-	 * came or went. -1 where the kernel has no such group. */
-	int uevent_fd;
 };
 
 /* ---- what the backend's files ask of one another ---------------------------

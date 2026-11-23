@@ -8,10 +8,14 @@
  *
  * ---- scope ----------------------------------------------------------------
  *
- *   - one window, created with the app. Splitting a window handle out belongs
- *     with a second window, because "which window" is only a question once
- *     there is more than one to ask it of; the app is already the handle, and
- *     the split is designed and not built (DESIGN *A second window*).
+ *   - a window, created with the app: fnl_init() gives you the host and its
+ *     first window at once, and fnl_window_create() is the door to another on
+ *     the same host -- designed, and still refused until a second window has
+ *     its own frame loop driven from the host's pump (DESIGN *A second
+ *     window*). The app is the window's handle, and the host -- the
+ *     connection, the pump, the signal handlers and the GPU ranking -- is the
+ *     program's; fnl_run() and fnl_pump() are the host's, and everything a
+ *     window does goes through the app.
  *   - events are queued and you drain them, rather than being called back.
  *     One stream carries both what the user did and what the library did
  *     about it, so the two arrive in an order you can rely on. See
@@ -38,8 +42,8 @@
  *   - an enum's values are kept and new values are appended. An event type,
  *     key or cursor you do not recognise is from a newer library: ignore it.
  *     The *_COUNT members are counts, not values, and grow when one is added.
- *   - a struct you pass in (FnlInitDesc, FnlCallbacks) grows at its end, and
- *     its `size` field is how an older caller is told apart.
+ *   - a struct you pass in (FnlInitDesc, FnlWindowDesc, FnlCallbacks) grows at
+ *     its end, and its `size` field is how an older caller is told apart.
  *   - a function that is replaced is marked FNL_DEPRECATED, which warns,
  *     before it goes.
  *
@@ -57,9 +61,16 @@
  *              runs it. The overlay calls are these; outside that callback
  *              they draw nothing rather than misbehave.
  *
- * The library owns a render thread of its own once fnl_run() is called. It is
- * not yours to start, stop or join, and the only thing that runs on it that
- * you write is on_record.
+ * The library owns a render thread of its own once fnl_run() is called -- one
+ * per window. It is not yours to start, stop or join, and the only thing that
+ * runs on it that you write is on_record.
+ *
+ * A window's callbacks run on the thread that runs that window's frame, and
+ * every callback is handed the window's app. Two windows' callbacks are two
+ * threads: a host with N windows has N render threads, and each app's own
+ * state is its own. What is shared -- the connection, the pump, the signal
+ * handlers, the ranking -- is the host's and is touched only from the thread
+ * that pumps it.
  */
 
 #ifndef FENESTAL_H
@@ -364,6 +375,48 @@ typedef struct {
  * smaller struct, and the library reads only the fields that existed then and
  * defaults the rest. A size it does not recognise is
  * FNL_ERR_VERSION_MISMATCH. */
+
+/* ---- a second window ------------------------------------------------------
+ *
+ * fnl_init() gives you the host and its first window together. A second window
+ * on the same host is fnl_window_create(), which takes this -- the per-window
+ * half of FnlInitDesc. The host's half (the log sink, the signal handlers, the
+ * renderer list, the GPU ranking) is the first window's and stays the host's;
+ * it is not repeated here.
+ *
+ * The first window's descriptor is FnlInitDesc, so a program that opens one
+ * window fills that and nothing else. A program that opens two fills an
+ * FnlInitDesc for the first and one of these for each after it. */
+typedef struct {
+	size_t size;             /* sizeof(FnlWindowDesc) -- see the note above */
+	uint32_t header_version; /* pass FNL_VERSION */
+
+	const char *title; /* UTF-8; NULL for the default */
+	int width_pt, height_pt; /* presentable area; 0 for the default */
+
+	/* A position on the desktop, in points from the primary output's corner,
+	 * or 0/0 to let the window server place it. The first window's descriptor
+	 * has no position: a program that opens one window leaves it to the
+	 * desktop. A window placed by hand is the reason the field is here. */
+	int x_pt, y_pt;
+
+	/* Which GPU this window opens on, by the same rules as FnlInitDesc's:
+	 * gpu_index one-based into the renderer's list, gpu_name a part of the
+	 * name. A second window naming no GPU takes the host's ranking for its
+	 * display and its own automatic pick. */
+	int gpu_index;
+	const char *gpu_name;
+
+	/* The window's own settings, as FnlInitDesc's: the presentable area is
+	 * the caller's interface (content_is_ui), the titlebar controls to leave
+	 * out (no_titlebar_controls), the scale override and the frame times. The
+	 * renderer and its list are the host's -- one graphics API a program -- and
+	 * so are the callbacks, which the door takes. */
+	bool content_is_ui;
+	uint32_t no_titlebar_controls;
+	int scale_override120;
+	bool frame_times;
+} FnlWindowDesc;
 
 /* ---- the frame -----------------------------------------------------------
  *
@@ -897,19 +950,57 @@ typedef struct {
 	void (*on_overlay)(void *ud, FnlApp *app, const FnlFrame *frame);
 } FnlCallbacks;
 
+/* The host and its first window. The connection, the pump, the signal
+ * handlers and the GPU ranking are the host's and are made once; the window
+ * is the app fnl_init() hands back. A second window on the same host is
+ * fnl_window_create().
+ *
+ * On the thread that entered main(), or FNL_ERR_INVALID_ARGUMENT. On macOS it
+ * has to be: AppKit is the main thread's. */
 FNL_API FnlResult fnl_init(const FnlInitDesc *desc, FnlApp **out); /* [main] */
+
+/* A second window on `sibling`'s host. Returns the window's app in `*out`, or
+ * a negative result and nothing open -- the sibling is untouched. The host is
+ * the sibling's: the connection, the pump and the GPU ranking are shared, and
+ * each window's frames are drawn on its own render thread under the one pump.
+ *
+ * A window's callbacks are given here, as the first window's are given to
+ * fnl_run(): pass NULL for a window with none, where the library's titlebar
+ * is all that is drawn. A negative result leaves nothing open.
+ *
+ * **Not yet open: this returns FNL_ERR_UNSUPPORTED.** The host and window are
+ * sorted and the backend seam is split, but a second window needs its own
+ * frame loop driven from the host's pump and that wiring is not built, so the
+ * door refuses rather than hand back a window that opens and never draws. A
+ * program with one window is what fnl_init() and fnl_run() give, and what this
+ * build does (DESIGN *A second window*, TODO *A second window*).
+ *
+ * When it opens, the window will be open on return and draw from the next pump
+ * turn: before fnl_run() its first frame comes when the run starts, and during
+ * a run as soon as the host pumps again. The same [main] thread as fnl_init(),
+ * and never from a callback. */
+FNL_API FnlResult fnl_window_create(FnlApp *sibling,
+									const FnlWindowDesc *desc,
+									const FnlCallbacks *cb,
+									FnlApp **out); /* [main] */
+
 /* After fnl_run() has returned. Called from a callback it logs a line and
  * does nothing, rather than wait for the render thread from the render
- * thread or free the app fnl_run() is still running on. */
+ * thread or free the app fnl_run() is still running on.
+ *
+ * One window's, once there are several: the window's surface, device and
+ * render thread go, and the host's connection and pump go with the last one.
+ * A host with one window is the case this is today. */
 FNL_API void fnl_shutdown(FnlApp *app); /* [main] */
 
-/* Pump the backend on this thread and the frame loop on one of the library's
- * own, until the window closes or fnl_quit() is called. Returns FNL_OK on an
- * ordinary close.
+/* Pump the host on this thread and every window's frame loop on one of the
+ * library's own, until the last window closes or fnl_quit() is called on one.
+ * Returns FNL_OK on an ordinary close.
  *
- * On the thread that called fnl_init(), or FNL_ERR_INVALID_ARGUMENT. That
- * should be the thread that entered main(), and on macOS it has to be:
- * AppKit is the main thread's, and fnl_init() refuses any other there. */
+ * The pump is the host's and dispatches to every window on it; the callbacks
+ * are the first window's. A second window's callbacks are given to
+ * fnl_window_create(), and the run covers it too. On the thread that called
+ * fnl_init(), or FNL_ERR_INVALID_ARGUMENT. */
 FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb); /* [main] */
 
 /* fnl_run() in three, for a caller that has an event loop of its own -- a
@@ -935,7 +1026,10 @@ FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb); /* [main] */
  * by fnl_pump() and nothing else reads them.
  *
  * All three are [main] -- the thread that called fnl_init() -- and none may
- * be called from a callback. */
+ * be called from a callback. They are the host's: fnl_start() starts every
+ * window's render thread, fnl_pump() is one turn of the host and dispatches
+ * to every window on it, and fnl_stop() joins every window's. A host with one
+ * window is the case a caller with one window sees. */
 FNL_API FnlResult fnl_start(FnlApp *app, const FnlCallbacks *cb); /* [main] */
 /* One turn, and the block it takes is bounded by `timeout_ms`: -1 waits for
  * as long as the window server takes, 0 does not wait at all. A caller with
@@ -945,6 +1039,9 @@ FNL_API FnlResult fnl_start(FnlApp *app, const FnlCallbacks *cb); /* [main] */
 FNL_API FnlResult fnl_pump(FnlApp *app, int timeout_ms); /* [main] */
 FNL_API FnlResult fnl_stop(FnlApp *app);                 /* [main] */
 
+/* Close this window. The run ends when the last window on the host has
+ * closed, so a program with one window sees what it always has: the loop ends
+ * here. A program with several closes them one at a time. */
 FNL_API void fnl_quit(FnlApp *app); /* [any]  */
 
 /* ---- the event queue ------------------------------------------------------
