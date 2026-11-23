@@ -755,13 +755,21 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   cursor plane on CRTC 61 by atomic commits`, every drawn-pointer check
   passes with the window moved between the two outputs, and the round's new
   pointer crossing passes -- 185 checks, none failed, and the two-window
-  section eight. Owed: a CRTC with no cursor plane, unseen -- it
-  would say the legacy line instead, which the round allows as a notice; and
-  the forced fallback, not yet driven by a Debug round.
+  section eight. The forced fallback was driven on 2026-11-24, the same
+  machine, `gc`, `--capture`, `FNL_FAULT=kms-cursor-legacy`: the legacy
+  line at the third refusal, every drawn-pointer check passing on the
+  legacy ioctl, the two-window section eight with none failed and the round
+  185 with none. Owed: a CRTC with no cursor plane, unseen -- it would say
+  the legacy line instead, which the round allows as a notice.
 - **The unplug section with a force that reaches the program and two
   outputs**: no machine has both today -- `black`'s kernel sends no uevent
   for a forced status (DESIGN *KMS*), and the laptops have one output each.
   A second monitor on a laptop, or a cable pulled by hand on `black`.
+  schenker has the two outputs and was driven there on 2026-10-18 under
+  another kernel; its i915 now sends none for eDP-1 and one write of five
+  for HDMI-A-1 (DESIGN's measurement of 2026-11-24), and the section skips
+  there again. Owed besides: the probe reads only the write's own moment
+  now, so a kernel whose event is late is skipped rather than driven.
   The same reaches the away grace's other half (DESIGN *A monitor that
   leaves is away first*), driven only with monitors that came back: a
   dark output pulled leaving the list after 5 s, the window's own pulled

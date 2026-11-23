@@ -1592,26 +1592,53 @@ done""",
             raise Unreachable("%r is no connector's name" % (name,))
         return name
 
-    def force_output_heard(self, name, state, wait=3.0):
-        """force_output(), with the kernel's DRM uevents listened for while
-        it is written (`udevadm monitor -k`, as root): whether one came
-        within `wait` seconds. A machine whose every connector is
-        hotplug-capable leaves DRM's output polling off, and there a forced
-        status is queued as a delayed event nothing sends -- the RX 580
-        here -- so the program, which hears of an unplug by uevent alone,
-        is told nothing, and a round's unplug checks would read a window
-        that never moved."""
+    def force_output_heard(self, name, state, wait=1.5):
+        """force_output(), with the kernel's DRM uevents watched as it is
+        written: whether one came within `wait` seconds of the write. A
+        machine whose every connector is hotplug-capable leaves DRM's output
+        polling off, and there a forced status is queued as a delayed event
+        nothing sends -- the RX 580 here -- so the program, which hears of an
+        unplug by uevent alone, is told nothing, and a round's unplug checks
+        would read a window that never moved.
+
+        The window is the write's own moment and no longer: an event the
+        write causes is milliseconds away, where drm sends "change" events of
+        its own at odd moments -- a monitor's power state, another
+        connector's probe -- and a long window took one of those as an answer
+        (schenker's i915, 2026-11-24: the round's section then ran and failed
+        on two checks the force never caused). For the same reason an event
+        from before the write does not count: the kernel's timestamps are
+        /proc/uptime's, and the write's reading is taken just after it."""
         tmp = "/tmp/fenestal-uevent.$$"
         cmd = (
             "timeout %g udevadm monitor -k -s drm > %s 2>&1 & m=$!; "
             "sleep 0.5; for f in /sys/class/drm/card*-%s/status; do "
-            "echo %s > $f; done; wait $m; grep -c '^KERNEL\\[' %s; "
-            "rm -f %s"
-            % (wait, tmp, self._connector(name), shlex.quote(state), tmp, tmp)
+            "echo %s > $f; done; u=$(cut -d' ' -f1 /proc/uptime); "
+            "sleep %g; kill $m 2>/dev/null; wait $m 2>/dev/null; "
+            "echo \"UPTIME $u\"; grep '^KERNEL\\[' %s; rm -f %s"
+            % (0.5 + wait + 2.0, tmp, self._connector(name),
+               shlex.quote(state), wait, tmp, tmp)
         )
         res = _ssh(as_root(self.dest), cmd, timeout=wait + 30)
         said = _text(res).strip().splitlines()
-        if not said or not said[-1].isdigit():
+        wrote = None
+        heard = 0
+        for ln in said:
+            if ln.startswith("UPTIME "):
+                try:
+                    wrote = float(ln.split()[1])
+                except (IndexError, ValueError):
+                    wrote = None
+                continue
+            m = re.match(r"KERNEL\[([\d.]+)\]", ln)
+            if m and wrote is not None:
+                # 0.3 s of slack: the write, the event and the reading of
+                # the clock are three syscalls, and the kernel's stamp is
+                # the event's own.
+                at = float(m.group(1))
+                if wrote - 0.3 <= at <= wrote + wait:
+                    heard += 1
+        if wrote is None:
             raise Unreachable(
                 "forcing %s %s on %s: %s"
                 % (
@@ -1621,7 +1648,7 @@ done""",
                     res.stderr.decode("utf-8", "replace").strip(),
                 )
             )
-        return int(said[-1]) > 0
+        return heard > 0
 
     def kms_capture(self, path, output=None):
         """What the display is scanning out (kms_grab.py, run there by

@@ -9359,6 +9359,18 @@ with that reason where none comes: three console rounds on `black` on
 2026-10-24 skipped them so, and the thinkpad's i915 sends one for an `on`
 and a `detect` of a connector with nothing on it.
 
+The listening has a window of the write's own. DRM sends `change` events
+for reasons that have nothing to do with the write -- a monitor's power
+state, another connector's probe -- and a probe that watched for a few
+seconds after it took one of those for the force's answer: on schenker's
+i915 (2026-11-24) the section ran on a stray event, the window moved on
+that event's rescan, and two checks the force never caused failed. So the
+probe counts only an event whose kernel stamp falls between the write and
+1.5 s after it, both read off `/proc/uptime`'s clock, and a forced status
+that sends nothing sends nothing. Measured there the same day: eDP-1
+written `off` and `detect` sent no drm event in 26 s, and HDMI-A-1 no
+event in four writes of five, the one 5 ms after its write.
+
 Driven (2026-10-18) through the titlebar's lists by uinput, at `release`
 and `asan`, and in the round (`display-modes`): on schenker, anv driving
 the panel (eDP-1, one mode) and an HDMI monitor (32 modes of more,
