@@ -3482,14 +3482,19 @@ void fnl_quit(App *a)
  * untouched. */
 static FnlResult window_start(App *a)
 {
-	/* The first on_gpu_created for this window: fnl_init() built its device
-	 * and fnl_window_create() copied its callbacks, but a caller cannot have
-	 * handed them over before fnl_run(), so the outermost pair is here. The
-	 * flag is set with or without a callback, so that a caller which
-	 * registered only on_gpu_lost gets exactly one per loss. See
-	 * App::cb_gpu_created. */
+	/* This window's own device, held by this thread for what the callbacks
+	 * and the frame policy ask of it. fnl_init() left the first window's
+	 * current here, but a window created later built its own since -- and
+	 * that one is what the main thread holds now -- so each window enters
+	 * its own: the first's enter changes nothing, and without the second's
+	 * a caller's on_gpu_created would build the second window's objects in
+	 * the first's context, or in none. */
+	if (a->renderer && a->renderer_ready)
+		RENDERER(a)->thread_enter(a);
 	app_aa_settle(a);
 	a->in_run         = true;
+	/* Set with or without a callback, so that a caller which registered only
+	 * on_gpu_lost gets exactly one per loss. See App::cb_gpu_created. */
 	a->cb_gpu_created = true;
 	if (a->cb.on_gpu_created)
 		a->cb.on_gpu_created(a->cb.ud, a);

@@ -89,7 +89,10 @@ typedef struct FnlRendererVtbl {
 	 * on_gpu_created. fnl_run() leaves it before starting the render thread,
 	 * which enters at the top of render_loop() and leaves at the bottom;
 	 * fnl_run() enters again after the join, for the last on_gpu_lost and
-	 * the teardown. Loss recovery runs on the render thread, which holds it.
+	 * the teardown. Each window on the host enters its own before its
+	 * on_gpu_created: the main thread holds one context at a time, and a
+	 * second window's build leaves the second's current in place of the
+	 * first's. Loss recovery runs on the render thread, which holds it.
 	 * Never called without a device instance (App::renderer_ready). */
 	void (*thread_enter)(App *a);
 	void (*thread_leave)(App *a);
