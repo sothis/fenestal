@@ -265,9 +265,13 @@ struct BackendState {
 	double       ptr_x, ptr_y;
 	bool         captured;
 
-	/* The cursor plane: one dumb buffer per glyph, made when first shown. */
+	/* The cursor plane: one dumb buffer per glyph, made when first shown,
+	 * and the framebuffer an atomic commit puts it on the cursor plane
+	 * through (the legacy cursor ioctl took the handle and wrapped it
+	 * itself). */
 	uint32_t     cursor_w, cursor_h;
 	uint32_t     glyph_handle[KMS_GLYPH_COUNT];
+	uint32_t     glyph_fb[KMS_GLYPH_COUNT];
 	KmsGlyph     glyph_shown;
 	/* The CRTC driving the output now, as the kernel says, 0 until it says
 	 * one; the CRTC the cursor was last set on; and how many more pump turns
@@ -276,6 +280,16 @@ struct BackendState {
 	int          cursor_recheck;
 	int          cursor_at_x, cursor_at_y;
 	bool         cursor_warned;
+	/* Whether the cursor is the legacy ioctl's: set once an atomic cursor
+	 * commit was refused again and again, and it stays there for the window's
+	 * life. */
+	bool         cursor_legacy;
+	/* Commits refused one after another with nothing taken: a refusal at a
+	 * move is a CRTC the render thread had switched off a moment before, and
+	 * one is no reason to give the plane up for good. */
+	int          cursor_refused;
+	/* The one line naming the atomic cursor plane, said at the first shape. */
+	bool         cursor_atomic_said;
 
 	/* [render] The copy path's two scanout buffers
 	 * (RendererState::present_copy): made at the first frame, shown one

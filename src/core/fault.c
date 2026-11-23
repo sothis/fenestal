@@ -53,6 +53,7 @@ static const char *const SITES[] = {
 	"x11-clip-unstamped",   /* clip_stamp: copy and paste at CurrentTime */
 	"kms-no-keymap",        /* keymap_load: the files give no keymap */
 	"kms-no-cursor",        /* glyph_make: no buffer for the cursor plane */
+	"kms-cursor-legacy",    /* cursor_atomic_send: every commit refused */
 	"kms-no-display",       /* acquire_display: the copy path instead */
 	"kms-no-headless",      /* copy_surface: images of the renderer's own */
 	"kms-mode-refused",     /* a mode switched to will not show */

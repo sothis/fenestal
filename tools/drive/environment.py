@@ -4037,6 +4037,13 @@ class KmsBare(WaylandBare):
     EXPECTED_LOG = (r"^KMS: \S+ on /dev/dri/card\d+, \d+x\d+ at [\d.]+ Hz, ",
                     # The commit path the card took (kms_atomic_enable()).
                     r"^KMS: atomic commits on card\d+$",
+                    # Where the cursor goes, said once a window: the CRTC's
+                    # cursor plane by atomic commits, and the legacy ioctl
+                    # where a CRTC has no plane or the commits were refused
+                    # (kms.c's cursor_atomic_send()).
+                    r"^KMS: the cursor plane on CRTC \d+ by atomic commits$",
+                    r"^KMS: the cursor plane took no atomic commit \(.+\); "
+                    r"the legacy cursor ioctl is used$",
                     r"^KMS: \S+ at \d+x\d+, [\d.]+ Hz$",
                     r"^KMS: .+; drawing offscreen and copying each frame onto "
                     r"\S+$",

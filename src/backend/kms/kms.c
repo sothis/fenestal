@@ -801,7 +801,62 @@ static bool glyph_make(struct BackendState *p, KmsGlyph g)
 	}
 	munmap(px, (size_t)cd.size);
 	p->glyph_handle[g] = cd.handle;
+	/* The atomic commit names a framebuffer, not a raw buffer: one wrapped
+	 * around it, ARGB8888 as a cursor plane takes. A driver without atomic
+	 * needs none -- the legacy cursor ioctl wrapped the handle itself -- and
+	 * a refusal here leaves the glyph to that ioctl. */
+	if (p->host->atomic) {
+		struct drm_mode_fb_cmd2 fb = {
+			.width        = p->cursor_w,
+			.height       = p->cursor_h,
+			.pixel_format = DRM_FORMAT_ARGB8888,
+			.handles      = { cd.handle },
+			.pitches      = { cd.pitch },
+		};
+		if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_ADDFB2, &fb) == 0)
+			p->glyph_fb[g] = fb.fb_id;
+	}
 	return true;
+}
+
+/* Whether this window's cursor goes by atomic commits on `crtc`: the driver
+ * took the capability, the CRTC has a cursor plane, and none of this window's
+ * cursor commits has been refused. A cursor plane is a CRTC's, so a window
+ * that moves to another output asks afresh. */
+static bool cursor_atomic(const struct BackendState *p, uint32_t crtc)
+{
+	return p->host->atomic && !p->cursor_legacy &&
+		   kms_atomic_cursor_at(p->host->atomic, crtc);
+}
+
+/* `g` (or nothing) on the CRTC's cursor plane through an atomic commit, its
+ * hot spot at (x, y). False where the kernel refused it, and the legacy ioctl
+ * then answers this one; three refused with nothing taken make the legacy
+ * ioctl the window's for its life, one line saying so. A refusal can be a
+ * race -- the render thread's mode set switching the CRTC off between the
+ * lit check and the commit -- so one is not the plane's last word. */
+static bool cursor_atomic_send(struct BackendState *p, uint32_t crtc,
+							   KmsGlyph g, int x, int y)
+{
+	bool ok = g == KMS_GLYPH_NONE
+				  ? kms_atomic_cursor_off(p->host->atomic, crtc)
+				  : kms_atomic_cursor_set(p->host->atomic, crtc,
+										  p->glyph_fb[g], x, y, p->cursor_w,
+										  p->cursor_h);
+	/* The plane refusing, forced (DESIGN *Forcing the paths that never
+	 * run*): three in a row and the legacy ioctl is the window's. */
+	if (FNL_FAULT("kms-cursor-legacy"))
+		ok = false;
+	if (ok)
+		p->cursor_refused = 0;
+	else if (++p->cursor_refused >= 3) {
+		p->cursor_legacy = true;
+		fnl_log(FNL_LOG_INFO,
+				"KMS: the cursor plane took no atomic commit (%s); the "
+				"legacy cursor ioctl is used",
+				strerror(errno));
+	}
+	return ok;
 }
 
 /* After a switch the pump looks for the new output's CRTC this often and
@@ -816,6 +871,9 @@ static void cursor_hide(struct BackendState *p)
 	const uint32_t crtc = p->cursor_on;
 	if (crtc && p->glyph_shown != KMS_GLYPH_NONE &&
 		p->glyph_shown != KMS_GLYPH_UNSET) {
+		if (cursor_atomic(p, crtc) &&
+			kms_atomic_cursor_off(p->host->atomic, crtc))
+			return;
 		struct drm_mode_cursor c = { .flags   = DRM_MODE_CURSOR_BO,
 									 .crtc_id = crtc };
 		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CURSOR, &c);
@@ -834,7 +892,7 @@ static bool crtc_lit(int fd, uint32_t crtc)
 }
 
 /* Show `g` with its hot spot at the pointer, or nothing for KMS_GLYPH_NONE.
- * A shape is set and moved in one ioctl, and only a move when it stands. An
+ * A shape and its place go in one commit, and only a move when it stands. An
  * output that refused a cursor once is not asked again: the plane is either
  * there or not, and the ioctl would otherwise fail on every motion. */
 static void cursor_show(App *a, KmsGlyph g)
@@ -873,15 +931,35 @@ static void cursor_show(App *a, KmsGlyph g)
 		return;
 	}
 
+	/* The glyph's buffer, made once per shape and shared by both paths. */
+	if (g != KMS_GLYPH_NONE && !p->glyph_handle[g] && !glyph_make(p, g)) {
+		cursor_warn(p, "no buffer for the cursor plane");
+		p->glyph_shown = g;
+		return;
+	}
+	const int cx = g != KMS_GLYPH_NONE ? px - GLYPHS[g].hot_x : 0;
+	const int cy = g != KMS_GLYPH_NONE ? py - GLYPHS[g].hot_y : 0;
+	/* An atomic commit names the framebuffer around that buffer; a glyph the
+	 * kernel would not wrap, or a plane that refused a commit, is the legacy
+	 * ioctl's, which wraps the buffer itself. */
+	if (cursor_atomic(p, crtc) && (g == KMS_GLYPH_NONE || p->glyph_fb[g]) &&
+		cursor_atomic_send(p, crtc, g, cx, cy)) {
+		if (!p->cursor_atomic_said) {
+			p->cursor_atomic_said = true;
+			fnl_log(FNL_LOG_INFO, "KMS: the cursor plane on CRTC %u by "
+								  "atomic commits", crtc);
+		}
+		p->glyph_shown = g;
+		p->cursor_on   = crtc;
+		p->cursor_at_x = px;
+		p->cursor_at_y = py;
+		return;
+	}
+
 	struct drm_mode_cursor c = { .crtc_id = crtc };
 	if (g != p->glyph_shown) {
 		c.flags |= DRM_MODE_CURSOR_BO;
 		if (g != KMS_GLYPH_NONE) {
-			if (!p->glyph_handle[g] && !glyph_make(p, g)) {
-				cursor_warn(p, "no buffer for the cursor plane");
-				p->glyph_shown = g;
-				return;
-			}
 			c.handle = p->glyph_handle[g];
 			c.width  = p->cursor_w;
 			c.height = p->cursor_h;
@@ -889,8 +967,8 @@ static void cursor_show(App *a, KmsGlyph g)
 	}
 	if (g != KMS_GLYPH_NONE) {
 		c.flags |= DRM_MODE_CURSOR_MOVE;
-		c.x = px - GLYPHS[g].hot_x;
-		c.y = py - GLYPHS[g].hot_y;
+		c.x = cx;
+		c.y = cy;
 	}
 	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CURSOR, &c) < 0) {
 		cursor_warn(p, "the output took no cursor");
@@ -971,12 +1049,18 @@ static void cursor_free(struct BackendState *p)
 	if (p->host->card_fd < 0)
 		return;
 	cursor_hide(p);
-	for (int g = 0; g < KMS_GLYPH_COUNT; g++)
+	for (int g = 0; g < KMS_GLYPH_COUNT; g++) {
+		if (p->glyph_fb[g]) {
+			uint32_t fb = p->glyph_fb[g];
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_RMFB, &fb);
+			p->glyph_fb[g] = 0;
+		}
 		if (p->glyph_handle[g]) {
 			struct drm_mode_destroy_dumb dd = { .handle = p->glyph_handle[g] };
 			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dd);
 			p->glyph_handle[g] = 0;
 		}
+	}
 }
 
 /* ---- publishing ---------------------------------------------------------- */

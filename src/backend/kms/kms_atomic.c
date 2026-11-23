@@ -36,6 +36,7 @@
 
 /* drm_plane_type.OVERLAY is 0; a plane's `type` property is this enum. */
 #define AT_PLANE_PRIMARY 1u
+#define AT_PLANE_CURSOR  2u
 
 /* The CRTCs and planes of one card read at once, and the properties of one
  * object. A card with more CRTCs than this has the rest unset here, and its
@@ -44,7 +45,7 @@
 #define AT_MAX_PLANES 32
 #define AT_MAX_PROPS  64
 
-/* One CRTC and the primary plane that drives it. */
+/* One CRTC, the primary plane that drives it and the cursor plane over it. */
 typedef struct {
 	uint32_t crtc_id, plane_id;
 	uint32_t active;   /* the CRTC's ACTIVE */
@@ -52,6 +53,12 @@ typedef struct {
 	uint32_t p_crtc_id, p_fb_id;
 	uint32_t p_src_x, p_src_y, p_src_w, p_src_h;
 	uint32_t p_crtc_x, p_crtc_y, p_crtc_w, p_crtc_h;
+	/* The cursor plane and its placement properties; 0 where the CRTC has
+	 * none, and the legacy cursor ioctl is then kept. */
+	uint32_t cursor_plane;
+	uint32_t c_crtc_id, c_fb_id;
+	uint32_t c_src_x, c_src_y, c_src_w, c_src_h;
+	uint32_t c_crtc_x, c_crtc_y, c_crtc_w, c_crtc_h;
 } AtCrtc;
 
 struct KmsAtomic {
@@ -114,11 +121,19 @@ static uint32_t at_pprop(int fd, uint32_t plane, const char *name, uint64_t *v)
 	return at_prop(fd, plane, DRM_MODE_OBJECT_PLANE, name, v);
 }
 
+/* A plane's type: 0 overlay, 1 primary, 2 cursor, -1 where it has none. */
+static int at_plane_type(int fd, uint32_t plane)
+{
+	uint64_t t = 0;
+	if (!at_pprop(fd, plane, "type", &t))
+		return -1;
+	return (int)t;
+}
+
 /* The plane of this id, if it is a primary plane of the card. */
 static bool at_is_primary(int fd, uint32_t plane)
 {
-	uint64_t t = 0;
-	return at_pprop(fd, plane, "type", &t) && t == AT_PLANE_PRIMARY;
+	return at_plane_type(fd, plane) == (int)AT_PLANE_PRIMARY;
 }
 
 /* The card's CRTC ids into `crtcs`, its plane ids into `planes`, each
@@ -200,9 +215,54 @@ static bool at_crtc_read(int fd, AtCrtc *c, const uint32_t *planes, int nplane,
 	c->p_crtc_y  = at_pprop(fd, pl, "CRTC_Y", &v);
 	c->p_crtc_w  = at_pprop(fd, pl, "CRTC_W", &v);
 	c->p_crtc_h  = at_pprop(fd, pl, "CRTC_H", &v);
-	return c->active && c->mode_id && c->p_crtc_id && c->p_fb_id &&
-		   c->p_src_x && c->p_src_y && c->p_src_w && c->p_src_h &&
-		   c->p_crtc_x && c->p_crtc_y && c->p_crtc_w && c->p_crtc_h;
+	if (!(c->active && c->mode_id && c->p_crtc_id && c->p_fb_id &&
+		  c->p_src_x && c->p_src_y && c->p_src_w && c->p_src_h &&
+		  c->p_crtc_x && c->p_crtc_y && c->p_crtc_w && c->p_crtc_h))
+		return false;
+
+	/* And the cursor plane over it, where the driver has one: a cursor plane
+	 * a CRTC may show and that no other has taken. Missing it leaves the
+	 * legacy cursor ioctl to this window. */
+	uint32_t cib = 0, cia = 0;
+	for (int i = 0; i < nplane; i++) {
+		if (at_plane_type(fd, planes[i]) != (int)AT_PLANE_CURSOR)
+			continue;
+		bool taken = planes[i] == c->plane_id;
+		for (int j = 0; j < at->count && !taken; j++)
+			taken = at->crtcs[j].plane_id == planes[i] ||
+					at->crtcs[j].cursor_plane == planes[i];
+		if (taken)
+			continue;
+		struct drm_mode_get_plane gp = { .plane_id = planes[i] };
+		if (at_ioctl(fd, DRM_IOCTL_MODE_GETPLANE, &gp) < 0)
+			continue;
+		if (!(gp.possible_crtcs & (1u << crtc_index)))
+			continue;
+		if (gp.crtc_id == c->crtc_id) {
+			cib = planes[i];
+			break;
+		}
+		if (!cia)
+			cia = planes[i];
+	}
+	c->cursor_plane = cib ? cib : cia;
+	if (c->cursor_plane) {
+		const uint32_t cp = c->cursor_plane;
+		c->c_crtc_id = at_pprop(fd, cp, "CRTC_ID", &v);
+		c->c_fb_id   = at_pprop(fd, cp, "FB_ID", &v);
+		c->c_src_x   = at_pprop(fd, cp, "SRC_X", &v);
+		c->c_src_y   = at_pprop(fd, cp, "SRC_Y", &v);
+		c->c_src_w   = at_pprop(fd, cp, "SRC_W", &v);
+		c->c_src_h   = at_pprop(fd, cp, "SRC_H", &v);
+		c->c_crtc_x  = at_pprop(fd, cp, "CRTC_X", &v);
+		c->c_crtc_y  = at_pprop(fd, cp, "CRTC_Y", &v);
+		c->c_crtc_w  = at_pprop(fd, cp, "CRTC_W", &v);
+		c->c_crtc_h  = at_pprop(fd, cp, "CRTC_H", &v);
+		if (!(c->c_crtc_id && c->c_fb_id && c->c_src_w && c->c_src_h &&
+			  c->c_crtc_w && c->c_crtc_h))
+			c->cursor_plane = 0;
+	}
+	return true;
 }
 
 struct KmsAtomic *kms_atomic_enable(int fd)
@@ -373,4 +433,41 @@ bool kms_atomic_crtc_off(struct KmsAtomic *at, uint32_t crtc)
 	const uint64_t vals[3]   = { 0, 0, 0 };
 	return at_commit(at, DRM_MODE_ATOMIC_ALLOW_MODESET, 0, objs, counts, props,
 					 vals, 2);
+}
+
+bool kms_atomic_cursor_at(struct KmsAtomic *at, uint32_t crtc)
+{
+	AtCrtc *c = at_crtc(at, crtc);
+	return c && c->cursor_plane;
+}
+
+bool kms_atomic_cursor_set(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
+						   int x, int y, uint32_t w, uint32_t h)
+{
+	AtCrtc *c = at_crtc(at, crtc);
+	if (!c || !c->cursor_plane || !fb)
+		return false;
+	const uint32_t objs[1]   = { c->cursor_plane };
+	const uint32_t counts[1] = { 10 };
+	const uint32_t props[10] = {
+		c->c_crtc_id, c->c_fb_id, c->c_src_x, c->c_src_y, c->c_src_w,
+		c->c_src_h, c->c_crtc_x, c->c_crtc_y, c->c_crtc_w, c->c_crtc_h,
+	};
+	const uint64_t vals[10] = {
+		crtc, fb, 0, 0, (uint64_t)w << 16, (uint64_t)h << 16,
+		(uint64_t)(int64_t)x, (uint64_t)(int64_t)y, w, h,
+	};
+	return at_commit(at, 0, 0, objs, counts, props, vals, 1);
+}
+
+bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc)
+{
+	AtCrtc *c = at_crtc(at, crtc);
+	if (!c || !c->cursor_plane)
+		return false;
+	const uint32_t objs[1]   = { c->cursor_plane };
+	const uint32_t counts[1] = { 2 };
+	const uint32_t props[2]  = { c->c_crtc_id, c->c_fb_id };
+	const uint64_t vals[2]   = { 0, 0 };
+	return at_commit(at, 0, 0, objs, counts, props, vals, 1);
 }

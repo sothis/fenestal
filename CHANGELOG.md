@@ -29,6 +29,10 @@ promised: before 1.0, nothing between minor releases.
   atomic keeps the legacy `SETCRTC` and `PAGE_FLIP`. A mode is validated with
   `DRM_MODE_ATOMIC_TEST_ONLY` before it is set, so one that will not show is
   refused before the screen changes. The API is unchanged.
+- KMS's pointer goes on the CRTC's cursor plane by an atomic commit where the
+  card has one, its glyph wrapped in a framebuffer and its hotspot placed as
+  the legacy ioctl placed it; a CRTC with no cursor plane, or a refusal, keeps
+  the legacy cursor ioctl.
 
 ## 0.9.0
 

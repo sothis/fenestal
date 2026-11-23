@@ -3618,10 +3618,10 @@ def two_window_kms(b, r):
     """Two KMS windows, one per output. There is no window server to place,
     aim at or focus by name: a window is an output, and the echo names the
     one each window is on (`out`). So the checks are that both outputs are
-    lit by the program, and that each draws its own window -- captured by
-    kms_grab.py --output, the scanout itself. Crossing the pointer from one
-    output to the other is the harness's to add; today a move names a
-    window, and KMS routes by output."""
+    lit by the program, that each draws its own window -- captured by
+    kms_grab.py --output, the scanout itself -- and that the pointer carried
+    from one output to the other takes the seat with it, the desktop being
+    the windows laid left to right (DESIGN *A second window*)."""
     def outputs_seen():
         with b.testbed.lock:
             evs = list(b.testbed.events)
@@ -3684,10 +3684,65 @@ def two_window_kms(b, r):
         a.size != c.size or a.tobytes() != c.tobytes(),
         "%dx%d and %dx%d" % (a.size + c.size),
     )
-    r.skip(
-        "the pointer moves between the windows",
-        "KMS routes the pointer by output; the harness moves it to a named "
-        "window and does not yet cross the two outputs",
+    said = [ln for ln in b.dump(1 << 30) if "KMS: " in ln and "cursor" in ln]
+    r.check(
+        "the pointer is on a cursor plane, and the log names it",
+        bool(said),
+        said[0].split("KMS: ", 1)[1] if said else "nothing said",
+    )
+
+    # The pointer crosses, and the seat with it. The first window's output is
+    # the one the host ranked first, named by the open's line; the desktop
+    # lays the windows left to right in the order they were made, so a push
+    # from the first window's left edge by its width and half of the other's
+    # lands in the other window, wherever on it the round left the pointer.
+    home = None
+    for ln in b.dump(1 << 30):
+        m = re.search(r"KMS: (\S+) on \S+, \d+x\d+ at", ln)
+        if m:
+            home = m.group(1)
+            break
+    width = {}
+    with b.testbed.lock:
+        for ev in b.testbed.events:
+            if ev.get("out"):
+                width.setdefault(ev["out"], ev["output"][0])
+    away = next((o for o in seen if o != home), None)
+    if home not in width or away not in width:
+        return r.skip(
+            "the pointer moves between the outputs",
+            "the open named %r and the echo %s"
+            % (home, ", ".join(sorted(width)) or "no output"),
+        )
+
+    def seated(mark, out, timeout=3.0):
+        """The first post saying window `out` took the seat after `mark`."""
+        end = time.time() + timeout
+        while time.time() < end:
+            for ev in b.testbed.since(mark, "focus"):
+                if ev["parts"][1] == "1" and ev["out"] == out:
+                    return ev
+            time.sleep(0.05)
+        return None
+
+    m = b.testbed.mark()
+    b.portal.rel(-30000, 0)
+    b.portal.rel(width[home] + width[away] // 2, 0)
+    ev = seated(m, away)
+    r.check(
+        "the pointer moves between the outputs, and the seat with it",
+        ev is not None and b.alive(),
+        "moved to %s, the seat %s" % (
+            away, "there" if ev else "still on %s" % home),
+    )
+    m = b.testbed.mark()
+    b.portal.rel(-30000, 0)
+    ev = seated(m, home)
+    r.check(
+        "and back, the seat returning",
+        ev is not None and b.alive(),
+        "moved back to %s, the seat %s" % (
+            home, "there" if ev else "still on %s" % away),
     )
 
 

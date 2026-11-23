@@ -63,4 +63,12 @@ bool kms_atomic_unbind(struct KmsAtomic *at, uint32_t crtc, uint32_t connector);
  * found lit but the window never reached. */
 bool kms_atomic_crtc_off(struct KmsAtomic *at, uint32_t crtc);
 
+/* The cursor plane over `crtc`: whether it has one, the glyph `fb` put on it
+ * with its top-left at (x, y) in pixels, and it emptied. False where the CRTC
+ * has no cursor plane, and the legacy DRM_IOCTL_MODE_CURSOR is then kept. */
+bool kms_atomic_cursor_at(struct KmsAtomic *at, uint32_t crtc);
+bool kms_atomic_cursor_set(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
+						   int x, int y, uint32_t w, uint32_t h);
+bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc);
+
 #endif /* FNL_KMS_ATOMIC_H */

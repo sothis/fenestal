@@ -734,9 +734,30 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   same on `black`'s amdgpu, which is where `remove_fb` fails, and on nouveau
   with and without `nouveau.atomic=1` (schenker's opened card is Intel, so
   nouveau's atomic is not in that path); and the **cursor plane** as a commit
-  of its own (`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`,
-  `drm_plane_type.CURSOR`), which today is still the legacy
-  `DRM_IOCTL_MODE_CURSOR` its per-move cost in `GETCRTC` was fixed for.
+  of its own (below).
+- **The cursor plane's commit** (DESIGN *The pointer is drawn on the cursor
+  plane*): in since 2026-11-23. The open finds each CRTC's cursor plane by
+  `drm_plane_type.CURSOR`, one it may show and no other CRTC has taken, and
+  each shape and its place go as one `DRM_IOCTL_MODE_ATOMIC` naming the
+  plane's `CRTC_ID`, `FB_ID`, `SRC_*` and `CRTC_*` -- the corner the legacy
+  ioctl was given, so `DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT` is not asked
+  for. A glyph's dumb buffer is wrapped in a framebuffer on its first show
+  (`ADDFB2`, ARGB8888) and both go at close, and a CRTC with no cursor plane
+  or a refused commit keeps the legacy `DRM_IOCTL_MODE_CURSOR` for that
+  window's life, one line saying which ran (`KMS: the cursor plane on CRTC N
+  by atomic commits`). A refusal is taken three in a row before the legacy
+  ioctl is the window's for good, since one can be the render thread's mode
+  set switching the CRTC off between the lit check and the commit. A Debug
+  tree's `FNL_FAULT=kms-cursor-legacy` forces the fallback (DESIGN's fault
+  table). Built clean under `clang` and `-fanalyzer`; run by a two-window
+  round on schenker's CachyOS (Intel HD 630 on eDP-1 and the NVIDIA GTX
+  1050 Ti) on 2026-11-23, `release`, `--capture`: the line is `KMS: the
+  cursor plane on CRTC 61 by atomic commits`, every drawn-pointer check
+  passes with the window moved between the two outputs, and the round's new
+  pointer crossing passes -- 185 checks, none failed, and the two-window
+  section eight. Owed: a CRTC with no cursor plane, unseen -- it
+  would say the legacy line instead, which the round allows as a notice; and
+  the forced fallback, not yet driven by a Debug round.
 - **The unplug section with a force that reaches the program and two
   outputs**: no machine has both today -- `black`'s kernel sends no uevent
   for a forced status (DESIGN *KMS*), and the laptops have one output each.
@@ -1435,16 +1456,18 @@ process state that is still in the app, not a handle to add.
   `:nouveau` (`kms-vulkan-bare`, release, `--capture`): both outputs lit by
   the program (HDMI-A-1 and eDP-1 named in the echo) and each drawing its own
   window, from per-output `kms_grab.py` captures (1920x1200 and 1920x1080);
-  five checks, none failed, one skipped -- crossing the pointer from one
-  output to the other, since the harness moves the pointer to a named window
-  and KMS routes it by output. Owed: proving more than two outputs -- this lab
-  has two on schenker and no spare monitor, and forcing a connector's status
-  on its i915 sent no uevent, so the N-ary hotplug path is reasoned and built
-  but not driven; the pointer crossing the outputs in the harness; a display
-  path that is not one window's -- a DRM lease per output, or a per-window
-  device, closes Mesa's sharing for good; and **outputs on a second card**,
-  which one-card-a-process (`SET_MASTER`) does not take -- a multi-card
-  desktop wants a model of its own and is owed.
+  five checks, none failed. On `:nvidia` since (2026-11-23) the check also
+  takes the pointer across: pushed left into the first window's edge and then
+  right past its width, the seat goes to HDMI-A-1 and comes back to eDP-1
+  with the pointer, and it reads the log's line for the cursor plane the
+  pointer went on -- eight checks, none failed, the round 185 with none, a
+  second round after. Owed: proving more than two outputs -- this lab has two
+  on schenker and no spare monitor, and forcing a connector's status on its
+  i915 sent no uevent, so the N-ary hotplug path is reasoned and built but
+  not driven; a display path that is not one window's -- a DRM lease per
+  output, or a per-window device, closes Mesa's sharing for good; and
+  **outputs on a second card**, which one-card-a-process (`SET_MASTER`) does
+  not take -- a multi-card desktop wants a model of its own and is owed.
 - **Cocoa's split is in; its second window is refused** -- `cocoa_open()` says
   so. The host's half is one NSApplication, one wakeup pipe and one delegate
   asking the frontmost, and the window's is its NSWindow, view and layer; but

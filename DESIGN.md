@@ -9522,8 +9522,20 @@ One call stays legacy. The display path darkens an output by setting the
 connector's DPMS off, which keeps the connector bound to its CRTC, because
 Mesa takes a bound connector's CRTC and the primary plane it chose first
 (`kms_output_off()`); atomic cannot leave a connector bound to an inactive
-CRTC, so that one remains a property set. The cursor too stays the legacy
-plane ioctl; it is owed a commit of its own (TODO *KMS atomic commits*).
+CRTC, so that one remains a property set.
+
+The cursor has a commit of its own, over the cursor plane the open found on
+the CRTC it drives (`drm_plane_type.CURSOR`, one a CRTC may show and no two
+CRTCs the same). A shape and its place go as one commit naming the plane's
+`CRTC_ID`, `FB_ID`, `SRC_*` and `CRTC_*`, the place the corner
+`pointer - hot spot` the legacy ioctl took, so the hotspot cap
+(`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`) buys nothing and is not asked for.
+A glyph's dumb buffer is wrapped in a framebuffer at its first show
+(`DRM_IOCTL_MODE_ADDFB2`, ARGB8888) and both go at close, and the plane is
+emptied by a commit of its own when the shape is hidden or the window leaves
+the output. A CRTC with no cursor plane, or a commit the kernel refuses, is
+the legacy `DRM_IOCTL_MODE_CURSOR`'s for that window's life
+(`cursor_legacy`), one log line saying so.
 
 **No framebuffer is removed while a plane shows it, and the console is
 given back at close.** The kernel removes a framebuffer that is shown by
@@ -9751,9 +9763,12 @@ the console's layout by `setxkbmap -device` as the server comes up, and
 the core keyboard takes it when XTEST first types.
 
 **The pointer is drawn on the cursor plane.** Nothing else draws one on a
-bare output. The legacy cursor ioctl takes a dumb buffer of the size the
-driver asks (`DRM_CAP_CURSOR_WIDTH`, 64 by default) and moves it without a
-frame; the CRTC is the one driving the connector, found once there is one,
+bare output. A dumb buffer of the size the driver asks
+(`DRM_CAP_CURSOR_WIDTH`, 64 by default), wrapped in a framebuffer, and one
+atomic commit puts it on the CRTC's cursor plane and moves it without a
+frame; where the CRTC has no cursor plane, or the commit is refused, the
+legacy `DRM_IOCTL_MODE_CURSOR` takes the raw buffer and is the window's for
+good. The CRTC is the one driving the connector, found once there is one,
 which is the one Vulkan keeps. There is no theme to load shapes from, so
 three are drawn from text in `kms.c` — the arrow, the I-beam and the
 crosshair — and the rest of `FnlCursor` is the arrow, which says less and
@@ -9771,8 +9786,8 @@ move back, the arrow's 69 white and 50 black pixels where the echo put it.
 The round looks at it (`drawn-pointer`, a capability KMS alone declares):
 `kms_grab.py` sets the atomic client capability, which is what shows a
 plane's `CRTC_X` and `CRTC_Y`, finds the cursor plane on the CRTC by its
-`type`, reads the framebuffer the kernel wrapped the legacy buffer in, and
-blends it over the primary plane's picture. Pictured with the pointer at
+`type`, reads the framebuffer the plane shows, and blends it over the
+primary plane's picture. Pictured with the pointer at
 a third and at two thirds of the window's width, the arrow's box holds
 exactly the glyph's 69 white and 50 black pixels where the echo says the
 pointer is, and none at the other spot: 40 checks on the thinkpad, none
@@ -11844,6 +11859,7 @@ time, so the sixth reaches the scaled MLAA image.
 | a move to another renderer's GPU will not build | `FNL_FAULT=renderer-move-refused@1` in a Debug tree, then the GPU box onto another renderer's GPU | `… would not draw here (… refused (FNL_FAULT)); back to …`, and the window drawn again with the renderer and the GPU it had |
 | KMS with no keymap data | `FNL_FAULT=kms-no-keymap` | one line, `no keymap for layout …`; keys arrive and text entry types nothing |
 | KMS with no cursor plane | `FNL_FAULT=kms-no-cursor` | one line, `… so the pointer is not shown`; the round still aims by the echo |
+| KMS's cursor plane refusing its commits | `FNL_FAULT=kms-cursor-legacy` | three refused with nothing taken, then `KMS: the cursor plane took no atomic commit (…); the legacy cursor ioctl is used`, once, and the pointer drawn by the legacy ioctl for that window's life |
 | the glyph atlas outside VRAM | `FNL_FAULT=atlas-out-of-vram` | `the glyph atlas is in system memory: …` where the device allows one (NVK); `… is in VRAM, the only memory this device allows it …` where it does not (`anv` on the HD 630); the text unchanged either way |
 | KMS with no device for the display | `FNL_FAULT=kms-no-display` | `KMS: FNL_FAULT: no device takes …; drawing offscreen and copying each frame onto …`, and the copy path on a device that has a display |
 | KMS's copy path with no headless surface | `FNL_FAULT=kms-no-display,kms-no-headless` | `KMS: no headless surface for the GPU that will draw; it draws into images of its own`, and the frames by the copy path from the renderer's own images, as NVIDIA's own driver has them without the fault. Run under the fault on both laptops (gc, nouveau): Intel's, NVK and llvmpipe, each move |
