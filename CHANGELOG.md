@@ -14,14 +14,21 @@ promised: before 1.0, nothing between minor releases.
   surface beside a second swapchain, so a window already scanning out directly
   lets its display go; one window keeps the display path. `fnl_request_output()`
   offers only the free outputs and this window's, and the console returns when
-  the last window closes.
+  the last window closes. The model is N-ary: a third and a fourth window open
+  on the next free outputs, tiled left to right, and a monitor unplugged moves
+  every window that was on it to a free one — or leaves it drawing nothing
+  until one comes — while one plugged back leads the window on it to set its
+  mode again. Mirroring and joining are the program's, drawing the same or a
+  shared canvas in several windows; outputs on a second card are not taken.
 - A terminating signal (`SIGINT`, `SIGTERM`) now closes every window on the
   host, not only the one that installed the handler, so a multi-window program
   ends on it.
 - KMS makes its mode set, page flip, output unbind and console return as
   atomic commits (`DRM_IOCTL_MODE_ATOMIC`) where the card offers them, and
   says so once in the log (`KMS: atomic commits on cardN`); a driver without
-  atomic keeps the legacy `SETCRTC` and `PAGE_FLIP`. The API is unchanged.
+  atomic keeps the legacy `SETCRTC` and `PAGE_FLIP`. A mode is validated with
+  `DRM_MODE_ATOMIC_TEST_ONLY` before it is set, so one that will not show is
+  refused before the screen changes. The API is unchanged.
 
 ## 0.9.0
 

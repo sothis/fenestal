@@ -2474,7 +2474,8 @@ static void kms_set_output(App *a, const char *name)
 	const int count        = (int)fnl_atomic_load_u32(&p->host->output_count);
 	const uint32_t gone    = fnl_atomic_load_u32(&p->host->outputs_gone);
 	const uint32_t held    = held_by_others(a);
-	p->host->away_owed           = -1;
+	p->host->away_owed     = -1;
+	p->host->away_owed_app = NULL;
 	for (int o = 0; o < count; o++) {
 		if (strcmp(p->host->outputs[o].name, name) != 0 || o == p->out_cur ||
 			((gone >> o) & 1u))
@@ -2487,7 +2488,8 @@ static void kms_set_output(App *a, const char *name)
 			return;
 		}
 		if ((p->host->outputs_away >> o) & 1u) {
-			p->host->away_owed = o;
+			p->host->away_owed     = o;
+			p->host->away_owed_app = a;
 			fnl_log(FNL_LOG_INFO,
 					"KMS: %s is away; the window goes there "
 					"when it is back",
@@ -2698,7 +2700,6 @@ static void outputs_rescan(App *a)
 	const uint32_t was_gone = gone;
 	uint32_t away           = hs->outputs_away;
 	bool came = false, back = false;
-	int revived_cur = 0;
 	/* A connector the card no longer lists -- a DisplayPort MST sink's,
 	 * which goes with its monitor -- is unplugged too, away or not; unless
 	 * the list was cut at KMS_MAX_CONNECTORS, when not being on it says
@@ -2726,7 +2727,6 @@ static void outputs_rescan(App *a)
 			away &= ~(1u << live);
 			if (modes_alike(&hs->outputs[live], &o)) {
 				back = true;
-				revived_cur |= live == p->out_cur;
 				continue;
 			}
 			gone |= 1u << live;
@@ -2756,7 +2756,6 @@ static void outputs_rescan(App *a)
 		const bool again = s >= 0;
 		if (again) {
 			gone &= ~(1u << s);
-			revived_cur |= s == p->out_cur;
 		} else {
 			s = (int)fnl_atomic_load_u32(&hs->output_count);
 			if (s >= KMS_MAX_OUTPUTS) {
@@ -2793,7 +2792,7 @@ static void outputs_rescan(App *a)
 	}
 	hs->outputs_away = away;
 	/* A move owed to an output away: made now it is back, dropped if it is
-	 * gone instead. */
+	 * gone instead. The window that asked is the one it was owed to. */
 	int owed = -1;
 	if (hs->away_owed >= 0 && !((away >> hs->away_owed) & 1u)) {
 		if ((gone >> hs->away_owed) & 1u)
@@ -2805,33 +2804,47 @@ static void outputs_rescan(App *a)
 			owed = hs->away_owed;
 		hs->away_owed = -1;
 	}
-	const bool waiting = (gone >> p->out_cur) & 1u;
-	if (gone == was_gone && !came && owed < 0 && !(back && waiting) &&
-		!revived_cur)
+	if (gone == was_gone && !came && owed < 0 && !back)
 		return;
 	fnl_atomic_store_u32(&hs->outputs_gone, gone);
 
-	if (owed >= 0)
-		output_pick(a, owed);
-	if ((gone >> p->out_cur) & 1u) {
-		const int to = sel_elsewhere(p, gone | away | held_by_others(a));
-		if (to >= 0)
-			sel_set(a, to);
-		else if (away)
-			fnl_log(FNL_LOG_INFO, "KMS: every output left is away; the "
-								  "window waits for one to come back");
-		else
-			fnl_log(FNL_LOG_WARN, "KMS: no output left to show the window "
-								  "on; it waits for one");
-	} else if (owed < 0 && (revived_cur || ((was_gone >> p->out_cur) & 1u))) {
-		/* Back on the output it was on: its CRTC may have gone dark with
-		 * the monitor, so the mode is set again -- the display path's
-		 * surface made again, the copy path's next frame. */
-		fnl_atomic_store_u32(&p->scan_resets,
-							 fnl_atomic_load_u32(&p->scan_resets) + 1);
-		app_surface_remake(a);
-		cursor_moved(a);
-		publish_mode(a);
+	if (owed >= 0) {
+		App *tw = hs->away_owed_app;
+		bool live = false;
+		for (App *w = a->host->windows; w && !live; w = w->next)
+			live = w == tw && w->backend_state;
+		output_pick(live ? tw : a, owed);
+	}
+	hs->away_owed_app = NULL;
+
+	/* Every window whose output went moves to one still on -- the first no
+	 * other window holds -- and one whose output came back sets its mode
+	 * again (its CRTC may have gone dark with the monitor). A window with
+	 * nowhere to go draws nothing until an output comes
+	 * (kms_window_on_screen()). */
+	for (App *w = a->host->windows; w; w = w->next) {
+		struct BackendState *q = w->backend_state;
+		if (!q)
+			continue;
+		const int out = KMS_SEL_OUT(fnl_atomic_load_u32(&q->sel_want));
+		if ((gone >> out) & 1u) {
+			const int to = sel_elsewhere(q, gone | away | held_by_others(w));
+			if (to >= 0)
+				sel_set(w, to);
+			else
+				fnl_log(FNL_LOG_INFO,
+						"KMS: %s has no output to show on; it waits for "
+						"one",
+						hs->outputs[out].name);
+			continue;
+		}
+		if (((was_gone >> out) & 1u) && !((gone >> out) & 1u)) {
+			fnl_atomic_store_u32(&q->scan_resets,
+								 fnl_atomic_load_u32(&q->scan_resets) + 1);
+			app_surface_remake(w);
+			cursor_moved(w);
+			publish_mode(w);
+		}
 	}
 	/* The lists changed under the titlebar. */
 	fnl_invalidate(a);

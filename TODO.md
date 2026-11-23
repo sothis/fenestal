@@ -724,16 +724,19 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   log, no refusal; and two windows on the two outputs, both by the copy path,
   the two flips serialised by a commit lock (two render threads committing on
   the one node took `EBUSY` for a modeset colliding with a flip, and an Intel
-  primary plane shared by two CRTCs was found and fixed). Owed, in order:
-  the display path's own mode change and console return, and the same on
-  `black`'s amdgpu, which is where `remove_fb` fails, and on nouveau with and
-  without `nouveau.atomic=1`, at `release` and `asan`;
-  `DRM_MODE_ATOMIC_TEST_ONLY` before a mode set, so a mode that will not show
-  is refused before the screen changes rather than by a failed set; and the
-  **cursor plane** as a commit of its own
-  (`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`, `drm_plane_type.CURSOR`), which
-  today is still the legacy `DRM_IOCTL_MODE_CURSOR` its per-move cost in
-  `GETCRTC` was fixed for.
+  primary plane shared by two CRTCs was found and fixed). `clang` and `asan`
+  build clean; an `asan` two-window round there is clean of the library's
+  leaks -- the one report is 642 bytes in `libdbus` registered by NVIDIA's
+  proprietary ICD at exit, the same single-window, which the harness
+  suppresses. `DRM_MODE_ATOMIC_TEST_ONLY` before a mode set is in: a mode or
+  plane the driver will not take is refused before the screen changes. Owed,
+  in order: the display path's own mode change and console return, and the
+  same on `black`'s amdgpu, which is where `remove_fb` fails, and on nouveau
+  with and without `nouveau.atomic=1` (schenker's opened card is Intel, so
+  nouveau's atomic is not in that path); and the **cursor plane** as a commit
+  of its own (`DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT`,
+  `drm_plane_type.CURSOR`), which today is still the legacy
+  `DRM_IOCTL_MODE_CURSOR` its per-move cost in `GETCRTC` was fixed for.
 - **The unplug section with a force that reaches the program and two
   outputs**: no machine has both today -- `black`'s kernel sends no uevent
   for a forced status (DESIGN *KMS*), and the laptops have one output each.
@@ -1421,11 +1424,22 @@ process state that is still in the app, not a handle to add.
   the two outputs (`--second-window`) drawing both, the cursor on the focused
   first window, at `--kms` with the Intel copy path and with `FNL_GPU=nvidia`
   (proprietary, its surfaceless copy path); SIGTERM/SIGINT now closes every
-  window, not only the one that installed the handler. Owed: the harness's
+  window, not only the one that installed the handler. **Many monitors** are
+  the same model, made N-ary: a third and a fourth window open on the outputs
+  no other holds, tiled left to right for the pointer; `outputs_rescan()` now
+  moves *every* window whose output went to one still held by none (or leaves
+  it drawing nothing) and sets the mode again for every window whose output
+  came back. Mirroring and joining are the caller's (N windows on N outputs,
+  the program drawing the same or a shared canvas), not the model's. Owed:
+  proving more than two outputs -- this lab has two on schenker and no spare
+  monitor, and forcing a connector's status on its i915 sent no uevent, so the
+  N-ary hotplug path is reasoned and built but not driven; the harness's
   two-window check on KMS (it drives a window by the echo and `kms_grab.py`
-  needs an output named per window), and a display path that is not one
-  window's -- a DRM lease per output, or a per-window device, closes Mesa's
-  sharing for good.
+  needs an output named per window); a display path that is not one window's
+  -- a DRM lease per output, or a per-window device, closes Mesa's sharing for
+  good; and **outputs on a second card**, which one-card-a-process
+  (`SET_MASTER`) does not take -- a multi-card desktop wants a model of its
+  own and is owed.
 - **Cocoa's split is in; its second window is refused** -- `cocoa_open()` says
   so. The host's half is one NSApplication, one wakeup pipe and one delegate
   asking the frontmost, and the window's is its NSWindow, view and layer; but

@@ -307,8 +307,15 @@ bool kms_atomic_set(struct KmsAtomic *at, uint32_t connector, uint32_t crtc,
 		0, 0, w << 16, h << 16,
 		0, 0, w, h,
 	};
-	const bool ok = at_commit(at, DRM_MODE_ATOMIC_ALLOW_MODESET, 0, objs,
-							  counts, props, vals, 3);
+	/* Checked first with TEST_ONLY, which the kernel applies to nothing: a
+	 * mode or plane the driver will not take is refused before the screen
+	 * changes, rather than by a set that then has to be gone back from. */
+	bool ok = at_commit(at, DRM_MODE_ATOMIC_ALLOW_MODESET |
+								DRM_MODE_ATOMIC_TEST_ONLY,
+						0, objs, counts, props, vals, 3);
+	if (ok)
+		ok = at_commit(at, DRM_MODE_ATOMIC_ALLOW_MODESET, 0, objs, counts,
+					   props, vals, 3);
 	struct drm_mode_destroy_blob db = { .blob_id = blob.blob_id };
 	at_ioctl(at->fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
 	return ok;

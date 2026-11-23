@@ -3897,6 +3897,21 @@ output whole. So:
   window already showing lets its display go (`surface_kms.c`). One window
   keeps the display path it had.
 
+**Many monitors, and they come and go.** The outputs are the card's, as many
+as it lists (32 slots, one per monitor ever seen), and each is a window's. A
+third and a fourth window open, in turn, on the outputs no other holds, tiled
+left to right for the pointer. A monitor unplugged moves every window that was
+on it to an output still lit and held by no other, or leaves a window drawing
+nothing until one comes (`kms_window_on_screen()`); one plugged back is the
+output it was, and the window on it sets its mode again — all per window, in
+`outputs_rescan()`. Mirroring and joining are the caller's, not the model's:
+the library gives N windows on N outputs, and a program draws the same scene
+in two (a mirror) or a part of one canvas in each (a join, the scene's pin
+`fnl_set_scene_size_px()` spanning them); one surface across outputs is a
+compositor's job and not this backend's. One card is a process's
+(`SET_MASTER` succeeds for one holder), so outputs on a second card are not
+taken; a multi-card desktop wants a model this does not have and is owed.
+
 **One pump, one wait.** The host blocks once, on the connection or the queue,
 and dispatches what arrives to the window it belongs to. Win32, X11 and
 Cocoa already do the dispatch half — a message names its `HWND`, an xcb event

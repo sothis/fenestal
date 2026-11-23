@@ -171,6 +171,7 @@ struct BackendHostState {
 	uint32_t     outputs_away;
 	double       away_until[KMS_MAX_OUTPUTS];
 	int          away_owed;
+	App         *away_owed_app;  /* the window that asked for it */
 	bool         away_said;
 
 	int          wake_fd, epoll_fd, inotify_fd;
