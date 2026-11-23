@@ -3997,7 +3997,8 @@ class KmsBare(WaylandBare):
     # "layout-groups": the layout is the program's to name, and it is named
     # with a second group (group_layout()).
     CAN = frozenset({"composited", "drawn-pointer", "known-layout",
-                     "display-modes", "forced-hotplug", "layout-groups"})
+                     "display-modes", "forced-hotplug", "layout-groups",
+                     "second-window"})
     # The second group "layout-groups" switches to, and the option that
     # makes Alt+Shift its group key: every PC keyboard has both halves.
     SECOND_GROUP = "us"
@@ -4019,6 +4020,15 @@ class KmsBare(WaylandBare):
             if m:
                 return (m.group(1), 0, 0, int(m.group(2)), int(m.group(3)))
         return super().target_monitor()
+
+    def capture_output(self, path, output):
+        """What the output `output` is scanning out, as a picture: the two
+        KMS windows are told apart by the output each is on, so a two-window
+        round asks for one and then the other. Bare.kms_capture() writes the
+        file and returns its path; this opens it."""
+        from PIL import Image
+        self.box.kms_capture(path, output)
+        return Image.open(path).convert("RGB")
     NO_UNMINIMIZE = "a bare display has nothing to minimize into"
     # The open line, the mode the titlebar set, and the line for a device
     # that will not take the output (the thinkpad's lavapipe, NVK): the

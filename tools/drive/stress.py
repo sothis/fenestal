@@ -3614,10 +3614,86 @@ def given_back(hold):
     return hold.by_hand
 
 
+def two_window_kms(b, r):
+    """Two KMS windows, one per output. There is no window server to place,
+    aim at or focus by name: a window is an output, and the echo names the
+    one each window is on (`out`). So the checks are that both outputs are
+    lit by the program, and that each draws its own window -- captured by
+    kms_grab.py --output, the scanout itself. Crossing the pointer from one
+    output to the other is the harness's to add; today a move names a
+    window, and KMS routes by output."""
+    def outputs_seen():
+        with b.testbed.lock:
+            evs = list(b.testbed.events)
+        seen = []
+        for e in evs:
+            o = e.get("out")
+            if o and o not in seen:
+                seen.append(o)
+        return seen
+
+    seen = []
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        seen = outputs_seen()
+        if len(seen) >= 2:
+            break
+        time.sleep(0.2)
+    r.check(
+        "a second window opens on its own output",
+        len(seen) >= 2,
+        "outputs named: %s" % (", ".join(seen) or "none"),
+    )
+    r.check("the program is alive with two windows", b.alive())
+    if len(seen) < 2:
+        return
+    time.sleep(1.5)  # a frame on the second output before it is captured
+    first, second = seen[0], seen[1]
+    pics = {}
+    for out in (first, second):
+        path = os.path.join(OUT, "%s-two-%s.png" % (b.NAME, out))
+        try:
+            pics[out] = b.capture_output(path, out)
+        except Exception as e:
+            r.check("the output %s is captured" % out, False, str(e))
+            return
+
+    def lit(im):
+        px = im.convert("RGB")
+        w, h = px.size
+        p = px.load()
+        n = t = 0
+        for y in range(0, h, 16):
+            for x in range(0, w, 16):
+                r_, g_, b_ = p[x, y]
+                t += 1
+                if r_ + g_ + b_ > 30:
+                    n += 1
+        return n, t
+
+    for out in (first, second):
+        n, t = lit(pics[out])
+        r.check(
+            "the window on %s draws" % out,
+            n * 4 > t,
+            "%d%% of the sampled pixels lit" % (100 * n // max(t, 1)),
+        )
+    a, c = pics[first].convert("RGB"), pics[second].convert("RGB")
+    r.check(
+        "the two outputs show their own window",
+        a.size != c.size or a.tobytes() != c.tobytes(),
+        "%dx%d and %dx%d" % (a.size + c.size),
+    )
+    r.skip(
+        "the pointer moves between the windows",
+        "KMS routes the pointer by output; the harness moves it to a named "
+        "window and does not yet cross the two outputs",
+    )
+
+
 def two_window(b, r):
     """A second window beside the first on the same host: open, drawn, and
     focused in turn. The one thing a single-window round cannot say.
-
     The program is relaunched with --second-window, which opens the second
     window from fnl_window_create() before fnl_run() and runs it under the same
     pump; the harness has just stopped the single-window program, so this is a
@@ -3626,7 +3702,10 @@ def two_window(b, r):
     with -- through the environment's way in: the X server's tree for an X
     window, and the Windows agent's windows for one on a Windows desktop. The
     harness then aims at one window or the other, and every rect, click, key
-    and picture that follows is that window's."""
+    and picture that follows is that window's. KMS has no window server to
+    aim at: two windows there are two outputs, checked by two_window_kms()."""
+    if getattr(b, "BACKEND", None) == "kms":
+        return two_window_kms(b, r)
     SECOND = "second window"
     wins = b.windows()
     second = next((w for w in wins if SECOND in w.title.lower()), None)

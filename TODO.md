@@ -1430,16 +1430,21 @@ process state that is still in the app, not a handle to add.
   moves *every* window whose output went to one still held by none (or leaves
   it drawing nothing) and sets the mode again for every window whose output
   came back. Mirroring and joining are the caller's (N windows on N outputs,
-  the program drawing the same or a shared canvas), not the model's. Owed:
-  proving more than two outputs -- this lab has two on schenker and no spare
-  monitor, and forcing a connector's status on its i915 sent no uevent, so the
-  N-ary hotplug path is reasoned and built but not driven; the harness's
-  two-window check on KMS (it drives a window by the echo and `kms_grab.py`
-  needs an output named per window); a display path that is not one window's
-  -- a DRM lease per output, or a per-window device, closes Mesa's sharing for
-  good; and **outputs on a second card**, which one-card-a-process
-  (`SET_MASTER`) does not take -- a multi-card desktop wants a model of its
-  own and is owed.
+  the program drawing the same or a shared canvas), not the model's. **The
+  harness's two-window check on KMS is built and passes** on schenker's
+  `:nouveau` (`kms-vulkan-bare`, release, `--capture`): both outputs lit by
+  the program (HDMI-A-1 and eDP-1 named in the echo) and each drawing its own
+  window, from per-output `kms_grab.py` captures (1920x1200 and 1920x1080);
+  five checks, none failed, one skipped -- crossing the pointer from one
+  output to the other, since the harness moves the pointer to a named window
+  and KMS routes it by output. Owed: proving more than two outputs -- this lab
+  has two on schenker and no spare monitor, and forcing a connector's status
+  on its i915 sent no uevent, so the N-ary hotplug path is reasoned and built
+  but not driven; the pointer crossing the outputs in the harness; a display
+  path that is not one window's -- a DRM lease per output, or a per-window
+  device, closes Mesa's sharing for good; and **outputs on a second card**,
+  which one-card-a-process (`SET_MASTER`) does not take -- a multi-card
+  desktop wants a model of its own and is owed.
 - **Cocoa's split is in; its second window is refused** -- `cocoa_open()` says
   so. The host's half is one NSApplication, one wakeup pipe and one delegate
   asking the frontmost, and the window's is its NSWindow, view and layer; but
