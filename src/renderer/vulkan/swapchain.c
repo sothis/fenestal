@@ -225,18 +225,22 @@ static FnlResult ensure_readback(App *a)
 	return FNL_OK;
 }
 
-/* Never while the reaper is destroying one; see *the reaper*. One test of
- * reap_started decides both the lock and the unlock, so the pair cannot
- * disagree -- and -Wthread-safety can see that it does not. */
+/* Every vkCreateSwapchainKHR and vkDestroySwapchainKHR in the process is
+ * under this, not a window's own lock: the driver fault (*the reaper*) is
+ * between a destroy and a create, and with two windows open the two come
+ * from different windows' threads and a per-window lock keeps nothing apart.
+ * Static, so it outlives every window and needs no init or destroy. */
+static FnlMutex g_swapchain_serial = FNL_MUTEX_STATIC;
+
+/* Never while a swapchain is being destroyed -- by the reaper below or by
+ * another window's; see *the reaper*. */
 static VkResult create_swapchain_serialised(App *a,
 											const VkSwapchainCreateInfoKHR *ci,
 											VkSwapchainKHR *sc)
 {
-	if (!VK(a)->reap_started)
-		return vkCreateSwapchainKHR(VK(a)->device, ci, NULL, sc);
-	fnl_mutex_lock(&VK(a)->reap_serial);
+	fnl_mutex_lock(&g_swapchain_serial);
 	VkResult r = vkCreateSwapchainKHR(VK(a)->device, ci, NULL, sc);
-	fnl_mutex_unlock(&VK(a)->reap_serial);
+	fnl_mutex_unlock(&g_swapchain_serial);
 	return r;
 }
 
@@ -796,7 +800,7 @@ static void swapchain_hand_over(App *a, RetiredSwapchain *r)
  * call is a tenth of a millisecond and a thread would be a third party in
  * the driver for nothing. A queue that is full is a destroy made in line.
  *
- * **Never beside vkCreateSwapchainKHR** (RendererState::reap_serial).
+ * **Never beside vkCreateSwapchainKHR** (the process-wide g_swapchain_serial).
  * Vulkan allows the two at once -- they name different swapchains -- and
  * that driver does not survive it: four runs of twelve ended in a corrupted
  * heap or an access violation inside it, and none of fourteen with the two
@@ -819,9 +823,9 @@ static void *reap_main(void *arg)
 		VK(a)->reap_busy        = true;
 		fnl_mutex_unlock(&VK(a)->reap_lock);
 
-		fnl_mutex_lock(&VK(a)->reap_serial);
+		fnl_mutex_lock(&g_swapchain_serial);
 		vkDestroySwapchainKHR(VK(a)->device, sc, NULL);
-		fnl_mutex_unlock(&VK(a)->reap_serial);
+		fnl_mutex_unlock(&g_swapchain_serial);
 
 		fnl_mutex_lock(&VK(a)->reap_lock);
 		VK(a)->reap_busy = false;
@@ -838,14 +842,12 @@ static bool reap_hand_over(App *a, RetiredSwapchain *r)
 		return false;
 	if (!VK(a)->reap_started) {
 		fnl_mutex_init(&VK(a)->reap_lock);
-		fnl_mutex_init(&VK(a)->reap_serial);
 		fnl_cond_init(&VK(a)->reap_cond);
 		VK(a)->reap_n    = 0;
 		VK(a)->reap_busy = VK(a)->reap_quit = false;
 		if (!fnl_thread_start(&VK(a)->reap_thread, reap_main, a)) {
 			fnl_cond_destroy(&VK(a)->reap_cond);
 			fnl_mutex_destroy(&VK(a)->reap_lock);
-			fnl_mutex_destroy(&VK(a)->reap_serial);
 			VK(a)->reap_async = false;
 			return false;
 		}
@@ -880,7 +882,6 @@ void reap_stop(App *a)
 	fnl_thread_join(VK(a)->reap_thread);
 	fnl_cond_destroy(&VK(a)->reap_cond);
 	fnl_mutex_destroy(&VK(a)->reap_lock);
-	fnl_mutex_destroy(&VK(a)->reap_serial);
 	VK(a)->reap_started = false;
 }
 

@@ -249,12 +249,13 @@ struct RendererState {
 	/* The reaper: a thread that does nothing but vkDestroySwapchainKHR, for
 	 * the driver whose call takes most of a frame. Started the first time
 	 * one is measured slow (reap_async) and not before; see swapchain.c.
-	 * reap_lock guards the queue and the two flags after it; reap_serial
-	 * keeps a destroy there and a create here from overlapping. */
+	 * reap_lock guards the queue and the two flags after it. What keeps a
+	 * destroy and a create apart is process-wide, not here: with two
+	 * windows it has to be (swapchain.c's g_swapchain_serial). */
 	bool                  reap_async;
 	bool                  reap_started;
 	FnlThread             reap_thread;
-	FnlMutex              reap_lock, reap_serial;
+	FnlMutex              reap_lock;
 	FnlCond               reap_cond;
 	VkSwapchainKHR        reap_q[REAP_MAX];
 	int                   reap_n;

@@ -28,6 +28,10 @@
 typedef SRWLOCK            FnlMutex FNL_CAPABILITY("mutex");
 typedef HANDLE             FnlThread;
 
+/* A mutex that outlives every window and needs no init: the swapchain serial
+ * (swapchain.c). SRWLOCK_INIT is {0}, and a destroy of one does nothing. */
+#define FNL_MUTEX_STATIC SRWLOCK_INIT
+
 /* Not a CONDITION_VARIABLE: its timeout expires on the scheduler's tick,
  * 15.6 ms unless the process raises it, and the frame loop's holds are
  * fractions of a display period. Raising it is timeBeginPeriod, which is
@@ -234,6 +238,10 @@ static inline void fnl_sleep_seconds(double seconds)
 typedef pthread_mutex_t FnlMutex FNL_CAPABILITY("mutex");
 typedef pthread_t       FnlThread;
 typedef pthread_cond_t  FnlCond;
+
+/* A mutex that outlives every window and needs no init: the swapchain serial
+ * (swapchain.c). A static one is never destroyed. */
+#define FNL_MUTEX_STATIC PTHREAD_MUTEX_INITIALIZER
 
 static inline void fnl_mutex_init(FnlMutex *m)
 {
