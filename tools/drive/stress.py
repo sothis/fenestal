@@ -620,34 +620,60 @@ def drawn_pointer(r, name="the pointer is drawn where it is"):
     y = BAR_H + st["area"][1] // 2
     spots = [(st["area"][0] // 3, y), (2 * st["area"][0] // 3, y)]
 
-    def arrow(im, at):
-        """White and black pixels in the arrow's box at window point `at`:
-        the glyph is 12x19 with 69 of one and 50 of the other."""
+    def box(im, at):
         a = np.asarray(im.convert("RGB")).astype(int)
         x0, y0 = int(at[0] * s), int(at[1] * s)
-        box = a[y0 : y0 + 19, x0 : x0 + 12]
-        return (
-            int((box == 255).all(axis=2).sum()),
-            int((box == 0).all(axis=2).sum()),
-        )
+        return a[y0 : y0 + 19, x0 : x0 + 12]
 
-    seen = []
-    for at in spots:
-        b.move_to(*at)
+    # A picture with the pointer off both spots is the scene alone, whatever
+    # the scene draws -- the testbed's chart draws pure white and black too,
+    # so counting them would find a checkerboard's squares as an arrow. What
+    # differs from that picture is the arrow on top of the scene. The scene
+    # must not move between the pictures: the switch sections leave it moving
+    # (F2), so it is stopped for them and started again after, twice, the
+    # clock where it was.
+    moving = False
+    for line in reversed(b.dump(1 << 30)):
+        m = re.match(r"scene motion: (on|off)$", line)
+        if m:
+            moving = m.group(1) == "on"
+            break
+    if moving:
+        b.press("F2")
+    try:
+        b.move_to(4, BAR_H + 4)
         b.quiet(PAUSE)
-        im = r.shot("pointer")
-        if im is None:
+        base = r.shot("pointer-base")
+        if base is None:
             return r.skip(name, "no composited capture")
-        seen.append([arrow(im, p) for p in spots])
-    # Each picture: the arrow whole where the pointer is, and not where it
-    # is not.
+        base_boxes = [box(base, p) for p in spots]
+
+        seen = []
+        for at in spots:
+            b.move_to(*at)
+            b.quiet(PAUSE)
+            im = r.shot("pointer")
+            if im is None:
+                return r.skip(name, "no composited capture")
+            seen.append(
+                [
+                    int((box(im, p) != base_boxes[i]).any(axis=2).sum())
+                    for i, p in enumerate(spots)
+                ]
+            )
+    finally:
+        if moving:
+            b.press("F2")
+    # Each picture: the box where the pointer is differs from the scene by the
+    # arrow (its 119 pixels, at least a third of them over any backdrop);
+    # where it is not, the box is the scene, and matches it.
     here = [seen[i][i] for i in range(2)]
     there = [seen[i][1 - i] for i in range(2)]
     check(
         name,
-        all(w >= 65 and k >= 45 for w, k in here)
-        and all(w < 20 for w, _k in there),
-        "white/black at the pointer %s, at the other spot %s" % (here, there),
+        all(d >= 40 for d in here) and all(d < 12 for d in there),
+        "differs from the scene by %s where the pointer is, %s where it is "
+        "not" % (here, there),
     )
 
 
