@@ -1886,6 +1886,10 @@ void *render_loop(void *arg)
 {
 	App *a = arg;
 	app_thread_set(APP_THREAD_RENDER);
+	/* The window this thread draws for. app_renderer_state_ours() reads it to
+	 * tell this window's renderer state from another's, and the render-thread
+	 * paths that reach the App through a callback's pointer find it here. */
+	app_render_window_set(a);
 	a->fps_last_t = a->fc_last_t = now_seconds();
 	fnl_mutex_lock(&a->lock);
 	a->ring_done = false;

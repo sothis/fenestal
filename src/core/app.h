@@ -97,6 +97,13 @@ typedef enum { APP_THREAD_OTHER, APP_THREAD_MAIN, APP_THREAD_RENDER } AppThread;
 void app_thread_set(AppThread t); /* app.c */
 AppThread app_thread(void);
 #define FNL_ASSERT_THREAD(t) FNL_ASSERT(app_thread() == (t))
+/* The window this render thread draws for, or NULL on any other thread. A
+ * host runs one render thread per window, so a renderer that must recover
+ * which window it is on -- the frame recorders that reach the App through a
+ * pointer a callback was handed -- finds it here rather than in the enum.
+ * APP_THREAD_RENDER alone does not name a window; this does. */
+App *app_render_window(void); /* app.c */
+void app_render_window_set(App *a); /* app.c, by render_loop() */
 /* Whether this thread may read App::renderer_state: the render thread, or
  * the main thread while there is none -- before fnl_run() starts it, which
  * is the first on_gpu_created's, and after it is joined, the last
@@ -1153,11 +1160,35 @@ struct Host {
 	 * rather than in the window. */
 	bool installed_signals;
 
+	/* Whether fnl_start() has begun a run on this host and fnl_stop() not yet
+	 * ended it. The run is the host's, not a window's: fnl_pump() is refused
+	 * outside it and answers FNL_SKIPPED from within it once every window has
+	 * closed, so a caller's loop that pumped the window ending does not need
+	 * fnl_stop() before it stops. Written and read on the main thread alone
+	 * (the three calls are [main]), as App::in_run is for the window. */
+	bool running;
+
 	/* The windows on this host, in the order they were made. A host with no
 	 * windows left goes. */
 	struct FnlApp *windows;
 	struct FnlApp *windows_tail;
 	size_t window_count;
+
+	/* ---- the one renderer, chosen once -------------------------------
+	 * A program has one graphics API, so the first window chooses the
+	 * renderer and every window after it is built on that one (DESIGN *A
+	 * second window*: "the renderer and its list are the host's"). It is
+	 * NULL until the first window's renderer_choose_and_build() settles on
+	 * one; a second window's build reads it rather than choosing again. */
+	const FnlRendererVtbl *renderer;
+	/* The renderers the first window had a scene for (renderer_scenes() of
+	 * its FnlInitDesc), the set its GPU list spans. A second window's scene
+	 * is drawn on the host's renderer, so it inherits the set rather than
+	 * naming one; FnlWindowDesc leaves the renderer to the host. */
+	uint32_t renderer_scenes;
+	/* Whether the listed GPUs span more than one renderer (renderer_spans),
+	 * as renderer_choose_and_build() computed it for the first window. */
+	bool gpu_spans;
 };
 
 /* Tagged `FnlApp` and typedef'd `App`: `FnlApp` is what the installed header

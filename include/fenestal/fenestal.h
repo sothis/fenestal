@@ -10,12 +10,12 @@
  *
  *   - a window, created with the app: fnl_init() gives you the host and its
  *     first window at once, and fnl_window_create() is the door to another on
- *     the same host -- designed, and still refused until a second window has
- *     its own frame loop driven from the host's pump (DESIGN *A second
- *     window*). The app is the window's handle, and the host -- the
+ *     the same host. The app is the window's handle, and the host -- the
  *     connection, the pump, the signal handlers and the GPU ranking -- is the
  *     program's; fnl_run() and fnl_pump() are the host's, and everything a
- *     window does goes through the app.
+ *     window does goes through the app. A host runs one render thread per
+ *     window under its one pump; a window closed during a run is joined by the
+ *     pump and freed by fnl_shutdown().
  *   - events are queued and you drain them, rather than being called back.
  *     One stream carries both what the user did and what the library did
  *     about it, so the two arrive in an order you can rely on. See
@@ -968,17 +968,14 @@ FNL_API FnlResult fnl_init(const FnlInitDesc *desc, FnlApp **out); /* [main] */
  * fnl_run(): pass NULL for a window with none, where the library's titlebar
  * is all that is drawn. A negative result leaves nothing open.
  *
- * **Not yet open: this returns FNL_ERR_UNSUPPORTED.** The host and window are
- * sorted and the backend seam is split, but a second window needs its own
- * frame loop driven from the host's pump and that wiring is not built, so the
- * door refuses rather than hand back a window that opens and never draws. A
- * program with one window is what fnl_init() and fnl_run() give, and what this
- * build does (DESIGN *A second window*, TODO *A second window*).
- *
- * When it opens, the window will be open on return and draw from the next pump
- * turn: before fnl_run() its first frame comes when the run starts, and during
- * a run as soon as the host pumps again. The same [main] thread as fnl_init(),
- * and never from a callback. */
+ * The window is open on return and draws from the next pump turn: before
+ * fnl_run() its first frame comes when the run starts, and during a run as
+ * soon as the host pumps again. The same [main] thread as fnl_init(), and
+ * never from a callback. One renderer a program, so a second window is drawn
+ * on the renderer the first chose; a `FnlWindowDesc` names no renderer. A
+ * window that names no GPU takes the host's ranking for its display, and the
+ * ranking file is the host's -- a second window does not write it (DESIGN *A
+ * second window*). */
 FNL_API FnlResult fnl_window_create(FnlApp *sibling,
 									const FnlWindowDesc *desc,
 									const FnlCallbacks *cb,
@@ -1016,9 +1013,12 @@ FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb); /* [main] */
  * fnl_start() takes the callbacks and starts the render thread, so frames may
  * be drawn while the caller's loop is still setting itself up. fnl_pump() is
  * one turn of the window server -- it blocks until the backend has something
- * to hand over -- and answers FNL_SKIPPED once the window is closing, which
- * is the cue to stop. fnl_stop() joins the render thread and lets the device
- * go; it is idempotent, so a loop that ended early may still call it.
+ * to hand over -- and answers FNL_SKIPPED once every window on the host is
+ * closing, which is the cue to stop. A window that has closed is torn down
+ * (its render thread joined, its frames ended) but not freed: it is still the
+ * caller's to give back with fnl_shutdown(), which is also where the host goes
+ * with its last. fnl_stop() joins the render threads and lets the devices go;
+ * it is idempotent, so a loop that ended early may still call it.
  *
  * A negative result from fnl_pump() is the backend's, and fnl_run()'s own
  * loop stops on it as a caller's should. What a caller must not do is leave

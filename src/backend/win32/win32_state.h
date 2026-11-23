@@ -31,10 +31,30 @@
 
 struct RawIn;
 
+/* What the host owns, beside the windows: the process module, the window
+ * class every window is made from, the presentation child's class, and the
+ * raw-input thread that serves the process. The connection a window server
+ * would own is here the process's message queue, which is the pump's thread's
+ * already; there is nothing to open. The host's state is in Host::backend_host,
+ * and the window's own in App::backend_state. See DESIGN *A second window*. */
+struct BackendHostState {
+	HINSTANCE instance;
+	/* FNL_WNDCLASS, and whether this host may unregister it: a class a
+	 * previous Fenestal in the process left behind exists and is good to
+	 * make a window from, but is not this host's to remove. */
+	ATOM wndclass;
+	bool wndclass_ours;
+	/* FNL_PRESENT_CLASS, and whether it is this host's to remove. The atom
+	 * is kept for the case where the class is someone else's: registering
+	 * a name that exists returns 0, so the atom is looked up instead. */
+	ATOM present_class;
+	bool present_class_ours;
+	struct RawIn *rawin; /* the process's raw-input thread, or NULL */
+};
+
 struct BackendState {
 	HINSTANCE instance;
 	HWND hwnd;
-	ATOM wndclass;
 	/* The child window frames are presented into once a move to another
 	 * GPU has made one, NULL until then, and its class, registered at the
 	 * first. Written by the window's thread inside the message the render

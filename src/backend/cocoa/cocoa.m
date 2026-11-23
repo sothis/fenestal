@@ -598,17 +598,15 @@ static void pointer_relative(App *a, NSEvent *e)
 
 /* The left button came up somewhere the view was not told: AppKit's window
  * drag and the resize below both keep the release, and the caller saw the
- * press. left_down is that press, for a move asked for after it was
- * dispatched (fnl_begin_move() from a callback, drained a turn later). */
-static bool left_held;
-static NSEvent *left_down;
-
+ * press. BackendState::left_down is that press, for a move asked for after it
+ * was dispatched (fnl_begin_move() from a callback, drained a turn later). */
 static void left_release(App *a, NSPoint pt)
 {
-	if (!left_held)
+	struct BackendState *p = a->backend_state;
+	if (!p || !p->left_held)
 		return;
-	left_held = false;
-	left_down = nil;
+	p->left_held = false;
+	p->left_down = NULL;
 	app_pointer_button(a, FNL_BUTTON_LEFT, false, pt.x, pt.y,
 					   (uint32_t)(uint64_t)(NSProcessInfo.processInfo
 												.systemUptime * 1000.0));
@@ -753,9 +751,9 @@ static void left_release(App *a, NSPoint pt)
 	if (!app)
 		return;
 	const NSPoint pt = event_pt(app, e);
-	if (b == FNL_BUTTON_LEFT) {
-		left_held = down;
-		left_down = down ? e : nil;
+	if (b == FNL_BUTTON_LEFT && app->backend_state) {
+		app->backend_state->left_held = down;
+		app->backend_state->left_down = down ? (__bridge void *)e : NULL;
 	}
 	if (!app->pointer_captured) {
 		app->ptr_x = pt.x;
@@ -1229,53 +1227,85 @@ static void fs_settle(App *a)
 
 /* The application's delegate: Quit from the menu, or Command-Q, is a close
  * request like the bar's button, and the run ends through it rather than
- * through AppKit's terminate, which would exit() under the caller. */
+ * through AppKit's terminate, which would exit() under the caller. One a
+ * host, asking the frontmost window -- the one the user means by Quit -- so
+ * that a second window's delegate does not replace the first's and either
+ * can be closed from the menu. */
 @interface FnlCocoaAppDelegate : NSObject <NSApplicationDelegate>
 {
 @public
-	App *app;
+	Host *host;
 }
 @end
 
 @implementation FnlCocoaAppDelegate
 
+/* The window AppKit shows in front, or the first on the host where none
+ * says so -- a Quit with every window behind something still closes one. */
+- (App *)front
+{
+	if (!host)
+		return NULL;
+	App *first = NULL;
+	for (App *w = host->windows; w; w = w->next) {
+		struct BackendState *p = w->backend_state;
+		if (!p || !p->window)
+			continue;
+		if (!first)
+			first = w;
+		if (WIN(p).isKeyWindow)
+			return w;
+	}
+	return first;
+}
+
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s
 {
 	(void)s;
-	if (app)
-		app_close_requested(app);
+	App *a = [self front];
+	if (a)
+		app_close_requested(a);
 	return NSTerminateCancel;
 }
 
 - (void)applicationDidHide:(NSNotification *)n
 {
 	(void)n;
-	if (app && app->backend_state)
-		publish_on_screen(app);
+	App *a = [self front];
+	if (a && a->backend_state)
+		publish_on_screen(a);
 }
 
 - (void)applicationDidUnhide:(NSNotification *)n
 {
 	(void)n;
-	if (app && app->backend_state)
-		publish_on_screen(app);
+	App *a = [self front];
+	if (a && a->backend_state)
+		publish_on_screen(a);
 }
 
-/* Back from a sleep, as Win32's PBT_APMRESUMEAUTOMATIC. */
+/* Back from a sleep, as Win32's PBT_APMRESUMEAUTOMATIC: every window, since
+ * one delegate hears it once and each window's device came back with it. */
 - (void)didWake:(NSNotification *)n
 {
 	(void)n;
-	if (app && app->backend_state)
-		app_resumed(app);
+	if (!host)
+		return;
+	for (App *w = host->windows; w; w = w->next)
+		if (w->backend_state)
+			app_resumed(w);
 }
 
-/* A Dock or a menu bar that moved, or a screen added: same window,
+/* A Dock or a menu bar that moved, or a screen added: same windows,
  * different room. */
 - (void)screensChanged:(NSNotification *)n
 {
 	(void)n;
-	if (app && app->backend_state)
-		publish_output(app, true);
+	if (!host)
+		return;
+	for (App *w = host->windows; w; w = w->next)
+		if (w->backend_state)
+			publish_output(w, true);
 }
 
 @end
@@ -1293,13 +1323,17 @@ static void fs_settle(App *a)
  * wait. Main thread. */
 static bool pump_waiting;
 
+/* The host the wakeup serves: one pipe a host, whichever window's write put
+ * the byte in it. A wake is about the host -- a knob turned on some window,
+ * a signal that closes one -- so the drain is every window's, and the posted
+ * event ends the one pump those windows share. */
 static void wake_cb(CFFileDescriptorRef f, CFOptionFlags flags, void *info)
 {
 	(void)flags;
-	App *a = info;
-	struct BackendState *p = a->backend_state;
+	Host *h = info;
+	struct BackendHostState *hs = h->backend_host;
 	char buf[64];
-	while (read(p->wake_fd[0], buf, sizeof buf) > 0)
+	while (read(hs->wake_fd[0], buf, sizeof buf) > 0)
 		;
 	CFFileDescriptorEnableCallBacks(f, kCFFileDescriptorReadCallBack);
 	if (pump_waiting) {
@@ -1314,25 +1348,30 @@ static void wake_cb(CFFileDescriptorRef f, CFOptionFlags flags, void *info)
 										   data2:0];
 		[NSApp postEvent:e atStart:YES];
 	} else {
-		app_drain_requests(a);
+		/* Nobody is waiting: a tracking loop, AppKit's menu or a drag, so
+		 * this drains, as Win32's FNL_WM_WAKEUP does inside its modal
+		 * loops. Every window's requests, since the byte may have been any
+		 * of them. */
+		for (App *w = h->windows; w; w = w->next)
+			app_drain_requests(w);
 	}
 }
 
-static bool wake_open(App *a)
+static bool wake_open(Host *h)
 {
-	struct BackendState *p = a->backend_state;
-	if (pipe(p->wake_fd) != 0) {
-		p->wake_fd[0] = p->wake_fd[1] = -1;
+	struct BackendHostState *hs = h->backend_host;
+	if (pipe(hs->wake_fd) != 0) {
+		hs->wake_fd[0] = hs->wake_fd[1] = -1;
 		return false;
 	}
 	for (int i = 0; i < 2; i++) {
-		fcntl(p->wake_fd[i], F_SETFL,
-			  fcntl(p->wake_fd[i], F_GETFL) | O_NONBLOCK);
-		fcntl(p->wake_fd[i], F_SETFD, FD_CLOEXEC);
+		fcntl(hs->wake_fd[i], F_SETFL,
+			  fcntl(hs->wake_fd[i], F_GETFL) | O_NONBLOCK);
+		fcntl(hs->wake_fd[i], F_SETFD, FD_CLOEXEC);
 	}
-	CFFileDescriptorContext ctx = { .info = a };
+	CFFileDescriptorContext ctx = { .info = h };
 	CFFileDescriptorRef f = CFFileDescriptorCreate(
-		kCFAllocatorDefault, p->wake_fd[0], false, wake_cb, &ctx);
+		kCFAllocatorDefault, hs->wake_fd[0], false, wake_cb, &ctx);
 	if (!f)
 		return false;
 	CFRunLoopSourceRef src = CFFileDescriptorCreateRunLoopSource(
@@ -1343,8 +1382,8 @@ static bool wake_open(App *a)
 	}
 	CFRunLoopAddSource(CFRunLoopGetMain(), src, kCFRunLoopCommonModes);
 	CFFileDescriptorEnableCallBacks(f, kCFFileDescriptorReadCallBack);
-	p->wake_cf = (void *)f;
-	p->wake_source = (void *)src;
+	hs->wake_cf = (void *)f;
+	hs->wake_source = (void *)src;
 	return true;
 }
 
@@ -1353,24 +1392,26 @@ static bool wake_open(App *a)
  * reason. */
 static void wake_close(App *a)
 {
-	struct BackendState *p = a->backend_state;
-	if (p->wake_source) {
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+	if (hs->wake_source) {
 		CFRunLoopRemoveSource(CFRunLoopGetMain(),
-							  (CFRunLoopSourceRef)p->wake_source,
+							  (CFRunLoopSourceRef)hs->wake_source,
 							  kCFRunLoopCommonModes);
-		CFRelease((CFRunLoopSourceRef)p->wake_source);
-		p->wake_source = NULL;
+		CFRelease((CFRunLoopSourceRef)hs->wake_source);
+		hs->wake_source = NULL;
 	}
-	if (p->wake_cf) {
-		CFFileDescriptorInvalidate((CFFileDescriptorRef)p->wake_cf);
-		CFRelease((CFFileDescriptorRef)p->wake_cf);
-		p->wake_cf = NULL;
+	if (hs->wake_cf) {
+		CFFileDescriptorInvalidate((CFFileDescriptorRef)hs->wake_cf);
+		CFRelease((CFFileDescriptorRef)hs->wake_cf);
+		hs->wake_cf = NULL;
 	}
 	if (!app_signals_installed(a)) {
 		for (int i = 0; i < 2; i++)
-			if (p->wake_fd[i] >= 0)
-				close(p->wake_fd[i]);
-		p->wake_fd[0] = p->wake_fd[1] = -1;
+			if (hs->wake_fd[i] >= 0)
+				close(hs->wake_fd[i]);
+		hs->wake_fd[0] = hs->wake_fd[1] = -1;
 	}
 }
 
@@ -1421,29 +1462,44 @@ static void app_launch(void)
  * wakeup() run with a->backend_state and its window in place, and do not
  * test for them. */
 
-static FnlResult cocoa_open(App *a)
+/* The host's half: the one NSApplication, the wakeup pipe that ends the one
+ * pump's wait, and the application delegate. One of each a process -- AppKit
+ * has one application and one delegate -- so a second window finds them made
+ * and goes on to its own. */
+static FnlResult cocoa_host_open(App *a)
 {
 	if (!NSThread.isMainThread)
 		return fnl_fail(FNL_ERR_NO_DISPLAY, "AppKit runs on the process's "
 						"main thread only, and fnl_init() was called on "
 						"another");
-	a->backend_state = calloc(1, sizeof *a->backend_state);
-	if (!a->backend_state)
+	struct BackendHostState *hs = calloc(1, sizeof *hs);
+	if (!hs)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"out of memory for the Cocoa backend state");
-	struct BackendState *p = a->backend_state;
-	p->wake_fd[0] = p->wake_fd[1] = -1;
+						"out of memory for the Cocoa host state");
+	a->host->backend_host = hs;
+	hs->wake_fd[0] = hs->wake_fd[1] = -1;
 
 	@autoreleasepool {
 		app_launch();
-		if (!wake_open(a))
-			return fnl_fail(FNL_ERR_NO_DISPLAY, "the wakeup pipe could not "
-							"be made (%s)", strerror(errno));
+		if (!wake_open(a->host)) {
+			/* The pipe's halves, if any were made, and the host state:
+			 * wake_open() leaves them for wake_close(), which this calls
+			 * while the app is still valid to reach the host through. */
+			wake_close(a);
+			free(hs);
+			a->host->backend_host = NULL;
+			return fnl_fail(FNL_ERR_NO_DISPLAY,
+							"the wakeup pipe could not be made (%s)",
+							strerror(errno));
+		}
 
+		/* One delegate a host, not one a window: NSApp.delegate is the
+		 * application's, and a second window setting its own would take
+		 * Command-Q and the Dock's Quit from the first. */
 		FnlCocoaAppDelegate *ad = [[FnlCocoaAppDelegate alloc] init];
-		ad->app = a;
+		ad->host = a->host;
 		NSApp.delegate = ad;
-		p->app_delegate = (void *)CFBridgingRetain(ad);
+		hs->app_delegate = (void *)CFBridgingRetain(ad);
 		NSNotificationCenter *ws = NSWorkspace.sharedWorkspace
 									   .notificationCenter;
 		[ws addObserver:ad selector:@selector(didWake:)
@@ -1452,7 +1508,47 @@ static FnlResult cocoa_open(App *a)
 			addObserver:ad selector:@selector(screensChanged:)
 				   name:NSApplicationDidChangeScreenParametersNotification
 				 object:nil];
+	}
+	return FNL_OK;
+}
 
+/* The host's close: the delegate, its observers and the wakeup, once no
+ * window is left on it. Runs while an App is still valid to reach the host
+ * state through, as x11_host_close() does. */
+static void cocoa_host_close(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+	@autoreleasepool {
+		if (hs->app_delegate) {
+			FnlCocoaAppDelegate *ad = CFBridgingRelease(hs->app_delegate);
+			hs->app_delegate = NULL;
+			[NSWorkspace.sharedWorkspace.notificationCenter
+				removeObserver:ad];
+			[NSNotificationCenter.defaultCenter removeObserver:ad];
+			ad->host = NULL;
+			if (NSApp.delegate == ad)
+				NSApp.delegate = nil;
+		}
+		wake_close(a);
+	}
+	free(hs);
+	a->host->backend_host = NULL;
+}
+
+/* The window's half: its NSWindow, view, layer and delegates, made on the
+ * application the host already launched and the wakeup pipe it already
+ * owns. */
+static FnlResult cocoa_open(App *a)
+{
+	a->backend_state = calloc(1, sizeof *a->backend_state);
+	if (!a->backend_state)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the Cocoa backend state");
+	struct BackendState *p = a->backend_state;
+
+	@autoreleasepool {
 		/* Opened on the screen with the pointer's attention, the main one,
 		 * at its scale: the size asked for is the presentable area in the
 		 * library's points, the bar added on top, then fitted to the room
@@ -1571,10 +1667,11 @@ static void cocoa_close(App *a)
 	@autoreleasepool {
 		if (p->window)
 			cocoa_release(a);
-		/* File-scope, so they outlive the window into the next open: a
-		 * press held as this one went would be released into that one. */
-		left_held = false;
-		left_down = nil;
+		/* The window's own press: nothing of it survives into the next
+		 * window, which has its own, and one left held here would be
+		 * released into a press that never went down. */
+		p->left_held = false;
+		p->left_down = NULL;
 		if (p->key_up_monitor)
 			[NSEvent removeMonitor:CFBridgingRelease(p->key_up_monitor)];
 		/* Before the window goes: its orderOut is an exit for the
@@ -1595,16 +1692,6 @@ static void cocoa_close(App *a)
 			CFBridgingRelease(p->layer);
 		if (p->window_delegate)
 			CFBridgingRelease(p->window_delegate);
-		if (p->app_delegate) {
-			FnlCocoaAppDelegate *ad = CFBridgingRelease(p->app_delegate);
-			[NSWorkspace.sharedWorkspace.notificationCenter
-				removeObserver:ad];
-			[NSNotificationCenter.defaultCenter removeObserver:ad];
-			ad->app = NULL;
-			if (NSApp.delegate == ad)
-				NSApp.delegate = nil;
-		}
-		wake_close(a);
 	}
 	free(a->backend_state);
 	a->backend_state = NULL;
@@ -1705,13 +1792,15 @@ static void cocoa_pump(App *a, int timeout_ms)
 	}
 }
 
-/* Any thread, or a signal handler: a write and nothing else. */
+/* Any thread, or a signal handler: a write and nothing else. The host's
+ * pipe, so a window with no backend_state of its own -- a failed creation --
+ * still wakes the pump. */
 static void cocoa_wakeup(App *a)
 {
-	struct BackendState *p = a->backend_state;
-	if (p && p->wake_fd[1] >= 0) {
+	struct BackendHostState *hs = app_backend_host(a);
+	if (hs && hs->wake_fd[1] >= 0) {
 		const char b = 1;
-		ssize_t n = write(p->wake_fd[1], &b, 1);
+		ssize_t n = write(hs->wake_fd[1], &b, 1);
 		(void)n;              /* a full pipe is a wakeup already owed */
 	}
 }
@@ -1837,7 +1926,8 @@ static void cocoa_minimize(App *a)
  * more after the mouse-down, and AppKit takes that one as late as this. */
 static void cocoa_begin_move(App *a)
 {
-	NSEvent *e = left_held ? left_down : nil;
+	struct BackendState *p = a->backend_state;
+	NSEvent *e = p && p->left_held ? (__bridge NSEvent *)p->left_down : nil;
 	if (!e || !(NSEvent.pressedMouseButtons & 1))
 		return;
 	[WIN(a->backend_state) performWindowDragWithEvent:e];
@@ -2001,9 +2091,10 @@ const FnlBackendVtbl fnl_backend_cocoa = {
 	 * answer for. */
 	.ack_when_shown     = false,
 	.is_output          = false,
-	/* Not split yet: one open() makes the app and its window together. */
-	.host_open          = backend_noop_host_open,
-	.host_close         = backend_noop_host_close,
+	/* The process's: the one NSApplication, the wakeup pipe and the
+	 * application delegate, made once; a window is made on them. */
+	.host_open          = cocoa_host_open,
+	.host_close         = cocoa_host_close,
 	.window_open        = cocoa_open,
 	.window_close       = cocoa_close,
 	.pump               = cocoa_pump,

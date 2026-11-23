@@ -1698,21 +1698,36 @@ static LRESULT CALLBACK present_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 static void present_renew(App *a, HWND hwnd)
 {
 	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
+	/* The class is the host's, registered once: a second window borrows it
+	 * rather than registering it again (a process has one class of a name). */
 	if (!p->present_class) {
-		const WNDCLASSEXW pc = {
-			.cbSize        = sizeof pc,
-			.lpfnWndProc   = present_proc,
-			.hInstance     = p->instance,
-			.lpszClassName = FNL_PRESENT_CLASS,
-		};
-		p->present_class = RegisterClassExW(&pc);
-		if (!p->present_class) {
-			fnl_log(FNL_LOG_WARN,
-					"RegisterClassExW for the frames' window "
-					"failed (%lu); they go into the window itself",
-					GetLastError());
-			return;
+		if (!hs->present_class) {
+			const WNDCLASSEXW pc = {
+				.cbSize        = sizeof pc,
+				.lpfnWndProc   = present_proc,
+				.hInstance     = hs->instance,
+				.lpszClassName = FNL_PRESENT_CLASS,
+			};
+			hs->present_class = RegisterClassExW(&pc);
+			if (hs->present_class) {
+				hs->present_class_ours = true;
+			} else if (GetLastError() == ERROR_CLASS_ALREADY_EXISTS &&
+					   GetClassInfoExW(hs->instance, FNL_PRESENT_CLASS,
+									   NULL)) {
+				/* Made by an earlier Fenestal in this process: the class
+				 * exists and a child is made from it, but it is not this
+				 * host's to unregister, so no atom is kept. */
+				hs->present_class = 1;
+			} else {
+				fnl_log(FNL_LOG_WARN,
+						"RegisterClassExW for the frames' window "
+						"failed (%lu); they go into the window itself",
+						GetLastError());
+				return;
+			}
 		}
+		p->present_class = hs->present_class;
 		/* The window paints nothing over its child -- nor once a
 		 * fullscreen made now ends, and puts back the style it saved. */
 		SetWindowLongPtrW(hwnd, GWL_STYLE,
@@ -2184,8 +2199,79 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
 static const wchar_t FNL_WNDCLASS[] = L"FenestalWindow";
 
+/* The host's half: the process module, the per-monitor awareness, the window
+ * class every window is made from, and the raw-input thread. The message
+ * queue is the pump's thread's already, so nothing opens. */
+static FnlResult win32_host_open(App *a)
+{
+	struct BackendHostState *hs = calloc(1, sizeof *hs);
+	if (!hs)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the Win32 host state");
+	a->host->backend_host = hs;
+	hs->instance           = GetModuleHandleW(NULL);
+
+	/* Per-monitor v2: the client area is in physical pixels and WM_DPICHANGED
+	 * arrives with a rectangle to adopt. Failure is not fatal -- the process
+	 * may already have had awareness set by a manifest. */
+	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+	/* The class's own cursor is the caller's default, as the window's table
+	 * would load it; the host registers the class before any window has one. */
+	HCURSOR def = LoadCursorW(
+		NULL, MAKEINTRESOURCEW(CALLER_CURSORS[FNL_CURSOR_DEFAULT]));
+	WNDCLASSEXW wc = {
+		.cbSize        = sizeof wc,
+		.lpfnWndProc   = wnd_proc,
+		.hInstance     = hs->instance,
+		.hCursor       = def,
+		.lpszClassName = FNL_WNDCLASS,
+	};
+	hs->wndclass = RegisterClassExW(&wc);
+	/* RegisterClassExW returns no atom for a name that already exists -- a
+	 * second host in the process, a class a previous Fenestal left -- and
+	 * says so with ERROR_CLASS_ALREADY_EXISTS. That class is what a window
+	 * is made from either way (CreateWindowExW names it, not its atom); what
+	 * this host may not do is unregister one that is not its. */
+	if (hs->wndclass) {
+		hs->wndclass_ours = true;
+	} else if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+		fnl_fail(FNL_ERR_NO_DISPLAY, "RegisterClassExW failed (%lu)",
+				 GetLastError());
+		free(hs);
+		a->host->backend_host = NULL;
+		return FNL_ERR_NO_DISPLAY;
+	}
+	return FNL_OK;
+}
+
+/* The host's close: the class and the raw thread, once no window is left on
+ * it. The host goes when its last window does, so this runs while an App is
+ * still valid to reach the host state through. Only the classes this host
+ * registered are unregistered. */
+static void win32_host_close(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+	if (hs->rawin) {
+		rawin_stop(hs->rawin);
+		hs->rawin = NULL;
+	}
+	if (hs->wndclass_ours)
+		UnregisterClassW(FNL_WNDCLASS, hs->instance);
+	if (hs->present_class_ours)
+		UnregisterClassW(FNL_PRESENT_CLASS, hs->instance);
+	free(hs);
+	a->host->backend_host = NULL;
+}
+
+static void win32_close(App *a);
+
 static FnlResult win32_open(App *a)
 {
+	struct BackendHostState *hs = app_backend_host(a);
+	FnlResult rc                  = FNL_OK;
 	a->backend_state = calloc(1, sizeof *a->backend_state);
 	if (!a->backend_state)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
@@ -2193,28 +2279,21 @@ static FnlResult win32_open(App *a)
 	struct BackendState *p = a->backend_state;
 
 	fnl_mutex_init(&p->ack_lock);
-	p->instance = GetModuleHandleW(NULL);
+	/* The module is the host's; a window borrows it. */
+	p->instance = hs->instance;
 
-	/* Per-monitor v2: the client area is in physical pixels and WM_DPICHANGED
-	 * arrives with a rectangle to adopt. Failure is not fatal -- the process
-	 * may already have had awareness set by a manifest. */
-	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
-	WNDCLASSEXW wc = {
-		.cbSize        = sizeof wc,
-		.lpfnWndProc   = wnd_proc,
-		.hInstance     = p->instance,
-		.hCursor       = cursor_handle(p, FNL_CURSOR_DEFAULT),
-		.lpszClassName = FNL_WNDCLASS,
-	};
 	/* Before the window, whose creation is already a size. Without one a
 	 * size is simply not waited for. */
 	p->size_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-	p->wndclass   = RegisterClassExW(&wc);
-	if (!p->wndclass)
-		return fnl_fail(FNL_ERR_NO_DISPLAY, "RegisterClassExW failed (%lu)",
-						GetLastError());
-
+	/* The class is the host's to have made, or to have found already made;
+	 * what this refuses is a host with none at all, which host_open() does
+	 * not leave behind. */
+	if (!hs->wndclass_ours &&
+		!GetClassInfoExW(hs->instance, FNL_WNDCLASS, NULL)) {
+		rc = fnl_fail(FNL_ERR_NO_DISPLAY, "no window class to make a window "
+										 "from");
+		goto fail;
+	}
 	/* WS_OVERLAPPEDWINDOW, and not WS_POPUP with WS_THICKFRAME: a popup is
 	 * not an ordinary top-level window and loses the taskbar button, the
 	 * minimize and maximize animations, alt-tab and snap. The caption this
@@ -2250,23 +2329,28 @@ static FnlResult win32_open(App *a)
 	p->hwnd =
 		CreateWindowExW(0, FNL_WNDCLASS, wtitle, style, CW_USEDEFAULT,
 						CW_USEDEFAULT, w_pt, h_pt, NULL, NULL, p->instance, a);
-	if (!p->hwnd)
-		return fnl_fail(FNL_ERR_NO_DISPLAY, "CreateWindowExW failed (%lu)",
-						GetLastError());
+	if (!p->hwnd) {
+		rc = fnl_fail(FNL_ERR_NO_DISPLAY, "CreateWindowExW failed (%lu)",
+					  GetLastError());
+		goto fail;
+	}
 
 	p->dpi = GetDpiForWindow(p->hwnd);
 	if (!p->dpi)
 		p->dpi = DPI_BASE;
 	raw_wheel_open(a);
 	/* On Windows itself: wine's tick is a millisecond already, and its
-	 * wheel wants the raw mouse on the window. */
+	 * wheel wants the raw mouse on the window. The raw thread is the host's
+	 * -- one for the process, started with the first window and serving
+	 * every window's capture -- so a window borrows it. */
 	if (!win32_host(a)[0]) {
 		if (FNL_FAULT("win32-no-raw-thread"))
 			fnl_log(FNL_LOG_WARN, "no raw input thread (FNL_FAULT); input "
 								  "latency is read in the tick's steps");
-		else
-			p->rawin = rawin_start(p->instance, p->hwnd);
+		else if (!hs->rawin)
+			hs->rawin = rawin_start(p->instance, p->hwnd);
 	}
+	p->rawin = hs->rawin;
 
 	/* The size again, at the density the window landed on: WM_DPICHANGED is
 	 * sent when the DPI *changes* and never at creation. At the *resolved*
@@ -2344,6 +2428,13 @@ static FnlResult win32_open(App *a)
 	a->backend_state->host = win32_host_probe();
 
 	return FNL_OK;
+
+fail:
+	/* The window's own state, and nothing the host owns: win32_close() tears
+	 * down a window's backend state, and the host's class and raw thread are
+	 * left for the windows already on it. */
+	win32_close(a);
+	return rc;
 }
 
 static void win32_close(App *a)
@@ -2362,17 +2453,14 @@ static void win32_close(App *a)
 				"reports, %u messages left to the tick",
 				matched, missed);
 	}
-	rawin_stop(p->rawin);
+	/* The raw thread, the window classes and the module are the host's; they
+	 * go in win32_host_close(), once the last window has. A window drops only
+	 * its own handle on them. */
 	p->rawin = NULL;
 	if (p->hwnd) {
 		p->closing = true;
 		DestroyWindow(p->hwnd);
 	}
-	if (p->wndclass)
-		UnregisterClassW(FNL_WNDCLASS, p->instance);
-	/* The child went with the window. */
-	if (p->present_class)
-		UnregisterClassW(FNL_PRESENT_CLASS, p->instance);
 	if (p->size_event)
 		CloseHandle(p->size_event);
 	fnl_mutex_destroy(&p->ack_lock);
@@ -2821,9 +2909,11 @@ const FnlBackendVtbl fnl_backend_win32 = {
 	 * the frame is on the screen. */
 	.ack_when_shown       = true,
 	.ack_release          = win32_ack_release,
-	/* Not split yet: one open() makes the class and its window together. */
-	.host_open            = backend_noop_host_open,
-	.host_close           = backend_noop_host_close,
+	/* The process's: the module, the window and presentation classes and the
+	 * raw-input thread, made once; a window is made on them. The message
+	 * queue is the pump's thread's, so the pump is the host's too. */
+	.host_open            = win32_host_open,
+	.host_close           = win32_host_close,
 	.window_open          = win32_open,
 	.window_close         = win32_close,
 	.pump                 = win32_pump,

@@ -163,23 +163,49 @@ bool app_signals_installed(const App *a)
 
 /* ---- whose thread -------------------------------------------------------- */
 
+/* Which of the library's threads this is (APP_THREAD_MAIN, APP_THREAD_RENDER)
+ * and, when it is a render thread, the window it draws for. The window is the
+ * one thing this thread-local holds that the enum alone did not: a host runs
+ * one render thread per window, so "the render thread" no longer names a
+ * window and app_render_window() answers with the one running here. The pump's
+ * thread has no window of its own -- it serves every window on the host -- so
+ * app_render_window() is NULL there, and a caller asking about a window it
+ * holds is answered by identity instead (app_renderer_state_ours()). */
 static FNL_THREAD_LOCAL AppThread this_thread;
+static FNL_THREAD_LOCAL App *render_window;
 
 void app_thread_set(AppThread t)
 {
 	this_thread = t;
+	render_window = NULL;
 }
 AppThread app_thread(void)
 {
 	return this_thread;
 }
 
+App *app_render_window(void)
+{
+	return this_thread == APP_THREAD_RENDER ? render_window : NULL;
+}
+
+void app_render_window_set(App *a)
+{
+	render_window = a;
+}
+
 /* render_thread_started is the main thread's own, written there alone, so
  * reading it is no race on the one thread that asks. */
 bool app_renderer_state_ours(const App *a)
 {
-	return this_thread == APP_THREAD_RENDER ||
-		   (this_thread == APP_THREAD_MAIN && !a->render_thread_started);
+	if (this_thread == APP_THREAD_RENDER)
+		/* This render thread's window -- the one whose loop set it. */
+		return render_window == a;
+	/* The main thread, before fnl_start() has started a render thread for this
+	 * window and after fnl_stop() has joined it: no render thread draws it, so
+	 * its state is this thread's. A window the main thread does not own has a
+	 * render thread running it, which is not this one. */
+	return this_thread == APP_THREAD_MAIN && !a->render_thread_started;
 }
 
 /* ---- teardown ------------------------------------------------------------ */
@@ -1093,6 +1119,11 @@ static FnlResult renderer_candidates(const FnlInitDesc *d,
 	return FNL_OK;
 }
 
+/* The choice is made once a host, from the descriptors of its windows: the
+ * first window's FnlInitDesc and the FnlInitDesc a second window's
+ * FnlWindowDesc implies (renderer FNL_RENDERER_DEFAULT, no scenes of its own).
+ * FnlWindowDesc leaves the renderer to the host, so a second window adds no
+ * candidates and the union is the first window's alone. */
 FnlResult renderer_check_choice(const FnlInitDesc *d)
 {
 	const FnlRendererVtbl *cand[RENDERER_COUNT];
@@ -1674,6 +1705,23 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 	const FnlRendererVtbl *cand[RENDERER_COUNT];
 	size_t n;
 	const char *named;
+	/* A host has one renderer: the first window's. A second window is built
+	 * on it, and `d` describes this window alone -- it names no renderer, and
+	 * a candidate list would still pick the host's, so skip the choice and go
+	 * straight to building on the renderer the host already chose. The build
+	 * fails only where the window cannot have the host's device (out of
+	 * memory, a GPU gone), and there is no other to step to: every window on
+	 * the host shares the one renderer, by DESIGN *A second window*. */
+	if (a->host->renderer) {
+		const FnlRendererVtbl *g = a->host->renderer;
+		a->renderer_first        = g->api;
+		a->renderer_named        = g->api;
+		a->gpu_spans             = a->host->gpu_spans;
+		FnlResult rc             = renderer_build(a, g, false);
+		if (rc == FNL_OK)
+			gpu_span_set(a, a->host->renderer_scenes);
+		return rc;
+	}
 	FnlResult rc = renderer_candidates(d, cand, &n, &named);
 	if (rc < 0)
 		return rc;
@@ -1696,8 +1744,13 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 				named);
 		gpu_list_early(a, scenes, cand[0]);
 		rc = renderer_build(a, cand[0], false);
-		if (rc == FNL_OK)
+		if (rc == FNL_OK) {
 			gpu_span_set(a, scenes);
+			/* The host's renderer, once the first window has chosen it: a
+			 * second window is built on this one (see above). */
+			a->host->renderer        = cand[0];
+			a->host->renderer_scenes = scenes;
+		}
 		return rc;
 	}
 	char passed[512] = "";
@@ -1709,6 +1762,9 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 			fnl_log(FNL_LOG_INFO, "renderer: %s%s%s", g->name,
 					passed[0] ? "; passed over " : "", passed);
 			gpu_span_set(a, scenes);
+			/* The host's renderer, for the windows that follow this one. */
+			a->host->renderer        = g;
+			a->host->renderer_scenes = scenes;
 			return FNL_OK;
 		}
 		if (rc == FNL_OK)
@@ -3110,24 +3166,15 @@ fail:
 	return rc;
 }
 
-void fnl_shutdown(App *a)
+/* Take a window off the host's registry and free it, after its teardown and
+ * after its render thread has been joined. The host goes with its last window:
+ * host_close() takes the connection and pump while the app is still valid (a
+ * backend reads its own host state through it), then the host is freed. Called
+ * by fnl_shutdown() alone: a window closed mid-run is stopped and left for the
+ * caller, which still holds its app, to give back here -- freeing it inside
+ * fnl_pump() would free the app that call was handed. */
+static void app_window_unlink_and_free(App *a)
 {
-	if (!a)
-		return;
-	/* From a callback, which the header forbids: teardown joins the render
-	 * thread, and joining it from itself never returns; and from the
-	 * outermost pair, on this thread, it frees the App fnl_run() goes on
-	 * using. Refused with a line rather than hung or freed. */
-	if (app_thread() == APP_THREAD_RENDER || a->in_run) {
-		fnl_log(FNL_LOG_ERROR, "fnl_shutdown() called from a callback; "
-							   "it must be called after fnl_run() returns");
-		return;
-	}
-	app_teardown(a);
-
-	/* The window leaves the host's registry first. The host goes with the
-	 * last window on it: a program with one window sees what it always has,
-	 * and a program with several gives each back one at a time. */
 	Host *h = a->host;
 	if (h) {
 		App *prev = NULL;
@@ -3144,10 +3191,6 @@ void fnl_shutdown(App *a)
 			}
 	}
 
-	/* The last window takes the host's connection and pump with it: the
-	 * window's own state went in app_teardown(), and the host's goes here,
-	 * once nothing is left to serve. host_close() runs while the app is still
-	 * valid -- a backend reads its own host state through it. */
 	const bool last = h && h->window_count == 0;
 	if (last && h->backend)
 		h->backend->host_close(a);
@@ -3157,15 +3200,36 @@ void fnl_shutdown(App *a)
 		fnl_aligned_free(h);
 }
 
+void fnl_shutdown(App *a)
+{
+	if (!a)
+		return;
+	/* From a callback, which the header forbids: teardown joins the render
+	 * thread, and joining it from itself never returns; and from the
+	 * outermost pair, on this thread, it frees the App fnl_run() goes on
+	 * using. Refused with a line rather than hung or freed. */
+	if (app_thread() == APP_THREAD_RENDER || a->in_run) {
+		fnl_log(FNL_LOG_ERROR, "fnl_shutdown() called from a callback; "
+							   "it must be called after fnl_run() returns");
+		return;
+	}
+	app_teardown(a);
+
+	/* The window leaves the host's registry, and the host goes with its last
+	 * window: a program with one window sees what it always has, and a program
+	 * with several gives each back one at a time. */
+	app_window_unlink_and_free(a);
+}
+
 /* A second window on the sibling's host. The backend seam is split: host_open()
  * makes the connection and pump, window_open() makes a window on it, and the
- * pump serves every window the host lists. What is not yet built is the per-
- * window frame loop -- fnl_start() starts one render thread for the window it
- * is given, and a second window needs its own started as well, driven from the
- * same pump. Until that wiring exists, the door refuses and says why rather
- * than hand back a window that opens and never draws. A caller that reaches it
- * gets a negative result and nothing open, which is what a door that cannot yet
- * deliver owes its caller. */
+ * pump serves every window the host lists. The host's renderer is the first
+ * window's (Host::renderer); this window is built on it, its own device and
+ * swapchain and render thread. It joins the registry already able to draw:
+ * fnl_start() starts its render thread and fnl_pump() serves it, so a caller
+ * that creates a window during a run sees its first frame on the next pump
+ * turn. A failure unwinds the window and leaves the host and its other windows
+ * untouched. */
 FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 							const FnlCallbacks *cb, App **out)
 {
@@ -3191,18 +3255,202 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"FnlWindowDesc's size is not a multiple of its "
 						"alignment");
-	/* The sibling's host is the one the window would join; asked for here so
-	 * that a sibling whose creation failed short of a host is refused as
-	 * the argument it is, and so the accessor has the caller its name
-	 * promises. */
-	if (!app_host(sibling))
+	/* The minor-version check fnl_init() makes of FnlInitDesc, for the same
+	 * reason: before 1.0 a minor release may break the one before it, so a
+	 * caller from another minor is refused rather than read. */
+	unsigned vshift = FNL_VERSION_MAJOR == 0 ? 8 : 16;
+	if ((desc->header_version >> vshift) !=
+		((uint32_t)FNL_VERSION >> vshift))
+		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
+						"header is version %u.%u, library is %u.%u",
+						desc->header_version >> 16,
+						(desc->header_version >> 8) & 0xff,
+						FNL_VERSION_MAJOR, FNL_VERSION_MINOR);
+	/* On the thread that called fnl_init(), as the door's comment says: the
+	 * host's pump runs there, and a window opened from another thread would
+	 * reach the connection the pump is serving. */
+	Host *h = app_host(sibling);
+	if (!h)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"fnl_window_create(): sibling has no host");
-	(void)cb;
-	return fnl_fail(FNL_ERR_UNSUPPORTED,
-					"a second window needs its own frame loop driven from the "
-					"host's pump, which is not yet built (DESIGN *A second "
-					"window*); fnl_init() opens one window");
+	if (app_thread() != APP_THREAD_MAIN)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"fnl_window_create() must be called on the "
+						"thread that called fnl_init()");
+
+	/* Copied into a zeroed one of this build's size before any field is
+	 * read, as fnl_init() copies FnlInitDesc: an older caller's descriptor
+	 * stops short of the newer fields. */
+	FnlWindowDesc d;
+	memset(&d, 0, sizeof d);
+	memcpy(&d, desc, desc->size);
+
+	/* Aligned for App's _Alignas(64) members, as fnl_init() allocates it;
+	 * the host's is kept, so the registry's links are the only state shared. */
+	App *a = fnl_aligned_alloc(FNL_ALIGNOF(App), sizeof(App));
+	if (!a)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the window");
+	memset(a, 0, sizeof(App));
+	a->host = h;
+
+	/* Vsync, the metrics panel, the titlebar and the frame clock are the
+	 * window's, seeded as fnl_init() seeds the first's: the panel hidden on F5
+	 * until the caller binds another key, the default sizes and the library's
+	 * own titlebar. */
+	const char *vs = getenv("FNL_VSYNC");
+	fnl_atomic_store_bool(&a->vsync, !(vs && vs[0] == '0' && !vs[1]));
+	fnl_atomic_store_u32(&a->veil_out_ms, VEIL_MS);
+	fnl_atomic_store_u32(&a->veil_in_ms, VEIL_MS);
+	fnl_atomic_store_u32(&a->metrics_key, (uint32_t)FNL_KEY_F5);
+	a->met_cpu_pm = a->met_ram_mib = a->met_vram_mib = METRICS_UNKNOWN;
+	a->met_gpu_pm                                    = METRICS_UNKNOWN;
+	a->met_cpu_s                                     = -1.0;
+	a->wall_mark                                     = -1.0;
+	a->focus_claim                                   = -1;
+	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;
+	a->deco_h        = DECO_TITLEBAR_H;
+	a->late_latch    = true;
+	a->late_fixed    = false;
+	a->present_block = -1.0;
+	a->late_held     = -1.0;
+	a->scale_override120 = d.scale_override120;
+	if (a->scale_override120 > 0) {
+		const int s = clamp_scale120(a->scale_override120);
+		if (s != a->scale_override120)
+			fnl_log(FNL_LOG_WARN,
+					"scale_override120 is %d, which is outside "
+					"%d to %d; using %d",
+					a->scale_override120, SCALE120_MIN, SCALE120_MAX, s);
+		a->scale_override120 = s;
+	}
+	a->content_is_ui        = d.content_is_ui;
+	a->no_titlebar_controls = d.no_titlebar_controls;
+	a->frame_times          = d.frame_times;
+	/* The ranking is the host's: a second window does not read or write the
+	 * file the first window's ranking did (DESIGN *A second window*). */
+	a->rank_no_measure = true;
+	parts_open(a);
+	a->echo_events = echo_wanted_by_env();
+
+	/* The window's own GPU: FnlWindowDesc's, then FNL_GPU as fnl_init() reads
+	 * it, an index into the host renderer's ranked list or a name. A window
+	 * that names none takes the host's ranking's pick for its display. */
+	a->gpu_list_cur = -1;
+	a->gpu_part_cur = -1;
+	a->gpu_index    = d.gpu_index > 0 ? d.gpu_index : 0;
+	a->gpu_want[0]  = '\0';
+	if (d.gpu_name && d.gpu_name[0]) {
+		snprintf(a->gpu_want, sizeof a->gpu_want, "%s", d.gpu_name);
+	} else if (!a->gpu_index) {
+		const char *v = getenv("FNL_GPU");
+		if (v && v[0]) {
+			char *end;
+			long n = strtol(v, &end, 10);
+			if (!*end && n >= 1 && n <= 8)
+				a->gpu_index = (int)n;
+			else if (*end || n > 8)
+				snprintf(a->gpu_want, sizeof a->gpu_want, "%s", v);
+		}
+	}
+	app_frame_cost_reset(a);
+	fnl_atomic_store_u32(&a->cost_cpu_us, COST_UNKNOWN);
+	a->cost_counts = true;
+
+	app_title_copy(a->title, d.title);
+	a->init_w_pt = d.width_pt > 0 ? clamp_pt(d.width_pt) : 0;
+	a->init_h_pt = d.height_pt > 0 ? clamp_pt(d.height_pt) : 0;
+	/* FnlWindowDesc carries an x_pt/y_pt a caller may set, but no backend
+	 * reads a position yet -- a window opens at 0,0 and the server places it.
+	 * Wiring it through the window's open() is owed with the backends' own
+	 * splits (TODO *A second window*), so a position asked for here is left
+	 * to the server rather than silently dropped. */
+
+	/* The title measured on this thread, as fnl_init() measures the first's:
+	 * the render thread draws it and the pump's thread hit-tests around it. */
+	fnl_mutex_init(&a->lock);
+	fnl_mutex_init(&a->ev_lock);
+	fnl_mutex_init(&a->text_lock);
+	fnl_cond_init(&a->cond);
+	a->sync_ready = true;
+	fnl_atomic_store_u32(&a->title_w, (uint32_t)text_width(a->title, TEXT_UI));
+
+	a->started_at = now_seconds();
+	fnl_atomic_store_u32(&a->input_lat_us, COST_UNKNOWN);
+
+	FnlResult rc;
+	/* The window's half of the backend only: the host's connection and pump
+	 * are already up, so this joins a new window to them (x11_window_open()
+	 * watches the new connection's fd on the host's epoll). */
+	if ((rc = BACKEND(a)->window_open(a)) < 0)
+		goto fail;
+	/* The host's renderer, built on this window's surface and device. The
+	 * host's renderer was chosen by the first window; a host that somehow has
+	 * none (a first window whose renderer never settled) is a door that
+	 * cannot open a second window yet, and says so. */
+	if (!h->renderer) {
+		rc = fnl_fail(FNL_ERR_UNSUPPORTED,
+					  "the host has no renderer to draw a second window "
+					  "on; fnl_init() opens the first");
+		goto fail;
+	}
+	if ((rc = renderer_choose_and_build(a, &(FnlInitDesc){ 0 })) < 0)
+		goto fail;
+	BACKEND(a)->apply_size_bounds(a);
+	BACKEND(a)->update_scale(a);
+
+	/* The callbacks are this window's own, copied as fnl_start() copies the
+	 * first's: a local's FnlCallbacks is read long after this returns. The
+	 * three size tests are fnl_start()'s, for the same reasons, and a failure
+	 * here unwinds the window as any other does. */
+	if (cb) {
+		if (cb->size > sizeof *cb) {
+			rc = fnl_fail(FNL_ERR_VERSION_MISMATCH,
+						  "FnlCallbacks is %zu bytes; this build knows %zu",
+						  cb->size, sizeof *cb);
+			goto fail;
+		}
+		if (cb->size < offsetof(FnlCallbacks, on_gpu_created)) {
+			rc = fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						  "FnlCallbacks::size is %zu; set it to sizeof "
+						  "(FnlCallbacks)",
+						  cb->size);
+			goto fail;
+		}
+		if (cb->size % FNL_ALIGNOF(FnlCallbacks) != 0) {
+			rc = fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						  "FnlCallbacks::size is %zu, which is not a "
+						  "size this struct has ever had; set it to sizeof "
+						  "(FnlCallbacks)",
+						  cb->size);
+			goto fail;
+		}
+		memcpy(&a->cb, cb, cb->size);
+	}
+	/* The outermost pair's on_gpu_created is fnl_start()'s, per window, as the
+	 * first window's is; nothing is owed here. */
+	a->cb_gpu_created = false;
+
+	/* The window joins the registry. Its render thread is started by
+	 * fnl_start() when the run begins, or by the host's pump if a window is
+	 * created during a run (fnl_pump() starts any that are not running). */
+	if (h->windows_tail)
+		h->windows_tail->next = a;
+	else
+		h->windows = a;
+	h->windows_tail = a;
+	h->window_count++;
+
+	*out = a;
+	return FNL_OK;
+
+fail:
+	app_teardown(a);
+	/* The host keeps its other windows: a failed window_open() unwinds only
+	 * this window's state (app_teardown() calls window_close()), and the
+	 * host's connection and pump are left for the windows already on it. */
+	fnl_aligned_free(a);
+	return rc;
 }
 
 /* Null-tolerant, like every public entry point: a caller holding a handle
@@ -3220,7 +3468,88 @@ void fnl_quit(App *a)
  * and starts the render thread, fnl_pump() is one turn of the window server,
  * and fnl_stop() joins the render thread and lets the device go. A caller
  * with an event loop of its own -- a toolkit's, an engine's -- runs the three
- * around it; see fenestal.h. */
+ * around it; see fenestal.h. The three are the host's: each walks the host's
+ * windows and does its phase for every one. */
+
+/* The render thread and the device for one window, started from fnl_start()
+ * for every window on the host. The window's callbacks are already in place
+ * (fnl_start() copied the first's, fnl_window_create() each later one's), the
+ * first on_gpu_created is delivered, the state the frame was built in is
+ * settled, and the thread is started -- the per-window half of what
+ * fnl_start() was before there was a host. It returns a negative result where
+ * this window could not start, leaving the others it was called among
+ * untouched. */
+static FnlResult window_start(App *a)
+{
+	/* The first on_gpu_created for this window: fnl_init() built its device
+	 * and fnl_window_create() copied its callbacks, but a caller cannot have
+	 * handed them over before fnl_run(), so the outermost pair is here. The
+	 * flag is set with or without a callback, so that a caller which
+	 * registered only on_gpu_lost gets exactly one per loss. See
+	 * App::cb_gpu_created. */
+	app_aa_settle(a);
+	a->in_run         = true;
+	a->cb_gpu_created = true;
+	if (a->cb.on_gpu_created)
+		a->cb.on_gpu_created(a->cb.ud, a);
+
+	/* Anything asked for between the window's creation and here, spent
+	 * before the render thread can latch the state without it. */
+	app_drain_requests(a);
+
+	/* Handed to the render thread, which takes it at the top of its loop;
+	 * taken back in fnl_stop(), after the join. See
+	 * FnlRendererVtbl::thread_enter. */
+	RENDERER(a)->thread_leave(a);
+	if (!fnl_thread_start(&a->render_thread, render_loop, a)) {
+		RENDERER(a)->thread_enter(a);
+		/* on_gpu_created has run, so the pair is balanced here:
+		 * fnl_shutdown() destroys the device objects and never calls back. */
+		a->cb_gpu_created = false;
+		if (a->cb.on_gpu_lost) {
+			RENDERER(a)->wait_idle(a);
+			a->cb.on_gpu_lost(a->cb.ud, a);
+		}
+		a->in_run = false;
+		return fnl_fail(FNL_ERR_SYSTEM, "could not start the render thread");
+	}
+	a->render_thread_started = true;
+	return FNL_OK;
+}
+
+/* The teardown half, for one window, from fnl_stop(): the render thread
+ * joined, the device drained and let go, the last on_gpu_lost delivered.
+ * Idempotent. */
+static void window_stop(App *a)
+{
+	if (!a->in_run)
+		return;
+
+	/* Joined here rather than left to fnl_shutdown, so that a caller which
+	 * runs, inspects and only then shuts down is not reading state a live
+	 * render thread is still writing. */
+	render_thread_stop(a);
+	/* For the last on_gpu_lost below and for the teardown, both of which
+	 * are this thread's. None where a move to another renderer left one
+	 * owed and unbuilt (renderer_swap()). */
+	if (a->renderer && a->renderer_ready)
+		RENDERER(a)->thread_enter(a);
+
+	/* After the join *and* after the device has drained: the join says
+	 * nothing about the queue, and a caller destroying its pipelines here
+	 * would destroy objects a submitted command buffer is still executing
+	 * (VUID-vkDestroyPipeline-pipeline-00765). Only where the caller still
+	 * holds the device: an unrecovered loss has delivered its on_gpu_lost. */
+	if (a->renderer_ready && a->cb_gpu_created) {
+		RENDERER(a)->wait_idle(a);
+		a->cb_gpu_created = false;
+		if (a->cb.on_gpu_lost)
+			a->cb.on_gpu_lost(a->cb.ud, a);
+	}
+
+	a->in_run = false;
+}
+
 FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 {
 	if (!a)
@@ -3232,7 +3561,10 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"fnl_start() must be called "
 						"on the thread that called fnl_init()");
-	if (a->in_run)
+	/* The host's run is begun once: a nested fnl_start() -- from a callback of
+	 * a window, or on a second window of a run already going -- is refused,
+	 * since the render threads it would start are the run's. */
+	if (a->host->running)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_start() called from a "
 												  "callback of its own");
 
@@ -3258,46 +3590,36 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 		memcpy(&a->cb, cb, cb->size);
 	}
 
-	/* fnl_init() built the device, but a caller cannot have handed over
-	 * callbacks before fnl_run(), so the first on_gpu_created is here. The
-	 * flag is set with or without a callback, so that a caller which
-	 * registered only on_gpu_lost gets exactly one per loss. See
-	 * App::cb_gpu_created. */
-	app_aa_settle(a);
-	a->in_run         = true;
-	a->cb_gpu_created = true;
-	if (a->cb.on_gpu_created)
-		a->cb.on_gpu_created(a->cb.ud, a);
-
-	/* Anything asked for between fnl_init() and here, spent before the
-	 * render thread can latch the state without it -- or a titlebar replaced
-	 * before fnl_run() gets a first frame wearing the library's own. */
-	app_drain_requests(a);
-
-	/* Handed to the render thread, which takes it at the top of its loop;
-	 * taken back below, after the join. See FnlRendererVtbl::thread_enter. */
-	RENDERER(a)->thread_leave(a);
-	if (!fnl_thread_start(&a->render_thread, render_loop, a)) {
-		RENDERER(a)->thread_enter(a);
-		/* on_gpu_created has run, so the pair is balanced here:
-		 * fnl_shutdown() destroys the device objects and never calls back. */
-		a->cb_gpu_created = false;
-		if (a->cb.on_gpu_lost) {
-			RENDERER(a)->wait_idle(a);
-			a->cb.on_gpu_lost(a->cb.ud, a);
+	/* Every window the host lists, each on its own render thread. A host with
+	 * one window is what a caller with one window sees; a host with several
+	 * starts them all under the one pump. A window created after this returns
+	 * is started by the host's pump on its next turn (fnl_pump()). */
+	Host *h = a->host;
+	for (App *w = h->windows; w; w = w->next) {
+		FnlResult rc = window_start(w);
+		if (rc < 0) {
+			/* This window would not start; the ones before it did. Stop them
+			 * -- this one included, since window_start() sets in_run before it
+			 * tries the thread -- rather than leave any drawing a run that
+			 * has ended. The run never began, so the host is not marked
+			 * running. */
+			for (App *v = h->windows; v; v = v->next) {
+				window_stop(v);
+				if (v == w)
+					break;
+			}
+			return rc;
 		}
-		a->in_run = false;
-		return fnl_fail(FNL_ERR_SYSTEM, "could not start the render thread");
 	}
-	a->render_thread_started = true;
+	h->running = true;
 
 	return FNL_OK;
 }
 
 /* One turn of the pump: exactly what fnl_run()'s loop does, for a caller that
- * has a loop of its own. FNL_SKIPPED once the window is closing, which is the
- * cue to call fnl_stop(); a negative result is the backend's, and fnl_run()'s
- * loop stops on it as this caller's should. */
+ * has a loop of its own. FNL_SKIPPED once every window on the host is closing,
+ * which is the cue to call fnl_stop(); a negative result is the backend's, and
+ * fnl_run()'s loop stops on it as this caller's should. */
 FnlResult fnl_pump(App *a, int timeout_ms)
 {
 	if (!a)
@@ -3306,51 +3628,76 @@ FnlResult fnl_pump(App *a, int timeout_ms)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"fnl_pump() must be called "
 						"on the thread that called fnl_init()");
-	if (!a->in_run)
+	/* The run is the host's: the caller's own loop pumps until every window on
+	 * it has closed, and this turn is from inside the run fnl_start() began.
+	 * Not `a->in_run`: `a` may be a window already closed while another on the
+	 * host is still going. */
+	if (!a->host->running)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT, "fnl_pump() outside "
 												  "fnl_start() and fnl_stop()");
-	if (fnl_atomic_load_bool(&a->should_close))
+	/* The host's pump serves every window it lists; one closing is another's
+	 * business still. A window whose close was asked for has its render thread
+	 * joined here, so a caller that closes a window and pumps once more does
+	 * not leave it drawing. Nothing is freed: the caller gave fnl_pump() an
+	 * app, and freeing a window here -- least of all `a` itself -- would free
+	 * memory it still holds. fnl_shutdown() on each is what frees them, and
+	 * the host with its last. */
+	Host *h = a->host;
+	for (App *w = h->windows; w; w = w->next)
+		if (w->in_run && fnl_atomic_load_bool(&w->should_close))
+			window_stop(w);
+	/* Every window on the host is closing: the run is over, and this turn
+	 * returns the cue without pumping -- there is no window server left to
+	 * wait on, and blocking here is the single-window loop that used to
+	 * return on should_close. The windows are the caller's to shut down. */
+	bool open = false;
+	for (App *w = h->windows; w; w = w->next)
+		if (!fnl_atomic_load_bool(&w->should_close)) {
+			open = true;
+			break;
+		}
+	if (!open)
 		return FNL_SKIPPED;
+	/* A window created after fnl_start() returns is started here, so that it
+	 * draws from this turn on rather than never (fnl_window_create() leaves
+	 * it able to draw but not yet threaded). A window that has closed is not
+	 * started again: it is still on the registry until fnl_shutdown(), and a
+	 * restart would hand back a render thread the caller is about to give the
+	 * window up from. */
+	for (App *w = h->windows; w; w = w->next)
+		if (!w->in_run && !fnl_atomic_load_bool(&w->should_close)) {
+			FnlResult rc = window_start(w);
+			if (rc < 0)
+				return rc;
+		}
 	BACKEND(a)->pump(a, timeout_ms);
 	/* After the pump rather than before it: a request made from the frame
 	 * that was drawn while the pump blocked should be spent on the turn that
-	 * wakes, not held for the one after. */
-	app_drain_requests(a);
+	 * wakes, not held for the one after. The pump's own host, and every
+	 * window's requests on it, are drained here. */
+	for (App *w = h->windows; w; w = w->next)
+		if (!fnl_atomic_load_bool(&w->should_close))
+			app_drain_requests(w);
 	return BACKEND(a)->check_error(a);
 }
 
-/* What fnl_run() does after its loop: the render thread joined and the device
- * let go. Idempotent, since a caller's own loop may end early. */
+/* What fnl_run() does after its loop: the render thread of every window on
+ * the host joined and the device let go. Idempotent, since a caller's own
+ * loop may end early. */
 FnlResult fnl_stop(App *a)
 {
 	if (!a)
 		return FNL_ERR_INVALID_ARGUMENT;
-	if (!a->in_run)
-		return FNL_OK;
-
-	/* Joined here rather than left to fnl_shutdown, so that a caller which
-	 * runs, inspects and only then shuts down is not reading state a live
-	 * render thread is still writing. */
-	render_thread_stop(a);
-	/* For the last on_gpu_lost below and for the teardown, both of which
-	 * are this thread's. None where a move to another renderer left one
-	 * owed and unbuilt (renderer_swap()). */
-	if (a->renderer && a->renderer_ready)
-		RENDERER(a)->thread_enter(a);
-
-	/* After the join *and* after the device has drained: the join says
-	 * nothing about the queue, and a caller destroying its pipelines here
-	 * would destroy objects a submitted command buffer is still executing
-	 * (VUID-vkDestroyPipeline-pipeline-00765). Only where the caller still
-	 * holds the device: an unrecovered loss has delivered its on_gpu_lost. */
-	if (a->renderer_ready && a->cb_gpu_created) {
-		RENDERER(a)->wait_idle(a);
-		a->cb_gpu_created = false;
-		if (a->cb.on_gpu_lost)
-			a->cb.on_gpu_lost(a->cb.ud, a);
-	}
-
-	a->in_run = false;
+	/* Every window's, not only `a`'s: `a` may be one that has already closed
+	 * while another on the host is still running, and stopping must join
+	 * them all. window_stop() is idempotent, so a stopped window is a no-op. */
+	Host *h = a->host;
+	for (App *w = h->windows; w; w = w->next)
+		window_stop(w);
+	/* The run is over, so a later fnl_pump() is refused and a fnl_start()
+	 * may begin a new one. Only after the joins: a window still drawing is a
+	 * run still going. */
+	h->running = false;
 	return FNL_OK;
 }
 

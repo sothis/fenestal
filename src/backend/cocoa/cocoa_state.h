@@ -23,6 +23,26 @@
  * core's. */
 #include "core/app.h"
 
+/* What the host owns, beside the windows: the wakeup pipe and its run-loop
+ * source, and the application delegate. One NSApplication is a process's
+ * already (app_launch()), and one wakeup pipe is the host's, so that a wake
+ * drains every window's requests. The window's own state -- its NSWindow,
+ * view, layer and delegates -- is in BackendState. See DESIGN *A second
+ * window*. */
+struct BackendHostState {
+	/* The wakeup: a pipe whose read end is a run-loop source, so a write --
+	 * the one thing a signal handler may do -- wakes the pump in every
+	 * run-loop mode, the tracking loops of a drag and a resize included.
+	 * The source is owned (CFFileDescriptorRef, CFRunLoopSourceRef). */
+	int wake_fd[2];
+	void *wake_cf;
+	void *wake_source;
+	/* The application delegate, owned; AppKit holds it weakly. One per host,
+	 * asking the frontmost window -- not one per window, which would have
+	 * the second steal Command-Q and the Dock's Quit from the first. */
+	void *app_delegate;
+};
+
 struct BackendState {
 	/* NSWindow, the view that is its content, and the CAMetalLayer that
 	 * backs the view: owned, each one reference. The layer is the one
@@ -31,22 +51,22 @@ struct BackendState {
 	void *window;
 	void *view;
 	void *layer;
-	/* The window's delegate and the application's, owned: AppKit holds
-	 * both weakly. The delegate is also what the menu's Quit asks. */
+	/* The window's delegate, owned: AppKit holds it weakly. It is also what
+	 * the menu's Quit asks, through the host's frontmost window. */
 	void *window_delegate;
-	void *app_delegate;
 	/* The local monitor that hands a key release with Command held to the
 	 * window: AppKit swallows those, and a key the caller saw go down would
 	 * never come up. */
 	void *key_up_monitor;
 
-	/* The wakeup: a pipe whose read end is a run-loop source, so a write --
-	 * the one thing a signal handler may do -- wakes the pump in every
-	 * run-loop mode, the tracking loops of a drag and a resize included.
-	 * The source is owned (CFFileDescriptorRef, CFRunLoopSourceRef). */
-	int wake_fd[2];
-	void *wake_cf;
-	void *wake_source;
+	/* The left button's press, which AppKit's window drag and the resize
+	 * below both keep the release of: a move asked for after the press was
+	 * dispatched (fnl_begin_move() from a callback) needs the event. [main]
+	 * Per window -- a press belongs to the window it was in -- and so here
+	 * rather than at file scope, where a second window's press would
+	 * overwrite the first's mid-drag. */
+	bool left_held;
+	void *left_down; /* NSEvent *, unretained, [main] */
 
 	/* What the render thread asks without touching AppKit, which it may
 	 * not: whether the window is anywhere a frame could go, and whether it

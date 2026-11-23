@@ -3725,18 +3725,21 @@ it the cursor stays as the compositor left it. The Win32 half is
 
 ### A second window
 
-**Part of it is built, and the rest is not.** This is the design and the ground
-it was measured against, written down because it decides the shape of several
-things that are built. Written now: the header's `FnlWindowDesc` and
-`fnl_window_create()`, the core's `Host` split (`Host` holds the backend
-vtable, the signal-installed flag and the window registry; `App` carries its
-host and the registry's next link), and the backend seam's split — `host_open`/
-`host_close` and `window_open`/`window_close`, with X11's two halves already
-apart and the other four naming their one `open()` as `window_open()` behind a
-no-op `host_open()`. `fnl_window_create()` still refuses
-(`FNL_ERR_UNSUPPORTED`): a second window needs its own frame loop driven from
-the host's pump, and that wiring is what is owed. TODO *A second window* has
-the rest, in order.
+**Most of it is built.** This is the design and the ground it was measured
+against, written down because it decides the shape of several things that are
+built. Written now: the header's `FnlWindowDesc` and `fnl_window_create()`, the
+core's `Host` split (`Host` holds the backend vtable, the signal-installed
+flag, the window registry and the one renderer; `App` carries its host and the
+registry's next link), the backend seam's split — `host_open`/`host_close` and
+`window_open`/`window_close`, with X11's, Win32's and Cocoa's halves apart and
+Wayland and KMS naming their one `open()` as `window_open()` behind a no-op
+`host_open()` — and the per-window frame loop: `fnl_start()` starts every
+window's render thread, `fnl_pump()` stops the windows whose close was asked
+for and starts any the run created, and `fnl_stop()` joins them all.
+`fnl_window_create()` opens the window rather than refusing. What is not yet
+done — the Wayland and KMS splits, the log level and the GPU ranking wholly on
+the host, and the harness's two-window check — is TODO *A second window*, in
+order, and none of it has been compiled or run.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API

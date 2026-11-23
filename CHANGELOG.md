@@ -14,13 +14,21 @@ promised: before 1.0, nothing between minor releases.
   `window_open()` makes a window on it, and the pump serves every window the
   host lists. X11 is split whole: the host owns the epoll set, the wakeup and
   the uevent socket, each window owns its two connections, and the pump
-  dispatches each ready connection to the window that owns it. The other four
-  backends are not split yet; they name their one `open()` as `window_open()`
-  behind a no-op `host_open()`, so the seam's two halves are filled without a
-  second connection. **The door still refuses**, because a second window needs
-  its own frame loop driven from the host's pump and that wiring is not built
-  yet; the call returns `FNL_ERR_UNSUPPORTED` with the reason. The ABI baseline
-  gains the struct and the function; nothing existing moves.
+  dispatches each ready connection to the window that owns it. Win32 is split:
+  the host owns the process module, the window and presentation classes and the
+  raw-input thread, each window its own HWND and state. Cocoa is split: the
+  host owns the one NSApplication, the wakeup pipe and the application delegate,
+  each window its own NSWindow, view and layer. Wayland and KMS are not split
+  yet; they name their one `open()` as `window_open()` behind a no-op
+  `host_open()`, so the seam's two halves are filled without a second
+  connection. **The door opens**: a second window is built on the host's
+  renderer (one graphics API a program), its own device, swapchain and render
+  thread, and the host's one pump. `fnl_start()` starts every window's render
+  thread, `fnl_pump()` stops the windows whose close was asked for and starts
+  any the run created, and `fnl_stop()` joins them all. A window closed during a
+  run is torn down but not freed -- it is the caller's to give back with
+  `fnl_shutdown()`, which is also where the host goes with its last. The ABI
+  baseline gains the struct and the function; nothing existing moves.
 
 - `fnl_set_scene_motion_px()`: how far the scene moved since the frame before
   it, in pixels of the scene. `FNL_AA_TAAU`'s resolve reads the history where

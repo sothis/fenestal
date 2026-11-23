@@ -1332,34 +1332,43 @@ documents rather than one that happened to look right.
 
 ## A second window
 
-Designed in DESIGN *A second window*. The header and the core's first sort
-are in -- `FnlWindowDesc`, `fnl_window_create()` and the `Host` split -- and
-the backend seam is split too: `host_open()` makes the connection and the one
-pump, `window_open()` makes a window on it, and the pump serves every window
-the host lists. `fnl_window_create()` still refuses, now because a second
-window needs its own frame loop driven from the host's pump. The app was always
-the handle -- 128 of the 144 `FNL_API` prototypes take one -- so the work is
-the process state that is still in the app, not a handle to add.
+Designed in DESIGN *A second window*. The header and the core's sort are in --
+`FnlWindowDesc`, `fnl_window_create()` and the `Host` split -- and the backend
+seam is split too: `host_open()` makes the connection and the one pump,
+`window_open()` makes a window on it, and the pump serves every window the host
+lists. The per-window frame loop is built: `fnl_start()` starts every window's
+render thread, `fnl_pump()` stops the windows whose close was asked for and
+starts any the run created, and `fnl_stop()` joins them all. **The door opens**
+(X11 and Win32 fully split, and Cocoa's host half). Not yet compiled or run:
+the working agreement leaves that to the user. The app was always the handle --
+128 of the 144 `FNL_API` prototypes take one -- so the work is the process
+state that is still in the app, not a handle to add.
 
-- **The host, and the split.** *The header and the core's first sort are
-  written*: `FnlWindowDesc` beside `FnlInitDesc`, `fnl_window_create()` in the
-  header and the core, and `Host` in `app.h` holding the backend vtable, the
-  signal-installed flag and the window registry; `App` carries its host and
-  the registry's next link. `fnl_init()` is unchanged in behaviour and creates
-  the host and its first window. The backend seam is split: `host_open`/
-  `host_close` and `window_open`/`window_close` are separate entries, `pump`,
-  `wakeup` and `check_error` are the host's, and X11's state is in two halves
-  -- the event loop the host's, the connections and window the window's. Still
-  owed: the per-window frame loop (a second window's render thread started and
-  driven from the host's pump), the log level and the GPU ranking moving to the
-  host, and `fnl_run`/`fnl_pump`/`fnl_stop` reaching every window on the host.
-  The renderer seam does not split.
+- **The host, and the split.** *Written*: `FnlWindowDesc` beside
+  `FnlInitDesc`, `fnl_window_create()` in the header and the core, and `Host`
+  in `app.h` holding the backend vtable, the signal-installed flag, the window
+  registry and the one renderer; `App` carries its host and the registry's next
+  link. `fnl_init()` is unchanged in behaviour and creates the host and its
+  first window. The backend seam is split: `host_open`/`host_close` and
+  `window_open`/`window_close` are separate entries, `pump`, `wakeup` and
+  `check_error` are the host's. X11's state is in two halves -- the event loop
+  the host's, the connections and window the window's; Win32's is the module,
+  the window and presentation classes and the raw-input thread the host's, the
+  window's HWND and its state the window's; Cocoa's is the one NSApplication,
+  the wakeup pipe and the application delegate the host's, the window and its
+  view the window's. The per-window frame loop is in -- `fnl_start`/`fnl_pump`/
+  `fnl_stop` reach every window on the host, a window's render thread started
+  with the run or the pump that follows its creation. The renderer seam does
+  not split. Still owed: the log level and the GPU ranking moving wholly to
+  the host, and the backends' own per-window gaps below.
 - **The process state the table in DESIGN names**, each row a site to move:
-  the signal app, `this_thread` and `app_renderer_state_ours()`, Win32's
-  window class and its one pump, its raw-input registration and the two
-  pointer calls that are the desktop's (`ShowCursor`, `ClipCursor`), Cocoa's
-  one delegate and its four file-scope variables, and the GL, Metal and
-  Vulkan tables that are one a process today.
+  the signal app, `this_thread` and `app_renderer_state_ours()` (done: the
+  render thread's window is the thread-local `render_window`, and the accessor
+  compares by identity), Win32's raw-input registration and the two pointer
+  calls that are the desktop's (`ShowCursor`, `ClipCursor`), Cocoa's four
+  file-scope variables (`iso_swap`, `pump_waiting` still file-scope and main-
+  thread-only), and the GL, Metal and Vulkan tables that are one a process
+  today.
 - **Wayland needs the most design**: one `wl_display` with a surface per
   window and the seat routing by `enter`/`leave`, rather than a display a
   window. Whether that is right at the input method and the clipboard is the
@@ -1378,14 +1387,16 @@ the process state that is still in the app, not a handle to add.
   `find_window()` a way to choose. `kms_grab.py` needs an output named, and
   `stress.py` earns a check that opens two windows and moves the focus
   between them -- the one thing no single-window round can say.
-- **Order.** The header and DESIGN first, then the core split with
-  `fnl_init` unchanged -- both are done: the header's `FnlWindowDesc` and
-  `fnl_window_create()`, and the core's `Host` with the backend vtable, the
-  signal flag and the window registry. The backend seam's split is done for
-  X11 (the four lifetime entries, the host's `pump`/`wakeup`/`check_error`,
-  and the two halves of its state); the other four name one `open()` as their
-  `window_open()` and leave `host_open()` a no-op until their own split. Next
-  is the per-window frame loop, which is what makes the door open; then Win32
-  and X11's own split, which are natively multi-window and prove the split
-  without any of Wayland's or KMS's questions; then Cocoa, then Wayland, then
-  KMS; and the harness with the backend it drives.
+- **Order.** The header and DESIGN, the core split with `fnl_init` unchanged,
+  the backend seam's split and the per-window frame loop are done: the header's
+  `FnlWindowDesc` and `fnl_window_create()`, the core's `Host` with the backend
+  vtable, the signal flag and the window registry, the frame loop that makes the
+  door open, and the seam split for X11 (both halves), Win32 (the module, the
+  classes and the raw thread the host's) and Cocoa (the NSApplication, the
+  wakeup and the delegate the host's). Wayland and KMS name one `open()` as
+  their `window_open()` and leave `host_open()` a no-op until their own split --
+  Wayland needs one `wl_display` and a surface per window, KMS a card and a
+  window an output. Next: the compile and the round on this desktop (X11 and
+  Win32 are natively multi-window and prove the split without Wayland's or
+  KMS's questions), then Wayland, then KMS, and the harness with the backend it
+  drives.
