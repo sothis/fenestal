@@ -3373,6 +3373,9 @@ def expected(line):
         or line.startswith("frame cpu: ")
         or line.startswith("frame stats: ")
         or line.startswith("reserve: ")
+        # --second-window's window watching whether the pointer is captured
+        # here (testbed second_overlay()); the two-window check reads it.
+        or re.match(r"second capture: [01]$", line) is not None
         or line.startswith("footprint: ")
         or line.startswith("backend: ")
         or line.startswith("renderer: ")
@@ -3628,6 +3631,45 @@ def two_window(b, r):
     r.check("the first window takes the focus", X.focus_settled(prim))
     r.check("the focus moves to the second", X.focus_settled(second))
     r.check("and back to the first", X.focus_settled(prim))
+
+    # ---- the pointer captured on the second window ---------------------
+    # Capture is the library's, not a caller's: a left click in a window's
+    # content takes it and F9 gives it back. Driven on the second window, the
+    # one on top, so the harness does not click the first through a covered
+    # -- parked -- window the driver cannot find to aim at. It is the one
+    # window that both captures and the first is open beside: a second
+    # window's capture has to leave the first's nothing the worse, which is
+    # what the Win32 host's one ShowCursor count and ClipCursor must hold.
+    def content_click(win):
+        # A point in the content, below the bar: the window is the presentable
+        # area plus BAR_H of bar, in window points, so the X geometry (physical
+        # pixels) is divided by the scale first, as the round's own content
+        # click does.
+        _x, _y, wpx, hpx = X.geom(win)
+        g = b._gain()
+        wpt, hpt = wpx / g, hpx / g
+        b.win = win
+        X.focus_settled(win)
+        b.click(int(wpt / 2), int(BAR_H + (hpt - BAR_H) / 2))
+
+    def wait_second(want, timeout=3.0):
+        line = "second capture: %d" % (1 if want else 0)
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                if any(line in ln for ln in b.dump(1 << 30)):
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.05)
+        return False
+
+    content_click(second)
+    r.check("the second window takes the pointer", wait_second(True))
+    b.tap("F9")                       # the library's release
+    r.check("and the second lets it go", wait_second(False))
+    b.win = prim                      # back to the window the harness drives
+
     # The second window is a renderer device, a swapchain and a render thread
     # of its own on the host's one renderer; a warning or a leak from building
     # it is what this reads.

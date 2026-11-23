@@ -774,6 +774,30 @@ static void testbed_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 	}
 }
 
+/* --second-window's window has no scene, so its overlay only watches the one
+ * thing a check of two windows needs of it: whether the library has taken the
+ * pointer here. The library takes it on a content click and gives it on F9
+ * without the application asking, so this reports rather than drives --
+ * "second capture: 1" and ": 0" on stderr as it changes, for the harness. */
+static bool g_second_captured;
+
+static void second_overlay(void *ud, FnlApp *app, const FnlFrame *f)
+{
+	(void)ud;
+	(void)f;
+	/* Drain, as every window must: the library's echo prints what this takes,
+	 * so a harness driving this window hears its keys (F9's release), and a
+	 * queue left full would start dropping events. */
+	FnlEvent ev;
+	while (fnl_poll_event(app, &ev))
+		;
+	const bool c = fnl_is_pointer_captured(app);
+	if (c != g_second_captured) {
+		g_second_captured = c;
+		fprintf(stderr, "second capture: %d\n", c ? 1 : 0);
+	}
+}
+
 #ifdef _WIN32
 /* ---- what this program is on Windows -------------------------------------
  *
@@ -914,7 +938,13 @@ int main(int argc, char **argv)
 			.x_pt           = 120,
 			.y_pt           = 120,
 		};
-		rc = fnl_window_create(app, &wd, NULL, &g_second);
+		/* The library draws the bar; this window's own pass only watches
+		 * whether the pointer is captured here (second_overlay()). */
+		const FnlCallbacks second_cb = {
+			.size       = sizeof second_cb,
+			.on_overlay = second_overlay,
+		};
+		rc = fnl_window_create(app, &wd, &second_cb, &g_second);
 		if (rc < 0) {
 			fprintf(stderr, "second window: %s: %s\n", fnl_result_str(rc),
 					fnl_last_error());

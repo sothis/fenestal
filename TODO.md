@@ -1400,8 +1400,12 @@ process state that is still in the app, not a handle to add.
 - **What is measured where.** *Done for X11 and Win32*: `stress.py` opens a
   second window (the testbed's `--second-window`, relaunched after the
   single-window round) and checks both windows open, are distinct and focused in
-  turn -- the one thing no single-window round can say. It passes on
-  `x11-vulkan` and `win64-vulkan` (release, 2026-11-23), 8 checks a round. Still
+  turn, and that the second window takes the pointer on a content click and
+  gives it on F9 while the first is open -- the one thing no single-window round
+  can say. The capture is driven on the second window alone: the two open nearly
+  on top of each other under wine, and a covered window parks and the driver
+  cannot find it to click. It passes on `x11-vulkan` and `win64-vulkan`
+  (release, 2026-11-23), 10 checks a round. Still
   owed: the harness finds a window by title and `_NET_WM_PID`, so `find_window()`
   needs a way to choose between two of one process (today by title, which the
   second window's distinct title leans on); and `kms_grab.py` needs an output
