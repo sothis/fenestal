@@ -3743,9 +3743,16 @@ input routed between two, a second output on the one card, and a second macOS
 window, none of them built or proven here. The window position (`x_pt`/`y_pt`)
 is honoured by X11 and Win32. Built and exercised on this desktop (release,
 2026-11-23): the single-window rounds and the two-window check pass on
-`x11-vulkan` and `win64-vulkan`, Win32's two desktop-global pointer calls
-are the host's, and `find_window()` picks between a process's several windows
-(an `index` into them, and `find_windows()` naming every one). What remains —
+`x11-vulkan`, `x11-gl`, `win64-vulkan` and `win64-d3d12`, Win32's two
+desktop-global pointer calls are the host's, both windows draw the scene (the
+testbed's scene state is per window, keyed by the app), and `find_window()`
+picks between a process's several windows (an `index` into them, and
+`find_windows()` naming every one). Proving the second window draws the scene
+found a fault on the main thread: it holds one GL context, and a window
+created after `fnl_init()` builds its own, leaving that current in place of
+the first's — so `window_start()` now enters each window's renderer for its
+own `on_gpu_created`, where before the first's callback built in the second's
+context and the second's in none. What remains —
 Wayland's seat routing, KMS's second output and Cocoa's second window — is
 TODO *A second window*, in order.
 

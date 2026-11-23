@@ -1407,26 +1407,37 @@ process state that is still in the app, not a handle to add.
 - **What is measured where.** *Done for X11 and Win32*: `stress.py` opens a
   second window (the testbed's `--second-window`, relaunched after the
   single-window round) and checks both windows open, are distinct and focused in
-  turn, and that the second window takes the pointer on a content click and
-  gives it on F9 while the first is open -- the one thing no single-window round
-  can say. The capture is driven on the second window alone: the two open nearly
-  on top of each other under wine, and a covered window parks and the driver
-  cannot find it to click. It passes on `x11-vulkan` and `win64-vulkan`
-  (release, 2026-11-23), 11 checks a round. `find_window()` picks between a
-  process's several windows now -- `index=` into them, and `find_windows()`
-  naming every one (an empty title) -- so the check sees both rather than
-  whichever tree walk reached first. Still owed: `kms_grab.py` needs an output
-  named where a KMS round shows two, and the order `find_windows()` returns is
-  the tree's, stable per round but not across a restack. The harness's own
-  `_NET_WM_PID` note stands.
+  turn, that the second window draws the scene (its clock on with F2, a row of
+  its content read some frames apart moves), and that it takes the pointer on a
+  content click and gives it on F9 while the first is open -- what no
+  single-window round can say. The capture is driven on the second window alone:
+  the two open nearly on top of each other under wine, and a covered window parks
+  and the driver cannot find it to click. It passes on `x11-vulkan`, `x11-gl`,
+  `win64-vulkan` and `win64-d3d12` (release, 2026-11-23), 12 checks a round.
+  `find_window()` picks between a process's several windows now -- `index=` into
+  them, and `find_windows()` naming every one (an empty title) -- so the check
+  sees both rather than whichever tree walk reached first. Still owed:
+  `kms_grab.py` needs an output named where a KMS round shows two, and the order
+  `find_windows()` returns is the tree's, stable per round but not across a
+  restack. The harness's own `_NET_WM_PID` note stands.
+- **The scene is one per window.** Each renderer's `testbed/scene_*.c` keys its
+  pipelines by the `FnlApp` the callbacks name, so a host's second window draws
+  its own rather than overwriting the first's. This found a library fault: the
+  main thread holds one GL context, and a second window's build leaves its own
+  current in place of the first's, so the first window's `on_gpu_created` built
+  in the wrong context and the second's in none. `window_start()` now enters
+  each window's renderer before its `on_gpu_created` (`thread_enter`, a no-op for
+  Vulkan and Direct3D 12). Metal is unchanged: Cocoa refuses a second window, so
+  it has none to draw.
 - **The DESIGN table's pointer row is closed**: Win32's `ShowCursor` count and
   `ClipCursor` confinement are now the host's -- a host count of windows that
   have confined the pointer, so the first hides it and the last gives it back,
   and a window releasing while another still holds it leaves that one's clip on
   the pointer rather than clearing it (which was the fight two captures had).
-  Not exercised by the harness, which cannot make the second window capture;
-  read at the site. Still owed: the GL/Metal/Vulkan tables that are one a
-  process (fine while a program has one renderer, which it does).
+  The round exercises it: the second window takes the pointer on a content click
+  and gives it on F9 with the first open beside it. Still owed: the GL/Metal
+  tables that are one a process (fine while a program has one renderer, which it
+  does).
 - **Order.** The header and DESIGN, the core split with `fnl_init` unchanged,
   the backend seam's split and the per-window frame loop are done, and the seam
   is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one
@@ -1434,8 +1445,7 @@ process state that is still in the app, not a handle to add.
   inputs and event loop the host's) with their host halves apart. A second
   window opens on X11 and Win32 and is refused on Wayland, KMS and Cocoa, each
   for the reason its own section gives. The window position is wired for X11
-  and Win32, and the two-window round passes on both (release, 2026-11-23).
+  and Win32, both windows draw the scene, and the two-window round passes on
+  both, drawn with Vulkan, OpenGL and Direct3D 12 (release, 2026-11-23).
   Next is the Wayland seat routing and the KMS second output, each on the
-  machine that can show them, and Cocoa's second window on the Mac; then the
-  harness's `find_window()` learning to pick between two windows of one
-  process.
+  machine that can show them, and Cocoa's second window on the Mac.

@@ -107,7 +107,55 @@ typedef struct {
 	bool             srgb;
 } Scene;
 
-static Scene g_scene;
+/* The scene is one per window, so that a second window on the host -- with its
+ * own device and pipelines -- draws its own rather than overwriting the
+ * first's. Keyed by the App; the library hands on_gpu_created and on_gpu_lost
+ * each a window's own, so the slot is taken and given with them. */
+#define SCENE_WINDOWS 8
+static struct {
+	FnlApp *app;
+	Scene s;
+} g_scenes[SCENE_WINDOWS];
+
+static Scene *scene_slot(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (g_scenes[i].app == app)
+			return &g_scenes[i].s;
+	return NULL;
+}
+
+/* The window's slot, emptied; a new one when it had none. NULL when every
+ * slot is taken, which is more windows than the testbed draws a scene in. */
+static Scene *scene_open(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++) {
+		if (g_scenes[i].app == app || !g_scenes[i].app) {
+			g_scenes[i].app = app;
+			memset(&g_scenes[i].s, 0, sizeof g_scenes[i].s);
+			return &g_scenes[i].s;
+		}
+	}
+	return NULL;
+}
+
+static void scene_close(FnlApp *app)
+{
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
+	if (s->device) {
+		for (int i = 0; i < FNL_TARGET_COUNT; i++) {
+			vkDestroyPipeline(s->device, s->pattern[i], NULL);
+			vkDestroyPipeline(s->device, s->star[i], NULL);
+		}
+		vkDestroyPipelineLayout(s->device, s->layout, NULL);
+	}
+	memset(s, 0, sizeof *s);
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (&g_scenes[i].s == s)
+			g_scenes[i].app = NULL;
+}
 
 /* The three _SRGB formats the library picks a surface from. A write to one is
  * encoded by the hardware, which is why the shader has to know. */
@@ -222,18 +270,24 @@ static VkPipeline make_pipeline(const FnlVulkanGpu *gpu,
 void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 {
 	(void)ud;
-	Scene *s = &g_scene;
-	memset(s, 0, sizeof *s);
+	Scene *s = scene_open(app);
+	if (!s) {
+		fprintf(stderr, "more scene windows than the testbed draws; "
+						"no scene will be drawn\n");
+		return;
+	}
 
 	FnlVulkanGpu gpu;
 	if (!fnl_vulkan_gpu(app, &gpu)) {
 		fprintf(stderr, "the running renderer is not Vulkan; "
 						"no scene will be drawn\n");
+		scene_close(app);
 		return;
 	}
 	if (!load_vulkan(&gpu)) {
 		fprintf(stderr, "the Vulkan loader is missing an entry the scene "
 						"calls; no scene will be drawn\n");
+		scene_close(app);
 		return;
 	}
 	s->device = gpu.device;
@@ -253,6 +307,7 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 		s->layout = VK_NULL_HANDLE;
 		s->device = VK_NULL_HANDLE;
 		fprintf(stderr, "could not create the scene's pipeline layout\n");
+		scene_close(app);
 		return;
 	}
 
@@ -287,17 +342,8 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 
 void scene_vulkan_on_gpu_lost(void *ud, FnlApp *app)
 {
-	(void)ud; (void)app;
-	Scene *s = &g_scene;
-	if (!s->device)
-		return;
-
-	for (int i = 0; i < FNL_TARGET_COUNT; i++) {
-		vkDestroyPipeline(s->device, s->pattern[i], NULL);
-		vkDestroyPipeline(s->device, s->star[i], NULL);
-	}
-	vkDestroyPipelineLayout(s->device, s->layout, NULL);
-	memset(s, 0, sizeof *s);
+	(void)ud;
+	scene_close(app);
 }
 
 /* The scene itself: the pattern's background over one covering triangle, then
@@ -308,7 +354,9 @@ void scene_vulkan_on_gpu_lost(void *ud, FnlApp *app)
 void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	(void)ud;
-	Scene *s = &g_scene;
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
 
 	VkCommandBuffer cb;
 	if (!fnl_vulkan_scene_cmd(app, &cb))

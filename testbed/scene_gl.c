@@ -98,7 +98,55 @@ typedef struct {
 	bool   loaded;
 } Scene;
 
-static Scene g_scene;
+/* The scene is one per window, as in scene_vulkan.c: a host's second window has
+ * its own context and objects, and draws its own rather than overwriting the
+ * first's. Keyed by the App; on_gpu_created and on_gpu_lost take and give the
+ * slot. */
+#define SCENE_WINDOWS 8
+static struct {
+	FnlApp *app;
+	Scene s;
+} g_scenes[SCENE_WINDOWS];
+
+static Scene *scene_slot(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (g_scenes[i].app == app)
+			return &g_scenes[i].s;
+	return NULL;
+}
+
+/* The window's slot, emptied; a new one when it had none. NULL when every
+ * slot is taken, which is more windows than the testbed draws a scene in. */
+static Scene *scene_open(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++) {
+		if (g_scenes[i].app == app || !g_scenes[i].app) {
+			g_scenes[i].app = app;
+			memset(&g_scenes[i].s, 0, sizeof g_scenes[i].s);
+			return &g_scenes[i].s;
+		}
+	}
+	return NULL;
+}
+
+/* The window's objects, where it made any, and its slot back. */
+static void scene_close(FnlApp *app)
+{
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
+	if (s->loaded) {
+		s->DeleteProgram(s->pattern);
+		s->DeleteProgram(s->star);
+		s->DeleteVertexArrays(1, &s->vao);
+		s->DeleteBuffers(1, &s->push);
+	}
+	memset(s, 0, sizeof *s);
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (&g_scenes[i].s == s)
+			g_scenes[i].app = NULL;
+}
 
 /* The block the shaders' `Push` is bound to here. The library binds its
  * own buffer to point 0 before every draw of its own, so any point will do;
@@ -153,8 +201,12 @@ static GLuint make_program(Scene *s, const char *vert, const char *frag)
 void scene_gl_on_gpu_created(void *ud, FnlApp *app)
 {
 	(void)ud;
-	Scene *s = &g_scene;
-	memset(s, 0, sizeof *s);
+	Scene *s = scene_open(app);
+	if (!s) {
+		fprintf(stderr, "more scene windows than the testbed draws; "
+						"no scene will be drawn\n");
+		return;
+	}
 
 	if (fnl_renderer(app) != FNL_RENDERER_OPENGL) {
 		fprintf(stderr, "the running renderer is not OpenGL; "
@@ -193,15 +245,8 @@ void scene_gl_on_gpu_created(void *ud, FnlApp *app)
 
 void scene_gl_on_gpu_lost(void *ud, FnlApp *app)
 {
-	(void)ud; (void)app;
-	Scene *s = &g_scene;
-	if (!s->loaded)
-		return;
-	s->DeleteProgram(s->pattern);
-	s->DeleteProgram(s->star);
-	s->DeleteVertexArrays(1, &s->vao);
-	s->DeleteBuffers(1, &s->push);
-	memset(s, 0, sizeof *s);
+	(void)ud;
+	scene_close(app);
 }
 
 /* The scene itself, as in scene_vulkan.c: the pattern over one covering
@@ -210,7 +255,9 @@ void scene_gl_on_gpu_lost(void *ud, FnlApp *app)
 void scene_gl_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	(void)ud;
-	Scene *s = &g_scene;
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
 	uint32_t fbo;
 	if (!s->pattern || !s->star || !fnl_gl_scene_framebuffer(app, &fbo))
 		return;
@@ -252,10 +299,9 @@ int scene_gl_version(FnlApp *app)
  * "4.6.0 NVIDIA 580.95.05". GL names no PCI ids. */
 bool scene_gl_driver(FnlApp *app, TestbedDriver *d)
 {
-	(void)app;
-	Scene *s = &g_scene;
+	Scene *s = scene_slot(app);
 	memset(d, 0, sizeof *d);
-	if (!s->loaded)
+	if (!s || !s->loaded)
 		return false;
 	const char *vendor = (const char *)s->GetString(GL_VENDOR);
 	const char *renderer = (const char *)s->GetString(GL_RENDERER);

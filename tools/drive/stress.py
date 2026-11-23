@@ -3679,6 +3679,34 @@ def two_window(b, r):
     r.check("the second window takes the pointer", wait_second(True))
     b.tap("F9")                       # the library's release
     r.check("and the second lets it go", wait_second(False))
+
+    # The second window draws the scene, not only its bar. The click above
+    # activated it and left it focused, so F2 -- the library's, to this
+    # window's clock -- reaches the second's: on, the scene sweeps and a row
+    # read some frames apart differs, where a window drawing only the
+    # background and its bar holds the same row. Off, the clock stops and a
+    # still window records nothing, so the clock is switched on and back.
+    if r.can("read-pixels"):
+        b.press("F2")
+        rows = []
+        for _ in range(6):
+            time.sleep(LIVE_APART)
+            rows.append(X.scene_row(second))
+        b.press("F2")
+        rows = [row for row in rows if row is not None]
+        if not rows:
+            r.skip("the second window draws the scene", "no picture of it")
+        else:
+            moved = len(set(rows)) > 1
+            r.check(
+                "the second window draws the scene",
+                moved,
+                "the scene moves"
+                if moved
+                else "the same row %d times %.1f s apart while its clock "
+                "runs: a window that does not draw its scene"
+                % (len(rows), LIVE_APART),
+            )
     b.win = prim                      # back to the window the harness drives
 
     # The second window is a renderer device, a swapchain and a render thread

@@ -59,9 +59,45 @@ typedef struct {
 	ID3D12PipelineState *pattern[FNL_TARGET_COUNT];
 	ID3D12PipelineState *star[FNL_TARGET_COUNT];
 	bool srgb;
+	/* The adapter DXGI found for the device, for the memory its queries
+	 * read; let go with the device. A window's own, since two windows draw on
+	 * two devices from two render threads and one shared adapter would be
+	 * released by whichever asked last. */
+	IDXGIAdapter3 *vram_adapter;
+	ID3D12Device  *vram_device;
 } Scene;
 
-static Scene g_scene;
+/* The scene is one per window, as in scene_vulkan.c: a host's second window has
+ * its own device and objects, and draws its own rather than overwriting the
+ * first's. Keyed by the App; on_gpu_created and on_gpu_lost take and give the
+ * slot. */
+#define SCENE_WINDOWS 8
+static struct {
+	FnlApp *app;
+	Scene s;
+} g_scenes[SCENE_WINDOWS];
+
+static Scene *scene_slot(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (g_scenes[i].app == app)
+			return &g_scenes[i].s;
+	return NULL;
+}
+
+/* The window's slot, emptied; a new one when it had none. NULL when every
+ * slot is taken, which is more windows than the testbed draws a scene in. */
+static Scene *scene_open(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++) {
+		if (g_scenes[i].app == app || !g_scenes[i].app) {
+			g_scenes[i].app = app;
+			memset(&g_scenes[i].s, 0, sizeof g_scenes[i].s);
+			return &g_scenes[i].s;
+		}
+	}
+	return NULL;
+}
 
 #define RELEASE(p)                                                             \
 	do {                                                                       \
@@ -71,6 +107,25 @@ static Scene g_scene;
 			(p) = NULL;                                                        \
 		}                                                                      \
 	} while (0)
+
+/* The window's objects, where it made any, and its slot back. */
+static void scene_close(FnlApp *app)
+{
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
+	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
+		RELEASE(s->pattern[t]);
+		RELEASE(s->star[t]);
+	}
+	RELEASE(s->root);
+	if (s->vram_adapter)
+		IDXGIAdapter3_Release(s->vram_adapter);
+	memset(s, 0, sizeof *s);
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (&g_scenes[i].s == s)
+			g_scenes[i].app = NULL;
+}
 
 /* Four 32-bit constants at b0, the register spirv-cross gives `cbuffer
  * Push`, and nothing else: both shaders build their geometry from the
@@ -137,8 +192,12 @@ static ID3D12PipelineState *make_pso(ID3D12Device *dev,
 void scene_d3d12_on_gpu_created(void *ud, FnlApp *app)
 {
 	(void)ud;
-	Scene *s = &g_scene;
-	memset(s, 0, sizeof *s);
+	Scene *s = scene_open(app);
+	if (!s) {
+		fprintf(stderr, "more scene windows than the testbed draws; "
+						"no scene will be drawn\n");
+		return;
+	}
 
 	FnlD3D12Gpu gpu;
 	if (fnl_renderer(app) != FNL_RENDERER_D3D12 || !fnl_d3d12_gpu(app, &gpu)) {
@@ -170,28 +229,53 @@ void scene_d3d12_on_gpu_created(void *ud, FnlApp *app)
 	}
 }
 
-/* The adapter scene_d3d12_vram() asks, for the device it was found for;
- * let go with the device. */
-static IDXGIAdapter3 *g_vram_adapter;
-static ID3D12Device *g_vram_device;
+/* The adapter scene_d3d12_vram() asks, found once per device and kept in the
+ * window's scene. Through the vtable for the LUID: mingw-w64's C headers
+ * return that struct by an out-pointer, as their inline wrapper shows. NULL
+ * where DXGI has none. */
+static IDXGIAdapter3 *adapter_of(Scene *s, const FnlD3D12Gpu *g)
+{
+	ID3D12Device *dev = g->device;
+	if (dev != s->vram_device) {
+		if (s->vram_adapter)
+			IDXGIAdapter3_Release(s->vram_adapter);
+		s->vram_adapter = NULL;
+		s->vram_device  = dev;
+		LUID luid;
+		dev->lpVtbl->GetAdapterLuid(dev, &luid);
+		IDXGIFactory4 *f = NULL;
+		if (SUCCEEDED(CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&f))) {
+			if (FAILED(IDXGIFactory4_EnumAdapterByLuid(
+					f, luid, &IID_IDXGIAdapter3, (void **)&s->vram_adapter)))
+				s->vram_adapter = NULL;
+			IDXGIFactory4_Release(f);
+		}
+	}
+	return s->vram_adapter;
+}
+
+/* DXGI's QueryVideoMemoryInfo: this process's use of the adapter's local
+ * memory. */
+bool scene_d3d12_vram(FnlApp *app, double *mib)
+{
+	Scene *s = scene_slot(app);
+	FnlD3D12Gpu g;
+	if (!s || !fnl_d3d12_gpu(app, &g) || !adapter_of(s, &g))
+		return false;
+	DXGI_QUERY_VIDEO_MEMORY_INFO info;
+	if (FAILED(IDXGIAdapter3_QueryVideoMemoryInfo(
+			s->vram_adapter, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)))
+		return false;
+	*mib = (double)info.CurrentUsage / (1024.0 * 1024.0);
+	return true;
+}
 
 /* The library has waited for the queue before calling this, so nothing
  * released here is still being drawn with. */
 void scene_d3d12_on_gpu_lost(void *ud, FnlApp *app)
 {
 	(void)ud;
-	(void)app;
-	if (g_vram_adapter)
-		IDXGIAdapter3_Release(g_vram_adapter);
-	g_vram_adapter = NULL;
-	g_vram_device  = NULL;
-	Scene *s       = &g_scene;
-	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
-		RELEASE(s->pattern[t]);
-		RELEASE(s->star[t]);
-	}
-	RELEASE(s->root);
-	memset(s, 0, sizeof *s);
+	scene_close(app);
 }
 
 /* The scene itself, as in scene_vulkan.c: the pattern over one covering
@@ -200,7 +284,9 @@ void scene_d3d12_on_gpu_lost(void *ud, FnlApp *app)
 void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	(void)ud;
-	Scene *s = &g_scene;
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
 	FnlD3D12Scene sc;
 	if (!fnl_d3d12_scene(app, &sc))
 		return;
@@ -227,46 +313,6 @@ void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 	ID3D12GraphicsCommandList_DrawInstanced(l, STAR_VERTICES, 1, 0, 0);
 }
 
-/* ---- the adapter, its memory and its driver ----------------------------- */
-
-/* The device's adapter, found by its LUID once a device. Through the
- * vtable for the LUID: mingw-w64's C headers return that struct by an
- * out-pointer, as their inline wrapper shows. NULL where DXGI has none. */
-static IDXGIAdapter3 *adapter_of(const FnlD3D12Gpu *g)
-{
-	ID3D12Device *dev = g->device;
-	if (dev != g_vram_device) {
-		if (g_vram_adapter)
-			IDXGIAdapter3_Release(g_vram_adapter);
-		g_vram_adapter = NULL;
-		g_vram_device  = dev;
-		LUID luid;
-		dev->lpVtbl->GetAdapterLuid(dev, &luid);
-		IDXGIFactory4 *f = NULL;
-		if (SUCCEEDED(CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&f))) {
-			if (FAILED(IDXGIFactory4_EnumAdapterByLuid(
-					f, luid, &IID_IDXGIAdapter3, (void **)&g_vram_adapter)))
-				g_vram_adapter = NULL;
-			IDXGIFactory4_Release(f);
-		}
-	}
-	return g_vram_adapter;
-}
-
-/* DXGI's QueryVideoMemoryInfo: this process's use of the adapter's local
- * memory. */
-bool scene_d3d12_vram(FnlApp *app, double *mib)
-{
-	FnlD3D12Gpu g;
-	if (!fnl_d3d12_gpu(app, &g) || !adapter_of(&g))
-		return false;
-	DXGI_QUERY_VIDEO_MEMORY_INFO info;
-	if (FAILED(IDXGIAdapter3_QueryVideoMemoryInfo(
-			g_vram_adapter, 0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)))
-		return false;
-	*mib = (double)info.CurrentUsage / (1024.0 * 1024.0);
-	return true;
-}
 
 /* DXGI names the adapter and not the driver, so the name is the adapter's
  * description -- "NVIDIA GeForce GTX 1050 Ti", "Microsoft Basic Render
@@ -277,9 +323,10 @@ bool scene_d3d12_vram(FnlApp *app, double *mib)
 bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d)
 {
 	memset(d, 0, sizeof *d);
+	Scene *s = scene_slot(app);
 	FnlD3D12Gpu g;
 	IDXGIAdapter3 *ad;
-	if (!fnl_d3d12_gpu(app, &g) || !(ad = adapter_of(&g)))
+	if (!s || !fnl_d3d12_gpu(app, &g) || !(ad = adapter_of(s, &g)))
 		return false;
 	DXGI_ADAPTER_DESC1 desc;
 	if (SUCCEEDED(IDXGIAdapter3_GetDesc1(ad, &desc))) {

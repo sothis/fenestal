@@ -131,6 +131,28 @@ def geom(win):
     return (-t.x, -t.y, g.width, g.height)
 
 
+def scene_row(win, top=40):
+    """One row across the middle of the window's content, every pixel, as
+    bytes; None where it cannot be read. Two of them some frames apart differ
+    while the scene moves -- its sweep crosses every row -- and are the same
+    where the window shows a still frame. For any window, not just the one a
+    round drives: two windows of one process can be read apart."""
+    try:
+        g = win.get_geometry()
+    except Exception:
+        return None
+    w, h = g.width, g.height
+    if w < 8 or h < top + 8:
+        return None
+    try:
+        img = win.get_image(0, top + (h - top) // 2, w, 1, X.ZPixmap,
+                            0xffffffff)
+    except Exception:
+        return None
+    data = img.data
+    return data.encode("latin-1") if isinstance(data, str) else data
+
+
 def focus(win):
     """Ask the window manager to activate it, and do nothing behind its back.
 

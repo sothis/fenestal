@@ -61,9 +61,9 @@ static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
 static int g_fps;
 static double g_fps_next;
 /* --second-window: open a second window on the same host after fnl_init(), and
- * keep it to run beside the first. It draws the library's titlebar only (no
- * scene), which is enough to prove a second window on the host is opened,
- * drawn and focused -- the check no single-window round can make. */
+ * keep it to run beside the first. It draws the same scene as the first, on its
+ * own render thread and device, which proves a second window on the host is
+ * opened, drawn and focused -- the check no single-window round can make. */
 static bool g_second_window;
 static FnlApp *g_second;
 
@@ -712,7 +712,11 @@ static void testbed_drain(FnlApp *app)
 {
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
-		if (ev.type == FNL_EVENT_GPU)
+		/* The first window names itself after the GPU it landed on; the
+		 * second keeps the title --second-window gave it, which is how a
+		 * harness tells the two apart (_NET_WM_PID is the process's for
+		 * both). */
+		if (ev.type == FNL_EVENT_GPU && app != g_second)
 			name_window(app);
 		testbed_overlay_event(app, &ev);
 		testbed_titlebar_custom_event(app, &ev);
@@ -774,23 +778,18 @@ static void testbed_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 	}
 }
 
-/* --second-window's window has no scene, so its overlay only watches the one
- * thing a check of two windows needs of it: whether the library has taken the
- * pointer here. The library takes it on a content click and gives it on F9
- * without the application asking, so this reports rather than drives --
- * "second capture: 1" and ": 0" on stderr as it changes, for the harness. */
+/* The second window draws the same scene as the first (its callbacks below),
+ * on its own render thread and device. Its overlay is the first's -- the
+ * drain and the UI overlay -- with one thing added: it watches whether the
+ * library has taken the pointer here. The library takes it on a content click
+ * and gives it back on F9 without the application asking, so this only
+ * reports: "second capture: 1" and ": 0" on stderr as it changes, for the
+ * two-window check. */
 static bool g_second_captured;
 
 static void second_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 {
-	(void)ud;
-	(void)f;
-	/* Drain, as every window must: the library's echo prints what this takes,
-	 * so a harness driving this window hears its keys (F9's release), and a
-	 * queue left full would start dropping events. */
-	FnlEvent ev;
-	while (fnl_poll_event(app, &ev))
-		;
+	testbed_overlay(ud, app, f);
 	const bool c = fnl_is_pointer_captured(app);
 	if (c != g_second_captured) {
 		g_second_captured = c;
@@ -923,8 +922,8 @@ int main(int argc, char **argv)
 	};
 
 	/* --second-window: a window beside the first on the same host, before the
-	 * run starts, so both draw from the same pump. It draws the library's
-	 * titlebar only -- no scene, so no callbacks -- which is enough for a
+	 * run starts, so both draw from the same pump. It draws the scene as the
+	 * first does, on its own render thread and device, which is enough for a
 	 * harness to see two windows open, drawn and focused. A position on the
 	 * desktop is asked for, where the backend honours one, so the two do not
 	 * land on top of each other. */
@@ -938,11 +937,15 @@ int main(int argc, char **argv)
 			.x_pt           = 120,
 			.y_pt           = 120,
 		};
-		/* The library draws the bar; this window's own pass only watches
-		 * whether the pointer is captured here (second_overlay()). */
+		/* The scene, as the first window draws it -- its own device, swapchain
+		 * and render thread -- with the overlay that also reports its pointer
+		 * capture (second_overlay()). */
 		const FnlCallbacks second_cb = {
-			.size       = sizeof second_cb,
-			.on_overlay = second_overlay,
+			.size           = sizeof second_cb,
+			.on_gpu_created = scene_on_gpu_created,
+			.on_gpu_lost    = scene_on_gpu_lost,
+			.on_record      = testbed_record,
+			.on_overlay     = second_overlay,
 		};
 		rc = fnl_window_create(app, &wd, &second_cb, &g_second);
 		if (rc < 0) {
