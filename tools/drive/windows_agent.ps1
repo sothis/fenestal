@@ -458,11 +458,20 @@ public static class FnlAgent
         uint fl = i.u.ki.vk == 0 ? 0x0008u : 0u;    /* KEYEVENTF_SCANCODE */
         if (a[2] == "1")
             fl |= 0x0001;                           /* EXTENDEDKEY */
-        if (a[3] != "1")
+        bool down = a[3] == "1";
+        if (!down)
             fl |= 0x0002;                           /* KEYUP */
         i.u.ki.flags = fl;
+        /* A release stops the repeat before it is sent. The repeat thread
+         * sends the press again from under the same lock, so a press already
+         * due can land after the release if the release goes first: the key
+         * is then down again, the program never sees its up, and the next
+         * press of it arrives as a repeat and is dropped. Stopping first
+         * makes the release the last edge of the key, as on a keyboard. */
+        if (!down)
+            Typematic(i);
         string sent = Send(i);
-        if (sent == "ok")
+        if (sent == "ok" && down)
             Typematic(i);
         return sent;
     }
