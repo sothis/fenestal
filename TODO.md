@@ -1340,9 +1340,9 @@ lists. The per-window frame loop is built: `fnl_start()` starts every window's
 render thread, `fnl_pump()` stops the windows whose close was asked for and
 starts any the run created, and `fnl_stop()` joins them all. **The door opens**
 on every backend that is split: X11, Win32 and Cocoa whole, and Wayland's and
-KMS's host halves. A second window opens on X11 and Win32; Wayland and KMS
-refuse one, each with the reason its own section gives. Not yet compiled or
-run: the working agreement leaves that to the user. The app was always the
+KMS's host halves. A second window opens on X11 and Win32; Wayland, KMS and
+Cocoa refuse one, each with the reason its own section gives. Compiled and run
+on X11 and Win32 (release, 2026-11-23). The app was always the
 handle -- 128 of the 144 `FNL_API` prototypes take one -- so the work is the
 process state that is still in the app, not a handle to add.
 
@@ -1392,11 +1392,18 @@ process state that is still in the app, not a handle to add.
   window*), and every machine in this lab has one monitor a machine. Proving it
   needs a second monitor on a bare machine -- TODO *The bare machine, without
   Xorg* owes the cable, and this the round after.
+- **Cocoa's split is in; its second window is refused** -- `cocoa_open()` says
+  so. The host's half is one NSApplication, one wakeup pipe and one delegate
+  asking the frontmost, and the window's is its NSWindow, view and layer; but
+  two windows on macOS, each with its own render thread and device, has never
+  been run, and the only Mac here is reached over ssh. Owed: proving it needs
+  the Mac driven with two windows open, the way X11 and Win32 were here.
 - **The window position is wired** for X11 and Win32 (`fnl_window_create()`'s
   `x_pt`/`y_pt`), which are the backends a second window works on today.
   Wayland (the compositor places) and KMS (the window is the output) ignore it,
-  as their comments say. Cocoa could honour it and is owed with whatever proves
-  a second Cocoa window -- one does not open here.
+  as their comments say. Cocoa refuses a second window, so a position there is
+  owed with whatever proves one -- it would honour `x_pt`/`y_pt` when a second
+  Cocoa window is built.
 - **What is measured where.** *Done for X11 and Win32*: `stress.py` opens a
   second window (the testbed's `--second-window`, relaunched after the
   single-window round) and checks both windows open, are distinct and focused in
@@ -1422,10 +1429,11 @@ process state that is still in the app, not a handle to add.
   the backend seam's split and the per-window frame loop are done, and the seam
   is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one
   display, globals, seat and event loop the host's) and KMS (the card, outputs,
-  inputs and event loop the host's) with their second window refused for the
-  reasons their sections give. The window position is wired for X11 and Win32.
-  Next is the compile and the two-window round on this desktop (X11 and Win32
-  are natively multi-window and prove the split without Wayland's or KMS's
-  routing questions); then the Wayland seat routing and the KMS second output,
-  each on the machine that can show them; then the harness check that opens two
-  windows and moves the focus between them.
+  inputs and event loop the host's) with their host halves apart. A second
+  window opens on X11 and Win32 and is refused on Wayland, KMS and Cocoa, each
+  for the reason its own section gives. The window position is wired for X11
+  and Win32, and the two-window round passes on both (release, 2026-11-23).
+  Next is the Wayland seat routing and the KMS second output, each on the
+  machine that can show them, and Cocoa's second window on the Mac; then the
+  harness's `find_window()` learning to pick between two windows of one
+  process.

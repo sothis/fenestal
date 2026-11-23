@@ -1542,6 +1542,17 @@ static void cocoa_host_close(App *a)
  * owns. */
 static FnlResult cocoa_open(App *a)
 {
+	/* One window a Cocoa backend until a second is proven. The host's half is
+	 * split -- one NSApplication, one wakeup pipe, one delegate asking the
+	 * frontmost -- but two windows on macOS, each with its own render thread
+	 * and device, has never been run, and the only Mac here is reached over
+	 * ssh. Refused with the reason rather than opened untested. The first
+	 * window is the one fnl_init() made. */
+	if (a->host->windows != a)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"Cocoa: a second window is not yet proven on macOS, "
+						"so this build opens one window a host (DESIGN *A "
+						"second window*)");
 	a->backend_state = calloc(1, sizeof *a->backend_state);
 	if (!a->backend_state)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,

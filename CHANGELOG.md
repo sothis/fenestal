@@ -31,9 +31,9 @@ promised: before 1.0, nothing between minor releases.
   run is torn down but not freed -- it is the caller's to give back with
   `fnl_shutdown()`, which is also where the host goes with its last.
   `FnlWindowDesc::x_pt`/`y_pt` place the window on X11 and Win32. A second
-  window opens on X11 and Win32; Wayland and KMS refuse one, the seat's input
-  between two and a second output on the one card not being built because this
-  lab cannot prove them. The ABI
+  window opens on X11 and Win32; Wayland, KMS and Cocoa refuse one -- the
+  seat's input between two, a second output on the one card, and a second
+  macOS window, none of them built or proven here. The ABI
   baseline gains the struct and the function; nothing existing moves.
 
 - `fnl_set_scene_motion_px()`: how far the scene moved since the frame before

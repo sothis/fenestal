@@ -3738,12 +3738,15 @@ their windows' — and the per-window frame loop: `fnl_start()` starts every
 window's render thread, `fnl_pump()` stops the windows whose close was asked
 for and starts any the run created, and `fnl_stop()` joins them all.
 `fnl_window_create()` opens the window rather than refusing; a second window
-opens on X11 and Win32, and Wayland and KMS refuse one with the reason their
-routing is not built or provable here. The window position (`x_pt`/`y_pt`) is
-honoured by X11 and Win32. What is not yet done — Wayland's seat routing, KMS's
-second output, Win32's two desktop-global pointer calls, and the harness's
-two-window check — is TODO *A second window*, in order, and none of it has been
-compiled or run.
+opens on X11 and Win32, and Wayland, KMS and Cocoa refuse one -- the seat's
+input routed between two, a second output on the one card, and a second macOS
+window, none of them built or proven here. The window position (`x_pt`/`y_pt`)
+is honoured by X11 and Win32. Built and exercised on this desktop (release,
+2026-11-23): the single-window rounds and the two-window check pass on
+`x11-vulkan` and `win64-vulkan`, and Win32's two desktop-global pointer calls
+are the host's. What remains — Wayland's seat routing, KMS's second output,
+Cocoa's second window, and a harness `find_window()` that picks between two
+windows of one process — is TODO *A second window*, in order.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API
