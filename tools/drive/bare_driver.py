@@ -2720,6 +2720,11 @@ for lib in sorted(libs):
 # logs an MMIO read fault at error level each time the GPU wakes, which
 # the console printed over the VT in front -- the one a KMS round draws on
 # and a hand reads. The journal keeps them, and Ctrl+Alt+F12 shows them.
+# That redirect is only honoured where VT 12 exists: the kernel drops it
+# while the target vc is unallocated (vt.c's vt_console_print()), and a
+# machine with ttys 1-6 has none -- setlogcons answers 0 all the same, so
+# schenker on CachyOS printed an i915 *ERROR* over a drawn frame with the
+# unit reporting itself active (2026-11-24). The unit opens the tty first.
 # And on a machine with an NVIDIA GPU, nouveau's bus subdev quieted
 # (debug=bus=fatal, read when the module is loaded from the root
 # filesystem -- the helper's loads -- and not from an initramfs): those
@@ -2750,6 +2755,11 @@ Description=fenestal: kernel messages on VT 12, not the VT in front
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# The redirect is honoured only where VT 12 is allocated, and a machine
+# that sets up ttys 1-6 has no VT 12 at all: setlogcons succeeds and every
+# message still lands on the VT in front. Opening it allocates it, and the
+# allocation outlives this shell (bare_driver.py, 2026-11-24).
+ExecStartPre=/bin/sh -c 'exec 3<>/dev/tty12'
 ExecStart=$logcons 12
 
 [Install]

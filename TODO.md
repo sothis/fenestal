@@ -686,6 +686,28 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   (2026-10-17, and again 2026-10-31: still there, the same in 16.0.2,
   not reported). Owed: `heldgeom` on 16.0.2, the current release; then
   sending it.
+- **The kernel's messages did not go to VT 12, and looked like ours**
+  (2026-11-24): `SETUP_ROOT`'s `fenestal-logcons.service` ran
+  `setlogcons 12`, which answers 0 whether or not VT 12 exists; the
+  kernel honours the redirect only where the target vc is allocated
+  (`vt.c`'s `vt_console_print()`), and a machine set up with ttys 1-6
+  has no VT 12. schenker's CachyOS printed an i915 `*ERROR*` over a drawn
+  frame while the unit reported itself active -- measured there, and the
+  redirect shown to work once `/dev/tty12` had been opened, the
+  allocation outliving the opener. Fixed in `SETUP_ROOT`: the unit opens
+  the tty before `setlogcons`. Owed: `--setup` on a machine whose unit is
+  already installed, then a hand at the VT, and the existing units' next
+  boot; and the harness does not read the kernel log at all, so a
+  message that reaches a VT a round is not on is still nowhere it looks.
+  Known, and not fenestal's: `i915 0000:00:02.0: [drm] *ERROR* Atomic
+  update failure on pipe A` is the driver's own missed-deadline report
+  (`intel_crtc.c`'s `intel_pipe_update_end()`), logged when the update
+  straddles a vblank. schenker's i915 sent it twice in four days
+  (2026-11-24 10:16 and 10:18, 112 and 135 us in the section), both
+  around a burst of three nouveau/nvidia driver rebinds, and neither
+  inside a fenestal round; the commit still lands and the frame is
+  drawn. Upstream's known signature for PSR, gamma and stale-scanline
+  reads under load; nothing owed.
 - **A window lost to the harness on weston after an edge resize**
   (2026-10-31): wine's Direct3D 12 round on weston on schenker's nouveau
   entry, 13 checks in, the program drawing at the size the drag left; run
