@@ -912,6 +912,15 @@ static void cursor_show(App *a, KmsGlyph g)
 		p->cursor_crtc ? p->cursor_crtc : p->host->outputs[p->out_cur].crtc_id;
 	if (!crtc)
 		return; /* nothing can drive the output */
+	/* The CRTC's lit state, read once per CRTC and not per motion: a GETCRTC
+	 * on every mouse move is a kernel ioctl that would block the pump behind
+	 * the render thread's mode set. Re-checked when the CRTC is first known
+	 * or changes (cursor_lit_for), and again by cursor_recheck() after a
+	 * switch, when the render thread's mode set may have just lit it. */
+	if (crtc != p->cursor_lit_for) {
+		p->cursor_lit_for = crtc;
+		p->cursor_lit     = crtc_lit(p->host->card_fd, crtc);
+	}
 	/* Nothing to send: answered before the ioctl below, which a pad's
 	 * sub-pixel motion -- four reports in five move no whole pixel -- would
 	 * otherwise pay for every time. */
@@ -924,8 +933,10 @@ static void cursor_show(App *a, KmsGlyph g)
 		return;
 	/* Not yet lit: the recheck sets the shape once a CRTC drives the output,
 	 * and a refusal from one that is off is not the output refusing a
-	 * cursor, which would be taken as the last word (cursor_warn()). */
-	if (!crtc_lit(p->host->card_fd, crtc)) {
+	 * cursor, which would be taken as the last word (cursor_warn()). The
+	 * lit state is cached per CRTC change (cursor_lit), so this is a flag
+	 * test on the hot path, not a GETCRTC per motion. */
+	if (!p->cursor_lit) {
 		if (!p->cursor_recheck)
 			p->cursor_recheck = CURSOR_RECHECKS;
 		return;
@@ -1023,6 +1034,7 @@ static void cursor_moved(App *a)
 	p->cursor_on      = 0;
 	p->glyph_shown    = KMS_GLYPH_UNSET;
 	p->cursor_recheck = CURSOR_RECHECKS;
+	p->cursor_lit_for = 0;
 }
 
 /* After a switch, a pump turn that nothing woke: until the kernel names
@@ -1038,6 +1050,9 @@ static void cursor_recheck(App *a)
 	if (!live)
 		return;
 	p->cursor_recheck = 0;
+	/* The render thread may have lit the CRTC since the last check: make the
+	 * next cursor_show() read its lit state again. */
+	p->cursor_lit_for = 0;
 	if (live != p->cursor_on) {
 		p->cursor_crtc = live;
 		kms_cursor_changed(a);

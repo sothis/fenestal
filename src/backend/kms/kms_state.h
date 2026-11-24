@@ -280,6 +280,14 @@ struct BackendState {
 	int          cursor_recheck;
 	int          cursor_at_x, cursor_at_y;
 	bool         cursor_warned;
+	/* Whether the CRTC the cursor drives is lit (a mode and a framebuffer on
+	 * its plane). Checked once when the CRTC is known or rechecked, not per
+	 * motion: a GETCRTC on every mouse move is a kernel ioctl that would
+	 * block the pump behind the render thread's mode set. */
+	bool         cursor_lit;
+	/* The CRTC cursor_lit was read for: 0 until one is, so a change of CRTC
+	 * re-reads it, and cursor_recheck() zeroes it to force the re-read. */
+	uint32_t     cursor_lit_for;
 	/* Whether the cursor is the legacy ioctl's: set once an atomic cursor
 	 * commit was refused again and again, and it stays there for the window's
 	 * life. */
