@@ -1433,9 +1433,9 @@ lists. The per-window frame loop is built: `fnl_start()` starts every window's
 render thread, `fnl_pump()` stops the windows whose close was asked for and
 starts any the run created, and `fnl_stop()` joins them all. **The door opens**
 on every backend that is split: X11, Win32 and Cocoa whole, and Wayland's and
-KMS's host halves. A second window opens on X11, Win32 and KMS; Wayland and
-Cocoa refuse one, each with the reason its own section gives. Compiled and run
-on X11 and Win32 (release, 2026-11-23), and on KMS in a round of its own. The
+KMS's host halves. A second window opens on all five backends; compiled and
+run on X11 and Win32 (release, 2026-11-23), on KMS in a round of its own, on
+Wayland (2026-11-24) and on the Mac (2026-11-24). The
 app was always the handle -- 128 of the 144 `FNL_API` prototypes take one --
 so the work is the process state that is still in the app, not a handle to add.
 
@@ -1520,19 +1520,24 @@ so the work is the process state that is still in the app, not a handle to add.
   output, or a per-window device, closes Mesa's sharing for good; and
   **outputs on a second card**, which one-card-a-process (`SET_MASTER`) does
   not take -- a multi-card desktop wants a model of its own and is owed.
-- **Cocoa's split is in; its second window is refused** -- `cocoa_open()` says
-  so. The host's half is one NSApplication, one wakeup pipe and one delegate
-  asking the frontmost, and the window's is its NSWindow, view and layer; but
-  two windows on macOS, each with its own render thread and device, has never
-  been run, and the only Mac here is reached over ssh. Owed: proving it needs
-  the Mac driven with two windows open, the way X11 and Win32 were here.
-- **The window position is wired** for X11 and Win32 (`fnl_window_create()`'s
-  `x_pt`/`y_pt`), which are the backends a second window can be placed on.
-  Wayland (the compositor places) and KMS (the window is the output) ignore it,
-  as their comments say. Cocoa refuses a second window, so a position there is
-  owed with whatever proves one -- it would honour `x_pt`/`y_pt` when a second
-  Cocoa window is built.
-- **What is measured where.** *Done for X11, Win32 and KMS*: `stress.py` opens a
+- **Cocoa's second window is built** (2026-11-24; DESIGN *A second window*).
+  The host's half is one NSApplication, one wakeup pipe and one delegate
+  asking the frontmost; each window has its own NSWindow, view, layer,
+  delegate, press and render thread. The pump hands each event to the window
+  AppKit names in it, a key-up monitor acts only on its own window's, a
+  window placed with `x_pt`/`y_pt` opens there, Metal's shader cache is the
+  device's, and one Vulkan instance is made at a time process-wide (MoltenVK
+  refused concurrent first instances — measured). Driven on the Mac over ssh
+  (`macos-metal-native`, release): the single-window round 98 checks and the
+  two-window round 19, none failed — F10 show/hide, F12's views, the second
+  window drawing, taking the pointer and giving it back, log clean.
+  Found on the way: AppKit's own drag was handed a press it no longer owned
+  (`performWindowDragWithEvent:` retaining a freed `NSEvent`, a
+  `EXC_BAD_ACCESS` in `objc_retain`), now owned by the window until release.
+- **The window position is wired** for X11, Win32 and Cocoa
+  (`fnl_window_create()`'s `x_pt`/`y_pt`). Wayland (the compositor places)
+  and KMS (the window is the output) ignore it, as their comments say.
+- **What is measured where.** *Done on all five backends*: `stress.py` opens a
   second window (the testbed's `--second-window`, relaunched after the
   single-window round) and checks both windows open, are distinct and focused in
   turn, that the second window draws the scene (its clock on with F2, a row of
@@ -1541,7 +1546,13 @@ so the work is the process state that is still in the app, not a handle to add.
   single-window round can say. The capture is driven on the second window alone:
   the two open nearly on top of each other under wine, and a covered window parks
   and the driver cannot find it to click. It passes on `x11-vulkan`, `x11-gl`,
-  `win64-vulkan` and `win64-d3d12` (release, 2026-11-23), 12 checks a round.
+  `win64-vulkan` and `win64-d3d12` (release, 2026-11-23), 12 checks a round, and
+  on `macos-metal-native` (release, 2026-11-24, 19 checks). Wayland has a check
+  of its own (`two_window_wayland()`): a compositor lists no windows and a
+  client is told neither where its windows are nor which AppKit-shaped handle a
+  key went to, so it reads the testbed's per-window focus lines, the show and
+  hide lines, and the echo's area (`wayland-vulkan`, release, 2026-11-24, 9
+  checks).
   `find_window()` picks between a process's several windows now -- `index=` into
   them, and `find_windows()` naming every one (an empty title) -- so the check
   sees both rather than whichever tree walk reached first. KMS has a check of
@@ -1558,8 +1569,9 @@ so the work is the process state that is still in the app, not a handle to add.
   current in place of the first's, so the first window's `on_gpu_created` built
   in the wrong context and the second's in none. `window_start()` now enters
   each window's renderer before its `on_gpu_created` (`thread_enter`, a no-op for
-  Vulkan and Direct3D 12). Metal is unchanged: Cocoa refuses a second window, so
-  it has none to draw.
+  Vulkan and Direct3D 12). Metal's compiled-stage cache was one a process and
+  is now the device's, since a second window compiles for its own device on
+  its own render thread.
 - **The testbed shows the three ways two windows can relate** (2026-11-24):
   F10 shows and hides the second window, F12 cycles **mirror** (both draw the
   same picture, the default), **join** (one canvas split across the two, the
@@ -1572,26 +1584,26 @@ so the work is the process state that is still in the app, not a handle to add.
   on the main thread, so the testbed writes its own `fnl_start`/`fnl_pump`/
   `fnl_stop` loop (`run()`) that spends the key between two turns. It also
   closed the harness gap `--second-window` left open: F10/F12 are driven by the
-  two-window round. Still owed: F10 on the backends that refuse a second
-  window says so once and opens nothing, which the round does not yet assert.
+  two-window round, on every backend that opens one.
 - **The DESIGN table's pointer row is closed**: Win32's `ShowCursor` count and
   `ClipCursor` confinement are now the host's -- a host count of windows that
   have confined the pointer, so the first hides it and the last gives it back,
   and a window releasing while another still holds it leaves that one's clip on
   the pointer rather than clearing it (which was the fight two captures had).
   The round exercises it: the second window takes the pointer on a content click
-  and gives it on F9 with the first open beside it. Still owed: the GL/Metal
-  tables that are one a process (fine while a program has one renderer, which it
-  does).
+  and gives it on F9 with the first open beside it. Still owed: the GL function
+  table is one a process (fine while a program has one renderer and both its
+  windows' contexts are the same profile; the 4.1 shim's vertex-array records
+  are per thread and Metal's stages per device now).
 - **Order.** The header and DESIGN, the core split with `fnl_init` unchanged,
   the backend seam's split and the per-window frame loop are done, and the seam
   is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one
   display, globals, seat and event loop the host's) and KMS (the card, outputs,
   inputs and event loop the host's) with their host halves apart. A second
-  window opens on X11, Win32 and KMS and is refused on Wayland and Cocoa, each
-  for the reason its own section gives. The window position is wired for X11
-  and Win32, which KMS has no use for. Both windows draw the scene, and the
-  two-window round passes on X11 and Win32, drawn with Vulkan, OpenGL and
-  Direct3D 12 (release, 2026-11-23), and on KMS, which has a check of its own
-  (release and `gc`, 2026-11-23). Next is the Wayland seat routing, on the
-  machine that can show it, and Cocoa's second window on the Mac.
+  window opens on all five. The window position is wired for X11, Win32 and
+  Cocoa, which KMS has no use for and Wayland cannot honour. Both windows draw
+  the scene, and the two-window round passes on X11 and Win32, drawn with
+  Vulkan, OpenGL and Direct3D 12 (release, 2026-11-23), on KMS, which has a
+  check of its own (release and `gc`, 2026-11-23), on Wayland
+  (`two_window_wayland()`, release, 2026-11-24) and on the Mac
+  (`macos-metal-native`, release, 2026-11-24).

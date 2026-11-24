@@ -3738,14 +3738,16 @@ their windows' — and the per-window frame loop: `fnl_start()` starts every
 window's render thread, `fnl_pump()` stops the windows whose close was asked
 for and starts any the run created, and `fnl_stop()` joins them all.
 `fnl_window_create()` opens the window rather than refusing; a second window
-opens on X11, Win32, KMS and Wayland, and Cocoa refuses one -- a second macOS
-window, not built or proven here. KMS opens it on a free output, the input
-routed by the pointer (below); Wayland opens it on the one display, the seat's
-input routed by enter and leave (below). The window position (`x_pt`/`y_pt`)
-is honoured by X11 and Win32. Built and exercised on this desktop (release,
-2026-11-23): the single-window rounds and the two-window check pass on
-`x11-vulkan`, `x11-gl`, `win64-vulkan` and `win64-d3d12`, Win32's two
-desktop-global pointer calls are the host's, both windows draw the scene (the
+opens on all five backends. KMS opens it on a free output, the input routed by
+the pointer (below); Wayland opens it on the one display, the seat's input
+routed by enter and leave (below); Cocoa opens it on the one NSApplication,
+each window with its own NSWindow, layer, delegate and render thread (below).
+The window position (`x_pt`/`y_pt`) is honoured by X11, Win32 and Cocoa, and
+ignored by Wayland (the compositor places) and KMS (a window is an output).
+Built and exercised on this desktop (release, 2026-11-23): the single-window
+rounds and the two-window check pass on `x11-vulkan`, `x11-gl`, `win64-vulkan`
+and `win64-d3d12`, Win32's two desktop-global pointer calls are the host's,
+both windows draw the scene (the
 testbed's scene state is per window, keyed by the app), and `find_window()`
 picks between a process's several windows (an `index` into them, and
 `find_windows()` naming every one). Proving the second window draws the scene
@@ -3756,8 +3758,9 @@ own `on_gpu_created`, where before the first's callback built in the second's
 context and the second's in none. KMS's second window is built (below): it
 opens on a free output, drawn by the copy path, the pointer routing between
 the windows. Wayland's is built below, the point of the design having been
-routing one seat's events between windows. What remains is Cocoa's second
-window, TODO *A second window*.
+routing one seat's events between windows. Cocoa's is built below on the
+host's application, with what the table above named either moved to the window
+or shown to be the process's by right.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API
@@ -3971,6 +3974,38 @@ says whose turn it is, and the held-key set moves with it. The device is not
 one of these, but on Vulkan it is the host's (below): a window's own device is
 what the other renderers still build, and what Vulkan built until a driver said
 otherwise.
+
+**Built: Cocoa's second window.** The split was already the design's and the
+window's half was per-window — its NSWindow, view, layer, delegate and
+press — so what remained were the pieces the table above named. The application
+delegate is the host's and asks the frontmost window; the key-up local monitor
+is one per window but a local monitor sees the whole application's events, so
+it acts only on its own window's, or two windows would deliver a release
+twice; the pump dispatches an event to the window AppKit names in it, for the
+input stamp and a media key, with the pump's own app as the fallback a
+windowless event takes; `pump_waiting` is the pump's and `iso_swap` is the one
+keyboard's, correctly the process's; and a window the caller placed
+(`x_pt`/`y_pt`, as Win32 honours it) opens there rather than centred, so two
+windows of the testbed do not cover one another. The renderers each build a
+device a window, and one more process-wide table went with them: Metal's
+compiled-stage cache is the device's, in `RendererState`, since a second
+window compiles for its own device on its own render thread and a function
+must never be handed back from another. Two windows' GPU listings then found
+MoltenVK's first instance unsafe to create twice at once: asked for it from
+four threads in one process, one was created and three refused with
+`VK_ERROR_EXTENSION_NOT_PRESENT` for `VK_KHR_surface` and `VK_EXT_metal_surface`
+— its list of what it supports is built on first use and read half-made by
+the others (measured on macOS 26.7.1; one thread alone creates it). The
+library now makes one instance at a time, process-wide (`instance_lock`,
+device.c), which is also what the instance entry-point load wanted. Driven on
+the Mac over ssh (`macos-metal-native`, release, 2026-11-24): the single-window
+round 98 checks and the two-window round 19, none failed — both windows
+placed apart, the focus moving between them, the second drawing its scene,
+taking the pointer and giving it back, F10 hiding and showing it and F12
+cycling the view, the log clean. What that round found first was AppKit's own
+drag handed a press it did not own: `performWindowDragWithEvent:` retained a
+freed `NSEvent` (`EXC_BAD_ACCESS` in `objc_retain` from `cocoa_begin_move()`),
+so the window owns the press until the button comes up (`left_down_set()`).
 
 **The Vulkan device is the host's.** Measured on 2026-11-23 on schenker's
 Intel HD 630 (driver 31.0.101.2145): a second Vulkan window losing its device

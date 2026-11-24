@@ -2608,8 +2608,15 @@ class Win32VM(_Placed, _Portal):
         """Every window the program has, found by its title."""
         out = []
         for title in (self.FIRST_TITLE, self.SECOND_TITLE):
-            if self.portal.find(self.program, title, timeout=2.0):
-                out.append(Window(title, self.portal.rect(), title))
+            if not self.portal.find(self.program, title, timeout=2.0):
+                continue
+            try:
+                geom = self.portal.rect()
+            except RuntimeError:
+                # Gone between the find and the measuring -- a window being
+                # closed as the round asks, which reads as one fewer.
+                continue
+            out.append(Window(title, geom, title))
         if out:
             self.portal.find(self.program, self.FIRST_TITLE, timeout=2.0)
         return out
@@ -2867,7 +2874,7 @@ class CocoaNative(Win32VM):
     # questions with macOS's input sources, a layout named by its source ID.
     CAN = frozenset({"server-rect", "edge-resize", "unminimize",
                      "read-pixels", "composited", "multi-output",
-                     "dead-layout", "resizable"})
+                     "dead-layout", "resizable", "second-window"})
     # U.S. International - PC, Windows' United States-International on a
     # Mac: the same key a dead acute, a dead diaeresis with Shift, and the
     # apostrophe when typed alone.

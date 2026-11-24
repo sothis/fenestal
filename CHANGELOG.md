@@ -6,6 +6,14 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- `fnl_window_create()` opens a second window on **macOS** too: one
+  `NSApplication`, one wakeup and one application delegate serving every
+  window, each with its own NSWindow, layer, delegate and render thread, and
+  each event dispatched to the window AppKit names in it. A window the caller
+  placed (`x_pt`/`y_pt`) now opens there rather than centred, so two windows do
+  not cover one another. Metal's compiled-shader table is the device's, so two
+  windows never share a function compiled for another.
+
 - `fnl_window_create()` opens a second window on **Wayland** too: one
   `wl_display` and one seat serve every window, and the seat's keyboard,
   pointer, clipboard and input method are routed to the window the events name

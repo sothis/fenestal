@@ -596,6 +596,19 @@ static void pointer_relative(App *a, NSEvent *e)
 	app_pointer_relative(a, dx, dy);
 }
 
+/* The press this window holds while the left button is down. AppKit's own
+ * drag is handed it a turn or more after the mouse-down, and the event the
+ * view was given may be gone by then: performWindowDragWithEvent: retains
+ * it, and one not owned here faulted on a freed event once the pool had
+ * drained it (EXC_BAD_ACCESS in objc_retain, from cocoa_begin_move()). So
+ * the window owns it until the button comes up. */
+static void left_down_set(struct BackendState *p, NSEvent *e)
+{
+	if (p->left_down)
+		CFBridgingRelease(p->left_down);
+	p->left_down = e ? (void *)CFBridgingRetain(e) : NULL;
+}
+
 /* The left button came up somewhere the view was not told: AppKit's window
  * drag and the resize below both keep the release, and the caller saw the
  * press. BackendState::left_down is that press, for a move asked for after it
@@ -606,7 +619,7 @@ static void left_release(App *a, NSPoint pt)
 	if (!p || !p->left_held)
 		return;
 	p->left_held = false;
-	p->left_down = NULL;
+	left_down_set(p, nil);
 	app_pointer_button(a, FNL_BUTTON_LEFT, false, pt.x, pt.y,
 					   (uint32_t)(uint64_t)(NSProcessInfo.processInfo
 												.systemUptime * 1000.0));
@@ -753,7 +766,7 @@ static void left_release(App *a, NSPoint pt)
 	const NSPoint pt = event_pt(app, e);
 	if (b == FNL_BUTTON_LEFT && app->backend_state) {
 		app->backend_state->left_held = down;
-		app->backend_state->left_down = down ? (__bridge void *)e : NULL;
+		left_down_set(app->backend_state, down ? e : nil);
 	}
 	if (!app->pointer_captured) {
 		app->ptr_x = pt.x;
@@ -1539,20 +1552,11 @@ static void cocoa_host_close(App *a)
 
 /* The window's half: its NSWindow, view, layer and delegates, made on the
  * application the host already launched and the wakeup pipe it already
- * owns. */
+ * owns. A second window is another of these: one NSApplication, one
+ * delegate asking the frontmost, and each window with its own render
+ * thread, device and layer (DESIGN *A second window*). */
 static FnlResult cocoa_open(App *a)
 {
-	/* One window a Cocoa backend until a second is proven. The host's half is
-	 * split -- one NSApplication, one wakeup pipe, one delegate asking the
-	 * frontmost -- but two windows on macOS, each with its own render thread
-	 * and device, has never been run, and the only Mac here is reached over
-	 * ssh. Refused with the reason rather than opened untested. The first
-	 * window is the one fnl_init() made. */
-	if (a->host->windows != a)
-		return fnl_fail(FNL_ERR_UNSUPPORTED,
-						"Cocoa: a second window is not yet proven on macOS, "
-						"so this build opens one window a host (DESIGN *A "
-						"second window*)");
 	a->backend_state = calloc(1, sizeof *a->backend_state);
 	if (!a->backend_state)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
@@ -1643,16 +1647,34 @@ static FnlResult cocoa_open(App *a)
 		p->window_delegate = (void *)CFBridgingRetain(wd);
 
 		/* AppKit sends no key release while Command is held; handed to the
-		 * window here, the caller's held set comes back up. */
+		 * window here, the caller's held set comes back up. A local monitor
+		 * sees the whole application's events, and each window adds one, so
+		 * it acts only on its own window's -- else a second window's monitor
+		 * would deliver the release a second time. */
+		NSWindow *mine = w;
 		id mon = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyUp
 			handler:^NSEvent *(NSEvent *e) {
-				if (e.modifierFlags & NSEventModifierFlagCommand)
+				if (e.window == mine &&
+					(e.modifierFlags & NSEventModifierFlagCommand))
 					[e.window sendEvent:e];
 				return e;
 			}];
 		p->key_up_monitor = (void *)CFBridgingRetain(mon);
 
 		[w center];
+		/* Where the caller asked for it, when it did (fnl_window_create()'s
+		 * x_pt/y_pt, as Win32 honours them): the library's y counts down from
+		 * the screen's top, AppKit's up from its bottom. Centred otherwise,
+		 * which is the answer a window server would give. */
+		if (a->init_x_pt || a->init_y_pt) {
+			NSScreen *on = screen ? screen : NSScreen.mainScreen;
+			NSRect sc = on.frame;
+			NSRect f  = w.frame;
+			f.origin.x = sc.origin.x + from_pt(a, a->init_x_pt);
+			f.origin.y = sc.origin.y + sc.size.height -
+						 from_pt(a, a->init_y_pt) - f.size.height;
+			[w setFrameOrigin:f.origin];
+		}
 		[w makeKeyAndOrderFront:nil];
 		FNL_NEWER_API_BEGIN
 		if ([NSApp respondsToSelector:@selector(activate)])
@@ -1682,7 +1704,7 @@ static void cocoa_close(App *a)
 		 * window, which has its own, and one left held here would be
 		 * released into a press that never went down. */
 		p->left_held = false;
-		p->left_down = NULL;
+		left_down_set(p, nil);
 		if (p->key_up_monitor)
 			[NSEvent removeMonitor:CFBridgingRelease(p->key_up_monitor)];
 		/* Before the window goes: its orderOut is an exit for the
@@ -1763,6 +1785,20 @@ static bool cocoa_media_key(App *a, NSEvent *e)
 	return true;
 }
 
+/* The window an event belongs to. AppKit names it, and a host of several
+ * windows has one pump, so what a key or a mouse reports is that window's --
+ * a media key has no window and is the pump's own. */
+static App *win_for_event(Host *h, NSEvent *e)
+{
+	NSWindow *w = e.window;
+	if (!w || !h)
+		return NULL;
+	for (App *a = h->windows; a; a = a->next)
+		if (a->backend_state && WIN(a->backend_state) == w)
+			return a;
+	return NULL;
+}
+
 /* One turn: wait for an event, then dispatch it and whatever else is queued
  * rather than going back to sleep between each. The wakeup's own event ends
  * the wait and is dispatched to nobody. */
@@ -1782,15 +1818,19 @@ static void cocoa_pump(App *a, int timeout_ms)
 		pump_waiting = false;
 		while (e) {
 			/* Stamped for fnl_input_latency_ms() with the event's own
-			 * time, which is the system's uptime when it was made. */
+			 * time, which is the system's uptime when it was made, and on
+			 * the window it came from. */
 			if (!(e.type == NSEventTypeApplicationDefined &&
 				  e.subtype == FNL_WAKE_SUBTYPE)) {
+				App *t = win_for_event(a->host, e);
+				if (!t)
+					t = a;
 				if (is_input_event(e.type))
-					app_input_age(a, NSProcessInfo.processInfo.systemUptime -
-									 e.timestamp);
+					app_input_age(t, NSProcessInfo.processInfo.systemUptime -
+										 e.timestamp);
 				/* A media key is answered here and reaches nobody else; the
 				 * rest is AppKit's. */
-				if (!cocoa_media_key(a, e))
+				if (!cocoa_media_key(t, e))
 					[NSApp sendEvent:e];
 			}
 			pump_waiting = true;

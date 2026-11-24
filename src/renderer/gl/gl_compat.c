@@ -58,8 +58,13 @@ typedef struct {
 	BindingRecord bind[VAO_BINDINGS];
 } VaoRecord;
 
-static VaoRecord vaos[VAO_RECORDS];
-static PFNGLDELETEVERTEXARRAYSPROC real_delete_vertex_arrays;
+/* A thread's own: a context lives on the render thread that entered it, and
+ * two windows have two contexts whose object names each start at 1 -- one
+ * table keyed by name alone would answer one window's bindings with the
+ * other's. gl_compat_install() empties it, so a context made anew on the
+ * thread starts clean. */
+static _Thread_local VaoRecord vaos[VAO_RECORDS];
+static _Thread_local PFNGLDELETEVERTEXARRAYSPROC real_delete_vertex_arrays;
 
 static VaoRecord *vao_find(GLuint name)
 {

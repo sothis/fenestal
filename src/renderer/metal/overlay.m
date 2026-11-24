@@ -299,7 +299,7 @@ FnlResult mt_create_overlay(App *a)
 {
 	struct RendererState *g = MT(a);
 	/* Nothing the old device compiled may be handed back to this one. */
-	mt_functions_forget();
+	mt_functions_forget(a);
 	const size_t rect[2] = { offsetof(RectInstance, rect),
 							 offsetof(RectInstance, color) };
 	const size_t shape[5] = { offsetof(ShapeInstance, p0),

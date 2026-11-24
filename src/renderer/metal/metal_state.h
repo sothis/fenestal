@@ -30,6 +30,11 @@
  * which the scale is resolved against. */
 #define MT_MAX_EXTENT 16384
 
+/* MSL stages kept per device: the overlay asks for fourteen and has eleven
+ * (the fullscreen vertex stage three times, the blit fragment twice), and a
+ * compile is tens of milliseconds. */
+#define MT_STAGE_MAX 16
+
 /* An image the GPU draws into, with its depth where it has one. Nil
  * together when there is none. */
 typedef struct {
@@ -47,6 +52,15 @@ struct RendererState {
 	/* The layer the frame is presented into: the window's, which the
 	 * backend made and keeps, taken by the bridge (surface_cocoa.m). */
 	__strong CAMetalLayer       *layer;
+	/* Every MSL stage built for this device's overlay, kept by the source it
+	 * came from. One device's, not one process's: a second window compiles for
+	 * its own device on its own render thread, and a function is never handed
+	 * back from a device other than the one that made it. mt_functions_forget()
+	 * empties it at the top of the overlay's creation, so a rebuild builds
+	 * again rather than holding a function of the device that went. */
+	__strong id<MTLFunction> fn[MT_STAGE_MAX];
+	const char *fn_src[MT_STAGE_MAX];
+	int fn_n;
 
 	/* Per frame slot, the command buffer that last used its arenas, which
 	 * the slot waits on before they are written again; nil once it is

@@ -66,7 +66,9 @@ struct BackendState {
 	 * rather than at file scope, where a second window's press would
 	 * overwrite the first's mid-drag. */
 	bool left_held;
-	void *left_down; /* NSEvent *, unretained, [main] */
+	/* NSEvent *, owned (one reference, as every object here is): AppKit's
+	 * drag is handed it after the event may have died. [main] */
+	void *left_down;
 
 	/* What the render thread asks without touching AppKit, which it may
 	 * not: whether the window is anywhere a frame could go, and whether it

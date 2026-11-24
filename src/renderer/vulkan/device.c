@@ -213,7 +213,20 @@ static bool exts_have(const char *const *exts, uint32_t n, const char *name)
 static const VkBridge *const BRIDGES[] = { FNL_BACKENDS(BRIDGE_ENTRY) };
 #undef BRIDGE_ENTRY
 
-static FnlResult make_instance(App *a, struct VkHost *g)
+/* One instance at a time, process-wide. MoltenVK asked for its first
+ * instance from several threads at once refuses the surface extensions it
+ * has -- VK_ERROR_EXTENSION_NOT_PRESENT for VK_KHR_surface and
+ * VK_EXT_metal_surface, the list of them built on first use and read
+ * half-made by the others. Measured on macOS 26.7.1 (schenker, one
+ * process, four threads: one created, three refused; one thread alone,
+ * created), which is what two windows' GPU listings did the first time
+ * Vulkan was asked for on a Mac. The load of the instance entry points
+ * (vk_load_instance()) may not run twice at once either, and this covers
+ * it. Instance creation is a handful a process: startup, a listing, a
+ * move. */
+static FnlMutex instance_lock = FNL_MUTEX_STATIC;
+
+static FnlResult make_instance_locked(App *a, struct VkHost *g)
 {
 	for (size_t i = 0; i < sizeof BRIDGES / sizeof BRIDGES[0]; i++)
 		if (BRIDGES[i]->backend == BACKEND(a)->id)
@@ -392,6 +405,14 @@ static FnlResult make_instance(App *a, struct VkHost *g)
 			  g->instance, "vkGetPhysicalDeviceSurfaceCapabilities2KHR")
 		: NULL;
 	return FNL_OK;
+}
+
+static FnlResult make_instance(App *a, struct VkHost *g)
+{
+	fnl_mutex_lock(&instance_lock);
+	FnlResult rc = make_instance_locked(a, g);
+	fnl_mutex_unlock(&instance_lock);
+	return rc;
 }
 
 /* The window's state, and the host's on the first call: zeroed, which is

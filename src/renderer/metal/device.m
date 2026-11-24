@@ -62,34 +62,32 @@ void mt_wait_idle(App *a)
 /* Every MSL stage built for one device's overlay, kept by the source it came
  * from: the overlay asks for fourteen stages and has eleven -- the fullscreen
  * vertex stage three times, the blit fragment twice -- and a compile is tens
- * of milliseconds. The table belongs to one overlay creation and nothing in
- * it outlives the device: mt_functions_forget() empties it at the top, so a
- * rebuild builds again rather than handing back a function from the old
- * device. */
-#define MT_STAGE_MAX 16
-static __strong id<MTLFunction> s_fn[MT_STAGE_MAX];
-static const char *s_fn_src[MT_STAGE_MAX];
-static int s_fn_n;
+ * of milliseconds. The table is the device's, in RendererState, since a
+ * second window's overlay compiles for its own device on its own render
+ * thread; mt_functions_forget() empties it at the top, so a rebuild builds
+ * again rather than handing back a function from the old device. */
 
-void mt_functions_forget(void)
+void mt_functions_forget(App *a)
 {
+	struct RendererState *g = MT(a);
 	for (int i = 0; i < MT_STAGE_MAX; i++) {
-		s_fn_src[i] = NULL;
-		s_fn[i]     = nil;
+		g->fn_src[i] = NULL;
+		g->fn[i]     = nil;
 	}
-	s_fn_n = 0;
+	g->fn_n = 0;
 }
 
 id<MTLFunction> mt_function(App *a, const char *what, const char *msl)
 {
-	for (int i = 0; i < s_fn_n; i++)
-		if (s_fn_src[i] == msl)
-			return s_fn[i];
+	struct RendererState *g = MT(a);
+	for (int i = 0; i < g->fn_n; i++)
+		if (g->fn_src[i] == msl)
+			return g->fn[i];
 
 	MTLCompileOptions *o = [[MTLCompileOptions alloc] init];
 	o.languageVersion = MTLLanguageVersion2_1;
 	NSError *err = nil;
-	id<MTLLibrary> lib = [MT(a)->device
+	id<MTLLibrary> lib = [g->device
 		newLibraryWithSource:[NSString stringWithUTF8String:msl]
 					 options:o
 					   error:&err];
@@ -99,9 +97,9 @@ id<MTLFunction> mt_function(App *a, const char *what, const char *msl)
 		return nil;
 	}
 	id<MTLFunction> fn = [lib newFunctionWithName:@"main0"];
-	if (fn && s_fn_n < MT_STAGE_MAX) {
-		s_fn_src[s_fn_n] = msl;
-		s_fn[s_fn_n++]   = fn;
+	if (fn && g->fn_n < MT_STAGE_MAX) {
+		g->fn_src[g->fn_n] = msl;
+		g->fn[g->fn_n++]   = fn;
 	}
 	return fn;
 }
