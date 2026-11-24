@@ -27,6 +27,7 @@
 
 #include "testbed.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 
 /* Taller than the library's bar, visibly, to show that the geometry follows. */
@@ -54,8 +55,11 @@ static const FnlColor COL_CLOSE    = TESTBED_RGB(0.80f, 0.25f, 0.25f);
  * the draw and the hit test index the same list. */
 enum { BTN_CLOSE, BTN_MAX, BTN_MIN, BTN_FULL, BTN_COUNT };
 
-static int   hovered = -1;    /* which button the pointer is over, or -1 */
-static bool  enabled = false; /* --custom-titlebar was passed */
+/* Which button the pointer is over, or -1. Written by whichever window's
+ * drain saw the motion and read by every window's draw: atomic, since two
+ * render threads are looking at it. */
+static _Atomic int hovered = -1;
+static bool        enabled = false; /* --custom-titlebar was passed */
 
 void testbed_titlebar_custom_enable(void) { enabled = true; }
 bool testbed_titlebar_custom_enabled(void) { return enabled; }
@@ -140,7 +144,7 @@ void testbed_titlebar_custom_draw(FnlApp *app, const FnlFrame *f)
 		int bx, by, bw, bh;
 		if (!button_rect(win_w, i, &bx, &by, &bw, &bh))
 			continue;
-		if (i == hovered)
+		if (i == atomic_load(&hovered))
 			fnl_overlay_rect(app, bx, by, bw, bh,
 							 i == BTN_CLOSE ? COL_CLOSE : COL_HOVER);
 		/* Claimed beside the rectangle it was drawn at, so the two cannot
@@ -187,25 +191,25 @@ void testbed_titlebar_custom_event(FnlApp *app, const FnlEvent *ev)
 	 * state: the button that asked for fullscreen was under the pointer, and
 	 * the hand it set would otherwise sit over the whole scene. */
 	if (fnl_is_fullscreen(app)) {
-		if (hovered >= 0) {
-			hovered = -1;
+		if (atomic_load(&hovered) >= 0) {
+			atomic_store(&hovered, -1);
 			fnl_set_cursor(app, FNL_CURSOR_DEFAULT);
 		}
 		return;
 	}
 
 	if (ev->type == FNL_EVENT_MOTION) {
-		const int was = hovered;
-		hovered = button_at(app, ev->motion.x, ev->motion.y);
+		const int now = button_at(app, ev->motion.x, ev->motion.y);
+		const int was = atomic_exchange(&hovered, now);
 		/* The library cannot see that this changed, so without the
 		 * invalidate the frame would not re-record and the highlight would
 		 * not appear. */
-		if (hovered != was) {
+		if (now != was) {
 			fnl_invalidate(app);
 			/* A hand over anything that can be pressed, and put back on the
 			 * way off: this bar is the caller's, so its shape is too. */
-			fnl_set_cursor(app, hovered >= 0 ? FNL_CURSOR_POINTER
-											 : FNL_CURSOR_DEFAULT);
+			fnl_set_cursor(app, now >= 0 ? FNL_CURSOR_POINTER
+										 : FNL_CURSOR_DEFAULT);
 		}
 		return;
 	}

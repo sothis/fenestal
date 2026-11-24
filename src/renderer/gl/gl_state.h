@@ -15,12 +15,14 @@
  * App::lock, and never it.
  *
  * GL names are GLuint, which is unsigned int; they are declared so here
- * rather than through <GL/glcorearb.h>, and a name of zero is "none", as GL
- * has it.
+ * rather than through <GL/glcorearb.h>, which gl_funcs.h brings for the
+ * entry-point types alone; a name of zero is "none", as GL has it.
  */
 
 #ifndef FNL_GL_STATE_H
 #define FNL_GL_STATE_H
+
+#include "renderer/gl/gl_funcs.h"
 
 /* The renderer's state, from an App. */
 #define GLS(a) ((a)->renderer_state)
@@ -104,6 +106,13 @@ struct RendererState {
 	 * context can exist with nothing loaded, when making it current or the
 	 * version check failed. */
 	bool loaded;
+	/* The window's entry points (gl_funcs.h), loaded with its context, and
+	 * whether the table is the 4.1 profile's. A table is the window's: a
+	 * host of two windows may draw through two drivers' entry points, and a
+	 * second window's load must not write under the first's draws. The
+	 * calling thread's is gl_internal.h's `gl` (gl_bind()). */
+	GlFuncs funcs;
+	bool funcs_41;
 	/* The swap interval the surface was last given: 1 waits for the vertical
 	 * blank and 0 does not; -1 for a surface given none yet, whatever EGL's
 	 * default is. And the one vsync asks for, 1 or 0, mirrored into

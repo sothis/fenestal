@@ -213,6 +213,31 @@ race:vk_raw_data_cache_object_create
 # (bare_driver), which makes no such thread: the GL calls run on the thread
 # that made them, ours.
 
+# ---- radeonsi between two windows' contexts --------------------------------
+# Two windows draw on one display, each render thread with a context of its
+# own, and the driver's state they share is published under simple_mtx
+# futexes TSan cannot see. Checked against the x11-gl tsan round on this
+# desk's RX 590 GME (radeonsi, Mesa 26.0.8-1ubuntu0.3), 2026-11-24, the
+# two-window check: five reports, every one between two of the testbed's own
+# GL calls -- glBufferSubData() in scene_on_record() and gl_overlay_image()
+# -- with no frame of this project's below (inner to) the GL entry point it
+# called, and no block of ours.
+#
+# The threaded context's buffer upload (tc_buffer_subdata()) on one render
+# thread against the driver mapping the same buffer on the other
+# (amdgpu_bo_cpu_map(), in libdrm_amdgpu): the batch's own locks again, and
+# the buffer is the driver's.
+race:tc_buffer_subdata
+race:amdgpu_bo_cpu_map
+#
+# radeonsi's shader cache: a shader key malloc'd in
+# si_shader_select_with_key() on one thread against the command stream
+# reading it (si_pm4_emit_state()) on the other, the cache's simple_mtx the
+# same bare futex. si_shader_select covers the _with_key instantiation, the
+# name TSan prints with its template arguments.
+race:si_pm4_emit_state
+race:si_shader_select
+
 # ---- NVIDIA's EGL against its own Wayland platform library -----------------
 # A lock-order inversion between two of NVIDIA's libraries, and between two
 # moments that never overlap. Every EGL call on a Wayland display takes

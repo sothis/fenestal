@@ -88,6 +88,9 @@ bool gl_renderer_is_software(const char *r)
  * the call that made it succeeded. */
 static FnlResult create_device_objects(App *a)
 {
+	/* This thread works for this window from here, whatever it built or drew
+	 * for before: `gl` is the thread's window's table (gl_internal.h). */
+	gl_bind(a);
 	FNL_TRY(gl_bridge_context(a));
 	FNL_TRY(gl_load(a));
 	GLS(a)->loaded = true;
@@ -219,6 +222,7 @@ static void forget_objects(App *a)
 static void destroy_device_objects(App *a, bool save_cache)
 {
 	(void)save_cache;
+	gl_bind(a);
 	/* NVML, where the panel started it: it holds NVIDIA's driver, which a
 	 * move to another kernel driver must find let go. */
 	gl_memory_release();
@@ -361,6 +365,9 @@ static void gl_destroy_instance(App *a)
 	gl_bridge_let_go(a);
 	free(a->renderer_state);
 	a->renderer_state = NULL;
+	/* Nothing to call through next: a thread that does is a fault, not a
+	 * call into the other window's table. */
+	gl_bind(NULL);
 }
 
 /* A context that will not become current here is treated as lost: the
@@ -369,6 +376,9 @@ static void gl_destroy_instance(App *a)
  * unnecessary. */
 static void gl_thread_enter(App *a)
 {
+	/* The render thread's first binding, and the main thread's whenever it
+	 * takes a window's device back for on_gpu_lost or a teardown. */
+	gl_bind(a);
 	if (!gl_bridge_current(a, true)) {
 		a->device_lost = true;
 		GLS(a)->loaded = false;

@@ -17,165 +17,22 @@
 
 #include "core/app.h"
 #include "renderer/gl/gl_state.h"
+#include "renderer/gl/gl_funcs.h"
 
 #include <fenestal/fnl_gl.h>
 
-#include <GL/glcorearb.h>
-
 /* ---- the entry points -------------------------------------------------------
- * Every GL function the renderer calls, loaded once a context exists
- * (gl_load()) and called as gl.Name(...). Through a table, because nothing
- * links libGL: EGL is opened at run time (egl_dyn.h) and hands out every
- * entry point, core functions too (EGL 1.5). One table for the process: a
- * driver's entry points are the same for every context it makes, and it is
- * written before the render thread exists or by the render thread while it
- * alone draws.
- *
- * Three lists, in the table's order. FNL_GL_CORE is core in 4.1, and loaded
- * on every context: the calls both profiles make, and the bind-to-edit
- * calls the 4.1 profile's stand-ins are made of (gl_compat.c). FNL_GL_45 is
- * what 4.5 adds that the renderer is written against -- direct state
- * access, immutable storage, the base instance, glClipControl -- loaded on
- * a 4.5 context and, on a 4.1 one, filled with gl_compat.c's stand-ins, so
- * that every call site is the same in both. FNL_GL_OPT may be missing on
- * either: NULL where the context has neither the version nor the
- * extension, and every caller asks first. */
-#define FNL_GL_CORE(X)                                                         \
-	X(PFNGLGETSTRINGPROC, GetString)                                           \
-	X(PFNGLGETSTRINGIPROC, GetStringi)                                         \
-	X(PFNGLGETINTEGERVPROC, GetIntegerv)                                       \
-	X(PFNGLGETERRORPROC, GetError)                                             \
-	X(PFNGLENABLEPROC, Enable)                                                 \
-	X(PFNGLDISABLEPROC, Disable)                                               \
-	X(PFNGLVIEWPORTPROC, Viewport)                                             \
-	X(PFNGLSCISSORPROC, Scissor)                                               \
-	X(PFNGLBLENDFUNCSEPARATEPROC, BlendFuncSeparate)                           \
-	X(PFNGLBLENDCOLORPROC, BlendColor)                                         \
-	X(PFNGLBLENDEQUATIONPROC, BlendEquation)                                   \
-	X(PFNGLCOLORMASKPROC, ColorMask)                                           \
-	X(PFNGLDEPTHMASKPROC, DepthMask)                                           \
-	X(PFNGLPIXELSTOREIPROC, PixelStorei)                                       \
-	X(PFNGLREADPIXELSPROC, ReadPixels)                                         \
-	X(PFNGLFINISHPROC, Finish)                                                 \
-	X(PFNGLFLUSHPROC, Flush)                                                   \
-	X(PFNGLGENBUFFERSPROC, GenBuffers)                                         \
-	X(PFNGLBUFFERDATAPROC, BufferData)                                         \
-	X(PFNGLBUFFERSUBDATAPROC, BufferSubData)                                   \
-	X(PFNGLMAPBUFFERRANGEPROC, MapBufferRange)                                 \
-	X(PFNGLUNMAPBUFFERPROC, UnmapBuffer)                                       \
-	X(PFNGLDELETEBUFFERSPROC, DeleteBuffers)                                   \
-	X(PFNGLBINDBUFFERBASEPROC, BindBufferBase)                                 \
-	X(PFNGLBINDBUFFERPROC, BindBuffer)                                         \
-	X(PFNGLPOLYGONMODEPROC, PolygonMode)                                       \
-	X(PFNGLGENVERTEXARRAYSPROC, GenVertexArrays)                               \
-	X(PFNGLDELETEVERTEXARRAYSPROC, DeleteVertexArrays)                         \
-	X(PFNGLBINDVERTEXARRAYPROC, BindVertexArray)                               \
-	X(PFNGLVERTEXATTRIBPOINTERPROC, VertexAttribPointer)                       \
-	X(PFNGLENABLEVERTEXATTRIBARRAYPROC, EnableVertexAttribArray)               \
-	X(PFNGLVERTEXATTRIBDIVISORPROC, VertexAttribDivisor)                       \
-	X(PFNGLGENTEXTURESPROC, GenTextures)                                       \
-	X(PFNGLBINDTEXTUREPROC, BindTexture)                                       \
-	X(PFNGLACTIVETEXTUREPROC, ActiveTexture)                                   \
-	X(PFNGLTEXIMAGE2DPROC, TexImage2D)                                         \
-	X(PFNGLTEXSUBIMAGE2DPROC, TexSubImage2D)                                   \
-	X(PFNGLTEXPARAMETERIPROC, TexParameteri)                                   \
-	X(PFNGLDELETETEXTURESPROC, DeleteTextures)                                 \
-	X(PFNGLGENSAMPLERSPROC, GenSamplers)                                       \
-	X(PFNGLDELETESAMPLERSPROC, DeleteSamplers)                                 \
-	X(PFNGLSAMPLERPARAMETERIPROC, SamplerParameteri)                           \
-	X(PFNGLBINDSAMPLERPROC, BindSampler)                                       \
-	X(PFNGLGENRENDERBUFFERSPROC, GenRenderbuffers)                             \
-	X(PFNGLBINDRENDERBUFFERPROC, BindRenderbuffer)                             \
-	X(PFNGLRENDERBUFFERSTORAGEPROC, RenderbufferStorage)                       \
-	X(PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC, RenderbufferStorageMultisample) \
-	X(PFNGLDELETERENDERBUFFERSPROC, DeleteRenderbuffers)                       \
-	X(PFNGLGENFRAMEBUFFERSPROC, GenFramebuffers)                               \
-	X(PFNGLDELETEFRAMEBUFFERSPROC, DeleteFramebuffers)                         \
-	X(PFNGLBINDFRAMEBUFFERPROC, BindFramebuffer)                               \
-	X(PFNGLFRAMEBUFFERTEXTURE2DPROC, FramebufferTexture2D)                     \
-	X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, FramebufferRenderbuffer)               \
-	X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, CheckFramebufferStatus)                 \
-	X(PFNGLBLITFRAMEBUFFERPROC, BlitFramebuffer)                               \
-	X(PFNGLCLEARBUFFERFVPROC, ClearBufferfv)                                   \
-	X(PFNGLCREATESHADERPROC, CreateShader)                                     \
-	X(PFNGLSHADERSOURCEPROC, ShaderSource)                                     \
-	X(PFNGLCOMPILESHADERPROC, CompileShader)                                   \
-	X(PFNGLGETSHADERIVPROC, GetShaderiv)                                       \
-	X(PFNGLGETSHADERINFOLOGPROC, GetShaderInfoLog)                             \
-	X(PFNGLDELETESHADERPROC, DeleteShader)                                     \
-	X(PFNGLCREATEPROGRAMPROC, CreateProgram)                                   \
-	X(PFNGLATTACHSHADERPROC, AttachShader)                                     \
-	X(PFNGLDETACHSHADERPROC, DetachShader)                                     \
-	X(PFNGLLINKPROGRAMPROC, LinkProgram)                                       \
-	X(PFNGLGETPROGRAMIVPROC, GetProgramiv)                                     \
-	X(PFNGLGETPROGRAMINFOLOGPROC, GetProgramInfoLog)                           \
-	X(PFNGLDELETEPROGRAMPROC, DeleteProgram)                                   \
-	X(PFNGLUSEPROGRAMPROC, UseProgram)                                         \
-	X(PFNGLGETUNIFORMBLOCKINDEXPROC, GetUniformBlockIndex)                     \
-	X(PFNGLUNIFORMBLOCKBINDINGPROC, UniformBlockBinding)                       \
-	X(PFNGLGETUNIFORMLOCATIONPROC, GetUniformLocation)                         \
-	X(PFNGLUNIFORM1IPROC, Uniform1i)                                           \
-	X(PFNGLDRAWARRAYSPROC, DrawArrays)                                         \
-	X(PFNGLDRAWARRAYSINSTANCEDPROC, DrawArraysInstanced)                       \
-	X(PFNGLFENCESYNCPROC, FenceSync)                                           \
-	X(PFNGLCLIENTWAITSYNCPROC, ClientWaitSync)                                 \
-	X(PFNGLGENQUERIESPROC, GenQueries)                                         \
-	X(PFNGLDELETEQUERIESPROC, DeleteQueries)                                   \
-	X(PFNGLQUERYCOUNTERPROC, QueryCounter)                                     \
-	X(PFNGLGETQUERYOBJECTIVPROC, GetQueryObjectiv)                             \
-	X(PFNGLGETQUERYOBJECTUI64VPROC, GetQueryObjectui64v)                       \
-	X(PFNGLDELETESYNCPROC, DeleteSync)
-
-#define FNL_GL_45(X)                                                           \
-	X(PFNGLCLIPCONTROLPROC, ClipControl)                                       \
-	X(PFNGLCREATEBUFFERSPROC, CreateBuffers)                                   \
-	X(PFNGLNAMEDBUFFERSTORAGEPROC, NamedBufferStorage)                         \
-	X(PFNGLMAPNAMEDBUFFERRANGEPROC, MapNamedBufferRange)                       \
-	X(PFNGLUNMAPNAMEDBUFFERPROC, UnmapNamedBuffer)                             \
-	X(PFNGLNAMEDBUFFERSUBDATAPROC, NamedBufferSubData)                         \
-	X(PFNGLCREATEVERTEXARRAYSPROC, CreateVertexArrays)                         \
-	X(PFNGLVERTEXARRAYVERTEXBUFFERPROC, VertexArrayVertexBuffer)               \
-	X(PFNGLVERTEXARRAYATTRIBFORMATPROC, VertexArrayAttribFormat)               \
-	X(PFNGLVERTEXARRAYATTRIBBINDINGPROC, VertexArrayAttribBinding)             \
-	X(PFNGLENABLEVERTEXARRAYATTRIBPROC, EnableVertexArrayAttrib)               \
-	X(PFNGLVERTEXARRAYBINDINGDIVISORPROC, VertexArrayBindingDivisor)           \
-	X(PFNGLCREATETEXTURESPROC, CreateTextures)                                 \
-	X(PFNGLTEXTURESTORAGE2DPROC, TextureStorage2D)                             \
-	X(PFNGLTEXTURESUBIMAGE2DPROC, TextureSubImage2D)                           \
-	X(PFNGLBINDTEXTUREUNITPROC, BindTextureUnit)                               \
-	X(PFNGLCREATESAMPLERSPROC, CreateSamplers)                                 \
-	X(PFNGLCREATERENDERBUFFERSPROC, CreateRenderbuffers)                       \
-	X(PFNGLNAMEDRENDERBUFFERSTORAGEPROC, NamedRenderbufferStorage)             \
-	X(PFNGLNAMEDRENDERBUFFERSTORAGEMULTISAMPLEPROC,                            \
-	  NamedRenderbufferStorageMultisample)                                     \
-	X(PFNGLCREATEFRAMEBUFFERSPROC, CreateFramebuffers)                         \
-	X(PFNGLNAMEDFRAMEBUFFERTEXTUREPROC, NamedFramebufferTexture)               \
-	X(PFNGLNAMEDFRAMEBUFFERRENDERBUFFERPROC, NamedFramebufferRenderbuffer)     \
-	X(PFNGLCHECKNAMEDFRAMEBUFFERSTATUSPROC, CheckNamedFramebufferStatus)       \
-	X(PFNGLBLITNAMEDFRAMEBUFFERPROC, BlitNamedFramebuffer)                     \
-	X(PFNGLCLEARNAMEDFRAMEBUFFERFVPROC, ClearNamedFramebufferfv)               \
-	X(PFNGLDRAWARRAYSINSTANCEDBASEINSTANCEPROC, DrawArraysInstancedBaseInstance)
-
-#define FNL_GL_OPT(X)                                                          \
-	X(PFNGLGETGRAPHICSRESETSTATUSPROC, GetGraphicsResetStatus)                 \
-	X(PFNGLDEBUGMESSAGECALLBACKPROC, DebugMessageCallback)
-
-#define FNL_GL_FUNCS(X) FNL_GL_CORE(X) FNL_GL_45(X) FNL_GL_OPT(X)
-
-typedef struct {
-#define FNL_GL_MEMBER(type, name) type name;
-	FNL_GL_FUNCS(FNL_GL_MEMBER)
-#undef FNL_GL_MEMBER
-} GlFuncs;
-
-extern GlFuncs gl; /* loader.c */
-
-/* Which profile the table holds: false for 4.5 core, what everything here is
- * written against, DSA and glClipControl included; true for 4.1 core, where
- * FNL_GL_45's slots are gl_compat.c's and the shaders are the gl41
- * translation, which maps depth itself (DESIGN *OpenGL 4.1*). Written with
- * the table. */
-extern bool gl_profile41; /* loader.c */
+ * Called as gl.Name(), whichever window's table it is: `gl` is a macro onto
+ * the table of the window this thread last bound (gl_bind()), which is the
+ * window's own (gl_funcs.h says why). Every path that makes a GL call binds
+ * first -- gl_load(), create_device_objects(), destroy_device_objects() and
+ * thread_enter() -- so a build on the main thread and another window's draws
+ * on its render thread read two tables. */
+void gl_bind(App *a);
+GlFuncs *gl_bound_funcs(void);
+bool gl_bound_profile41(void);
+#define gl (*gl_bound_funcs())
+#define gl_profile41 (gl_bound_profile41())
 
 /* Every entry point through the bridge, and the version checked: 4.5 core,
  * or 4.1 core with the stand-ins installed. Called with the context

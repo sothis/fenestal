@@ -3,10 +3,11 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The GL entry points, loaded through the bridge into one table (gl_internal.h
- * says why a table, and what its three lists are). A function the driver
- * does not have fails the load, by name, where the context's version says
- * it is core: a missing one is a driver that does not offer what it
+ * The GL entry points, loaded through the bridge into the window's table
+ * (gl_funcs.h says why a table, what its three lists are, and why it is the
+ * window's), and the thread's binding to that window's table. A function the
+ * driver does not have fails the load, by name, where the context's version
+ * says it is core: a missing one is a driver that does not offer what it
  * claimed.
  */
 
@@ -14,8 +15,30 @@
 
 #include "renderer/gl/gl_internal.h"
 
-GlFuncs gl;
-bool gl_profile41;
+/* The window this thread last bound, and what gl_internal.h's `gl` and
+ * gl_profile41 name: a thread builds or draws for one window at a time, and a
+ * table is the window's (gl_funcs.h). */
+static FNL_THREAD_LOCAL struct RendererState *gl_thread_win;
+
+void gl_bind(App *a)
+{
+	gl_thread_win = a && a->renderer_state ? GLS(a) : NULL;
+}
+
+GlFuncs *gl_bound_funcs(void)
+{
+	/* Every GL call is made on a thread that built or entered a device --
+	 * create_device_objects(), destroy_device_objects() and thread_enter()
+	 * bind there -- so an unbound one is this renderer's fault, not the
+	 * caller's. */
+	FNL_ASSERT(gl_thread_win);
+	return &gl_thread_win->funcs;
+}
+
+bool gl_bound_profile41(void)
+{
+	return gl_thread_win && gl_thread_win->funcs_41;
+}
 
 enum { CORE, GL45, OPT };
 
@@ -64,7 +87,6 @@ static FnlGlProc optional(const GlFuncs *t, const char *name,
 
 FnlResult gl_load(App *a)
 {
-	(void)a;
 	/* Gathered into an array and copied into the table whole: memcpy and
 	 * not a store through a cast, which the table's own member types would
 	 * not alias. A load that fails part-way leaves the last good table in
@@ -118,7 +140,8 @@ FnlResult gl_load(App *a)
 			optional(&next, "glDebugMessageCallback", "GL_KHR_debug", NULL,
 					 NULL);
 	}
-	gl = next;
-	gl_profile41 = v41;
+	GLS(a)->funcs    = next;
+	GLS(a)->funcs_41 = v41;
+	gl_bind(a);
 	return FNL_OK;
 }

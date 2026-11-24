@@ -45,6 +45,16 @@ promised: before 1.0, nothing between minor releases.
   so a driver that counts initializes ends where it began. The two-window
   `x11-gl` round found it: the second window's close left the first swapping
   `EGL_NOT_INITIALIZED`.
+- The OpenGL renderer's **entry-point table is the window's**, not the
+  process's: `gl.Name()` resolves through the calling thread's binding to the
+  window it last built, entered or destroyed (`RendererState::funcs`), so a
+  second window's build on the main thread no longer rewrites the table under
+  the first window's render thread, and each window keeps its own driver's
+  entry points. The 4.1 profile is the window's with it, and the 4.1 shim's
+  vertex-array records are the thread's. Found by the two-window `tsan` round
+  of `x11-gl`, whose reports also named the testbed's own shared state: its
+  scene pointer and its overlay's motion, help, crosshair and shapes flags
+  are atomic now, since two windows' render threads both touch them.
 - `FnlFrame::jitter_x` and `jitter_y` reach `on_record` as the frame's TAAU
   subpixel offset, as documented, in every renderer. They were zero before, so
   a caller that shifted its projection by them drew without the accumulation.

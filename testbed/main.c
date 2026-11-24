@@ -145,7 +145,11 @@ static const Scene SCENES[] = {
 };
 #define SCENE_COUNT (sizeof SCENES / sizeof SCENES[0])
 
-static const Scene *scene; /* the one drawing, or NULL */
+/* The one drawing, or NULL. Atomic: a window's on_gpu_created writes it on
+ * the thread that starts that window -- fnl_start() when the run begins, the
+ * pump's turn for one opened later -- while every other window's render
+ * thread reads it in its own on_record. */
+static _Atomic(const Scene *) scene;
 
 static uint32_t scene_renderers(void)
 {
@@ -158,12 +162,13 @@ static uint32_t scene_renderers(void)
 static void scene_on_gpu_created(void *ud, FnlApp *app)
 {
 	const FnlRenderer r = fnl_renderer(app);
-	scene               = NULL;
+	const Scene *s      = NULL;
 	for (size_t i = 0; i < SCENE_COUNT; i++)
 		if (SCENES[i].renderer == r)
-			scene = &SCENES[i];
-	if (scene)
-		scene->on_gpu_created(ud, app);
+			s = &SCENES[i];
+	atomic_store(&scene, s);
+	if (s)
+		s->on_gpu_created(ud, app);
 	else
 		fprintf(stderr, "no scene for %s; none will be drawn\n",
 				fnl_renderer_name(app));
@@ -171,15 +176,17 @@ static void scene_on_gpu_created(void *ud, FnlApp *app)
 
 static void scene_on_gpu_lost(void *ud, FnlApp *app)
 {
-	if (scene)
-		scene->on_gpu_lost(ud, app);
+	const Scene *s = atomic_load(&scene);
+	if (s)
+		s->on_gpu_lost(ud, app);
 	testbed_gpu_mem_os_release();
 }
 
 static void scene_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
-	if (scene)
-		scene->on_record(ud, app, f);
+	const Scene *s = atomic_load(&scene);
+	if (s)
+		s->on_record(ud, app, f);
 }
 
 float testbed_scene_time(const FnlFrame *frame)
@@ -945,16 +952,17 @@ static void testbed_overlay(void *ud, FnlApp *app, const FnlFrame *f)
  * and gives it back on F9 without the application asking, so this only
  * reports: "second capture: 1" and ": 0" on stderr as it changes, for the
  * two-window check. */
-static bool g_second_captured;
+/* Written here, on the second window's render thread, and cleared by the
+ * main thread when the window is opened and when it is reaped: atomic, so
+ * neither is a race. */
+static _Atomic bool g_second_captured;
 
 static void second_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	testbed_overlay(ud, app, f);
 	const bool c = fnl_is_pointer_captured(app);
-	if (c != g_second_captured) {
-		g_second_captured = c;
+	if (atomic_exchange(&g_second_captured, c) != c)
 		fprintf(stderr, "second capture: %d\n", c ? 1 : 0);
-	}
 }
 
 #ifdef _WIN32
@@ -1039,7 +1047,7 @@ static FnlResult second_open(FnlApp *sibling)
 	 * two windows' parts of one canvas only while both are open. */
 	atomic_store(&g_second_open, 1);
 	atomic_store(&g_second_atomic, g_second);
-	g_second_captured = false;
+	atomic_store(&g_second_captured, false);
 	fprintf(stderr, "second window: shown (F10 hides it)\n");
 	return FNL_OK;
 }
@@ -1079,7 +1087,7 @@ static void second_reap(void)
 	atomic_store(&g_second_atomic, NULL);
 	g_second          = NULL;
 	g_second_hiding   = false;
-	g_second_captured = false;
+	atomic_store(&g_second_captured, false);
 }
 
 /* fnl_run()'s loop, with the second window opened and closed between turns.

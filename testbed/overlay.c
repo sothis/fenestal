@@ -38,11 +38,13 @@ static const FnlColor COL_ACTIVE = TESTBED_RGB(0.35f, 1.00f, 0.55f);
 
 /* ---- state --------------------------------------------------------------- */
 
-/* Plain fields and no lock: the events are drained inside on_overlay, so
- * everything that writes these and everything that reads them is one turn on
- * one thread. */
+/* Atomic fields and no lock: a window's events are drained inside its own
+ * on_overlay, on its own render thread, and the panels are drawn by every
+ * window's -- so what one thread writes the others read. No more than that
+ * is wanted of them: a crosshair a frame behind is a crosshair, and a panel
+ * flag seen one event late is the next frame's picture. */
 static struct {
-	bool show_help; /* F1: the keybindings and the status readout */
+	_Atomic bool show_help; /* F1: the keybindings and the status readout */
 	/* Where the crosshair is, as a *fraction* of the presentable area rather
 	 * than a count of its pixels. A fraction means the same thing at any
 	 * size, so a fullscreen toggle, a drag-resize, a scale change or a pick
@@ -50,12 +52,12 @@ static struct {
 	 * picture. Pixels would want re-clamping on every FNL_EVENT_RESIZE: miss
 	 * one and the crosshair is drawn outside the area and clipped away, which
 	 * is a captured pointer with no cursor and no crosshair on screen. */
-	double reticle_x, reticle_y;
+	_Atomic double reticle_x, reticle_y;
 	/* O: the shapes panel -- the four filled forms, so that a round can be
 	 * shown to draw them. Off by default: the testbed's own panels are what a
 	 * round measures, and this is a picture of the primitives rather than a
 	 * readout. */
-	bool shapes;
+	_Atomic bool shapes;
 } g_ui = { .show_help = true, .reticle_x = 0.5, .reticle_y = 0.5 };
 
 /* Clamped here, so "inside the area" is one function's promise rather than a
@@ -70,8 +72,8 @@ static void reticle_set(double x, double y)
 		x = 1.0;
 	if (y > 1.0)
 		y = 1.0;
-	g_ui.reticle_x = x;
-	g_ui.reticle_y = y;
+	atomic_store(&g_ui.reticle_x, x);
+	atomic_store(&g_ui.reticle_y, y);
 }
 
 /* The scene's own statement of how far it moved since the frame before it,
@@ -81,8 +83,8 @@ static void reticle_set(double x, double y)
  * the frame latched: the two differ while a change is in flight, and it is
  * the frame's half the resolve uses. g_motion is that second half, the
  * scene's clock, read from fnl_scene_motion() as the event drain passes. */
-static float g_motion_x, g_motion_y;
-static bool  g_motion;
+static _Atomic float g_motion_x, g_motion_y;
+static _Atomic bool  g_motion;
 
 /* The scene's motion vector: F8 steps it up by MOTION_STEP and Shift with
  * F8 steps it back, clamped to [0, MOTION_MAX] -- so a run of presses with
@@ -97,13 +99,13 @@ static bool  g_motion;
 
 static void motion_step(float d)
 {
-	float x = g_motion_x + d;
+	float x = atomic_load(&g_motion_x) + d;
 	if (x > MOTION_MAX)
 		x = MOTION_MAX;
 	else if (x < 0.0f)
 		x = 0.0f;
-	g_motion_x = x;
-	g_motion_y = x * 0.5f;
+	atomic_store(&g_motion_x, x);
+	atomic_store(&g_motion_y, x * 0.5f);
 }
 
 /* ---- the keybindings panel ----------------------------------------------- */
@@ -254,7 +256,7 @@ void testbed_overlay_reserve_log(void)
 
 void testbed_overlay_shapes_on(void)
 {
-	g_ui.shapes = true;
+	atomic_store(&g_ui.shapes, true);
 }
 
 /* --frame-stats-log: the totals fnl_frame_stats() keeps and the rows
@@ -264,7 +266,9 @@ void testbed_overlay_shapes_on(void)
  * and a window at rest must keep the figures while the panel's own frames
  * are drawn and counted. */
 static bool g_frame_stats_log;
-static bool g_stats_on;
+/* Written by whichever window's draw turns the stats on first: atomic, since
+ * two windows draw at once. */
+static _Atomic bool g_stats_on;
 
 void testbed_overlay_frame_stats_log(void)
 {
@@ -356,8 +360,9 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 		 * line above it. */
 		int pw, ph;
 		fnl_content_size_px(app, &pw, &ph);
-		snprintf(cur, sizeof cur, "Cursor  %d, %d", (int)(g_ui.reticle_x * pw),
-				 (int)(g_ui.reticle_y * ph));
+		snprintf(cur, sizeof cur, "Cursor  %d, %d",
+				 (int)(atomic_load(&g_ui.reticle_x) * pw),
+				 (int)(atomic_load(&g_ui.reticle_y) * ph));
 	} else
 		snprintf(cur, sizeof cur, "Cursor  -   (click to capture)");
 
@@ -387,8 +392,10 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 	 * is meant to be seen in. */
 	char mo[64] = "";
 	if (fnl_antialias(app) == FNL_AA_TAAU)
-		snprintf(mo, sizeof mo, "Motion %g, %g%s", (double)g_motion_x,
-				 (double)g_motion_y, g_motion ? "" : "  (F2 for the jitter)");
+		snprintf(mo, sizeof mo, "Motion %g, %g%s",
+				 (double)atomic_load(&g_motion_x),
+				 (double)atomic_load(&g_motion_y),
+				 atomic_load(&g_motion) ? "" : "  (F2 for the jitter)");
 
 	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s%s", f->area_w_px,
 			 f->area_h_px, scene, aa, mo, fnl_present_mode(app));
@@ -447,8 +454,8 @@ static void draw_reticle(FnlApp *app)
 	if (pw <= 0 || ph <= 0)
 		return;
 
-	const float x = (float)cx + (float)(g_ui.reticle_x * cw);
-	const float y = (float)cy + (float)(g_ui.reticle_y * ch);
+	const float x = (float)cx + (float)(atomic_load(&g_ui.reticle_x) * cw);
+	const float y = (float)cy + (float)(atomic_load(&g_ui.reticle_y) * ch);
 
 	/* Clipped to the area the crosshair moves in, so an arm at the very edge
 	 * ends there rather than reaching over the titlebar or into the grab
@@ -614,7 +621,7 @@ void testbed_overlay_picture_forget(FnlApp *app)
  * labels) is flushed first, the same rule the rest of this file keeps. */
 static void shapes_draw(FnlApp *app)
 {
-	if (!g_ui.shapes)
+	if (!atomic_load(&g_ui.shapes))
 		return;
 
 	int cx, cy, cw, ch;
@@ -702,7 +709,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 	 * whatever is drawn next, and the shapes' own pipelines are what a
 	 * leftover would show against. */
 	shapes_draw(app);
-	if (g_ui.show_help) {
+	if (atomic_load(&g_ui.show_help)) {
 		/* Two give-ways, in order: the status readout yields to the titlebar,
 		 * and the keybindings yield to whichever of the two is below them. See
 		 * status_panel_fits() and help_panel_fits(). */
@@ -750,9 +757,9 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		static double at = -1.0;
 		static FnlFrameSample rows[1024];
 		static unsigned long long n_rows, presented, rows_us, lost_all;
-		if (!g_stats_on) {
+		if (!atomic_load(&g_stats_on)) {
 			fnl_set_frame_stats(app, true);
-			g_stats_on = true;
+			atomic_store(&g_stats_on, true);
 		}
 		if (at < 0.0 || f->time - at >= 0.5) {
 			at            = f->time;
@@ -791,16 +798,17 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 /* The scene's motion, echoed when it changes: F2 is the library's binding,
  * so the testbed never sees the key itself, and a harness driving to a still
  * window has nothing else to tell it the state. -1 until the first event. */
-static int g_motion_echo = -1;
+static _Atomic int g_motion_echo = -1;
 
 void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 {
 	const bool moving = fnl_scene_motion(app);
-	if (g_motion_echo < 0 || moving != (g_motion_echo != 0)) {
-		g_motion_echo = moving ? 1 : 0;
+	/* The exchange is what makes two windows' drains echo it once: the one
+	 * that found the old value different printed it. */
+	const int echo = moving ? 1 : 0;
+	if (atomic_exchange(&g_motion_echo, echo) != echo)
 		fprintf(stderr, "scene motion: %s\n", moving ? "on" : "off");
-	}
-	g_motion = moving;
+	atomic_store(&g_motion, moving);
 	switch (ev->type) {
 	case FNL_EVENT_KEY:
 		/* F1 toggles a panel the library cannot see, so nothing in what it
@@ -809,7 +817,7 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * unless text entry is on, and then a held F1 would flicker the
 		 * panel. */
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_F1) {
-			g_ui.show_help = !g_ui.show_help;
+			atomic_store(&g_ui.show_help, !atomic_load(&g_ui.show_help));
 			fnl_invalidate(app);
 		}
 		/* F3 switches text entry, so a harness can type at this program and
@@ -827,9 +835,11 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 							fnl_key_down(app, FNL_KEY_RSHIFT)
 						? -MOTION_STEP
 						: MOTION_STEP);
-			fnl_set_scene_motion_px(app, g_motion_x, g_motion_y);
-			fprintf(stderr, "scene motion px: %g, %g\n", (double)g_motion_x,
-					(double)g_motion_y);
+			const float mx = atomic_load(&g_motion_x);
+			const float my = atomic_load(&g_motion_y);
+			fnl_set_scene_motion_px(app, mx, my);
+			fprintf(stderr, "scene motion px: %g, %g\n", (double)mx,
+					(double)my);
 			fnl_invalidate(app);
 		}
 		/* The clipboard, one key each way: F4 offers a string a harness can
@@ -871,7 +881,7 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * the gradient. Nothing else in the tree draws them, so this is the
 		 * only way a round can be shown to draw them. */
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_O) {
-			g_ui.shapes = !g_ui.shapes;
+			atomic_store(&g_ui.shapes, !atomic_load(&g_ui.shapes));
 			fnl_invalidate(app);
 		}
 		/* The panel also lights a row while its key is held. The held set is
@@ -888,7 +898,8 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
 		(void)cx;
 		(void)cy;
-		double rx = g_ui.reticle_x, ry = g_ui.reticle_y;
+		double rx = atomic_load(&g_ui.reticle_x);
+		double ry = atomic_load(&g_ui.reticle_y);
 		if (cw > 0)
 			rx += ev->relative.dx / cw;
 		if (ch > 0)

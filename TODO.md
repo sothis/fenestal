@@ -1594,10 +1594,11 @@ so the work is the process state that is still in the app, not a handle to add.
   and a window releasing while another still holds it leaves that one's clip on
   the pointer rather than clearing it (which was the fight two captures had).
   The round exercises it: the second window takes the pointer on a content click
-  and gives it on F9 with the first open beside it. Still owed: the GL function
-  table is one a process (fine while a program has one renderer and both its
-  windows' contexts are the same profile; the 4.1 shim's vertex-array records
-  are per thread and Metal's stages per device now).
+  and gives it on F9 with the first open beside it. And so is the GL row: the
+  entry-point table is the window's (`RendererState::funcs`, `gl_funcs.h`),
+  reached through the calling thread's binding, so a second window's build
+  never writes under the first's draws; the 4.1 shim's vertex-array records
+  are the thread's and Metal's stages the device's.
 - **The two-window review's fixes** (2026-11-24): a failed
   `fnl_window_create()` no longer takes KMS's console and display path with
   it (the last-window test is the registry's, and the copy path the attempt
