@@ -1466,17 +1466,22 @@ so the work is the process state that is still in the app, not a handle to add.
   file-scope variables (`iso_swap`, `pump_waiting` still file-scope and main-
   thread-only), and the GL, Metal and Vulkan tables that are one a process
   today.
-- **Wayland's split is in; its second window is not.** The host owns the one
-  `wl_display`, its registry and globals, the seat and its devices, the layout,
-  the outputs and the event loop; a window owns its surface, xdg objects,
-  viewports and frames. The listeners that fire during `host_open` (registry,
-  seat, output, keymap, presentation) touch only host state; the data device
-  and text input are made in `window_open`, so their events land in a window.
-  A second window is **refused**, because routing the seat's keyboard, pointer,
-  clipboard and input method between two windows by `enter`/`leave` is the
-  thing DESIGN says must be proven on GNOME with two windows open at once, and
-  this lab cannot. Wayland fails that test here today; the split is the ground
-  it stands on.
+- **Wayland's second window is built** (2026-11-24; DESIGN *A second window*).
+  The host owns the one `wl_display`, its registry and globals, the seat and
+  its devices, the layout, the outputs and the event loop; a window owns its
+  surface, xdg objects, viewports, frames and its own set of outputs. The
+  host's listeners now take the `Host`, not a window, and the seat's events
+  are routed to the window their surface names (the keyboard's enter, the
+  pointer's enter, and the text input's), with the clipboard and the input
+  method — the seat's — delivered to the focused window. A window is answered
+  by the host's own open list until `fnl_window_create()` links it, since its
+  keyboard enter arrives inside `window_open()`'s wait for its configure.
+  Driven by hand on GNOME Shell 50.1 (release and asan): F10 shows and hides
+  it four times over, focus moving between the two windows and each key
+  echoed from the one that received it; clean under the Vulkan validation
+  layer. **Owed: its round** — `two_window_wayland()` is in the harness
+  (`stress.py`, `expected()` allows the testbed's per-window focus lines) and
+  has not been run.
 - **KMS's second window is built** (2026-11-23; DESIGN *On KMS a window is an
   output*). The host owns the card and its outputs, the event loop, the one
   input set and the layout; a window is a selection of one output and its own

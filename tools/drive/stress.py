@@ -3414,6 +3414,10 @@ def expected(line):
         or re.match(r"second window: (shown|hidden) \(F10 .+\)$", line)
         is not None
         or re.match(r"scene view: (mirror|join|own)$", line) is not None
+        # Each window's own focus, with the window it belongs to: with two
+        # windows the echo's focus lines interleave between render threads,
+        # and the harness's keyboard_is_ours() reads these (testbed/main.c).
+        or re.match(r"window [0-9]+: focus [01]$", line) is not None
         or line.startswith("footprint: ")
         or line.startswith("backend: ")
         or line.startswith("renderer: ")
@@ -3771,6 +3775,92 @@ def two_window_kms(b, r):
     )
 
 
+def two_window_wayland(b, r):
+    """A second window on Wayland's one connection and one seat: the input the
+    seat delivers is routed to the window it names, by the enter and leave its
+    surface gets (DESIGN *A second window*).
+
+    There is nothing outside the program to ask: a Wayland client is never told
+    where its windows are, and the compositor lists none. So the program says
+    it -- the second window's own focus line (`window 2: focus 1`,
+    testbed/main.c), the show and hide lines, and the echo of a key, whose
+    area names the window that received it (1280x720 points for the first,
+    800x600 for the second). That is exactly what the round is about: which
+    window the seat's key went to."""
+
+    def lines():
+        return b.dump(1 << 30)
+
+    def count(pattern):
+        return sum(1 for ln in lines() if re.search(pattern, ln))
+
+    def areas():
+        seen = []
+        for ln in lines():
+            m = re.search(r" \| area (\d+)x(\d+) ", ln)
+            if m and "EV " in ln and (m.group(1), m.group(2)) not in seen:
+                seen.append((m.group(1), m.group(2)))
+        return seen
+
+    # Both windows say they are there: the log names the second's opening, and
+    # each window's echo carries its own area, so two areas are two windows.
+    up = b.until(lambda: count(r"second window: shown \(F10 ") >= 1
+                 and len(areas()) >= 2, timeout=6.0)
+    r.check(
+        "the second window opens beside the first",
+        up,
+        "%d area(s) echoed: %s"
+        % (len(areas()), ", ".join("%sx%s" % a for a in areas()) or "none"),
+    )
+    if not up:
+        return
+    focus2 = b.until(lambda: count(r"window 2: focus 1") >= 1, timeout=3.0)
+    r.check(
+        "the second window takes the keyboard",
+        focus2,
+        "%d focus line(s) from it" % count(r"window 2: focus 1"),
+    )
+    r.check("the program is alive with two windows", b.alive())
+
+    # F10 goes to whichever window has the focus; the hide is the library
+    # closing that window, the seat's focus returning to the one left.
+    hides = count(r"second window: hidden \(F10 ")
+    b.press("F10")
+    gone = b.until(lambda: count(r"second window: hidden \(F10 ") > hides,
+                   timeout=4.0)
+    r.check("F10 hides the second window", gone)
+    r.check("and the program is alive after it", gone and b.alive())
+    if not gone:
+        return
+
+    # And again: the window that comes back is the second one, on a new
+    # surface of the same connection, and a key reaches it there.
+    shows = count(r"second window: shown \(F10 ")
+    b.press("F10")
+    back = b.until(lambda: count(r"second window: shown \(F10 ") > shows,
+                   timeout=4.0)
+    r.check("F10 shows it again", back)
+    hides = count(r"second window: hidden \(F10 ")
+    if back:
+        b.press("F10")  # the shown window has the focus: the key is its own
+        b.until(lambda: count(r"second window: hidden \(F10 ") > hides,
+                timeout=4.0)
+    r.check(
+        "a key reaches the window the seat's focus is on",
+        count(r"second window: hidden \(F10 ") > hides,
+        "the press was echoed from a window of the two",
+    )
+
+    # F12: one scene view across the two, said by the window that took it.
+    views = count(r"scene view: ")
+    b.press("F12")
+    r.check(
+        "F12 cycles the view with two windows open",
+        b.until(lambda: count(r"scene view: ") > views, timeout=3.0),
+    )
+    r.check("the program is still alive", b.alive())
+
+
 def two_window(b, r):
     """A second window beside the first on the same host: open, drawn, and
     focused in turn. The one thing a single-window round cannot say.
@@ -3786,6 +3876,8 @@ def two_window(b, r):
     aim at: two windows there are two outputs, checked by two_window_kms()."""
     if getattr(b, "BACKEND", None) == "kms":
         return two_window_kms(b, r)
+    if getattr(b, "BACKEND", None) == "wayland":
+        return two_window_wayland(b, r)
     SECOND = "second window"
     wins = b.windows()
     second = next((w for w in wins if SECOND in w.title.lower()), None)

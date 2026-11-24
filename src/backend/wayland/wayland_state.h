@@ -59,8 +59,6 @@ typedef struct {
 	struct wl_output *handle;
 	uint32_t global; /* its name in the registry */
 	int scale;
-	/* Between enter and leave. A set: a surface straddles outputs. */
-	bool on_surface;
 	int mode_w, mode_h;       /* current mode, in physical pixels */
 	unsigned int refresh_mhz; /* and its rate; 0 where not said */
 	char name[64];            /* connector, e.g. HDMI-1 */
@@ -73,9 +71,12 @@ typedef struct {
  * a program -- a second would be a second client, with the clipboard and the
  * input method each made two -- and one seat, so these are the host's and a
  * window borrows them. The window's own -- its surface, its xdg objects, its
- * viewports, its frames -- is in BackendState. The seat's devices dispatch to
- * the host's one window until the routing between two is built (TODO *A second
- * window*), which is why a second window is refused for now. */
+ * viewports, its frames -- is in BackendState.
+ *
+ * The seat's events name one window at a time and are routed to it here: the
+ * keyboard and the pointer by the surface in their enter/leave (DESIGN *A
+ * second window*), and the clipboard and the input method, which are one
+ * program's, to the window with the focus. */
 struct BackendHostState {
 	struct wl_display *display;
 	struct wl_registry *registry;
@@ -88,6 +89,12 @@ struct BackendHostState {
 	/* Between the keyboard's enter and its leave: the one FNL_EVENT_FOCUS
 	 * owed when the keyboard goes with the capability, and no leave comes. */
 	bool kb_focused;
+	/* The window the seat's events go to: the one whose surface the keyboard
+	 * entered, the one the pointer is inside, and the one the input method
+	 * writes for (the focused one). NULL while focus or pointer is nowhere of
+	 * ours. Written and read on the pump's thread alone. */
+	App *kb_window;
+	App *ptr_window;
 	struct wl_pointer *pointer;
 	/* A cursor may only be set with the serial of an enter still in force:
 	 * `pointer_serial`, while `pointer_inside`. */
@@ -107,13 +114,17 @@ struct BackendHostState {
 	bool presentation_mono;
 	struct wp_fractional_scale_manager_v1 *fractional_manager;
 
-	/* The card's outputs and their modes, as the registry saw them. With one
-	 * window their `on_surface` is that window's surface; a second would want
-	 * it per window, which is the routing a second window still owes. */
+	/* The windows the backend has open, newest first, the first window's
+	 * included: the registry's, and one wl_window_open() is making before
+	 * fnl_window_create() has linked it into Host::windows. An event that
+	 * names a surface is answered from here. */
+	App *open_list;
+
+	/* The card's outputs and their modes, as the registry saw them. Which of
+	 * them a window is on is the window's (BackendState::on_output): a
+	 * surface per window straddles outputs of its own. */
 	WlOutput outputs[WL_MAX_OUTPUTS];
 	int output_count;
-	/* The one the window is following. */
-	struct wl_output *current_output;
 
 	/* eventfd and epoll: Linux, not merely POSIX. */
 	int wake_fd;
@@ -135,23 +146,58 @@ struct BackendHostState {
 
 	/* Key repeat is the client's on Wayland: a timerfd, armed while text entry
 	 * is on and a repeating key is down. -1 costs repeats alone. One
-	 * keyboard, one repeat. */
+	 * keyboard, one repeat, which fires into the focused window. */
 	int repeat_fd;
 	int32_t repeat_rate;  /* per second; 0 is off */
 	int32_t repeat_delay; /* milliseconds before the first */
 	uint32_t repeat_key;  /* evdev code */
 	bool repeat_armed;
 
-	/* zwp_text_input_v3 is the seat's. */
+	/* zwp_text_input_v3 is the seat's: one object, which entered one surface
+	 * (ti_focus), enabled while the window with the focus wants text (the
+	 * window it was enabled for is ti_enabled_for). The strings are one
+	 * transaction, acted on at `done` for that window. Fixed buffers: a heap
+	 * pointer stored through a listener's `void *` reads as a leak to
+	 * -fanalyzer. */
 	struct zwp_text_input_manager_v3 *ti_manager;
 	struct zwp_text_input_v3 *ti;
+	bool ti_focus;
+	bool ti_enabled;
+	App *ti_enabled_for;
+	bool ti_has_commit;
+	char ti_commit[1024];
+	char ti_preedit[256];
 
 	/* The clipboard's manager and the one data device made from it: the
-	 * selection is the seat's. `clip_marker` is a mime type nobody else
-	 * offers, which marks our own selection come back. */
+	 * selection is the seat's, so the offer is the program's. `clip_owner` is
+	 * the window whose clip_out the selection holds, and `clip_waiter` the one
+	 * waiting for a paste. `clip_marker` is a mime type nobody else offers,
+	 * which marks our own selection come back.
+	 *
+	 * `clip_source` is what this program is offering. An offer is described
+	 * one mime type at a time and only then named as the selection, so the one
+	 * being described is kept apart from the one in force; `*_kind` indexes
+	 * CLIP_MIME. clip_fd is a paste's pipe, in the epoll set until end of file
+	 * and -1 otherwise; `clip` is what has arrived of it (clip_linux.h).
+	 * `clip_sync` is outstanding from a set until the compositor has answered
+	 * it, while `offer_sel` is still the selection before. */
 	struct wl_data_device_manager *ddm;
 	struct wl_data_device *dd;
 	char clip_marker[48];
+	App *clip_owner;
+	App *clip_waiter;
+	struct wl_data_source *clip_source;
+	struct wl_callback *clip_sync;
+	struct wl_data_offer *offer_new;
+	struct wl_data_offer *offer_sel;
+	int offer_new_kind;
+	int offer_sel_kind;
+	bool offer_new_ours;
+	bool offer_sel_ours;
+	int clip_fd;
+	ClipIn clip;
+	/* The newest input serial: set_selection wants one from a real event. */
+	uint32_t input_serial;
 };
 
 /* [main], the pump's thread, unless tagged otherwise. */
@@ -159,10 +205,20 @@ struct BackendState {
 	/* The host's display, seat and event loop, on which this window's
 	 * surface, xdg objects and frames are made. */
 	struct BackendHostState *host;
+	/* The next entry in the host's open list (BackendHostState::open_list). */
+	App *open_next;
 
 	struct wp_viewport *viewport;
 	struct wp_fractional_scale_v1 *fractional;
 	struct wl_surface *surface;
+	/* The outputs this surface has entered and not left, a set: it straddles
+	 * outputs, and each window is on its own. Held by handle, not by the
+	 * host's slot, which a departed output's removal renumbers. */
+	struct wl_output *on_output[WL_MAX_OUTPUTS];
+	int on_output_count;
+	/* The one this window follows, for sharpness: the highest-scale output it
+	 * is on. */
+	struct wl_output *current_output;
 	/* ---- where the frames go (wl_present_window_renew()) ---------------
 	 * [render] `present` is what the renderer's bridge presents into:
 	 * `surface` until the first move to another GPU, a subsurface over it
@@ -264,40 +320,6 @@ struct BackendState {
 
 	/* The held accent, where no input method holds it instead. */
 	KeyCompose compose;
-
-	/* zwp_text_input_v3's transaction for this window: `ti_focus` is its own
-	 * enter and leave, not the keyboard's; `ti_enabled` is whether it was
-	 * asked to compose. The strings are one transaction, acted on at `done`.
-	 * Fixed buffers: a heap pointer stored through a listener's `void *`
-	 * reads as a leak to -fanalyzer. */
-	bool ti_focus;
-	bool ti_enabled;
-	bool ti_has_commit;
-	char ti_commit[1024];
-	char ti_preedit[256];
-
-	/* ---- clipboard -----------------------------------------------------
-	 * `clip_source` is what this window is offering. An offer is described
-	 * one mime type at a time and only then named as the selection, so the
-	 * one being described is kept apart from the one in force; `*_kind`
-	 * indexes CLIP_MIME.
-	 *
-	 * clip_fd is a paste's pipe, in the epoll set until end of file and -1
-	 * otherwise; `clip` is what has arrived of it (clip_linux.h).
-	 * `clip_sync` is outstanding from a set until the compositor has
-	 * answered it, while `offer_sel` is still the selection before. */
-	struct wl_data_source *clip_source;
-	struct wl_callback *clip_sync;
-	struct wl_data_offer *offer_new;
-	struct wl_data_offer *offer_sel;
-	int offer_new_kind;
-	int offer_sel_kind;
-	bool offer_new_ours;
-	bool offer_sel_ours;
-	int clip_fd;
-	ClipIn clip;
-	/* The newest input serial: set_selection wants one from a real event. */
-	uint32_t input_serial;
 };
 /* wl_surface.set_buffer_scale arrived in wl_compositor v3. Without it -- and
  * without a viewport -- the only scale we can express is 1.0. */

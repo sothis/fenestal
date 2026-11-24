@@ -836,6 +836,15 @@ static void testbed_drain(FnlApp *app)
 		if (ev.type == FNL_EVENT_GPU &&
 			app != atomic_load(&g_second_atomic))
 			name_window(app);
+		/* Which window has the keyboard, on a line a harness can attribute:
+		 * the echo's focus event is each window's own, and with two windows
+		 * draining on two render threads their lines interleave, so the last
+		 * "EV focus" is no longer the last focus event. A window number makes
+		 * the two orders separate again. */
+		if (ev.type == FNL_EVENT_FOCUS)
+			fprintf(stderr, "window %d: focus %d\n",
+					app == atomic_load(&g_second_atomic) ? 2 : 1,
+					ev.focus.focused ? 1 : 0);
 		/* F10 shows and hides the second window; F12 cycles what it draws.
 		 * Both are the testbed's own, and both are recorded here and spent
 		 * by the run's loop: the key arrives on a render thread, and a

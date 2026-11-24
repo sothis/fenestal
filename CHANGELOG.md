@@ -6,6 +6,13 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- `fnl_window_create()` opens a second window on **Wayland** too: one
+  `wl_display` and one seat serve every window, and the seat's keyboard,
+  pointer, clipboard and input method are routed to the window the events name
+  or the focus is on. The clipboard and the input method are the program's, so
+  either window may copy and either may paste, and text composes for the
+  window with the keyboard.
+
 - The testbed's second window is shown and hidden with **F10**, and **F12**
   cycles what it draws: a **mirror** of the first window, a **join** (one
   shared canvas split across both windows, the star and the sweep crossing

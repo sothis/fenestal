@@ -3738,10 +3738,10 @@ their windows' — and the per-window frame loop: `fnl_start()` starts every
 window's render thread, `fnl_pump()` stops the windows whose close was asked
 for and starts any the run created, and `fnl_stop()` joins them all.
 `fnl_window_create()` opens the window rather than refusing; a second window
-opens on X11, Win32 and KMS, and Wayland and Cocoa refuse one -- the seat's
-input routed between two, and a second macOS window, none of them built or
-proven here. KMS opens it on a free output, the input routed by the pointer
-(below). The window position (`x_pt`/`y_pt`)
+opens on X11, Win32, KMS and Wayland, and Cocoa refuses one -- a second macOS
+window, not built or proven here. KMS opens it on a free output, the input
+routed by the pointer (below); Wayland opens it on the one display, the seat's
+input routed by enter and leave (below). The window position (`x_pt`/`y_pt`)
 is honoured by X11 and Win32. Built and exercised on this desktop (release,
 2026-11-23): the single-window rounds and the two-window check pass on
 `x11-vulkan`, `x11-gl`, `win64-vulkan` and `win64-d3d12`, Win32's two
@@ -3755,8 +3755,9 @@ the first's — so `window_start()` now enters each window's renderer for its
 own `on_gpu_created`, where before the first's callback built in the second's
 context and the second's in none. KMS's second window is built (below): it
 opens on a free output, drawn by the copy path, the pointer routing between
-the windows. What remains — Wayland's seat routing and Cocoa's second window
-— is TODO *A second window*, in order.
+the windows. Wayland's is built below, the point of the design having been
+routing one seat's events between windows. What remains is Cocoa's second
+window, TODO *A second window*.
 
 **One window per app, and the app is already the handle.** The header's
 scope once said it outright — "one window, created with the app" — and the API
@@ -3924,6 +3925,44 @@ the `wl_keyboard.enter`/`leave` the seat already delivers. Two connections
 would work and are rejected: the compositor treats each as another client, so
 the clipboard, the input method and the pointer each become two.
 
+**Built, and what the routing needed.** The listeners of the host's objects —
+the registry, the seat, its keyboard and pointer, the outputs, the data device
+and the text input — are registered with the `Host`, not a window: one
+connection serves every window and outlives each of them, and a listener that
+held one window's `App` would dangle when that window closed. What the seat's
+events name is a surface, and `win_for_surface()` answers with the window that
+owns it. The host keeps an *open list* rather than reading `Host::windows`:
+`fnl_window_create()` links a window into the registry only after
+`window_open()` returns, and a new window is mapped and focused inside
+`create_window()`'s wait for its first configure — measured here, the keyboard
+`enter` for the second window arrives in that same dispatch, before the
+registry could know it. The keyboard's enter routes the focus (and the held
+keys, seeded from the compositor's array, to that window), the pointer's enter
+routes the pointer and the cursor, and repeat fires into `kb_window`.
+
+The clipboard and the text input are the seat's, so their state is the host's:
+one `wl_data_device`, one `zwp_text_input_v3`, the offer and the transfer, the
+composition. A paste goes to the window that asked (`clip_waiter`), and a
+selection is answered from the window's string that set it (`clip_owner`), so
+either window may copy and either may paste. The input method is enabled for
+the window with the keyboard when that window asked for text
+(`ti_enabled_for`), and the composition it delivers is that window's; a window
+that leaves the focus disables it for the one before. The outputs are the
+host's and the *set each window is on* is the window's (`on_output`, held by
+handle, since a departed output's slot is renumbered), so each window follows
+its own sharpest monitor and publishes its own names.
+
+Measured on this desktop (release and asan, 2026-11-24, GNOME Shell 50.1,
+RADV on an RX 590): F10 opening the second window, hiding it, and opening it
+again four times — the focus line naming `window 2` then `window 1`, the F10
+that hides it echoed with `area 800x600` and the one after with `area
+1280x720`, the program alive throughout and clean under the Vulkan validation
+layer. The harness's side is two additions: the testbed writes its own
+`window <n>: focus <0|1>` line, because two windows drain on two render
+threads and their echo lines interleave — the last `EV focus` is not the last
+focus event — and `two_window_wayland()` reads those lines, the show and hide
+lines and the echo's area, there being no window list a compositor gives.
+
 **What stays single, and is not a limitation.** Focus, pointer capture, the
 clipboard offer and the text-input mode are one window's at a time, because the
 desktop says so: one window has the keyboard, one program owns the selection,
@@ -3972,11 +4011,13 @@ first time, and publish their keys under a `simple_mtx` TSan cannot see.
 `tsan.supp` names the three functions the reports were in
 (`object_keys_equal`, `cache_key_equal`, `radv_bind_dynamic_state`), checked
 against `x11-vulkan`'s two-window check under tsan on this desk's RX 590.
-Passing now: the two-window check on `x11-vulkan`, `wayland-vulkan`,
+Passing now: the two-window check on `x11-vulkan`,
 `win64-vulkan` (wine) and `win64-vulkan-native@schenker` on both of its GPUs,
 three Intel rounds and one NVIDIA round, 116 checks each; `x11-vulkan` under
 asan; and the tsan round's own checks, its two-window check failing on the
 harness's pointer sweep of a slow build and not on a check of the library's.
+Wayland's second window is built and driven by hand (above); its round,
+`two_window_wayland()`, is in the harness and awaits its run.
 Direct3D 12, OpenGL and Metal still build a device a window, measured green on
 the same Intel GPU; if a driver is found to want them shared, `VkHost`'s shape
 is the one to follow.

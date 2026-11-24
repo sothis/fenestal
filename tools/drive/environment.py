@@ -1965,7 +1965,8 @@ class Wayland(_Portal):
     # "input-method": the compositor's own composer, through the text-input
     # protocol. Whether this desktop's is listening is asked by the check.
     CAN = frozenset({"grab-ring", "composited", "multi-output",
-                     "input-method", "desk-layout", "resizable"})
+                     "input-method", "desk-layout", "resizable",
+                     "second-window"})
     NO_UNMINIMIZE = "a Wayland client cannot ask to be unminimized"
     # The open line naming the globals the compositor lacks: GNOME has no
     # xdg-decoration, weston more than that.
@@ -2020,9 +2021,28 @@ class Wayland(_Portal):
             raise
         return self
 
+    # The testbed's own focus line, per window (testbed/main.c): the echo's
+    # "EV focus" belongs to the window whose queue it came from, but two
+    # windows drain on two render threads, so their lines interleave and the
+    # last one is not necessarily the last focus event.
+    WINDOW_FOCUS = re.compile(r"^window ([0-9]+): focus ([01])$")
+
     def keyboard_is_ours(self):
         # Nothing outside a Wayland client can say who has the keyboard, so
-        # the client is asked: the library echoes every focus event.
+        # the client is asked. A window's last line is the truth for that
+        # window (one queue drains in order), and the seat's focus is one
+        # window's at a time: the program holds it while any of its windows
+        # does. A program with no such line is read from the echo, which is
+        # unambiguous with one window.
+        with self.testbed.lock:
+            lines = list(self.testbed.lines)
+        seen = {}
+        for line in lines:
+            m = self.WINDOW_FOCUS.match(line)
+            if m:
+                seen[int(m.group(1))] = m.group(2) == "1"
+        if seen:
+            return any(seen.values())
         for e in reversed(self.testbed.since(0, "focus")):
             return e["parts"][1] == "1"
         return False

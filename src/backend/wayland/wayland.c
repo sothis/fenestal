@@ -42,6 +42,38 @@
 #include <pthread.h>
 
 static void pointer_update(App *a);
+static void outputs_changed(App *a);
+static void kb_drop_held(App *a);
+static void release_pointer_capture(App *a);
+static void ti_apply(struct BackendHostState *hs);
+
+/* The host behind a host-level listener's data. The connection, its registry,
+ * the seat and its devices and the outputs are the host's, registered with the
+ * Host rather than a window: one connection serves every window and outlives
+ * each of them, so a listener's data must not be a window's App. */
+static struct BackendHostState *hs_of(struct Host *h)
+{
+	return h ? h->backend_host : NULL;
+}
+
+/* The window that owns a surface: the seat's enter events name one, and what
+ * they name is routed to that window's App. A window wl_window_open() is still
+ * making is not in Host::windows yet -- fnl_window_create() links it after
+ * window_open() returns -- so the host's own open list is what answers. */
+static App *win_for_surface(struct BackendHostState *hs, struct wl_surface *s)
+{
+	if (!hs || !s)
+		return NULL;
+	for (App *w = hs->open_list; w; w = w->backend_state->open_next)
+		if (w->backend_state->surface == s)
+			return w;
+	return NULL;
+}
+
+/* Every open window's, in the open list's order: the routing of an event that
+ * belongs to them all, as an output's mode changing is. */
+#define WL_FOR_EACH_WINDOW(hs, w)                                              \
+	for (App *w = (hs)->open_list; w; w = w->backend_state->open_next)
 
 static void wm_base_ping(void *data, struct xdg_wm_base *b, uint32_t serial)
 {
@@ -52,12 +84,12 @@ static const struct xdg_wm_base_listener wm_base_listener = {
 	.ping = wm_base_ping,
 };
 
-static WlOutput *output_info_for(App *a, struct wl_output *o)
+static WlOutput *output_info_for(struct BackendHostState *hs,
+								 struct wl_output *o)
 {
 	/* The outputs are the host's, so an output event arriving during
 	 * host_open -- before window_open has made a window -- still finds its
 	 * slot. */
-	struct BackendHostState *hs = app_backend_host(a);
 	if (!hs)
 		return NULL;
 	for (int i = 0; i < hs->output_count; i++)
@@ -95,9 +127,7 @@ static void refresh_size_bounds(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	const WlOutput *cur =
-		p->host->current_output
-			? output_info_for(a, p->host->current_output)
-			: NULL;
+		p->current_output ? output_info_for(p->host, p->current_output) : NULL;
 	/* The followed output's rate, which the GPU ranking keys a display by
 	 * (rank.c). Nothing is spaced by it where frames are invited; a loop
 	 * at rest waits a period of it for a signal instead of a 60 Hz one. */
@@ -122,11 +152,35 @@ static void refresh_size_bounds(App *a)
  * two stays sharp on either. On none at all -- minimized, another workspace
  * -- the last choice stands, which saves two swapchain rebuilds on the way
  * back. */
+/* Whether this surface has entered that output and not left it. */
+static bool wl_on_output(const struct BackendState *p, struct wl_output *o)
+{
+	for (int i = 0; i < p->on_output_count; i++)
+		if (p->on_output[i] == o)
+			return true;
+	return false;
+}
+
+/* A departed output's handle, out of a window's set: the surface never leaves
+ * an output the compositor has removed, so the registry's removal is the
+ * leave. */
+static void wl_output_drop(struct BackendState *p, struct wl_output *o)
+{
+	for (int i = 0; i < p->on_output_count; i++) {
+		if (p->on_output[i] != o)
+			continue;
+		p->on_output[i] = p->on_output[--p->on_output_count];
+		break;
+	}
+	if (p->current_output == o)
+		p->current_output = NULL; /* re-picked, from what is left */
+}
+
 static void pick_current_output(App *a)
 {
 	/* Nothing to publish until the window exists: an output's events arrive
-	 * during host_open, before window_open has made p, and its `on_surface`
-	 * is false until the surface enters it anyway. */
+	 * during host_open, before window_open has made p, and the window's
+	 * surface has entered none until it is made anyway. */
 	if (!a->backend_state)
 		return;
 	struct BackendState *p = a->backend_state;
@@ -134,7 +188,7 @@ static void pick_current_output(App *a)
 	int best_scale         = 0;
 
 	for (int i = 0; i < p->host->output_count; i++) {
-		if (!p->host->outputs[i].on_surface)
+		if (!wl_on_output(p, p->host->outputs[i].handle))
 			continue;
 		if (!best || p->host->outputs[i].scale > best_scale) {
 			best       = p->host->outputs[i].handle;
@@ -145,10 +199,10 @@ static void pick_current_output(App *a)
 	 * window moves to another, so a *change* drops them and the mode stands
 	 * in. Not the first enter: those are the bounds for the monitor it opened
 	 * on. */
-	if (best && p->host->current_output && best != p->host->current_output)
+	if (best && p->current_output && best != p->current_output)
 		p->bounds_w = p->bounds_h = 0;
 	if (best)
-		p->host->current_output = best;
+		p->current_output = best;
 
 	refresh_size_bounds(a);
 
@@ -162,8 +216,8 @@ static void pick_current_output(App *a)
 	for (int pass = 0; pass < 2; pass++) {
 		for (int i = 0; i < p->host->output_count; i++) {
 			const WlOutput *oi = &p->host->outputs[i];
-			bool followed      = oi->handle == p->host->current_output;
-			if (!oi->on_surface || followed != (pass == 0))
+			bool followed      = oi->handle == p->current_output;
+			if (!wl_on_output(p, oi->handle) || followed != (pass == 0))
 				continue;
 			size_t n = strlen(names);
 			snprintf(names + n, sizeof names - n, "%s%s%s%s%s", n ? " + " : "",
@@ -172,10 +226,9 @@ static void pick_current_output(App *a)
 		}
 	}
 	if (names[0]) {
-		const WlOutput *cur =
-			p->host->current_output
-				? output_info_for(a, p->host->current_output)
-				: NULL;
+		const WlOutput *cur = p->current_output
+								  ? output_info_for(p->host, p->current_output)
+								  : NULL;
 		app_publish_output_mode(a, names, cur ? cur->mode_w : 0,
 								cur ? cur->mode_h : 0);
 	}
@@ -191,7 +244,7 @@ static void pick_current_output(App *a)
 	int at      = -1;
 	for (int i = 0; i < n; i++) {
 		snprintf(list[i], sizeof list[i], "%s", p->host->outputs[i].name);
-		if (p->host->outputs[i].handle == p->host->current_output)
+		if (p->host->outputs[i].handle == p->current_output)
 			at = i;
 	}
 	app_publish_outputs(a, list, n, at);
@@ -229,8 +282,8 @@ static int compositor_scale120(App *a)
 	struct BackendState *p = a->backend_state;
 	if (p && p->fractional && p->preferred_scale120 > 0)
 		return p->preferred_scale120;
-	if (p && p->host->current_output) {
-		WlOutput *oi = output_info_for(a, p->host->current_output);
+	if (p && p->current_output) {
+		WlOutput *oi = output_info_for(p->host, p->current_output);
 		if (oi && oi->scale > 0)
 			return oi->scale * 120;
 	}
@@ -310,8 +363,7 @@ static void output_geometry(void *data, struct wl_output *o, int32_t x,
 	(void)ph;
 	(void)sub;
 	(void)transform;
-	App *a       = data;
-	WlOutput *oi = output_info_for(a, o);
+	WlOutput *oi = output_info_for(hs_of(data), o);
 	if (oi && (make || model))
 		snprintf(oi->model, sizeof oi->model, "%s%s%s", make ? make : "",
 				 make && model ? " " : "", model ? model : "");
@@ -330,8 +382,7 @@ static int wire_pt(int32_t v)
 static void output_mode(void *data, struct wl_output *o, uint32_t f, int32_t w,
 						int32_t h, int32_t r)
 {
-	App *a           = data;
-	WlOutput *oi     = output_info_for(a, o);
+	WlOutput *oi     = output_info_for(hs_of(data), o);
 	const int mode_w = wire_pt(w), mode_h = wire_pt(h);
 	if (oi && (f & WL_OUTPUT_MODE_CURRENT) && mode_w && mode_h) {
 		oi->mode_w      = mode_w;
@@ -340,29 +391,32 @@ static void output_mode(void *data, struct wl_output *o, uint32_t f, int32_t w,
 	}
 }
 /* Re-picked once per property burst: the mode and the name are events of their
- * own, and both feed what is published. */
+ * own, and both feed what is published. The output is the host's, so every
+ * window on it is told, not only whichever one the listener was made for. */
 static void output_done(void *data, struct wl_output *o)
 {
 	(void)o;
-	App *a = data;
-	outputs_changed(a);
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	WL_FOR_EACH_WINDOW(hs, w) outputs_changed(w);
 }
 /* Bounded on the way in: every point is multiplied by 120 times it. */
 static void output_scale(void *data, struct wl_output *o, int32_t s)
 {
-	App *a       = data;
-	WlOutput *oi = output_info_for(a, o);
+	WlOutput *oi = output_info_for(hs_of(data), o);
 	if (oi) {
 		/* In whole steps, so the bound is applied before the multiply. */
 		const int max = SCALE120_MAX / 120;
 		oi->scale     = s < 1 ? 1 : s > max ? max : s;
 	}
-	outputs_changed(a);
+	struct BackendHostState *hs = hs_of(data);
+	if (hs)
+		WL_FOR_EACH_WINDOW(hs, w) outputs_changed(w);
 }
 static void output_name(void *data, struct wl_output *o, const char *name)
 {
-	App *a       = data;
-	WlOutput *oi = output_info_for(a, o);
+	WlOutput *oi = output_info_for(hs_of(data), o);
 	if (oi && name)
 		snprintf(oi->name, sizeof oi->name, "%s", name);
 }
@@ -389,9 +443,12 @@ static void kb_keymap(void *d, struct wl_keyboard *kb, uint32_t fmt, int fd,
 					  uint32_t size)
 {
 	(void)kb;
-	App *a                 = d;
-	struct BackendHostState *hs = app_backend_host(a);
-	bool parsed            = false;
+	struct BackendHostState *hs = hs_of(d);
+	bool parsed                 = false;
+	if (!hs) {
+		close(fd);
+		return;
+	}
 
 	if (fmt == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 && size > 0) {
 		/* A file shorter than the size it came with maps all the same, and
@@ -457,37 +514,37 @@ static KeyMods kb_mods(const struct BackendState *p)
 #define REPEAT_RATE_DEFAULT 25   /* per second */
 #define REPEAT_DELAY_DEFAULT 600 /* milliseconds */
 
-static void key_repeat_stop(struct BackendState *p)
+static void key_repeat_stop(struct BackendHostState *hs)
 {
-	if (!p->host->repeat_armed)
+	if (!hs->repeat_armed)
 		return;
 	struct itimerspec its;
 	memset(&its, 0, sizeof its);
-	timerfd_settime(p->host->repeat_fd, 0, &its, NULL);
-	p->host->repeat_armed = false;
+	timerfd_settime(hs->repeat_fd, 0, &its, NULL);
+	hs->repeat_armed = false;
 }
 
-static void key_repeat_start(struct BackendState *p, uint32_t key)
+static void key_repeat_start(struct BackendHostState *hs, uint32_t key)
 {
-	if (p->host->repeat_fd < 0 || p->host->repeat_rate <= 0)
+	if (hs->repeat_fd < 0 || hs->repeat_rate <= 0)
 		return;
 
-	const long period = 1000000000L / p->host->repeat_rate;
+	const long period = 1000000000L / hs->repeat_rate;
 	struct itimerspec its;
 	memset(&its, 0, sizeof its);
 	its.it_interval.tv_sec  = period / 1000000000L;
 	its.it_interval.tv_nsec = period % 1000000000L;
 	/* A zero it_value disarms the timer rather than firing it at once, so a
 	 * compositor that asks for no delay gets one period of it. */
-	if (p->host->repeat_delay > 0) {
-		its.it_value.tv_sec  = p->host->repeat_delay / 1000;
-		its.it_value.tv_nsec = (long)(p->host->repeat_delay % 1000) * 1000000L;
+	if (hs->repeat_delay > 0) {
+		its.it_value.tv_sec  = hs->repeat_delay / 1000;
+		its.it_value.tv_nsec = (long)(hs->repeat_delay % 1000) * 1000000L;
 	} else {
 		its.it_value = its.it_interval;
 	}
-	if (timerfd_settime(p->host->repeat_fd, 0, &its, NULL) == 0) {
-		p->host->repeat_key   = key;
-		p->host->repeat_armed = true;
+	if (timerfd_settime(hs->repeat_fd, 0, &its, NULL) == 0) {
+		hs->repeat_key   = key;
+		hs->repeat_armed = true;
 	}
 }
 
@@ -501,10 +558,10 @@ static void key_type(App *a, uint32_t key, bool repeat)
 	const uint32_t c =
 		keymap_type(&p->host->keymap, &p->compose, key + 8u, &mods, repeat);
 	app_text(a, c);
-	/* Only on a change, and not with the input method enabled: it reports
-	 * its own composition, and an empty string from here would wipe its
-	 * candidate. */
-	if (p->compose.dead != held && !p->ti_enabled) {
+	/* Only on a change, and not with the input method writing for this window:
+	 * it reports its own composition, and an empty string from here would wipe
+	 * its candidate. */
+	if (p->compose.dead != held && p->host->ti_enabled_for != a) {
 		char shown[8];
 		keymap_composing(&p->compose, shown);
 		app_compose_set(a, shown);
@@ -512,22 +569,27 @@ static void key_type(App *a, uint32_t key, bool repeat)
 }
 
 /* Called after the turn's dispatch, so a release that arrived beside the timer
- * has already disarmed it. One repeat however many periods were missed. */
-static void key_repeat_fire(App *a)
+ * has already disarmed it. One repeat however many periods were missed, and it
+ * goes to the window with the keyboard, which is the one that started it. */
+static void key_repeat_fire(struct BackendHostState *hs)
 {
-	struct BackendState *p = a->backend_state;
 	uint64_t periods;
-	const ssize_t got = read(p->host->repeat_fd, &periods, sizeof periods);
+	const ssize_t got = read(hs->repeat_fd, &periods, sizeof periods);
 	if (got != (ssize_t)sizeof periods)
 		return;
-	if (!p->host->repeat_armed)
+	if (!hs->repeat_armed)
 		return;
-	if (!app_text_input(a)) {
-		key_repeat_stop(p);
+	App *a = hs->kb_window;
+	if (!a) {
+		key_repeat_stop(hs);
 		return;
 	}
-	app_key_repeat(a, key_from_evdev(p->host->repeat_key));
-	key_type(a, p->host->repeat_key, true);
+	if (!app_text_input(a)) {
+		key_repeat_stop(hs);
+		return;
+	}
+	app_key_repeat(a, key_from_evdev(hs->repeat_key));
+	key_type(a, hs->repeat_key, true);
 }
 
 /* The keys already down arrive with focus. Seeded, not replayed through
@@ -538,16 +600,30 @@ static void kb_enter(void *data, struct wl_keyboard *kb, uint32_t serial,
 {
 	(void)kb;
 	(void)serial;
-	(void)s;
-	App *a = data;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = win_for_surface(hs, s);
+	if (!a)
+		return;
+
+	/* A leave that never came -- a surface unmapped, a compositor that sends
+	 * the enter for one window straight after another's -- leaves the other
+	 * window believing it still holds the key set. */
+	if (hs->kb_window && hs->kb_window != a) {
+		kb_drop_held(hs->kb_window);
+		app_post_focus(hs->kb_window, false);
+	}
+	hs->kb_window = a;
 
 	app_keys_clear(a);
 	uint32_t *k;
 	wl_array_for_each(k, keys) app_key_seed(a, key_from_evdev(*k));
 
 	/* After the seeding, so fnl_key_down() is right when the event is read. */
-	app_backend_host(a)->kb_focused = true;
+	hs->kb_focused = true;
 	app_post_focus(a, true);
+	/* The input method follows the keyboard: enabled for this window if it
+	 * asked for text, disabled for the one before. */
+	ti_apply(hs);
 }
 
 /* The keyboard has gone, by focus or by capability, and no release will arrive
@@ -556,9 +632,9 @@ static void kb_drop_held(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	app_keys_clear(a);
-	key_repeat_stop(p);
+	key_repeat_stop(p->host);
 	p->compose.dead = 0;
-	if (!p->ti_enabled)
+	if (p->host->ti_enabled_for != a)
 		app_compose_set(a, NULL);
 }
 
@@ -567,22 +643,32 @@ static void kb_leave(void *data, struct wl_keyboard *kb, uint32_t serial,
 {
 	(void)kb;
 	(void)serial;
-	(void)s;
-	App *a = data;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = win_for_surface(hs, s);
+	if (!a)
+		a = hs ? hs->kb_window : NULL;
+	if (!a)
+		return;
 	kb_drop_held(a);
 
 	/* After the drop, for kb_enter()'s reason. */
-	app_backend_host(a)->kb_focused = false;
+	hs->kb_focused = false;
+	if (hs->kb_window == a)
+		hs->kb_window = NULL;
 	app_post_focus(a, false);
+	ti_apply(hs);
 }
 static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 				   uint32_t time, uint32_t key, uint32_t state)
 {
 	(void)kb;
-	App *a                 = data;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = hs ? hs->kb_window : NULL;
+	if (!a)
+		return;
 	struct BackendState *p = a->backend_state;
 	const bool pressed     = state == WL_KEYBOARD_KEY_STATE_PRESSED;
-	p->input_serial        = serial;
+	hs->input_serial       = serial;
 	const FnlKey k         = key_from_evdev(key);
 	loop_input_ms(a, time);
 
@@ -603,8 +689,8 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 	app_key(a, k, pressed);
 
 	if (!pressed) {
-		if (p->host->repeat_armed && key == p->host->repeat_key)
-			key_repeat_stop(p);
+		if (hs->repeat_armed && key == hs->repeat_key)
+			key_repeat_stop(hs);
 		return;
 	}
 	if (!app_text_input(a))
@@ -613,27 +699,30 @@ static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
 	key_type(a, key, false);
 	/* The newest key takes the repeat over; a modifier does not. */
 	if (keymap_held_repeats(&p->host->keymap, key + 8u, k))
-		key_repeat_start(p, key);
+		key_repeat_start(hs, key);
 }
 static void kb_modifiers(void *d, struct wl_keyboard *kb, uint32_t serial,
 						 uint32_t dep, uint32_t lat, uint32_t lck, uint32_t grp)
 {
 	(void)kb;
 	(void)serial;
-	App *a                     = d;
-	app_backend_host(a)->kb_mods  = dep | lat | lck;
-	app_backend_host(a)->kb_group = grp;
+	struct BackendHostState *hs = hs_of(d);
+	if (!hs)
+		return;
+	hs->kb_mods  = dep | lat | lck;
+	hs->kb_group = grp;
 }
 static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate,
 					  int32_t delay)
 {
 	(void)kb;
-	App *a                 = d;
-	struct BackendState *p = a->backend_state;
-	p->host->repeat_rate         = rate;
-	p->host->repeat_delay        = delay;
+	struct BackendHostState *hs = hs_of(d);
+	if (!hs)
+		return;
+	hs->repeat_rate  = rate;
+	hs->repeat_delay = delay;
 	if (rate <= 0)
-		key_repeat_stop(p);
+		key_repeat_stop(hs);
 }
 static const struct wl_keyboard_listener keyboard_listener = {
 	.keymap      = kb_keymap,
@@ -850,12 +939,15 @@ static void pointer_update(App *a)
 	cursor_update(a, z, edge);
 }
 
-/* Decide the shape again where the pointer already is. Only over the window:
- * elsewhere no enter serial is in force to send it under, and ptr_enter()
+/* Decide the shape again where the pointer already is. Only over the window
+ * the pointer is in: the cursor is one seat's, and a window asking for another
+ * shape while the pointer is elsewhere would wear it over the one it is in.
+ * Elsewhere no enter serial is in force to send it under, and ptr_enter()
  * decides afresh. */
 static void wl_cursor_changed(App *a)
 {
-	if (!app_backend_host(a)->pointer || !app_backend_host(a)->pointer_inside)
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs->pointer || !hs->pointer_inside || hs->ptr_window != a)
 		return;
 	Edge edge;
 	const Zone z = deco_hit(a, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y), &edge);
@@ -874,15 +966,23 @@ static void ptr_enter(void *data, struct wl_pointer *wp, uint32_t serial,
 					  struct wl_surface *s, wl_fixed_t sx, wl_fixed_t sy)
 {
 	(void)wp;
-	(void)s;
-	App *a                 = data;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = win_for_surface(hs, s);
+	if (!a)
+		return;
 	struct BackendState *p = a->backend_state;
-	p->host->pointer_serial      = serial;
-	a->ptr_x               = wl_fixed_to_double(sx);
-	a->ptr_y               = wl_fixed_to_double(sy);
-	p->host->current_shape = 0; /* a cursor is set per enter, hidden included */
-	p->host->pointer_inside      = true;
-	p->left_held           = false; /* a release elsewhere is never delivered */
+	/* A leave that never came for the window before. */
+	if (hs->ptr_window && hs->ptr_window != a) {
+		hs->ptr_window->backend_state->left_held = false;
+		deco_release(hs->ptr_window);
+	}
+	hs->ptr_window        = a;
+	hs->pointer_serial    = serial;
+	a->ptr_x              = wl_fixed_to_double(sx);
+	a->ptr_y              = wl_fixed_to_double(sy);
+	hs->current_shape     = 0; /* a cursor is set per enter, hidden included */
+	hs->pointer_inside    = true;
+	p->left_held          = false; /* a release elsewhere is never delivered */
 	pointer_update(a);
 	app_reticle_publish(a);
 	/* An enter carries no time: the motion it posts counts from now. */
@@ -897,11 +997,17 @@ static void ptr_leave(void *data, struct wl_pointer *p, uint32_t serial,
 {
 	(void)p;
 	(void)serial;
-	(void)s;
-	App *a                           = data;
-	app_backend_host(a)->current_shape  = 0;
-	app_backend_host(a)->pointer_inside = false;
-	a->backend_state->left_held      = false;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = win_for_surface(hs, s);
+	if (!a)
+		a = hs ? hs->ptr_window : NULL;
+	if (!a)
+		return;
+	hs->current_shape  = 0;
+	hs->pointer_inside = false;
+	if (hs->ptr_window == a)
+		hs->ptr_window = NULL;
+	a->backend_state->left_held = false;
 	deco_release(a); /* the press is someone else's problem now */
 	app_reticle_publish(a);
 	app_pointer_presence(a, false, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y));
@@ -910,7 +1016,10 @@ static void ptr_motion(void *data, struct wl_pointer *wp, uint32_t time,
 					   wl_fixed_t sx, wl_fixed_t sy)
 {
 	(void)wp;
-	App *a   = data;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = hs ? hs->ptr_window : NULL;
+	if (!a)
+		return;
 	a->ptr_x = wl_fixed_to_double(sx);
 	a->ptr_y = wl_fixed_to_double(sy);
 	loop_input_ms(a, time);
@@ -923,9 +1032,12 @@ static void ptr_button(void *data, struct wl_pointer *wp, uint32_t serial,
 					   uint32_t time, uint32_t button, uint32_t state)
 {
 	(void)wp;
-	App *a                 = data;
+	struct BackendHostState *hs = hs_of(data);
+	App *a                      = hs ? hs->ptr_window : NULL;
+	if (!a)
+		return;
 	struct BackendState *p = a->backend_state;
-	p->input_serial        = serial;
+	hs->input_serial       = serial;
 
 	/* The three buttons FnlButton names. Any other -- a side button -- is
 	 * reported to nobody and acts on nothing: it is not a left click. */
@@ -962,8 +1074,11 @@ static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t ax,
 					 wl_fixed_t v)
 {
 	(void)p;
-	App *a                = d;
-	struct BackendState *w = a->backend_state;
+	struct BackendHostState *hs = hs_of(d);
+	App *a                      = hs ? hs->ptr_window : NULL;
+	if (!a)
+		return;
+	struct BackendState *w      = a->backend_state;
 	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
 	loop_input_ms(a, t);
 	const double notches = w->axis_discrete[i]
@@ -996,7 +1111,10 @@ static void ptr_axis_discrete(void *d, struct wl_pointer *p, uint32_t ax,
 							  int32_t v)
 {
 	(void)p;
-	App *a      = d;
+	struct BackendHostState *hs = hs_of(d);
+	App *a                      = hs ? hs->ptr_window : NULL;
+	if (!a)
+		return;
 	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
 	a->backend_state->axis_discrete[i] = v;
 }
@@ -1053,10 +1171,10 @@ static bool ti_refused(void)
 	return v && v[0] && !(v[0] == '0' && !v[1]);
 }
 
-static void ti_drop(struct BackendState *p)
+static void ti_drop(struct BackendHostState *hs)
 {
-	p->ti_has_commit = false;
-	p->ti_commit[0] = p->ti_preedit[0] = '\0';
+	hs->ti_has_commit = false;
+	hs->ti_commit[0] = hs->ti_preedit[0] = '\0';
 }
 
 /* Cut on a character boundary if it must be. NULL is the protocol's none. */
@@ -1068,43 +1186,52 @@ static void ti_keep(char *dst, size_t size, const char *text)
 	dst[n] = '\0';
 }
 
-static void ti_apply(App *a)
+/* One text input, made from the seat: enabled while the window with the
+ * keyboard has asked for text and the compositor has told the input method
+ * its surface has the focus. The window it was enabled for is remembered, so
+ * the composition it held is wiped from *that* window when it ends, whichever
+ * window ends it. */
+static void ti_apply(struct BackendHostState *hs)
 {
-	struct BackendState *p = a->backend_state;
-	if (!p->host->ti)
+	if (!hs || !hs->ti)
 		return;
+	App *want = hs->kb_window;
+	const bool on = hs->ti_focus && want && app_text_input(want);
 
-	if (p->ti_focus && app_text_input(a)) {
+	if (on && !hs->ti_enabled) {
 		/* enable resets everything said before it, so the content type goes
 		 * with the first one and the rectangle goes every time. */
-		if (!p->ti_enabled) {
-			zwp_text_input_v3_enable(p->host->ti);
-			zwp_text_input_v3_set_content_type(
-				p->host->ti, ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
-				ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
-			/* The fallback's held accent is the input method's business from
-			 * here. On the way in only: this runs again for every caret move,
-			 * and an accent the input method passed through must outlive
-			 * those. */
-			p->compose.dead = 0;
-		}
+		zwp_text_input_v3_enable(hs->ti);
+		zwp_text_input_v3_set_content_type(
+			hs->ti, ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
+			ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL);
+		/* The fallback's held accent is the input method's business from
+		 * here. On the way in only: this runs again for every caret move,
+		 * and an accent the input method passed through must outlive
+		 * those. */
+		want->backend_state->compose.dead = 0;
+	}
+	if (on) {
 		/* The caret in surface space: window points plus the grab ring. A
 		 * caller that never said gets the window's corner. */
 		int x, y, w, h;
-		if (!app_text_rect(a, &x, &y, &w, &h)) {
+		if (!app_text_rect(want, &x, &y, &w, &h)) {
 			x = y = 0;
 			w = h = 1;
 		}
-		const int m = deco_margin(a, a->is_fullscreen);
-		zwp_text_input_v3_set_cursor_rectangle(p->host->ti, x + m, y + m, w, h);
-		zwp_text_input_v3_commit(p->host->ti);
-		p->ti_enabled = true;
-	} else if (p->ti_enabled) {
-		zwp_text_input_v3_disable(p->host->ti);
-		zwp_text_input_v3_commit(p->host->ti);
-		p->ti_enabled = false;
-		ti_drop(p);
-		app_compose_set(a, NULL);
+		const int m = deco_margin(want, want->is_fullscreen);
+		zwp_text_input_v3_set_cursor_rectangle(hs->ti, x + m, y + m, w, h);
+		zwp_text_input_v3_commit(hs->ti);
+		hs->ti_enabled     = true;
+		hs->ti_enabled_for = want;
+	} else if (hs->ti_enabled) {
+		zwp_text_input_v3_disable(hs->ti);
+		zwp_text_input_v3_commit(hs->ti);
+		hs->ti_enabled = false;
+		ti_drop(hs);
+		if (hs->ti_enabled_for)
+			app_compose_set(hs->ti_enabled_for, NULL);
+		hs->ti_enabled_for = NULL;
 	}
 }
 
@@ -1112,19 +1239,22 @@ static void ti_enter(void *data, struct zwp_text_input_v3 *ti,
 					 struct wl_surface *s)
 {
 	(void)ti;
-	(void)s;
-	App *a                     = data;
-	a->backend_state->ti_focus = true;
-	ti_apply(a);
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	hs->ti_focus = win_for_surface(hs, s) != NULL;
+	ti_apply(hs);
 }
 static void ti_leave(void *data, struct zwp_text_input_v3 *ti,
 					 struct wl_surface *s)
 {
 	(void)ti;
 	(void)s;
-	App *a                     = data;
-	a->backend_state->ti_focus = false;
-	ti_apply(a);
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	hs->ti_focus = false;
+	ti_apply(hs);
 }
 static void ti_preedit(void *data, struct zwp_text_input_v3 *ti,
 					   const char *text, int32_t begin, int32_t end)
@@ -1132,18 +1262,20 @@ static void ti_preedit(void *data, struct zwp_text_input_v3 *ti,
 	(void)ti;
 	(void)begin;
 	(void)end;
-	App *a = data;
-	ti_keep(a->backend_state->ti_preedit, sizeof a->backend_state->ti_preedit,
-			text);
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	ti_keep(hs->ti_preedit, sizeof hs->ti_preedit, text);
 }
 static void ti_commit_string(void *data, struct zwp_text_input_v3 *ti,
 							 const char *text)
 {
 	(void)ti;
-	App *a                 = data;
-	struct BackendState *p = a->backend_state;
-	ti_keep(p->ti_commit, sizeof p->ti_commit, text);
-	p->ti_has_commit = text != NULL;
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	ti_keep(hs->ti_commit, sizeof hs->ti_commit, text);
+	hs->ti_has_commit = text != NULL;
 }
 /* Never asked for: it deletes around a caret this client has not described,
  * since set_surrounding_text is never sent. */
@@ -1157,22 +1289,29 @@ static void ti_delete(void *data, struct zwp_text_input_v3 *ti, uint32_t before,
 }
 
 /* In the protocol's order: the commit is typed, then the composition becomes
- * whatever this round said, which may be nothing. */
+ * whatever this round said, which may be nothing. The transaction is the
+ * window's it was enabled for, and goes nowhere if that window has gone. */
 static void ti_done(void *data, struct zwp_text_input_v3 *ti, uint32_t serial)
 {
 	(void)ti;
 	(void)serial;
-	App *a                 = data;
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
 	/* One already on its way when composing was switched off. */
-	if (!p->ti_enabled) {
-		ti_drop(p);
+	if (!hs->ti_enabled) {
+		ti_drop(hs);
 		return;
 	}
-	if (p->ti_has_commit)
-		app_text_utf8(a, p->ti_commit);
-	app_compose_set(a, p->ti_preedit);
-	ti_drop(p);
+	App *a = hs->ti_enabled_for;
+	if (!a) {
+		ti_drop(hs);
+		return;
+	}
+	if (hs->ti_has_commit)
+		app_text_utf8(a, hs->ti_commit);
+	app_compose_set(a, hs->ti_preedit);
+	ti_drop(hs);
 }
 static const struct zwp_text_input_v3_listener text_input_listener = {
 	.enter                   = ti_enter,
@@ -1185,7 +1324,10 @@ static const struct zwp_text_input_v3_listener text_input_listener = {
 
 static void wl_text_input_changed(App *a)
 {
-	ti_apply(a);
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+	ti_apply(hs);
 	if (!app_text_input(a)) {
 		a->backend_state->compose.dead = 0;
 		app_compose_set(a, NULL);
@@ -1212,87 +1354,103 @@ static const char *const CLIP_MIME[] = { NULL, "text/plain", "UTF8_STRING",
 
 /* The paste's pipe out of the epoll set and closed: at its end, or given
  * up. The owner then sees its write fail, which is how it learns. */
-static void clip_close(struct BackendState *p)
+static void clip_close(struct BackendHostState *hs)
 {
-	if (p->clip_fd >= 0) {
-		epoll_ctl(p->host->epoll_fd, EPOLL_CTL_DEL, p->clip_fd, NULL);
-		close(p->clip_fd);
-		p->clip_fd = -1;
+	if (hs->clip_fd >= 0) {
+		epoll_ctl(hs->epoll_fd, EPOLL_CTL_DEL, hs->clip_fd, NULL);
+		close(hs->clip_fd);
+		hs->clip_fd = -1;
 	}
 }
 
 /* `whole` is whether all of it arrived: a paste cut short may end inside a
- * character, and is reported as no text. */
-static void clip_finish(App *a, bool whole)
+ * character, and is reported as no text. The answer is the waiting window's;
+ * one that closed while its paste was coming answers nobody. */
+static void clip_finish(struct BackendHostState *hs, bool whole)
 {
-	struct BackendState *p = a->backend_state;
-	clip_close(p);
-	clip_in_finish(a, &p->clip, whole);
+	clip_close(hs);
+	if (!hs->clip_waiter) {
+		clip_in_free(&hs->clip);
+		return;
+	}
+	clip_in_finish(hs->clip_waiter, &hs->clip, whole);
+	hs->clip_waiter = NULL;
 }
 
 /* One read a turn, straight into the buffer the answer is handed over in. The
  * epoll set is level-triggered, so what this leaves brings the pump back; it
  * never loops on another program's descriptor, and -fanalyzer loses a buffer
  * grown inside a loop. */
-static void clip_readable(App *a)
+static void clip_readable(struct BackendHostState *hs)
 {
-	struct BackendState *p = a->backend_state;
-	if (!clip_in_room(&p->clip, CLIP_CHUNK)) {
-		clip_finish(a, false);
+	if (!clip_in_room(&hs->clip, CLIP_CHUNK)) {
+		clip_finish(hs, false);
 		return;
 	}
-	const ssize_t n = read(p->clip_fd, p->clip.buf + p->clip.len, CLIP_CHUNK);
+	const ssize_t n =
+		read(hs->clip_fd, hs->clip.buf + hs->clip.len, CLIP_CHUNK);
 	if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
 		return;
 	if (n > 0) {
-		if (!clip_in_grew(&p->clip, (size_t)n))
-			clip_finish(a, false);
+		if (!clip_in_grew(&hs->clip, (size_t)n))
+			clip_finish(hs, false);
 		return;
 	}
-	clip_finish(a, n == 0);
+	clip_finish(hs, n == 0);
 }
 
+/* Any window may ask: the selection is the program's, and the answer is the
+ * asking window's. */
 static void wl_clipboard_request(App *a)
 {
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return;
+	hs->clip_waiter = a;
 	/* Our own selection is answered from the string: asked for the long way,
 	 * this pump would wait on a pipe only it can write to. So is one set and
-	 * not yet answered, whose offer_sel is the one before (clip_sync).
-	 * Before the test for a paste in flight: that one is the owner before
-	 * this window copied, and its text is no answer to a request made since.
-	 * It is dropped unanswered, as requests share one answer (fenestal.h)
-	 * and this is it. */
-	if (a->clip_out && (p->clip_sync || (p->offer_sel && p->offer_sel_ours))) {
-		if (p->clip_fd >= 0) {
-			clip_close(p);
-			clip_in_free(&p->clip);
+	 * not yet answered, whose offer_sel is the one before (clip_sync). The
+	 * string is the window's that set it, which need not be this one. Before
+	 * the test for a paste in flight: that one is the owner before this
+	 * selection was set, and its text is no answer to a request made since. It
+	 * is dropped unanswered, as requests share one answer (fenestal.h) and
+	 * this is it. */
+	const App *owner = hs->clip_owner;
+	if (owner && owner->clip_out &&
+		(hs->clip_sync || (hs->offer_sel && hs->offer_sel_ours))) {
+		if (hs->clip_fd >= 0) {
+			clip_close(hs);
+			clip_in_free(&hs->clip);
 		}
-		app_clipboard_deliver(a, a->clip_out, a->clip_out_len);
+		app_clipboard_deliver(a, owner->clip_out, owner->clip_out_len);
+		hs->clip_waiter = NULL;
 		return;
 	}
-	if (p->clip_fd >= 0)
+	if (hs->clip_fd >= 0)
 		return; /* one already on its way answers both */
 
 	int fds[2];
-	if (!p->offer_sel || !p->offer_sel_kind || pipe2(fds, O_CLOEXEC) < 0) {
+	if (!hs->offer_sel || !hs->offer_sel_kind || pipe2(fds, O_CLOEXEC) < 0) {
 		app_clipboard_deliver(a, NULL, 0);
+		hs->clip_waiter = NULL;
 		return;
 	}
 	/* Our end only: the write end is the owner's, and it expects to block. */
 	fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
 
-	wl_data_offer_receive(p->offer_sel, CLIP_MIME[p->offer_sel_kind], fds[1]);
+	wl_data_offer_receive(hs->offer_sel, CLIP_MIME[hs->offer_sel_kind], fds[1]);
 	/* Ours has to close, or end of file never comes. */
 	close(fds[1]);
 
 	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fds[0] };
-	if (epoll_ctl(p->host->epoll_fd, EPOLL_CTL_ADD, fds[0], &ev) < 0) {
+	if (epoll_ctl(hs->epoll_fd, EPOLL_CTL_ADD, fds[0], &ev) < 0) {
 		close(fds[0]);
 		app_clipboard_deliver(a, NULL, 0);
+		hs->clip_waiter = NULL;
 		return;
 	}
-	p->clip_fd = fds[0];
-	clip_in_renew(&p->clip);
+	hs->clip_fd = fds[0];
+	clip_in_renew(&hs->clip);
 }
 
 /* Write the whole string to a reader that may have gone. That raises SIGPIPE,
@@ -1344,22 +1502,27 @@ static void source_target(void *d, struct wl_data_source *s, const char *mime)
 	(void)s;
 	(void)mime;
 }
+/* The reader is another program: the string written is the window's whose
+ * selection this is, and nothing if that window has gone. */
 static void source_send(void *data, struct wl_data_source *s, const char *mime,
 						int32_t fd)
 {
 	(void)s;
 	(void)mime;
-	App *a = data;
-	if (a->clip_out)
-		clip_write(fd, a->clip_out, a->clip_out_len);
+	struct BackendHostState *hs = hs_of(data);
+	const App *owner            = hs ? hs->clip_owner : NULL;
+	if (owner && owner->clip_out)
+		clip_write(fd, owner->clip_out, owner->clip_out_len);
 	close(fd);
 }
 /* Somebody else copied, and this offer is over. */
 static void source_cancelled(void *data, struct wl_data_source *s)
 {
-	App *a = data;
-	if (a->backend_state->clip_source == s)
-		a->backend_state->clip_source = NULL;
+	struct BackendHostState *hs = hs_of(data);
+	if (hs && hs->clip_source == s) {
+		hs->clip_source = NULL;
+		hs->clip_owner  = NULL;
+	}
 	wl_data_source_destroy(s);
 }
 static const struct wl_data_source_listener source_listener = {
@@ -1373,8 +1536,9 @@ static const struct wl_data_source_listener source_listener = {
 static void clip_sync_done(void *data, struct wl_callback *cb, uint32_t t)
 {
 	(void)t;
-	App *a                      = data;
-	a->backend_state->clip_sync = NULL;
+	struct BackendHostState *hs = hs_of(data);
+	if (hs)
+		hs->clip_sync = NULL;
 	wl_callback_destroy(cb);
 }
 static const struct wl_callback_listener clip_sync_listener = {
@@ -1383,47 +1547,47 @@ static const struct wl_callback_listener clip_sync_listener = {
 
 static void wl_clipboard_set(App *a)
 {
-	struct BackendState *p = a->backend_state;
-	if (!p->host->ddm || !p->host->dd)
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs || !hs->ddm || !hs->dd)
 		return;
 	struct wl_data_source *src =
-		wl_data_device_manager_create_data_source(p->host->ddm);
+		wl_data_device_manager_create_data_source(hs->ddm);
 	if (!src)
 		return;
-	wl_data_source_add_listener(src, &source_listener, a);
+	wl_data_source_add_listener(src, &source_listener, a->host);
 	for (int k = CLIP_KINDS - 1; k >= 1; k--)
 		wl_data_source_offer(src, CLIP_MIME[k]);
-	wl_data_source_offer(src, p->host->clip_marker);
-	wl_data_device_set_selection(p->host->dd, src, p->input_serial);
+	wl_data_source_offer(src, hs->clip_marker);
+	wl_data_device_set_selection(hs->dd, src, hs->input_serial);
 	/* A paste asked before the compositor has taken this -- a copy and a
 	 * paste in one turn, which core promises pastes the copy -- would ask
 	 * the owner before. Answered from the string until a sync says the
 	 * set is taken, and no longer: having asked is not owning, and a set
 	 * the compositor refuses leaves the selection where it was. One sync
 	 * at a time; the one it replaces is destroyed unanswered. */
-	if (p->clip_sync)
-		wl_callback_destroy(p->clip_sync);
-	p->clip_sync = wl_display_sync(p->host->display);
-	if (p->clip_sync)
-		wl_callback_add_listener(p->clip_sync, &clip_sync_listener, a);
+	if (hs->clip_sync)
+		wl_callback_destroy(hs->clip_sync);
+	hs->clip_sync = wl_display_sync(hs->display);
+	if (hs->clip_sync)
+		wl_callback_add_listener(hs->clip_sync, &clip_sync_listener, a->host);
 	/* The one it replaces is destroyed here rather than left for its
 	 * cancelled event, which is then never sent for it. */
-	if (p->clip_source)
-		wl_data_source_destroy(p->clip_source);
-	p->clip_source = src;
+	if (hs->clip_source)
+		wl_data_source_destroy(hs->clip_source);
+	hs->clip_source = src;
+	hs->clip_owner  = a;
 }
 
 static void offer_mime(void *data, struct wl_data_offer *o, const char *mime)
 {
-	App *a                 = data;
-	struct BackendState *p = a->backend_state;
-	if (o != p->offer_new)
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs || o != hs->offer_new)
 		return;
-	if (!strcmp(mime, p->host->clip_marker))
-		p->offer_new_ours = true;
+	if (!strcmp(mime, hs->clip_marker))
+		hs->offer_new_ours = true;
 	for (int k = 1; k < CLIP_KINDS; k++)
-		if (k > p->offer_new_kind && !strcmp(mime, CLIP_MIME[k]))
-			p->offer_new_kind = k;
+		if (k > hs->offer_new_kind && !strcmp(mime, CLIP_MIME[k]))
+			hs->offer_new_kind = k;
 }
 static const struct wl_data_offer_listener offer_listener = {
 	.offer = offer_mime,
@@ -1433,15 +1597,16 @@ static void dd_data_offer(void *data, struct wl_data_device *dd,
 						  struct wl_data_offer *offer)
 {
 	(void)dd;
-	App *a                 = data;
-	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
 	/* One that was described and then never named as anything. */
-	if (p->offer_new)
-		wl_data_offer_destroy(p->offer_new);
-	p->offer_new      = offer;
-	p->offer_new_kind = 0;
-	p->offer_new_ours = false;
-	wl_data_offer_add_listener(offer, &offer_listener, a);
+	if (hs->offer_new)
+		wl_data_offer_destroy(hs->offer_new);
+	hs->offer_new      = offer;
+	hs->offer_new_kind = 0;
+	hs->offer_new_ours = false;
+	wl_data_offer_add_listener(offer, &offer_listener, data);
 }
 /* A drag's offer. Nothing is accepted, so it is let go at once. */
 static void dd_enter(void *data, struct wl_data_device *dd, uint32_t serial,
@@ -1453,11 +1618,11 @@ static void dd_enter(void *data, struct wl_data_device *dd, uint32_t serial,
 	(void)s;
 	(void)x;
 	(void)y;
-	App *a = data;
-	if (!offer)
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs || !offer)
 		return;
-	if (a->backend_state->offer_new == offer)
-		a->backend_state->offer_new = NULL;
+	if (hs->offer_new == offer)
+		hs->offer_new = NULL;
 	wl_data_offer_destroy(offer);
 }
 static void dd_leave(void *d, struct wl_data_device *dd)
@@ -1483,17 +1648,18 @@ static void dd_selection(void *data, struct wl_data_device *dd,
 						 struct wl_data_offer *offer)
 {
 	(void)dd;
-	App *a                 = data;
-	struct BackendState *p = a->backend_state;
-	if (p->offer_sel && p->offer_sel != offer)
-		wl_data_offer_destroy(p->offer_sel);
-	p->offer_sel      = offer;
-	p->offer_sel_kind = 0;
-	p->offer_sel_ours = false;
-	if (offer && offer == p->offer_new) {
-		p->offer_sel_kind = p->offer_new_kind;
-		p->offer_sel_ours = p->offer_new_ours;
-		p->offer_new      = NULL;
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	if (hs->offer_sel && hs->offer_sel != offer)
+		wl_data_offer_destroy(hs->offer_sel);
+	hs->offer_sel      = offer;
+	hs->offer_sel_kind = 0;
+	hs->offer_sel_ours = false;
+	if (offer && offer == hs->offer_new) {
+		hs->offer_sel_kind = hs->offer_new_kind;
+		hs->offer_sel_ours = hs->offer_new_ours;
+		hs->offer_new      = NULL;
 	}
 }
 static const struct wl_data_device_listener data_device_listener = {
@@ -1514,47 +1680,52 @@ static void seat_extras(App *a)
 		return;
 	if (hs->ddm && !hs->dd) {
 		hs->dd = wl_data_device_manager_get_data_device(hs->ddm, hs->seat);
-		wl_data_device_add_listener(hs->dd, &data_device_listener, a);
+		wl_data_device_add_listener(hs->dd, &data_device_listener, a->host);
 	}
 	if (hs->ti_manager && !hs->ti) {
 		hs->ti =
 			zwp_text_input_manager_v3_get_text_input(hs->ti_manager, hs->seat);
-		zwp_text_input_v3_add_listener(hs->ti, &text_input_listener, a);
+		zwp_text_input_v3_add_listener(hs->ti, &text_input_listener, a->host);
 	}
 }
 
 static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
 {
-	App *a                 = data;
-	struct BackendHostState *hs = app_backend_host(a);
-	bool has_kb            = caps & WL_SEAT_CAPABILITY_KEYBOARD;
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
+	bool has_kb = caps & WL_SEAT_CAPABILITY_KEYBOARD;
 	if (has_kb && !hs->keyboard) {
 		hs->keyboard = wl_seat_get_keyboard(seat);
-		wl_keyboard_add_listener(hs->keyboard, &keyboard_listener, a);
+		wl_keyboard_add_listener(hs->keyboard, &keyboard_listener, data);
 	} else if (!has_kb && hs->keyboard) {
 		release_keyboard(hs->keyboard);
 		hs->keyboard = NULL;
-		kb_drop_held(a);
+		if (hs->kb_window)
+			kb_drop_held(hs->kb_window);
 		/* The leave that would have said so never comes for a released
 		 * keyboard; once, since a keyboard that never entered had nothing to
 		 * lose. */
-		if (hs->kb_focused) {
+		if (hs->kb_focused && hs->kb_window) {
 			hs->kb_focused = false;
-			app_post_focus(a, false);
+			app_post_focus(hs->kb_window, false);
 		}
+		hs->kb_window = NULL;
+		ti_apply(hs);
 	}
 	bool has_ptr = caps & WL_SEAT_CAPABILITY_POINTER;
 	if (has_ptr && !hs->pointer) {
 		hs->pointer = wl_seat_get_pointer(seat);
-		wl_pointer_add_listener(hs->pointer, &pointer_listener, a);
+		wl_pointer_add_listener(hs->pointer, &pointer_listener, data);
 
 		if (hs->cursor_shape_manager)
 			hs->cursor_device = wp_cursor_shape_manager_v1_get_pointer(
 				hs->cursor_shape_manager, hs->pointer);
 	} else if (!has_ptr && hs->pointer) {
 		/* The lock and the relative pointer were made from this pointer, and
-		 * must go before it does. */
-		release_pointer_capture(a);
+		 * must go before it does -- every window's, since one pointer served
+		 * them all. */
+		WL_FOR_EACH_WINDOW(hs, w) release_pointer_capture(w);
 		if (hs->cursor_device) {
 			wp_cursor_shape_device_v1_destroy(hs->cursor_device);
 			hs->cursor_device = NULL;
@@ -1562,6 +1733,7 @@ static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
 		release_pointer(hs->pointer);
 		hs->pointer        = NULL;
 		hs->pointer_inside = false;
+		hs->ptr_window     = NULL;
 	}
 }
 static void seat_name(void *d, struct wl_seat *s, const char *n)
@@ -1587,8 +1759,9 @@ static void presentation_clock(void *data, struct wp_presentation *pr,
 							   uint32_t clk)
 {
 	(void)pr;
-	App *a                              = data;
-	app_backend_host(a)->presentation_mono = clk == CLOCK_MONOTONIC;
+	struct BackendHostState *hs = hs_of(data);
+	if (hs)
+		hs->presentation_mono = clk == CLOCK_MONOTONIC;
 }
 
 static const struct wp_presentation_listener presentation_listener = {
@@ -1689,8 +1862,9 @@ static void feedback_request(App *a)
 static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 							const char *iface, uint32_t version)
 {
-	App *a                 = data;
-	struct BackendHostState *hs = app_backend_host(a);
+	struct BackendHostState *hs = hs_of(data);
+	if (!hs)
+		return;
 	if (IS(wl_compositor)) {
 		hs->compositor = BIND(wl_compositor, 4);
 	} else if (IS(wl_subcompositor)) {
@@ -1700,13 +1874,13 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 	} else if (IS(xdg_wm_base)) {
 		/* v4 for xdg_toplevel.configure_bounds; nothing above that is used. */
 		hs->wm_base = BIND(xdg_wm_base, 4);
-		xdg_wm_base_add_listener(hs->wm_base, &wm_base_listener, a);
+		xdg_wm_base_add_listener(hs->wm_base, &wm_base_listener, data);
 	} else if (IS(wl_seat) && !hs->seat) {
 		/* The first seat only. wl_seat is the one global here a compositor
 		 * may advertise more than once, and a second bound over the first
 		 * leaks a proxy whose listener still runs against this App. */
 		hs->seat = BIND(wl_seat, 5);
-		wl_seat_add_listener(hs->seat, &seat_listener, a);
+		wl_seat_add_listener(hs->seat, &seat_listener, data);
 	} else if (IS(wp_cursor_shape_manager_v1)) {
 		hs->cursor_shape_manager = BIND(wp_cursor_shape_manager_v1, 1);
 	} else if (IS(zxdg_decoration_manager_v1)) {
@@ -1720,19 +1894,16 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 	} else if (IS(wp_presentation) && !hs->presentation) {
 		hs->presentation = BIND(wp_presentation, 1);
 		wp_presentation_add_listener(hs->presentation, &presentation_listener,
-									 a);
+									 data);
 	} else if (IS(wp_fractional_scale_manager_v1)) {
 		hs->fractional_manager = BIND(wp_fractional_scale_manager_v1, 1);
 	} else if (IS(wl_output)) {
 		if (hs->output_count < WL_MAX_OUTPUTS) {
 			struct wl_output *o = BIND(wl_output, 4);
-			/* The whole slot: registry_remove() compacts with a swap, so it
-			 * may still hold a departed output's `on_surface`, which only
-			 * enter and leave write. */
 			hs->outputs[hs->output_count] =
 				(WlOutput){ .handle = o, .global = name };
 			hs->output_count++;
-			wl_output_add_listener(o, &output_listener, a);
+			wl_output_add_listener(o, &output_listener, data);
 		}
 	} else if (IS(wl_data_device_manager) && !hs->ddm) {
 		/* v1 is the selection; everything later is drag and drop. */
@@ -1742,8 +1913,8 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 		hs->ti_manager = BIND(zwp_text_input_manager_v3, 1);
 	}
 	/* The data device and the text input are made later, in wl_window_open():
-	 * their events carry window state (the offer, the composition), so they
-	 * wait until there is a window for them to land in. */
+	 * a compositor's data-device and text-input requests want a seat that has
+	 * said it exists, and the seat is here. */
 }
 
 #undef IS
@@ -1752,18 +1923,22 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 static void registry_remove(void *d, struct wl_registry *r, uint32_t name)
 {
 	(void)r;
-	App *a                 = d;
-	struct BackendHostState *hs = app_backend_host(a);
+	struct BackendHostState *hs = hs_of(d);
+	if (!hs)
+		return;
 	for (int i = 0; i < hs->output_count; i++) {
 		if (hs->outputs[i].global != name)
 			continue;
-		if (hs->current_output == hs->outputs[i].handle)
-			hs->current_output = NULL; /* re-picked below, from what is left */
+		/* The output is every window's set, each by handle: cleared before
+		 * the slot is compacted, so no window is left naming a departed
+		 * output. */
+		WL_FOR_EACH_WINDOW(hs, w)
+			wl_output_drop(w->backend_state, hs->outputs[i].handle);
 		release_output(hs->outputs[i].handle);
 		hs->outputs[i] = hs->outputs[--hs->output_count];
 		/* Unconditionally: the published names carry every output the surface
-		 * is on, followed or not. */
-		outputs_changed(a);
+		 * is on, followed or not, and each window's set changed. */
+		WL_FOR_EACH_WINDOW(hs, w) outputs_changed(w);
 		break;
 	}
 }
@@ -1776,9 +1951,20 @@ static const struct wl_registry_listener registry_listener = {
  * window leaves one while still on another. */
 static void surface_on_output(App *a, struct wl_output *o, bool on)
 {
-	WlOutput *oi = output_info_for(a, o);
-	if (oi)
-		oi->on_surface = on;
+	struct BackendState *p = a->backend_state;
+	if (on) {
+		if (wl_on_output(p, o))
+			return;
+		if (p->on_output_count < WL_MAX_OUTPUTS)
+			p->on_output[p->on_output_count++] = o;
+	} else {
+		for (int i = 0; i < p->on_output_count; i++) {
+			if (p->on_output[i] != o)
+				continue;
+			p->on_output[i] = p->on_output[--p->on_output_count];
+			break;
+		}
+	}
 	outputs_changed(a);
 }
 static void surface_enter(void *data, struct wl_surface *s, struct wl_output *o)
@@ -1859,8 +2045,8 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs,
 	a->is_maximized     = p->cfg_maximized;
 	/* The caret was reported in surface space, grab ring included, and the
 	 * ring has just come or gone. */
-	if (was_fullscreen != a->is_fullscreen && p->ti_enabled)
-		ti_apply(a);
+	if (was_fullscreen != a->is_fullscreen && p->host->ti_enabled_for == a)
+		ti_apply(p->host);
 
 	/* Zero is "pick your own": the last floating size, then the opening one. */
 	int def_w, def_h;
@@ -2302,7 +2488,7 @@ static FNL_MUST_USE FnlResult connect_display(App *a)
 		return fnl_fail(FNL_ERR_NO_DISPLAY,
 						"no Wayland display (is WAYLAND_DISPLAY set?)");
 	hs->registry = wl_display_get_registry(hs->display);
-	wl_registry_add_listener(hs->registry, &registry_listener, a);
+	wl_registry_add_listener(hs->registry, &registry_listener, a->host);
 	/* Two roundtrips: the first delivers the globals, the second the events
 	 * (seat caps, output scale) emitted when we bound them. */
 	wl_display_roundtrip(hs->display);
@@ -2447,6 +2633,7 @@ static FnlResult wl_host_open(App *a)
 	/* Not the calloc's zero, which is stdin: wl_host_close() closes whatever
 	 * is not negative. */
 	hs->wake_fd = hs->epoll_fd = hs->repeat_fd = hs->uevent_fd = -1;
+	hs->clip_fd = -1;
 	snprintf(hs->clip_marker, sizeof hs->clip_marker,
 			 "application/x-fenestal-owner-%ld", (long)getpid());
 	hs->repeat_rate  = REPEAT_RATE_DEFAULT;
@@ -2469,35 +2656,37 @@ static FnlResult wl_host_open(App *a)
 }
 
 /* The window's half: its surface, its xdg objects and its frames, on the
- * host's connection. */
+ * host's connection. A second window is another of these on the same display
+ * and seat; the seat's input is routed to it by the enter/leave its surface
+ * gets (DESIGN *A second window*). */
 static FnlResult wl_window_open(App *a)
 {
-	/* One seat and one display: a second window would need the seat's input
-	 * routed between two by enter/leave, which this backend does not yet do
-	 * (DESIGN *A second window*; TODO says it needs a GNOME round to prove).
-	 * The first window is the one fnl_init() made. */
-	if (a->host->windows != a)
-		return fnl_fail(FNL_ERR_UNSUPPORTED,
-						"Wayland: a second window needs the seat's input "
-						"routed between two, which is not built (DESIGN *A "
-						"second window*)");
-
 	struct BackendState *p = calloc(1, sizeof *p);
 	if (!p)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory for the "
 											   "Wayland backend state");
 	a->backend_state = p;
 	p->host          = app_backend_host(a);
-	/* Not the calloc's zero, which is stdin: wl_window_close() closes
-	 * whatever is not negative. */
-	p->clip_fd      = -1;
-	p->feedback_cur = -1;
+	p->feedback_cur  = -1;
 
-	/* The data device and the text input, now that their events have a window
-	 * to land in (seat_extras() says why they wait for one). */
+	/* Open before fnl_window_create() links it into Host::windows, so the
+	 * seat's events for its surface -- which arrive as soon as the window is
+	 * mapped, inside create_window() -- find it (win_for_surface()). */
+	p->open_next = a->host->backend_host->open_list;
+	a->host->backend_host->open_list = a;
+
+	/* The data device and the text input, once, when the first window asks:
+	 * they are the seat's and their events are routed by the host
+	 * (seat_extras()). */
 	seat_extras(a);
 
-	FNL_TRY(create_window(a));
+	FnlResult rc = create_window(a);
+	if (rc < 0) {
+		/* Unwound by fnl_window_create() through window_close(); only the
+		 * open list is this function's to give back, and window_close() takes
+		 * it out. */
+		return rc;
+	}
 	return FNL_OK;
 }
 
@@ -2515,23 +2704,23 @@ static void wl_wakeup(App *a)
  * then: the set is level-triggered, and EPOLLOUT on a socket with room would
  * end every wait at once. A refused epoll_ctl leaves it as it was, and the
  * requests wait for the next wake as before. */
-static void display_watch_out(struct BackendState *p, bool on)
+static void display_watch_out(struct BackendHostState *hs, bool on)
 {
-	if (p->host->display_out == on)
+	if (hs->display_out == on)
 		return;
-	const int fd          = wl_display_get_fd(p->host->display);
+	const int fd          = wl_display_get_fd(hs->display);
 	struct epoll_event ev = { .events  = EPOLLIN | (on ? EPOLLOUT : 0u),
 							  .data.fd = fd };
-	if (epoll_ctl(p->host->epoll_fd, EPOLL_CTL_MOD, fd, &ev) == 0)
-		p->host->display_out = on;
+	if (epoll_ctl(hs->epoll_fd, EPOLL_CTL_MOD, fd, &ev) == 0)
+		hs->display_out = on;
 }
 
 /* prepare_read/read_events is the form that lets the render thread call
  * wl_display_flush concurrently without losing a wakeup. */
 static void wl_pump(App *a, int timeout_ms)
 {
-	struct BackendState *p = a->backend_state;
-	struct wl_display *d   = p->host->display;
+	struct BackendHostState *hs = app_backend_host(a);
+	struct wl_display *d        = hs->display;
 
 	/* prepare_read refuses while the queue holds events, and dispatch_pending
 	 * stops draining once the display has latched an error: return without
@@ -2539,30 +2728,31 @@ static void wl_pump(App *a, int timeout_ms)
 	while (wl_display_prepare_read(d) != 0)
 		if (wl_display_dispatch_pending(d) < 0)
 			return;
-	display_watch_out(p, wl_display_flush(d) < 0 && errno == EAGAIN);
+	display_watch_out(hs, wl_display_flush(d) < 0 && errno == EAGAIN);
 
 	/* For ever, unless a paste's owner owes its next piece or the caller's
 	 * own loop asked to be back sooner (fnl_pump()). */
-	int wait_ms = loop_wait_ms(p->clip_fd >= 0, p->clip.deadline);
+	int wait_ms = loop_wait_ms(hs->clip_fd >= 0, hs->clip.deadline);
 	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
 		wait_ms = timeout_ms;
 	struct epoll_event evs[4];
-	int n = epoll_wait(p->host->epoll_fd, evs, 4, wait_ms);
+	int n = epoll_wait(hs->epoll_fd, evs, 4, wait_ms);
 
 	/* n < 0 (EINTR) leaves all of these clear, and the read is cancelled. */
 	uint32_t display_ev = 0;
 	bool woken          = false;
 	bool repeat         = false;
 	bool paste          = false;
+	bool uevent         = false;
 	for (int i = 0; i < n; i++) {
-		if (evs[i].data.fd == p->host->wake_fd)
+		if (evs[i].data.fd == hs->wake_fd)
 			woken = true;
-		else if (evs[i].data.fd == p->host->repeat_fd)
+		else if (evs[i].data.fd == hs->repeat_fd)
 			repeat = true;
-		else if (evs[i].data.fd == p->clip_fd)
+		else if (evs[i].data.fd == hs->clip_fd)
 			paste = true;
-		else if (evs[i].data.fd == p->host->uevent_fd)
-			loop_uevent_drain(a, p->host->uevent_fd);
+		else if (evs[i].data.fd == hs->uevent_fd)
+			uevent = true;
 		else
 			display_ev |= evs[i].events;
 	}
@@ -2577,19 +2767,31 @@ static void wl_pump(App *a, int timeout_ms)
 		wl_display_cancel_read(d); /* woken by the eventfd, or epoll failed */
 
 	if (woken)
-		loop_wake_drain(p->host->wake_fd);
+		loop_wake_drain(hs->wake_fd);
 
 	wl_display_dispatch_pending(d);
 
 	/* After the dispatch: a release in this same turn has then stopped the
-	 * timer. */
+	 * timer. The repeat is the focused window's. */
 	if (repeat)
-		key_repeat_fire(a);
+		key_repeat_fire(hs);
 	/* Guarded again: a dispatch above may have finished or dropped it. */
-	if (paste && p->clip_fd >= 0)
-		clip_readable(a);
-	if (p->clip_fd >= 0 && clip_in_expired(&p->clip))
-		clip_finish(a, false);
+	if (paste && hs->clip_fd >= 0)
+		clip_readable(hs);
+	if (hs->clip_fd >= 0 && clip_in_expired(&hs->clip))
+		clip_finish(hs, false);
+	/* A GPU that came or went is every window's: each draws with it. */
+	if (uevent) {
+		char buf[4096];
+		bool gpu = false;
+		ssize_t got;
+		while ((got = recv(hs->uevent_fd, buf, sizeof buf - 1, 0)) > 0) {
+			buf[got] = '\0';
+			gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
+		}
+		if (gpu || (got < 0 && errno == ENOBUFS))
+			WL_FOR_EACH_WINDOW(hs, w) app_gpu_hotplug(w);
+	}
 }
 
 /* [render] Safe against the pump's prepare_read and dispatch. After the
@@ -2825,27 +3027,51 @@ static FnlResult wl_check_error(App *a)
 /* The window's close: its surface, its xdg objects and its frames, given back
  * before the host's managers that made them go (wl_host_close). Innermost
  * first, and every step conditional: it is also the failure path out of
- * wl_window_open(). */
+ * wl_window_open(). What the seat held for it is given back too: the focus,
+ * the pointer and any paste it was waiting for would otherwise name a window
+ * that is gone. */
 static void wl_window_close(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	if (!p)
 		return;
 
-	release_pointer_capture(a);
+	struct BackendHostState *hs = p->host;
 
-	ti_drop(p);
-	if (p->clip_source)
-		wl_data_source_destroy(p->clip_source);
-	if (p->clip_sync)
-		wl_callback_destroy(p->clip_sync);
-	if (p->offer_new)
-		wl_data_offer_destroy(p->offer_new);
-	if (p->offer_sel)
-		wl_data_offer_destroy(p->offer_sel);
-	if (p->clip_fd >= 0)
-		close(p->clip_fd);
-	clip_in_free(&p->clip);
+	/* Out of the host's open list first: nothing the events below dispatch may
+	 * find it there and hand it work. */
+	for (App **at = &hs->open_list; *at;
+		 at = &(*at)->backend_state->open_next) {
+		if (*at == a) {
+			*at = p->open_next;
+			break;
+		}
+	}
+	p->open_next = NULL;
+
+	release_pointer_capture(a);
+	ti_drop(hs);
+
+	if (hs->kb_window == a) {
+		hs->kb_window = NULL;
+		ti_apply(hs);
+	}
+	if (hs->ptr_window == a)
+		hs->ptr_window = NULL;
+	/* The selection is this program's, but the string is this window's: the
+	 * source goes, and the selection ends with it. */
+	if (hs->clip_owner == a) {
+		hs->clip_owner = NULL;
+		if (hs->clip_source) {
+			wl_data_source_destroy(hs->clip_source);
+			hs->clip_source = NULL;
+		}
+	}
+	if (hs->clip_waiter == a) {
+		hs->clip_waiter = NULL;
+		clip_close(hs);
+		clip_in_free(&hs->clip);
+	}
 
 	if (p->decoration)
 		zxdg_toplevel_decoration_v1_destroy(p->decoration);
@@ -2888,6 +3114,20 @@ static void wl_host_close(App *a)
 	struct BackendHostState *hs = app_backend_host(a);
 	if (!hs)
 		return;
+
+	/* The selection and the paste the seat held: a source's data is the host,
+	 * so its listeners still run until it is destroyed here. */
+	if (hs->clip_source)
+		wl_data_source_destroy(hs->clip_source);
+	if (hs->clip_sync)
+		wl_callback_destroy(hs->clip_sync);
+	if (hs->offer_new)
+		wl_data_offer_destroy(hs->offer_new);
+	if (hs->offer_sel)
+		wl_data_offer_destroy(hs->offer_sel);
+	if (hs->clip_fd >= 0)
+		close(hs->clip_fd);
+	clip_in_free(&hs->clip);
 
 	if (hs->ti)
 		zwp_text_input_v3_destroy(hs->ti);
