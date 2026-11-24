@@ -18,14 +18,20 @@
 layout(location = 0) out vec2 v_uv;
 
 /* The same block scene.frag declares, so this stage can carry the temporal
- * accumulation's subpixel offset. Declared whole though only `jitter` and
- * `size` are read here (every stage of one program declares the block as it
- * is), and the fields the fragment stage uses are simply not touched. */
+ * accumulation's subpixel offset and the canvas this window shows a part of.
+ * Declared whole though only `size` and `jitter` are read here (every stage
+ * of one program declares the block as it is), and the fields the fragment
+ * stage uses are simply not touched. */
 layout(push_constant) uniform Push {
-	vec2  size;
-	vec2  jitter;    /* the temporal accumulation's subpixel offset, px */
-	float time;
-	uint  srgb;
+	vec2  size;       /* this window's scene resolution, px */
+	vec2  jitter;     /* the temporal accumulation's subpixel offset, px */
+	vec2  canvas;     /* the pattern's whole canvas, px */
+	vec2  origin;     /* this window's corner inside that canvas, px */
+	vec4  tint;       /* linear-light multiplier: the window's own scene */
+	float time;       /* seconds; frozen at 0 when motion is off */
+	float time_bias;  /* this window's own phase, for its own scene */
+	uint  srgb;       /* nonzero when the surface blends in linear light */
+	float pad;
 } pc;
 
 void main()

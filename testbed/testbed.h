@@ -82,6 +82,60 @@ void testbed_renderer_label(FnlApp *app, char *out, size_t size);
  * under --freeze, a held value so the picture keeps one pose while the
  * library clock (and so the temporal jitter) runs. */
 float testbed_scene_time(const FnlFrame *frame);
+
+/* ---- how a window's scene is shown ---------------------------------------
+ *
+ * Every window is a window on the same host and the same pattern, so what it
+ * draws of it is the program's to say. Three kinds, which main.c's F12 key
+ * cycles for the second window (F10 shows and hides that window):
+ *
+ *   MIRROR  the whole pattern, the same in every window -- the default, and
+ *           what two windows of one host drew before this was a choice.
+ *   JOIN    one picture across the windows: the pattern laid out on a canvas
+ *           as wide as the windows side by side, each window showing the
+ *           part of it at its own offset. The star and the sweep cross the
+ *           seam rather than repeating.
+ *   OWN     a window's own picture: its own canvas, so no part of it is
+ *           another's, its own tint, and its own phase on the clock.
+ *
+ * The two windows need not agree: the first is a mirror while the second
+ * joins it, and neither draws a part of the other's pattern that it is not
+ * told to. What a window draws is its own view, set by whoever holds that
+ * window's app. */
+typedef enum {
+	TESTBED_VIEW_MIRROR = 0,
+	TESTBED_VIEW_JOIN   = 1,
+	TESTBED_VIEW_OWN    = 2,
+} TestbedView;
+
+/* The view one window draws: which kind, in window points (the size a window
+ * is, in the units the overlay speaks) and in the canvas's pixels. Both a
+ * scene_*.c and the status readout ask it, so what the readout says is what
+ * the scene drew. From on_record or on_overlay, on the render thread, for
+ * that window's app; a pure function of the app's place on the host and the
+ * size, so two windows cannot disagree about a shared canvas. */
+typedef struct {
+	TestbedView kind;
+	float       size[2];   /* this window's scene, px */
+	float       canvas[2]; /* the pattern's whole canvas, px */
+	float       origin[2]; /* this window's corner inside it, px */
+	float       tint[4];   /* linear-light multiplier, 1,1,1 for a mirror */
+	float       time_bias; /* this window's phase on the scene's clock */
+} TestbedViewSpec;
+
+void testbed_scene_view(FnlApp *app, const FnlFrame *frame,
+						TestbedViewSpec *out);
+/* The current kind's name -- "mirror", "join" or "own" -- for the status
+ * readout and the harness's log line. */
+const char *testbed_view_name(void);
+
+/* Forget a window's picture when its window is given back. The table is keyed
+ * by the app, and a window closed and opened again can be handed the same
+ * address: its slot would then hold an image made on the destroyed device and
+ * draw it on the new one. The image itself is the library's to free at
+ * fnl_shutdown(); this only forgets it. Called from the main thread once the
+ * window's render thread is joined, never from a callback. */
+void testbed_overlay_picture_forget(FnlApp *app);
 bool scene_d3d12_vram(FnlApp *app, double *mib);
 bool scene_metal_vram(FnlApp *app, double *mib);
 bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d);

@@ -122,10 +122,12 @@ typedef struct {
 
 /* The host's own half: the event loop that serves every window's connection.
  * One epoll set, one eventfd to wake it and one uevent socket, made once when
- * the first window opens and held until the last window goes. The connections
- * themselves are the windows' (BackendState::conn): each window connects to
- * the server on its own, as the "Two connections" comment below says, so the
- * host owns no connection -- only the set that waits on all of them. */
+ * the first window opens and held until the last window goes. A window's
+ * *event* connection (BackendState::conn) is its own, so the host owns no
+ * connection to the pump -- only the set that waits on all of them. It does
+ * own the graphics connection (BackendState::gfx), which no pump reads: one
+ * renderer a program, so one presentation connection, and every window's
+ * Vulkan surface is made on it. */
 struct BackendHostState {
 	/* The eventfd any thread can wake the pump with, and the epoll set
 	 * watching it beside every window's connection. */
@@ -134,6 +136,15 @@ struct BackendHostState {
 	/* The uevent socket (loop_uevent_open()), in the epoll set: a GPU that
 	 * came or went. -1 where the kernel has no such group. */
 	int uevent_fd;
+	/* The presentation engine's connection, the host's, made with the first
+	 * window and let go with the last (BackendState::gfx borrows it). One
+	 * for every window because the renderer is: a window closed and another
+	 * opened reuses it rather than destroying a connection the Vulkan WSI
+	 * keyed state on and letting the next connect at its address -- which is
+	 * what made Mesa's X11 WSI issue requests against the dead connection's
+	 * resources (XFixes regions, and once a 38 GiB allocation). NULL until
+	 * the first window opens. */
+	xcb_connection_t *gfx;
 };
 
 struct BackendState {
@@ -142,12 +153,15 @@ struct BackendState {
 
 	/* Two connections to the one server, and which is which is load-bearing.
 	 * `conn` is the window's: the main thread creates the window on it and is
-	 * the only thread that ever reads it. `gfx` is handed to
-	 * VK_KHR_xcb_surface and belongs to the presentation engine, which blocks
-	 * in it once a frame from the render thread. Shared, that blocking read
-	 * would move the pump's events out of the socket into xcb's decoded
-	 * queue, and the pump's epoll would sleep on input it had already been
-	 * handed; the split is what lets that wait be indefinite.
+	 * the only thread that ever reads it. `gfx` is the host's (borrowed here,
+	 * BackendHostState::gfx) and is handed to VK_KHR_xcb_surface: it belongs
+	 * to the presentation engine, which blocks in it once a frame from the
+	 * render thread. Shared with `conn`, that blocking read would move the
+	 * pump's events out of the socket into xcb's decoded queue, and the
+	 * pump's epoll would sleep on input it had already been handed; the split
+	 * is what lets that wait be indefinite. It is not shared *between
+	 * windows*: no pump reads it, the renderer is one a program, and every
+	 * window's surface is made on the one connection.
 	 *
 	 * The rule is about readers, and a write may cross with one duty: libxcb
 	 * polls for input while it waits to send, moving what has arrived into

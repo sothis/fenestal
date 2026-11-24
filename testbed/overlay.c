@@ -21,6 +21,7 @@
 
 #include "testbed.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -128,7 +129,9 @@ static const struct {
 	{ "I", "Picture", { FNL_KEY_UNKNOWN } },
 	{ "O", "Shapes", { FNL_KEY_UNKNOWN } },
 	{ "F9", "Release mouse", { FNL_KEY_UNKNOWN } },
+	{ "F10", "Second window", { FNL_KEY_UNKNOWN } },
 	{ "F11", "Fullscreen", { FNL_KEY_UNKNOWN } },
+	{ "F12", "Scene view", { FNL_KEY_UNKNOWN } },
 	{ "Esc", "Quit", { FNL_KEY_UNKNOWN } },
 };
 #define BINDING_COUNT ((int)(sizeof BINDINGS / sizeof BINDINGS[0]))
@@ -145,7 +148,7 @@ static const struct {
 
 /* The status readout's rows. The panel is placed before the array of strings
  * exists; the assert in draw_status() keeps the two counts together. */
-enum { STATUS_ROWS = 5 };
+enum { STATUS_ROWS = 6 };
 
 /* Panel geometry, in window points. Each figure is asked for twice -- once to
  * draw and once to decide whether to -- so they are functions. The help
@@ -390,6 +393,18 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 	snprintf(mode, sizeof mode, "%dx%d px   %s%s%s%s", f->area_w_px,
 			 f->area_h_px, scene, aa, mo, fnl_present_mode(app));
 
+	/* What this window draws of the pattern, and where it sits on the canvas
+	 * a join shares: the one fact an echo and a row cannot carry, and the
+	 * one a harness reads to tell a mirror from a join at a glance. */
+	char view[96];
+	{
+		TestbedViewSpec v;
+		testbed_scene_view(app, f, &v);
+		snprintf(view, sizeof view, "View  %s   canvas %.0fx%.0f at %.0f,%.0f",
+				 testbed_view_name(), (double)v.canvas[0], (double)v.canvas[1],
+				 (double)v.origin[0], (double)v.origin[1]);
+	}
+
 	int x = MARGIN;
 	/* status_panel_top() is where the *background* starts; the first row of
 	 * text sits one pad below it. */
@@ -397,7 +412,7 @@ static void draw_status(FnlApp *app, const FnlFrame *f)
 
 	/* On a panel of its own: the test pattern's colour bars run under this
 	 * corner, and dim grey text on saturated red is not legible. */
-	const char *rows[] = { gpu, plat, out, mode, cur };
+	const char *rows[] = { gpu, plat, out, mode, view, cur };
 	_Static_assert(sizeof rows / sizeof rows[0] == STATUS_ROWS,
 				   "the status rows and STATUS_ROWS have drifted apart");
 	int longest = 0;
@@ -469,8 +484,49 @@ static void draw_reticle(FnlApp *app)
  * again. I destroys it and makes it again, which is the free path a round
  * cannot otherwise reach: nothing drawn after an exit could show it. */
 #define PICTURE_PX 32
-static FnlImage *g_picture;
-static bool g_picture_on = true;
+
+/* The picture is one per window, keyed by the app: each window has its own
+ * device, and an image made on one is not drawable on another. A single
+ * process-wide picture -- which is what this once was -- is drawn by the
+ * second window against the first's device and faults the driver, which is
+ * what two windows' render threads sharing one global found. A slot is a
+ * window's own, and a window's overlay runs only on its render thread, so
+ * two threads never touch the same one. Sized like the scenes' table. */
+#define PICTURE_WINDOWS 8
+typedef struct {
+	FnlApp   *app;
+	FnlImage *img;
+	bool      on;
+} Picture;
+static Picture g_pictures[PICTURE_WINDOWS];
+/* Two windows' overlays can first run at the same moment, each hunting a free
+ * slot; this is the one shared thing they could both take. Held only across
+ * the slot lookup, never the drawing. */
+static atomic_flag g_pictures_lock = ATOMIC_FLAG_INIT;
+
+/* This window's picture, made on the first ask (I can destroy it, and the next
+ * frame makes it again). NULL when every slot is taken, which is more windows
+ * than the testbed draws. */
+static Picture *picture_for(FnlApp *app)
+{
+	Picture *found = NULL, *free_slot = NULL;
+	while (atomic_flag_test_and_set(&g_pictures_lock))
+		;
+	for (int i = 0; i < PICTURE_WINDOWS && !found; i++) {
+		if (g_pictures[i].app == app)
+			found = &g_pictures[i];
+		else if (!g_pictures[i].app && !free_slot)
+			free_slot = &g_pictures[i];
+	}
+	if (!found && free_slot) {
+		free_slot->app = app;
+		free_slot->img = NULL;
+		free_slot->on  = true;
+		found          = free_slot;
+	}
+	atomic_flag_clear(&g_pictures_lock);
+	return found;
+}
 
 /* White beside black, which no part of the scene is: the harness reads a row
  * across it and counts the white, so the picture answers whether it drew and
@@ -495,21 +551,55 @@ static void picture_pixels(unsigned char *px)
  * the row is otherwise about. */
 static void picture_draw(FnlApp *app)
 {
-	if (g_picture_on && !g_picture) {
+	Picture *p = picture_for(app);
+	if (!p || !p->on)
+		return;
+	if (!p->img) {
 		unsigned char px[PICTURE_PX * PICTURE_PX * 4];
 		picture_pixels(px);
-		g_picture =
+		p->img =
 			fnl_image_create(app, PICTURE_PX, PICTURE_PX, FNL_IMAGE_RGBA8, px);
-		if (!g_picture) /* a renderer that cannot draw a picture */
-			g_picture_on = false;
+		if (!p->img) { /* a renderer that cannot draw a picture */
+			p->on = false;
+			return;
+		}
 	}
-	if (!g_picture)
-		return;
 	int w_pt, h_pt;
 	fnl_window_size_pt(app, &w_pt, &h_pt);
 	const int side = h_pt / 4 > 16 ? h_pt / 4 : 16;
 	fnl_overlay_image(app, w_pt * 6 / 10, (h_pt - side) / 2, side, side,
-					  g_picture);
+					  p->img);
+}
+
+/* I: this window's picture off, and its image destroyed; the next press on
+ * with the image made again on this window's device. */
+static void picture_toggle(FnlApp *app)
+{
+	Picture *p = picture_for(app);
+	if (!p)
+		return;
+	p->on = !p->on;
+	if (!p->on && p->img) {
+		fnl_image_destroy(p->img);
+		p->img = NULL;
+	}
+}
+
+/* The window is gone: its slot must not outlive it. A closed window's app can
+ * be freed and the next window handed the same address, and the slot would
+ * then hand that window an image made on the destroyed device. The image is
+ * the library's to free at fnl_shutdown(); this only forgets the slot. */
+void testbed_overlay_picture_forget(FnlApp *app)
+{
+	while (atomic_flag_test_and_set(&g_pictures_lock))
+		;
+	for (int i = 0; i < PICTURE_WINDOWS; i++)
+		if (g_pictures[i].app == app) {
+			g_pictures[i].app = NULL;
+			g_pictures[i].img = NULL;
+			g_pictures[i].on  = true;
+		}
+	atomic_flag_clear(&g_pictures_lock);
 }
 
 /* ---- the shapes panel ----------------------------------------------------
@@ -774,11 +864,7 @@ void testbed_overlay_event(FnlApp *app, const FnlEvent *ev)
 		 * mid-run, not at exit -- and making it again is the create path after
 		 * a device that has already uploaded one. */
 		if (ev->key.pressed && !ev->key.repeat && ev->key.key == FNL_KEY_I) {
-			g_picture_on = !g_picture_on;
-			if (!g_picture_on && g_picture) {
-				fnl_image_destroy(g_picture);
-				g_picture = NULL;
-			}
+			picture_toggle(app);
 			fnl_invalidate(app);
 		}
 		/* O: the shapes panel -- the wash, the rounded corner, the disc and

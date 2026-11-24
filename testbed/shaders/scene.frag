@@ -31,10 +31,15 @@
  */
 
 layout(push_constant) uniform Push {
-	vec2  size;           /* scene resolution, pixels */
-	vec2  jitter;         /* the temporal accumulation's subpixel offset, px */
-	float time;           /* seconds; frozen at 0 when motion is off */
-	uint  srgb;           /* nonzero when the surface blends in linear light */
+	vec2  size;      /* this window's scene resolution, px */
+	vec2  jitter;    /* the temporal accumulation's subpixel offset, px */
+	vec2  canvas;    /* the pattern's whole canvas, px */
+	vec2  origin;    /* this window's corner inside that canvas, px */
+	vec4  tint;      /* linear-light multiplier: the window's own scene */
+	float time;      /* seconds; frozen at 0 when motion is off */
+	float time_bias; /* this window's own phase, for its own scene */
+	uint  srgb;      /* nonzero when the surface blends in linear light */
+	float pad;
 } pc;
 
 layout(location = 0) in  vec2 v_uv;
@@ -64,9 +69,16 @@ const float PI = 3.14159265;
 
 void main()
 {
-	vec2  p   = v_uv * pc.size;          /* scene pixels, origin top-left */
-	vec2  mid = pc.size * 0.5;
-	float minside = min(pc.size.x, pc.size.y);
+	/* The pattern is laid out on the canvas, and this window shows the part
+	 * of it that starts at `origin`: a window showing the whole canvas is
+	 * one at (0, 0), and several windows each showing a piece of one picture
+	 * are the same pattern at different origins -- a join. The canvas is
+	 * also what the star and the ramps are sized against, so a shared canvas
+	 * splits one star across two windows rather than drawing one each. */
+	vec2  p   = v_uv * pc.size + pc.origin;  /* canvas pixels, top-left */
+	vec2  mid = pc.canvas * 0.5;
+	float minside = min(pc.canvas.x, pc.canvas.y);
+	const float t_now = pc.time + pc.time_bias;
 
 	/* Linear from here: every colour is linearised where it is chosen and
 	 * not once at the end, because nearly all of them are constants, and a
@@ -106,10 +118,10 @@ void main()
 	/* Ramps along the bottom: continuous grey, stepped grey, then primaries.
 	 * Sized in scene pixels so they stay one band thick however small the
 	 * scene is, and skipped outright when there is no room for them. */
-	float band = max(floor(pc.size.y * 0.045), 4.0);
-	float base = pc.size.y - 3.0 * band - 2.0;
-	if (pc.size.y > 12.0 * band && p.y >= base && p.y < base + 3.0 * band) {
-		float t = clamp(p.x / max(pc.size.x - 1.0, 1.0), 0.0, 1.0);
+	float band = max(floor(pc.canvas.y * 0.045), 4.0);
+	float base = pc.canvas.y - 3.0 * band - 2.0;
+	if (pc.canvas.y > 12.0 * band && p.y >= base && p.y < base + 3.0 * band) {
+		float t = clamp(p.x / max(pc.canvas.x - 1.0, 1.0), 0.0, 1.0);
 		if (p.y < base + band) {
 			c = vec3(to_linear(t));                       /* continuous */
 		} else if (p.y < base + 2.0 * band) {
@@ -132,17 +144,31 @@ void main()
 	}
 
 	/* A bar sweeping across, for tearing and pacing -- the one thing a still
-	 * frame cannot show. Not drawn while motion is off, which holds the
-	 * time at zero. */
-	float sweep = fract(pc.time * 0.25) * pc.size.x;
-	if (pc.time > 0.0 && abs(p.x - sweep) < max(pc.size.x * 0.004, 2.0))
+	 * frame cannot show. Gated on the *clock* (pc.time) and not this
+	 * window's phase, so a window with a time_bias still rests when the
+	 * scene's motion is off: the bias moves the star, not a still window's
+	 * recording. Sized against the canvas so a joined picture passes it
+	 * from one window to the next. */
+	float sweep = fract(t_now * 0.25) * pc.canvas.x;
+	if (pc.time > 0.0 && abs(p.x - sweep) < max(pc.canvas.x * 0.004, 2.0))
 		c = lin(vec3(0.95, 0.75, 0.25));
 
-	/* The scene's own edge, two pixels of it. Under letterboxing this is the
-	 * line the black bars start at; under a stretch it is what goes oval. */
-	if (p.x < 2.0 || p.y < 2.0 || p.x >= pc.size.x - 2.0 ||
-		p.y >= pc.size.y - 2.0)
+	/* The scene's own edge, two pixels of it, on the *window's* rectangle
+	 * and not the canvas's: under letterboxing this is the line the black
+	 * bars start at, and under a join it is where one window's piece ends.
+	 * Drawn in the window's own coordinates, so every window frames itself
+	 * whole whatever part of the canvas it shows. */
+	vec2 q = v_uv * pc.size;
+	if (q.x < 2.0 || q.y < 2.0 || q.x >= pc.size.x - 2.0 ||
+		q.y >= pc.size.y - 2.0)
 		c = lin(vec3(0.35, 0.85, 0.45));
+
+	/* The window's own scene: a tint, a phase and a canvas of its own, so a
+	 * second window can draw a picture that is plainly not the first's --
+	 * a mirror is the default (tint 1, no bias, the same canvas), a joined
+	 * picture shares the canvas and differs in origin, and an own scene
+	 * differs in all three. */
+	c *= pc.tint.rgb;
 
 	/* Linearised unconditionally, above, then encoded on the way out unless
 	 * the hardware is going to. The conditional is on the *output*, not the

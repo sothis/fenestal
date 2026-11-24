@@ -4339,12 +4339,25 @@ for the length of the bound: a pointer stopping short of where it was put down
 and catching up a tenth of a second later.
 
 So `BackendState::conn` is the window's and only the pump reads it, and
-`BackendState::gfx` is handed to `VK_KHR_xcb_surface` and belongs to the
-presentation engine. The window is created on the first and presented into
-through the second, which needs no arrangement: an X resource id belongs to the
-server, not to the client that asked for it. The cost is one descriptor, one
-`xcb_connect` at startup, and one rule — a *reader* on either side must not
-cross over. A write may, with one duty: libxcb polls the socket for input
+`BackendHostState::gfx` is handed to `VK_KHR_xcb_surface` and belongs to the
+presentation engine — the *host's*, one for the program, since a host has one
+renderer and so one presentation engine. The window is created on the first
+and presented into through the second, which needs no arrangement: an X
+resource id belongs to the server, not to the client that asked for it. The
+cost is one descriptor, one `xcb_connect` at startup, and one rule — a
+*reader* on either side must not cross over.
+
+The host's and not the window's is the multi-window half. Mesa's X11 WSI
+keeps state keyed by the `xcb_connection_t *` it was handed, XFixes regions
+among it; a connection destroyed with its window and rebuilt by the next one
+can come back at the same address, and the engine then names regions on a
+display that is gone — measured on RADV as `X error 1 … request 137.5`
+(XFixes) on the graphics connection and once `radv/amdgpu: Failed to allocate a
+buffer: size 40802189312 bytes`, a 38 GiB size derived from the stale region. A
+second window's own connection bought nothing in exchange: it was never read by
+the pump, and there is one renderer to present with.
+
+A write may cross over, with one duty: libxcb polls the socket for input
 while it waits to send, and reads whatever has arrived into the decoded queue,
 which opens the same window from the writing side. So whoever writes on
 `conn` off the pump wakes the pump afterwards, and its turn drains the queue:
@@ -4360,8 +4373,9 @@ event queue has no reader of its own, so the pump drains it (`gfx_drain`) with
 there is errors, worth a line each, and Present events orphaned when a swapchain
 rebuild unregistered the special queue they were bound for; once per pump turn
 is enough for the second, since a rebuild answers a resize or a state change,
-which is an event, which is what woke the pump. And `x11_close()` disconnects
-the graphics half *first*, before the window it presents into is destroyed.
+which is an event, which is what woke the pump. And `x11_host_close()`
+disconnects the graphics half *first*, before the windows it presented into
+are destroyed.
 
 ### At rest
 

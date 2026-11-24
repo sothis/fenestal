@@ -22,10 +22,15 @@
  */
 
 layout(push_constant) uniform Push {
-	vec2  size;
+	vec2  size;      /* this window's scene resolution, px */
 	vec2  jitter;    /* the temporal accumulation's subpixel offset, px */
-	float time;
-	uint  srgb;
+	vec2  canvas;    /* the pattern's whole canvas, px */
+	vec2  origin;    /* this window's corner inside that canvas, px */
+	vec4  tint;      /* linear-light multiplier: the window's own scene */
+	float time;      /* seconds; frozen at 0 when motion is off */
+	float time_bias; /* this window's own phase, for its own scene */
+	uint  srgb;      /* nonzero when the surface blends in linear light */
+	float pad;
 } pc;
 
 /* One value for the whole star, so it is converted to the surface's blend
@@ -36,10 +41,14 @@ const float PI = 3.14159265;
 const int   WEDGES = 36;      /* lit wedges around the circle */
 const int   SEGS   = 2;       /* triangles per wedge          */
 
-/* The sRGB EOTF, as in scene.frag. */
+/* The sRGB EOTF, as in scene.frag, and its inverse. */
 float to_linear(float c)
 {
 	return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+float to_srgb(float c)
+{
+	return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055;
 }
 
 void main()
@@ -49,12 +58,15 @@ void main()
 	int wedge = tri / SEGS;
 	int seg   = tri % SEGS;
 
-	vec2  mid = pc.size * 0.5;
-	float R   = min(pc.size.x, pc.size.y) * 0.28;
+	/* Centred on and sized against the canvas, then back into this window's
+	 * own pixels: a joined picture splits one star between two windows, and
+	 * a window showing the whole canvas is the case origin (0, 0). */
+	vec2  mid = pc.canvas * 0.5 - pc.origin;
+	float R   = min(pc.canvas.x, pc.canvas.y) * 0.28;
 
 	/* One wedge every 10 degrees, lit for the first 5 of them. */
 	float step  = 2.0 * PI / float(WEDGES);
-	float base  = float(wedge) * step - pc.time * 0.35;
+	float base  = float(wedge) * step - (pc.time + pc.time_bias) * 0.35;
 	float span  = step * 0.5 / float(SEGS);
 	float a0    = base + float(seg) * span;
 	float a1    = a0 + span;
@@ -64,7 +76,13 @@ void main()
 	if (vert == 1) p = mid + R * vec2(cos(a0), sin(a0));
 	if (vert == 2) p = mid + R * vec2(cos(a1), sin(a1));
 
-	v_shade = pc.srgb == 0u ? 0.82 : to_linear(0.82);
+	/* The wedges take the window's tint exactly as scene.frag's pattern
+	 * does: a multiplier on the *linear* value, encoded on the way out only
+	 * when the surface will not. The tint is flat here, so the whole star is
+	 * one colour -- hence one value, computed once a vertex. */
+	float avg = (pc.tint.r + pc.tint.g + pc.tint.b) / 3.0;
+	float lin = to_linear(0.82) * avg;
+	v_shade   = pc.srgb != 0u ? lin : to_srgb(lin);
 	/* The temporal accumulation's subpixel offset (FnlFrame::jitter_x): a
 	 * uniform shift of the whole picture, which the resolve's `- jitter`
 	 * undoes. NDC is 2 * pixels / size, and the scene is orthographic, so

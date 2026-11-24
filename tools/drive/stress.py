@@ -3409,6 +3409,11 @@ def expected(line):
         # --second-window's window watching whether the pointer is captured
         # here (testbed second_overlay()); the two-window check reads it.
         or re.match(r"second capture: [01]$", line) is not None
+        # F10 show/hide and F12 view cycling, said by main.c's run loop and
+        # key handler; the two-window check reads them.
+        or re.match(r"second window: (shown|hidden) \(F10 .+\)$", line)
+        is not None
+        or re.match(r"scene view: (mirror|join|own)$", line) is not None
         or line.startswith("footprint: ")
         or line.startswith("backend: ")
         or line.startswith("renderer: ")
@@ -3909,6 +3914,56 @@ def two_window(b, r):
                 "runs: a window that does not draw its scene"
                 % (len(rows), LIVE_APART),
             )
+    b.aim(prim)                       # back to the window the harness drives
+
+    # ---- F12: the second window's scene is its own ----------------------
+    # F12 cycles mirror -> join -> own, and each in turn moves both windows:
+    # a mirror draws two identical scenes, a join splits one canvas, an own
+    # scene is plainly another colour and phase. Each says its name on
+    # stderr, which is what is read.
+    def last_view():
+        for ln in reversed(b.dump(1 << 30)):
+            if ln.startswith("scene view: "):
+                return ln.split(": ", 1)[1].strip()
+        return None
+
+    b.aim(prim)
+    b.press("F12")
+    b.until(lambda: last_view() == "join", timeout=3.0)
+    r.check("F12 names the second window's view", last_view() == "join",
+            "saw %r" % last_view())
+    # Through all three and back to mirror, so a later round draws what it
+    # always did.
+    seen = []
+    for _ in range(3):
+        b.press("F12")
+        b.until(lambda: last_view() != (seen[-1] if seen else "join"),
+                timeout=2.0)
+        seen.append(last_view())
+        time.sleep(0.2)
+    r.check(
+        "and cycles mirror, join and own",
+        {"mirror", "join", "own"} <= set(seen),
+        "saw %s" % seen,
+    )
+
+    # ---- F10: hidden, then shown again ---------------------------------
+    # The key that turns the second window off and on. Hidden, the harness
+    # finds one window; shown, two again, and the one that comes back draws.
+    b.press("F10")
+    gone = b.until(lambda: len(b.windows()) == 1, timeout=4.0)
+    r.check("F10 hides the second window", gone,
+            "%d window(s) still" % len(b.windows()))
+    r.check("the first is untouched with the second hidden", b.alive())
+    if gone:
+        b.press("F10")
+        back = b.until(lambda: len(b.windows()) >= 2, timeout=5.0)
+        r.check("and F10 shows it again", back,
+                "%d window(s) after showing" % len(b.windows()))
+        r.check("the program is alive with the second back", b.alive())
+    else:
+        r.skip("and F10 shows it again", "F10 did not hide it")
+
     b.aim(prim)                       # back to the window the harness drives
 
     # The second window is a renderer device, a swapchain and a render thread

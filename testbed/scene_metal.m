@@ -39,15 +39,24 @@
 typedef struct {
 	float    size[2];
 	float    jitter[2];
+	float    canvas[2];
+	float    origin[2];
+	float    tint[4];
 	float    time;
+	float    time_bias;
 	uint32_t srgb;
-	float    pad[2];     /* to 32, to match the C struct's tail */
+	float    pad;
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 32, "ScenePush must match scene.frag");
+_Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
 _Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, time) == 16, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, srgb) == 20, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, canvas) == 16, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, origin) == 24, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, tint) == 32, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time) == 48, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time_bias) == 52,
+			   "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 
 /* One pair per target. A nil entry is a target this window cannot use --
  * the multisampled one on a device with no sample count worth having --
@@ -160,10 +169,16 @@ void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		!g_pattern[f->target] || !g_star[f->target])
 		return;
 
+	TestbedViewSpec view;
+	testbed_scene_view(app, f, &view);
 	const ScenePush pc = {
-		.size = { (float)f->scene_w_px, (float)f->scene_h_px },
+		.size = { view.size[0], view.size[1] },
 		.jitter = { f->jitter_x, f->jitter_y },
+		.canvas = { view.canvas[0], view.canvas[1] },
+		.origin = { view.origin[0], view.origin[1] },
+		.tint = { view.tint[0], view.tint[1], view.tint[2], view.tint[3] },
 		.time = testbed_scene_time(f),
+		.time_bias = view.time_bias,
 		.srgb = g_srgb ? 1u : 0u,
 	};
 	id<MTLRenderCommandEncoder> enc = sc.encoder;

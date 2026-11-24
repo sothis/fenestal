@@ -6,6 +6,21 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- The testbed's second window is shown and hidden with **F10**, and **F12**
+  cycles what it draws: a **mirror** of the first window, a **join** (one
+  shared canvas split across both windows, the star and the sweep crossing
+  the seam), or a scene of its **own** (its own canvas, tint and phase). The
+  library needed no change -- each window was already a picture of its own on
+  one renderer -- and the pinned `ScenePush` grew a `canvas`/`origin`/`tint`/
+  `time_bias` view that every renderer and both geometry shaders now read. It
+  is an application showing what three windows on one host can draw, so nothing
+  a consumer links against moved.
+- X11's graphics connection is the host's, not each window's. A window opened
+  and closed no longer disconnects the connection the Vulkan presentation
+  engine is bound to: Mesa's X11 WSI keeps XFixes state keyed by the
+  `xcb_connection_t *`, and one destroyed and rebuilt at the same address drew
+  X errors and a bogus allocation from it. The pump's connection stays the
+  window's.
 - `FnlFrame::jitter_x` and `jitter_y` reach `on_record` as the frame's TAAU
   subpixel offset, as documented, in every renderer. They were zero before, so
   a caller that shifted its projection by them drew without the accumulation.

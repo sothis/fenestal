@@ -2482,19 +2482,22 @@ static void x11_nudge_size(App *a)
 
 /* ---- open and close ------------------------------------------------------ */
 
-/* The presentation engine's own connection; see BackendState::conn.
+/* The presentation engine's own connection; see BackendState::gfx. It is the
+ * host's -- one renderer a program, so one presentation connection -- and
+ * made with the first window, so a window closed and another opened reuses it.
  *
  * xcb_connect never returns NULL -- a failure is a connection with its error
- * set, which xcb_disconnect still accepts -- so x11_window_close() copes with
+ * set, which xcb_disconnect still accepts -- so x11_host_close() copes with
  * this having failed as readily as with it never having been called. */
-static FNL_MUST_USE FnlResult create_gfx_connection(App *a)
+static FNL_MUST_USE FnlResult create_gfx_connection(struct BackendHostState *hs)
 {
-	struct BackendState *p = a->backend_state;
-
-	/* The same display string, so the same screen; the number is not used. */
+	if (hs->gfx)
+		return FNL_OK;
+	/* The same display string as every window's, so the same screen; the
+	 * number is not used. */
 	int screen_num = 0;
-	p->gfx         = xcb_connect(NULL, &screen_num);
-	if (xcb_connection_has_error(p->gfx))
+	hs->gfx        = xcb_connect(NULL, &screen_num);
+	if (xcb_connection_has_error(hs->gfx))
 		return fnl_fail(FNL_ERR_NO_DISPLAY,
 						"the second X connection, for the presentation "
 						"engine, could not be opened");
@@ -2722,6 +2725,14 @@ static void x11_host_close(App *a)
 	if (!hs)
 		return;
 
+	/* The presentation connection, the host's, with the last window. Every
+	 * surface made on it was destroyed with its window (app_teardown()
+	 * destroys the renderer's surface before the backend's window_close). */
+	if (hs->gfx) {
+		xcb_disconnect(hs->gfx);
+		hs->gfx = NULL;
+	}
+
 	/* The wakeup and epoll descriptors, closed unless a signal handler could
 	 * still reach them through app_wakeup(): app_teardown() clears the
 	 * host's installed_signals once it has waited every handler out. */
@@ -2757,7 +2768,9 @@ static FnlResult x11_window_open(App *a)
 	fnl_mutex_init(&p->present_lock);
 
 	FNL_TRY(create_window_x11(a));
-	FNL_TRY(create_gfx_connection(a));
+	/* The host's presentation connection, made with the first window. */
+	FNL_TRY(create_gfx_connection(p->host));
+	p->gfx = p->host->gfx;
 	FNL_TRY(epoll_watch(p->host->epoll_fd, xcb_get_file_descriptor(p->conn)));
 	wait_for_map(a);
 	return FNL_OK;
@@ -2772,11 +2785,10 @@ static void x11_window_close(App *a)
 	if (!p)
 		return;
 
-	/* The graphics connection first: it presents into the window destroyed
-	 * below, and the other order asks the server to tear its pixmaps down
-	 * against a drawable that has just been freed. The surface is gone by now;
-	 * app_teardown() destroys it before closing the backend. */
-	xcb_disconnect(p->gfx);
+	/* The graphics connection is the host's and stays with it: a window
+	 * closed and another opened reuses it, and the surface made on it was
+	 * destroyed before this (app_teardown() destroys the renderer's surface
+	 * first). Only the borrow is dropped here. */
 	p->gfx = NULL;
 
 	if (p->conn && !xcb_connection_has_error(p->conn)) {

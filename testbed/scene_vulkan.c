@@ -79,22 +79,33 @@ static bool load_vulkan(const FnlVulkanGpu *gpu)
  * gl_VertexIndex in testbed/shaders/star.vert. */
 #define STAR_VERTICES (36 * 2 * 3)
 
-/* The pattern is laid out in scene pixels and needs the clock; the sRGB flag
- * tells the fragment stage which space this surface's blend works in; jitter
- * is the temporal accumulation's subpixel offset, applied in the vertex
- * stages. The asserts pin this struct to the block scene.frag declares. */
+/* This window's view of the pattern: the part of the canvas it shows (origin
+ * and canvas, the same for both being a window showing the whole of it), the
+ * colour its own scene is, and its phase. The sRGB flag tells the fragment
+ * stage which space this surface's blend works in; jitter is the temporal
+ * accumulation's subpixel offset, applied in the vertex stages. The asserts
+ * pin this struct to the block scene.frag declares. */
 typedef struct {
 	float    size[2];
 	float    jitter[2];
+	float    canvas[2];
+	float    origin[2];
+	float    tint[4];
 	float    time;
+	float    time_bias;
 	uint32_t srgb;
-	float    pad[2];     /* to 32, so std140's rounding matches */
+	float    pad;
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 32, "ScenePush must match scene.frag");
+_Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
 _Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, time) == 16, "ScenePush layout drifted");
-_Static_assert(offsetof(ScenePush, srgb) == 20, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, canvas) == 16, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, origin) == 24, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, tint) == 32, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time) == 48, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, time_bias) == 52,
+			   "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 
 typedef struct {
 	VkDevice         device;
@@ -369,10 +380,16 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		s->star[f->target] == VK_NULL_HANDLE)
 		return;
 
+	TestbedViewSpec view;
+	testbed_scene_view(app, f, &view);
 	ScenePush pc = {
-		.size = { (float)f->scene_w_px, (float)f->scene_h_px },
+		.size = { view.size[0], view.size[1] },
 		.jitter = { f->jitter_x, f->jitter_y },
+		.canvas = { view.canvas[0], view.canvas[1] },
+		.origin = { view.origin[0], view.origin[1] },
+		.tint = { view.tint[0], view.tint[1], view.tint[2], view.tint[3] },
 		.time = testbed_scene_time(f),
+		.time_bias = view.time_bias,
 		.srgb = s->srgb ? 1u : 0u,
 	};
 	vkCmdPushConstants(cb, s->layout,
