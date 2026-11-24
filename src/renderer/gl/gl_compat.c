@@ -16,10 +16,12 @@
  * the target the texture stand-ins bind; a DSA call names no target.
  *
  * A vertex array's format, binding and buffer (4.3's separate format) are
- * kept here, per vertex array, and given to glVertexAttribPointer at the
- * draw, which is also where the base instance goes (4.2): each instanced
- * attribute pointed at the draw's first instance, drawn from 0. Render
- * thread only, as every GL call of the renderer's.
+ * kept per vertex array, in the window's state (RendererState::vaos), and
+ * given to glVertexAttribPointer at the draw, which is also where the base
+ * instance goes (4.2): each instanced attribute pointed at the draw's first
+ * instance, drawn from 0. The window's state rather than the thread's: the
+ * device may be built on one thread and drawn with on another, and all four
+ * of that context's vertex arrays must be there for both.
  */
 
 #include "core/app.h"
@@ -36,41 +38,16 @@
 #define VAO_ATTRIBS 5
 #define VAO_BINDINGS 1
 
-typedef struct {
-	bool      on;
-	GLint     size;
-	GLenum    type;
-	GLboolean normalized;
-	GLuint    offset;
-	GLuint    binding;
-} AttribRecord;
-
-typedef struct {
-	GLuint     buffer;
-	GLintptr   offset;
-	GLsizei    stride;
-	GLuint     divisor;
-} BindingRecord;
-
-typedef struct {
-	GLuint        name;
-	AttribRecord  attr[VAO_ATTRIBS];
-	BindingRecord bind[VAO_BINDINGS];
-} VaoRecord;
-
-/* A thread's own: a context lives on the render thread that entered it, and
- * two windows have two contexts whose object names each start at 1 -- one
- * table keyed by name alone would answer one window's bindings with the
- * other's. gl_compat_install() empties it, so a context made anew on the
- * thread starts clean. */
-static _Thread_local VaoRecord vaos[VAO_RECORDS];
-static _Thread_local PFNGLDELETEVERTEXARRAYSPROC real_delete_vertex_arrays;
-
-static VaoRecord *vao_find(GLuint name)
+/* The account is the window's (RendererState, gl_state.h), reached through
+ * this thread's binding: the context's names belong to the window, and the
+ * thread that built the device is not always the one that draws with it or
+ * tears it down. gl_compat_install() empties it, so a context made anew
+ * starts clean. */
+static VaoRecord *vao_find(struct RendererState *g, GLuint name)
 {
 	for (int i = 0; i < VAO_RECORDS; i++)
-		if (name && vaos[i].name == name)
-			return &vaos[i];
+		if (name && g->vaos[i].name == name)
+			return &g->vaos[i];
 	return NULL;
 }
 
@@ -124,12 +101,13 @@ static void APIENTRY buffer_sub_data(GLuint b, GLintptr off, GLsizeiptr size,
 
 static void APIENTRY create_vertex_arrays(GLsizei n, GLuint *v)
 {
+	struct RendererState *g = gl_bound_state();
 	gl.GenVertexArrays(n, v);
 	for (GLsizei i = 0; i < n; i++) {
-		VaoRecord *r = vao_find(v[i]);
+		VaoRecord *r = vao_find(g, v[i]);
 		for (int k = 0; !r && k < VAO_RECORDS; k++)
-			if (!vaos[k].name)
-				r = &vaos[k];
+			if (!g->vaos[k].name)
+				r = &g->vaos[k];
 		if (!r) {
 			fnl_log(FNL_LOG_ERROR, "OpenGL 4.1: no room to keep vertex "
 					"array %u's layout", (unsigned)v[i]);
@@ -141,18 +119,19 @@ static void APIENTRY create_vertex_arrays(GLsizei n, GLuint *v)
 
 static void APIENTRY delete_vertex_arrays(GLsizei n, const GLuint *v)
 {
+	struct RendererState *g = gl_bound_state();
 	for (GLsizei i = 0; i < n; i++) {
-		VaoRecord *r = vao_find(v[i]);
+		VaoRecord *r = vao_find(g, v[i]);
 		if (r)
 			*r = (VaoRecord){ 0 };
 	}
-	real_delete_vertex_arrays(n, v);
+	g->real_delete_vertex_arrays(n, v);
 }
 
 static void APIENTRY vertex_buffer(GLuint v, GLuint binding, GLuint buffer,
 								   GLintptr offset, GLsizei stride)
 {
-	VaoRecord *r = vao_find(v);
+	VaoRecord *r = vao_find(gl_bound_state(), v);
 	if (!r || binding >= VAO_BINDINGS)
 		return;
 	r->bind[binding].buffer = buffer;
@@ -164,7 +143,7 @@ static void APIENTRY attrib_format(GLuint v, GLuint i, GLint size,
 								   GLenum type, GLboolean normalized,
 								   GLuint offset)
 {
-	VaoRecord *r = vao_find(v);
+	VaoRecord *r = vao_find(gl_bound_state(), v);
 	if (!r || i >= VAO_ATTRIBS)
 		return;
 	r->attr[i].size = size;
@@ -175,14 +154,14 @@ static void APIENTRY attrib_format(GLuint v, GLuint i, GLint size,
 
 static void APIENTRY attrib_binding(GLuint v, GLuint i, GLuint binding)
 {
-	VaoRecord *r = vao_find(v);
+	VaoRecord *r = vao_find(gl_bound_state(), v);
 	if (r && i < VAO_ATTRIBS)
 		r->attr[i].binding = binding;
 }
 
 static void APIENTRY enable_attrib(GLuint v, GLuint i)
 {
-	VaoRecord *r = vao_find(v);
+	VaoRecord *r = vao_find(gl_bound_state(), v);
 	if (r && i < VAO_ATTRIBS)
 		r->attr[i].on = true;
 }
@@ -190,7 +169,7 @@ static void APIENTRY enable_attrib(GLuint v, GLuint i)
 static void APIENTRY binding_divisor(GLuint v, GLuint binding,
 									 GLuint divisor)
 {
-	VaoRecord *r = vao_find(v);
+	VaoRecord *r = vao_find(gl_bound_state(), v);
 	if (r && binding < VAO_BINDINGS)
 		r->bind[binding].divisor = divisor;
 }
@@ -203,7 +182,7 @@ static void APIENTRY draw_base_instance(GLenum mode, GLint first,
 {
 	GLint bound = 0;
 	gl.GetIntegerv(GL_VERTEX_ARRAY_BINDING, &bound);
-	const VaoRecord *r = vao_find((GLuint)bound);
+	const VaoRecord *r = vao_find(gl_bound_state(), (GLuint)bound);
 	if (r) {
 		for (GLuint i = 0; i < VAO_ATTRIBS; i++) {
 			const AttribRecord *at = &r->attr[i];
@@ -404,10 +383,10 @@ static void APIENTRY clip_control(GLenum origin, GLenum depth)
 
 /* ---- the table ----------------------------------------------------------- */
 
-void gl_compat_install(GlFuncs *t)
+void gl_compat_install(GlFuncs *t, struct RendererState *g)
 {
-	memset(vaos, 0, sizeof vaos);
-	real_delete_vertex_arrays = t->DeleteVertexArrays;
+	memset(g->vaos, 0, sizeof g->vaos);
+	g->real_delete_vertex_arrays = t->DeleteVertexArrays;
 	t->DeleteVertexArrays                  = delete_vertex_arrays;
 	t->ClipControl                         = clip_control;
 	t->CreateBuffers                       = create_buffers;

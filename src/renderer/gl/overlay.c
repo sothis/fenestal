@@ -620,7 +620,10 @@ void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 
 void gl_image_free(App *a, FnlImage *img)
 {
-	(void)a;
+	/* The thread is the image's window's from here: fnl_image_destroy() may
+	 * run on the main thread, at a teardown that has already destroyed
+	 * another window's renderer and so unbound the thread. */
+	gl_bind(a);
 	GlImageObj *o = img->gpu;
 	if (!o)
 		return;

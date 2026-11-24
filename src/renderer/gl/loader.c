@@ -25,14 +25,20 @@ void gl_bind(App *a)
 	gl_thread_win = a && a->renderer_state ? GLS(a) : NULL;
 }
 
-GlFuncs *gl_bound_funcs(void)
+struct RendererState *gl_bound_state(void)
 {
-	/* Every GL call is made on a thread that built or entered a device --
-	 * create_device_objects(), destroy_device_objects() and thread_enter()
-	 * bind there -- so an unbound one is this renderer's fault, not the
+	/* Every GL call is made on a thread that built, entered, destroyed or
+	 * freed an image of a window -- gl_load(), create_device_objects(),
+	 * destroy_device_objects(), thread_enter() and gl_image_free() bind
+	 * there -- so an unbound one is this renderer's fault, not the
 	 * caller's. */
 	FNL_ASSERT(gl_thread_win);
-	return &gl_thread_win->funcs;
+	return gl_thread_win;
+}
+
+GlFuncs *gl_bound_funcs(void)
+{
+	return &gl_bound_state()->funcs;
 }
 
 bool gl_bound_profile41(void)
@@ -132,7 +138,7 @@ FnlResult gl_load(App *a)
 		}
 		memcpy(&next, procs, sizeof next);
 	} else {
-		gl_compat_install(&next);
+		gl_compat_install(&next, GLS(a));
 		next.GetGraphicsResetStatus = (PFNGLGETGRAPHICSRESETSTATUSPROC)
 			optional(&next, "glGetGraphicsResetStatus", "GL_KHR_robustness",
 					 "glGetGraphicsResetStatusARB", "GL_ARB_robustness");

@@ -29,6 +29,7 @@
  * thread_enter() -- so a build on the main thread and another window's draws
  * on its render thread read two tables. */
 void gl_bind(App *a);
+struct RendererState *gl_bound_state(void);
 GlFuncs *gl_bound_funcs(void);
 bool gl_bound_profile41(void);
 #define gl (*gl_bound_funcs())
@@ -41,9 +42,9 @@ FNL_MUST_USE FnlResult gl_load(App *a);
 
 /* ---- gl_compat.c --------------------------------------------------------- */
 /* FNL_GL_45's slots of `t` filled with stand-ins made of FNL_GL_CORE's
- * calls, and DeleteVertexArrays with one that keeps the stand-ins' account
- * of each vertex array; `t`'s core entries must be loaded. */
-void gl_compat_install(GlFuncs *t);
+ * calls, and DeleteVertexArrays with one that keeps the account of each
+ * vertex array in `g` (the window's); `t`'s core entries must be loaded. */
+void gl_compat_install(GlFuncs *t, struct RendererState *g);
 /* The overlay's arenas under 4.1, where no buffer stays mapped: the core
  * appends into client memory, and a flush uploads what it is about to draw
  * -- `bytes` from `offset` of `map` into the same place of `buf`. */

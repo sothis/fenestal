@@ -55,6 +55,40 @@ typedef struct {
 	bool depth_sampled;
 } GlTarget;
 
+/* The 4.1 profile's account of one vertex array (gl_compat.c): the format
+ * each attribute was given, and the buffer its binding points at, kept
+ * because 4.1 has no separate attribute format and no base instance. The
+ * records are the window's, with its table: the names are its context's,
+ * and the thread that made them is not always the one that draws. */
+#define VAO_RECORDS 16
+/* Five: the stroke's layout is packed as vec4s -- p0, p2, color, color2 and
+ * shape_kind (overlay.c) -- and an attribute at or past this is silently
+ * dropped here, leaving that one at the generic value. */
+#define VAO_ATTRIBS 5
+#define VAO_BINDINGS 1
+
+typedef struct {
+	bool      on;
+	GLint     size;
+	GLenum    type;
+	GLboolean normalized;
+	GLuint    offset;
+	GLuint    binding;
+} AttribRecord;
+
+typedef struct {
+	GLuint   buffer;
+	GLintptr offset;
+	GLsizei  stride;
+	GLuint   divisor;
+} BindingRecord;
+
+typedef struct {
+	GLuint        name;
+	AttribRecord  attr[VAO_ATTRIBS];
+	BindingRecord bind[VAO_BINDINGS];
+} VaoRecord;
+
 struct RendererState {
 	/* ---- the bridge: the window system's half (egl.c) -----------------
 	 * Every field of this half but `loaded` outlives a context, and is one
@@ -113,6 +147,13 @@ struct RendererState {
 	 * calling thread's is gl_internal.h's `gl` (gl_bind()). */
 	GlFuncs funcs;
 	bool funcs_41;
+	/* The 4.1 profile's standing state (gl_compat.c): the account of each
+	 * vertex array of this window's context, and the driver's own
+	 * DeleteVertexArrays its stand-in gives them back through. The window's
+	 * with the table, so a device built on one thread and drawn on another
+	 * finds them. */
+	VaoRecord vaos[VAO_RECORDS];
+	PFNGLDELETEVERTEXARRAYSPROC real_delete_vertex_arrays;
 	/* The swap interval the surface was last given: 1 waits for the vertical
 	 * blank and 0 does not; -1 for a surface given none yet, whatever EGL's
 	 * default is. And the one vsync asks for, 1 or 0, mirrored into
