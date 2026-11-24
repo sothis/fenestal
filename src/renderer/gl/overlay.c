@@ -464,8 +464,12 @@ void gl_own_state(App *a)
 	gl.DepthMask(GL_TRUE);
 	gl.BlendEquation(GL_FUNC_ADD);
 	/* The slot's, as every push writes into it: the frame being recorded is
-	 * the one whose draws may still be reading the other. */
-	gl.BindBufferBase(GL_UNIFORM_BUFFER, 0, GLS(a)->push[a->ovl_img]);
+	 * the one whose draws may still be reading the other. App::frame is the
+	 * slot, reduced as draw() reduces it; overlay_begin() has not run yet,
+	 * so App::ovl_img still holds the previous frame's -- another renderer's
+	 * image index after a swap, past this array's end. */
+	gl.BindBufferBase(GL_UNIFORM_BUFFER, 0,
+					  GLS(a)->push[a->frame % MAX_FRAMES_IN_FLIGHT]);
 }
 
 /* The blend each kind is drawn with: rectangles replace what is under them,
