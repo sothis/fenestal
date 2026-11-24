@@ -2275,11 +2275,12 @@ static FnlResult win32_host_open(App *a)
 	if (hs->wndclass) {
 		hs->wndclass_ours = true;
 	} else if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-		fnl_fail(FNL_ERR_NO_DISPLAY, "RegisterClassExW failed (%lu)",
-				 GetLastError());
+		const FnlResult rc =
+			fnl_fail(FNL_ERR_NO_DISPLAY, "RegisterClassExW failed (%lu)",
+					 GetLastError());
 		free(hs);
 		a->host->backend_host = NULL;
-		return FNL_ERR_NO_DISPLAY;
+		return rc;
 	}
 	return FNL_OK;
 }

@@ -32,9 +32,15 @@ static const char *const *instance_extensions(uint32_t *count,
  * undefined on failure, and recover_from_loss() retries through here. */
 static FnlResult create_surface(App *a)
 {
+	/* The host is the window's for as long as it is open, but
+	 * app_backend_host() answers NULL for one that is not; the read is
+	 * guarded rather than assumed. */
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs)
+		return fnl_fail(FNL_ERR_SYSTEM, "the Wayland host is gone");
 	VkWaylandSurfaceCreateInfoKHR ci = {
 		.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-		.display = app_backend_host(a)->display,
+		.display = hs->display,
 		.surface = a->backend_state->present,
 	};
 	VkSurfaceKHR s = VK_NULL_HANDLE;
@@ -57,7 +63,8 @@ static bool presents(App *a, VkInstance inst, VkPhysicalDevice dev,
 			vkGetInstanceProcAddr(
 				inst,
 				"vkGetPhysicalDeviceWaylandPresentationSupportKHR");
-	return ask && ask(dev, family, app_backend_host(a)->display);
+	struct BackendHostState *hs = app_backend_host(a);
+	return ask && hs && ask(dev, family, hs->display);
 }
 
 const VkBridge vk_bridge_wayland = {
