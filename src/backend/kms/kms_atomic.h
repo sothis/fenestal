@@ -65,10 +65,22 @@ bool kms_atomic_crtc_off(struct KmsAtomic *at, uint32_t crtc);
 
 /* The cursor plane over `crtc`: whether it has one, the glyph `fb` put on it
  * with its top-left at (x, y) in pixels, and it emptied. False where the CRTC
- * has no cursor plane, and the legacy DRM_IOCTL_MODE_CURSOR is then kept. */
+ * has no cursor plane, and the legacy DRM_IOCTL_MODE_CURSOR is then kept.
+ *
+ * `wait` makes the commit synchronous: it is programmed before the call
+ * returns, so none is left pending on the CRTC. The display path needs that:
+ * Mesa's display WSI flips on the same CRTC through a dup of this descriptor,
+ * and a NONBLOCK commit of ours still in flight when Mesa's page flip is
+ * issued stops the kernel taking that flip (a commit is already pending on
+ * the CRTC), which Mesa reports as a lost surface and rebuilds. Our own cursor
+ * commits were seen refused with EBUSY in those rounds, the same collision
+ * from the other side. The copy path flips through this table under
+ * at_commit's lock, so a pending commit there is nobody else's: a blocking
+ * cursor commit would sit out a vblank behind the render thread's flip, which
+ * is the lag f035cb9 took out. */
 bool kms_atomic_cursor_at(struct KmsAtomic *at, uint32_t crtc);
 bool kms_atomic_cursor_set(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
-						   int x, int y, uint32_t w, uint32_t h);
-bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc);
+						   int x, int y, uint32_t w, uint32_t h, bool wait);
+bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc, bool wait);
 
 #endif /* FNL_KMS_ATOMIC_H */

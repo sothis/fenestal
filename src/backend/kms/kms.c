@@ -836,13 +836,13 @@ static bool cursor_atomic(const struct BackendState *p, uint32_t crtc)
  * race -- the render thread's mode set switching the CRTC off between the
  * lit check and the commit -- so one is not the plane's last word. */
 static bool cursor_atomic_send(struct BackendState *p, uint32_t crtc,
-							   KmsGlyph g, int x, int y)
+							   KmsGlyph g, int x, int y, bool wait)
 {
 	bool ok = g == KMS_GLYPH_NONE
-				  ? kms_atomic_cursor_off(p->host->atomic, crtc)
+				  ? kms_atomic_cursor_off(p->host->atomic, crtc, wait)
 				  : kms_atomic_cursor_set(p->host->atomic, crtc,
 										  p->glyph_fb[g], x, y, p->cursor_w,
-										  p->cursor_h);
+										  p->cursor_h, wait);
 	/* The plane refusing, forced (DESIGN *Forcing the paths that never
 	 * run*): three in a row and the legacy ioctl is the window's. */
 	if (FNL_FAULT("kms-cursor-legacy"))
@@ -866,13 +866,13 @@ static bool cursor_atomic_send(struct BackendState *p, uint32_t crtc,
 #define CURSOR_RECHECKS 100
 
 /* Take the cursor off the CRTC it was last shown on, if it shows one. */
-static void cursor_hide(struct BackendState *p)
+static void cursor_hide(struct BackendState *p, bool wait)
 {
 	const uint32_t crtc = p->cursor_on;
 	if (crtc && p->glyph_shown != KMS_GLYPH_NONE &&
 		p->glyph_shown != KMS_GLYPH_UNSET) {
 		if (cursor_atomic(p, crtc) &&
-			kms_atomic_cursor_off(p->host->atomic, crtc))
+			kms_atomic_cursor_off(p->host->atomic, crtc, wait))
 			return;
 		struct drm_mode_cursor c = { .flags   = DRM_MODE_CURSOR_BO,
 									 .crtc_id = crtc };
@@ -900,6 +900,19 @@ static void cursor_show(App *a, KmsGlyph g)
 	struct BackendState *p = a->backend_state;
 	if (p->cursor_warned)
 		return; /* refused once: not asked per motion */
+	/* One seat, one pointer: only the window the pointer is over shows one,
+	 * and the pump now rechecks every window (its output may come back) rather
+	 * than the one fnl_pump() was handed -- so a recheck for a window that is
+	 * not the focus must show nothing, not an arrow on an output no pointer is
+	 * on. focus_set() moves this from one window to the next. */
+	if (p->host->focus != a)
+		g = KMS_GLYPH_NONE;
+	/* On the display path -- the window holds the display -- the commit is made
+	 * synchronous, so none of ours is left pending for Mesa's own NONBLOCK
+	 * page-flip commit to be refused on (kms_atomic_cursor_set()'s header). The
+	 * copy path flips under this backend's lock, where the lag f035cb9 took
+	 * out would come back, so there it stays NONBLOCK. */
+	const bool wait = fnl_atomic_load_ptr(&p->host->display_owner) == a;
 	const int px = (int)p->ptr_x, py = (int)p->ptr_y;
 	/* The CRTC driving the output now, asked of the kernel until there is
 	 * one: after a switch the render thread sets the mode, and the display
@@ -925,7 +938,7 @@ static void cursor_show(App *a, KmsGlyph g)
 	 * sub-pixel motion -- four reports in five move no whole pixel -- would
 	 * otherwise pay for every time. */
 	if (crtc != p->cursor_on) {
-		cursor_hide(p);
+		cursor_hide(p, wait);
 		p->glyph_shown = KMS_GLYPH_UNSET;
 	}
 	if (g == p->glyph_shown &&
@@ -954,7 +967,7 @@ static void cursor_show(App *a, KmsGlyph g)
 	 * kernel would not wrap, or a plane that refused a commit, is the legacy
 	 * ioctl's, which wraps the buffer itself. */
 	if (cursor_atomic(p, crtc) && (g == KMS_GLYPH_NONE || p->glyph_fb[g]) &&
-		cursor_atomic_send(p, crtc, g, cx, cy)) {
+		cursor_atomic_send(p, crtc, g, cx, cy, wait)) {
 		if (!p->cursor_atomic_said) {
 			p->cursor_atomic_said = true;
 			fnl_log(FNL_LOG_INFO, "KMS: the cursor plane on CRTC %u by "
@@ -1029,7 +1042,7 @@ static void cursor_init(struct BackendState *p)
 static void cursor_moved(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	cursor_hide(p);
+	cursor_hide(p, fnl_atomic_load_ptr(&p->host->display_owner) == a);
 	p->cursor_crtc    = 0;
 	p->cursor_on      = 0;
 	p->glyph_shown    = KMS_GLYPH_UNSET;
@@ -1063,7 +1076,7 @@ static void cursor_free(struct BackendState *p)
 {
 	if (p->host->card_fd < 0)
 		return;
-	cursor_hide(p);
+	cursor_hide(p, false);
 	for (int g = 0; g < KMS_GLYPH_COUNT; g++) {
 		if (p->glyph_fb[g]) {
 			uint32_t fb = p->glyph_fb[g];
@@ -1543,11 +1556,11 @@ static unsigned device_kind(int fd)
 	return kind;
 }
 
-static KmsInput *input_by_fd(struct BackendState *p, int fd)
+static KmsInput *input_by_fd(struct BackendHostState *hs, int fd)
 {
-	for (int i = 0; i < p->host->input_count; i++)
-		if (p->host->inputs[i].fd == fd)
-			return &p->host->inputs[i];
+	for (int i = 0; i < hs->input_count; i++)
+		if (hs->inputs[i].fd == fd)
+			return &hs->inputs[i];
 	return NULL;
 }
 
@@ -2684,12 +2697,12 @@ static void uevent_open(struct BackendHostState *hs)
 
 /* Whether a uevent is a hotplug of this card: its strings, NUL-separated
  * after the "action@path" header, carry SUBSYSTEM=drm, HOTPLUG=1 and the
- * card's DEVNAME. */
-static bool uevent_is_ours(const struct BackendState *p, const char *buf,
+ * card's DEVNAME. The host's, like the socket the pump reads it from. */
+static bool uevent_is_ours(const struct BackendHostState *hs, const char *buf,
 						   size_t n)
 {
 	char dev[24];
-	snprintf(dev, sizeof dev, "DEVNAME=dri/card%d", p->host->card_index);
+	snprintf(dev, sizeof dev, "DEVNAME=dri/card%d", hs->card_index);
 	bool drm = false, hotplug = false, card = false;
 	for (size_t at = 0; at < n;) {
 		const char *s    = buf + at;
@@ -2761,15 +2774,30 @@ static int sel_elsewhere(const struct BackendState *p, uint32_t skip)
 	return -1;
 }
 
-/* The earliest time an output now away counts as gone; 0 with none away. */
-static double away_next(const struct BackendState *p)
+/* The earliest time an output now away counts as gone; 0 with none away. The
+ * host's, not one window's: the away set changes on the pump's thread alone,
+ * for any output of the card. */
+static double away_next(const struct BackendHostState *hs)
 {
 	double next = 0.0;
 	for (int s = 0; s < KMS_MAX_OUTPUTS; s++)
-		if (((p->host->outputs_away >> s) & 1u) &&
-			(next == 0.0 || p->host->away_until[s] < next))
-			next = p->host->away_until[s];
+		if (((hs->outputs_away >> s) & 1u) &&
+			(next == 0.0 || hs->away_until[s] < next))
+			next = hs->away_until[s];
 	return next;
+}
+
+/* Whether any window shows on output `out`: the shorter away time is a lit
+ * output's, and a lit output is one a window is on -- whichever window, so the
+ * pump asks the registry rather than the one it was handed. */
+static bool output_lit(const App *a, int out)
+{
+	for (const App *w = a->host->windows; w; w = w->next) {
+		const struct BackendState *q = w->backend_state;
+		if (q && KMS_SEL_OUT(fnl_atomic_load_u32(&q->sel_want)) == out)
+			return true;
+	}
+	return false;
 }
 
 /* The card's connectors read again, on a uevent and when an output has
@@ -2837,7 +2865,7 @@ static void outputs_rescan(App *a)
 				away |= 1u << live;
 				hs->away_until[live] =
 					now_seconds() +
-					(live == p->out_cur ? KMS_AWAY_LIT_S : KMS_AWAY_S);
+					(output_lit(a, live) ? KMS_AWAY_LIT_S : KMS_AWAY_S);
 				if (!hs->away_said)
 					fnl_log(FNL_LOG_INFO,
 							"KMS: %s left; an output counts "
@@ -2945,8 +2973,10 @@ static void outputs_rescan(App *a)
 			publish_mode(w);
 		}
 	}
-	/* The lists changed under the titlebar. */
-	fnl_invalidate(a);
+	/* The lists changed under the titlebar -- every window's, since the
+	 * outputs are the host's card's and each bar draws the same list. */
+	for (App *w = a->host->windows; w; w = w->next)
+		fnl_invalidate(w);
 }
 
 /* ---- the seam ------------------------------------------------------------ */
@@ -3195,13 +3225,27 @@ static void kms_present_window_renew(App *a)
 
 static void kms_pump(App *a, int timeout_ms)
 {
-	struct BackendState *p = a->backend_state;
-	struct BackendHostState *hs = p->host;
+	struct BackendHostState *hs = app_backend_host(a);
 	struct epoll_event evs[16];
-	/* An output away is gone once its time is up, with or without another
-	 * uevent to say so. */
-	const double away_at = away_next(p);
-	int wait_ms          = p->cursor_recheck > 0 ? CURSOR_RECHECK_MS : -1;
+	/* The pump is the host's and serves every window on it, but `a` is only
+	 * whichever window fnl_pump() was handed -- under fnl_run() always the
+	 * first. Its per-window work (the cursor recheck after a switch, a refused
+	 * selection adopted back) must therefore run for every window on the
+	 * registry, not `a` alone, or a second window's cursor would never be
+	 * re-placed on its CRTC and its refused mode or output never gone back
+	 * from. The host is reached through app_backend_host(a): `a` may be a
+	 * window already closed while another is still going (fnl_pump()'s own
+	 * comment), and the host is shared. An output away is gone once its time is
+	 * up, with or without another uevent to say so, and that clock is the
+	 * host's. */
+	const double away_at = away_next(hs);
+	int wait_ms          = -1;
+	for (App *w = a->host->windows; w; w = w->next) {
+		const struct BackendState *q = w->backend_state;
+		if (q && q->cursor_recheck > 0 &&
+			(wait_ms < 0 || CURSOR_RECHECK_MS < wait_ms))
+			wait_ms = CURSOR_RECHECK_MS;
+	}
 	if (hs->outputs_away) {
 		const int ms = loop_wait_ms(true, away_at);
 		if (wait_ms < 0 || ms < wait_ms)
@@ -3212,15 +3256,22 @@ static void kms_pump(App *a, int timeout_ms)
 	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
 		wait_ms = timeout_ms;
 	const int n = epoll_wait(hs->epoll_fd, evs, 16, wait_ms);
-	if (p->cursor_recheck > 0)
-		cursor_recheck(a);
+	for (App *w = a->host->windows; w; w = w->next) {
+		struct BackendState *q = w->backend_state;
+		if (q && q->cursor_recheck > 0)
+			cursor_recheck(w);
+	}
 	if (hs->outputs_away && now_seconds() >= away_at)
 		outputs_rescan(a);
 	for (int i = 0; i < n; i++) {
 		const int fd = evs[i].data.fd;
 		if (fd == hs->wake_fd) {
 			loop_wake_drain(hs->wake_fd);
-			sel_refused_seen(a);
+			/* The wake names no window: any window the render thread marked
+			 * refused is the one to adopt back. */
+			for (App *w = a->host->windows; w; w = w->next)
+				if (w->backend_state)
+					sel_refused_seen(w);
 		} else if (fd == hs->inotify_fd) {
 			inputs_hotplug(a);
 		} else if (fd == hs->uevent_fd) {
@@ -3231,7 +3282,7 @@ static void kms_pump(App *a, int timeout_ms)
 			ssize_t got;
 			while ((got = recv(hs->uevent_fd, buf, sizeof buf - 1, 0)) > 0) {
 				buf[got] = '\0';
-				ours |= uevent_is_ours(p, buf, (size_t)got);
+				ours |= uevent_is_ours(hs, buf, (size_t)got);
 				gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
 			}
 			if (gpu)
@@ -3242,7 +3293,7 @@ static void kms_pump(App *a, int timeout_ms)
 			if (ours)
 				outputs_rescan(a);
 		} else {
-			KmsInput *d = input_by_fd(p, fd);
+			KmsInput *d = input_by_fd(hs, fd);
 			if (d && !input_read(a, d))
 				input_remove(a, d);
 		}

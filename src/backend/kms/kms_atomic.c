@@ -442,7 +442,7 @@ bool kms_atomic_cursor_at(struct KmsAtomic *at, uint32_t crtc)
 }
 
 bool kms_atomic_cursor_set(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
-						   int x, int y, uint32_t w, uint32_t h)
+						   int x, int y, uint32_t w, uint32_t h, bool wait)
 {
 	AtCrtc *c = at_crtc(at, crtc);
 	if (!c || !c->cursor_plane || !fb)
@@ -457,16 +457,19 @@ bool kms_atomic_cursor_set(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
 		crtc, fb, 0, 0, (uint64_t)w << 16, (uint64_t)h << 16,
 		(uint64_t)(int64_t)x, (uint64_t)(int64_t)y, w, h,
 	};
-	/* A cursor move is not vsync-locked: it must not wait the vblank, or a
-	 * motion on the pump thread blocks behind the render thread's commit
-	 * (at_commit's lock) for up to a frame, which is the lag the cursor had.
-	 * NONBLOCK returns once the kernel has taken the commit, as an async
-	 * flip does. */
-	return at_commit(at, DRM_MODE_ATOMIC_NONBLOCK, 0, objs, counts, props, vals,
-					 1);
+	/* A cursor move is not vsync-locked: on the copy path it must not wait the
+	 * vblank, or a motion on the pump thread blocks behind the render thread's
+	 * commit (at_commit's lock) for up to a frame, which is the lag the cursor
+	 * had; NONBLOCK returns once the kernel has taken the commit, as an async
+	 * flip does. On the display path it is instead made synchronous (`wait`),
+	 * so no commit of ours is left pending on the CRTC for Mesa's page flip
+	 * to be refused on (kms_atomic_cursor_set()'s header says what that
+	 * costs). */
+	return at_commit(at, wait ? 0 : DRM_MODE_ATOMIC_NONBLOCK, 0, objs, counts,
+					 props, vals, 1);
 }
 
-bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc)
+bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc, bool wait)
 {
 	AtCrtc *c = at_crtc(at, crtc);
 	if (!c || !c->cursor_plane)
@@ -475,8 +478,7 @@ bool kms_atomic_cursor_off(struct KmsAtomic *at, uint32_t crtc)
 	const uint32_t counts[1] = { 2 };
 	const uint32_t props[2]  = { c->c_crtc_id, c->c_fb_id };
 	const uint64_t vals[2]   = { 0, 0 };
-	/* And the hide, for the same reason: the pointer leaving must not wait
-	 * the vblank either. */
-	return at_commit(at, DRM_MODE_ATOMIC_NONBLOCK, 0, objs, counts, props, vals,
-					 1);
+	/* And the hide, for the same two reasons. */
+	return at_commit(at, wait ? 0 : DRM_MODE_ATOMIC_NONBLOCK, 0, objs, counts,
+					 props, vals, 1);
 }
