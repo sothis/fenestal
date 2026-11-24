@@ -4,9 +4,9 @@
  * Copyright (c) 2026 Janos Sonntag
  *
  * The KMS backend's state, behind App::backend_state: no window server, so
- * this is the display's DRM node, the one output the program has whole, and
- * the evdev devices it reads itself. For kms.c, kms_driver.c and the two
- * bridges onto KMS, Vulkan's and OpenGL's, alone.
+ * this is the display's DRM node, the one output a window has whole, and the
+ * evdev devices it reads itself. For kms.c, kms_driver.c and the two bridges
+ * onto KMS, Vulkan's and OpenGL's, alone.
  */
 
 #ifndef FNL_KMS_STATE_H
@@ -228,6 +228,11 @@ struct BackendState {
 	/* The host's card, outputs, event loop and inputs, which this window's
 	 * selection and scanout are drawn on. */
 	struct BackendHostState *host;
+
+	/* Whether this window's open turned the host's copy path on: a creation
+	 * that fails before the window joins the registry gives it back, so the
+	 * windows already open are left as they were (kms_window_close()). */
+	bool force_copy_set;
 
 	/* Bumped by the pump when the output the window is on comes back, and by
 	 * the render thread at a move to another GPU: the copy path's next frame

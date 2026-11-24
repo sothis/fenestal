@@ -4032,13 +4032,14 @@ things:
   because two devices on the GPU for however short a time is the fault above.
   The device made next is a new generation, which is what ends the loss.
 - **The queue is one.** `vkQueueSubmit()`, `vkQueuePresentKHR()` and
-  `vkQueueWaitIdle()` are externally synchronised per queue, so no file calls
-  them directly: `vk_queue_submit()`, `vk_queue_present()` and
-  `vk_queue_wait_idle()` (device.c) hold `VkHost::queue_lock` around them.
-- **A GPU is not moved to while a second window is open.** A move rebuilds the
-  device, and the other window's scene is the caller's to lose: refused where
-  the wish is spent (`gpu_switch_owed()`), so that `fnl_request_gpu()` and the
-  titlebar's box both take it, with one line said.
+  `vkQueueWaitIdle()` are externally synchronised per queue, and
+  `vkDeviceWaitIdle()` is every queue's, so no file calls them directly:
+  `vk_queue_submit()`, `vk_queue_present()`, `vk_queue_wait_idle()` and
+  `vk_device_wait_idle()` (device.c) hold `VkHost::queue_lock` around them.
+- **A GPU is not moved to while a second window is open**, or opening: a move
+  rebuilds the device, and the other window's scene is the caller's to lose.
+  Refused where the wish is spent (`gpu_switch_owed()`), so that
+  `fnl_request_gpu()` and the titlebar's box both take it, with one line said.
 
 And one thing it costs the checker: Mesa's per-device caches — the pipeline
 cache's and `vk_meta`'s — are reached from two render threads at once for the
@@ -4060,9 +4061,15 @@ is the one to follow.
 **A calibration is the window's, the figures are the program's.** The ranking
 file is one per backend per program (`gpu-rank-<prog>-<backend>.txt`), so two
 windows on one display would measure the same entries twice into the same
-lines. The rank is made the host's: reading and writing it, while measuring
-stays a window's and a display's, and a second window on the display already
-measured — or being measured — waits rather than measuring again.
+lines. The rank is made the host's: the first window reads it and measures,
+and a second window reads the same file and opens on its first entry — its
+`App::rank_read_only`, which `app_rank_start()` turns into `RANK_KEEP` — and
+neither measures nor writes it, nor aims again after the open. Measuring is a
+move between GPUs, which a host of more than one refuses (`gpu_switch_owed()`):
+a second window's opening ends a calibration under way with what it measured,
+and no calibration starts until the host is one window again. A host whose
+first window asked for no ranking (`RANK_OFF`) gives a second none to read
+either.
 
 **Rejected.** *N independent apps, one `fnl_init()` each* is the state before
 the split, and it is not multi-window: the second connection acts with the

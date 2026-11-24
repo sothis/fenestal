@@ -73,12 +73,10 @@ static bool pipeline_cache_path(App *a, char *buf, size_t n, bool make_dir)
 }
 
 /* The blob read at startup, as a size and an FNV-1a hash rather than a kept
- * copy, so a run that compiled nothing new writes nothing back. File-scope:
- * the files are one a device, but one device at a time is live, and its
- * create_pipeline_cache() sets these for the file it read before anything
- * saves to it. */
-static size_t   cache_loaded_size;
-static uint64_t cache_loaded_hash;
+ * copy, so a run that compiled nothing new writes nothing back. The
+ * window's (RendererState::cache_loaded_*): two windows on one device share
+ * the file but each reads it, and each compares its own blob against what
+ * it read. */
 
 static uint64_t blob_hash(const void *data, size_t n)
 {
@@ -114,8 +112,8 @@ FnlResult create_pipeline_cache(App *a)
 			fclose(f);
 		}
 	}
-	cache_loaded_size = initial_size;
-	cache_loaded_hash = blob_hash(initial, initial_size);
+	VK(a)->cache_loaded_size = initial_size;
+	VK(a)->cache_loaded_hash = blob_hash(initial, initial_size);
 
 	VkPipelineCacheCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
@@ -142,17 +140,19 @@ void save_pipeline_cache(App *a)
 		return;
 	if (vkGetPipelineCacheData(VK(a)->device, VK(a)->pipeline_cache, &sz,
 							   data) == VK_SUCCESS &&
-		(sz != cache_loaded_size ||
-		 blob_hash(data, sz) != cache_loaded_hash)) {
+		(sz != VK(a)->cache_loaded_size ||
+		 blob_hash(data, sz) != VK(a)->cache_loaded_hash)) {
 		/* Written beside the target and renamed over it: another Fenestal
 		 * program shares the file, and a reader must find the old cache or
-		 * the new one, never part of either. The pid keeps two writers from
-		 * sharing the temporary as well. */
+		 * the new one, never part of either. The pid keeps two programs from
+		 * sharing the temporary, and the window keeps two of one program's
+		 * -- which share the pid -- from sharing it as well. */
 		char path[512], tmp[560];
 		FILE *f = NULL;
 		if (pipeline_cache_path(a, path, sizeof path, true) &&
-			snprintf(tmp, sizeof tmp, "%s.%ld.tmp", path,
-					 (long)CACHE_GETPID()) < (int)sizeof tmp)
+			snprintf(tmp, sizeof tmp, "%s.%ld-%llx.tmp", path,
+					 (long)CACHE_GETPID(),
+					 (unsigned long long)(uintptr_t)a) < (int)sizeof tmp)
 			f = fopen(tmp, "wb");
 		if (f) {
 			/* Both calls are checked because fwrite can succeed into a buffer

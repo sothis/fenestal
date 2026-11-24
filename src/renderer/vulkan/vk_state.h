@@ -76,8 +76,9 @@ struct VkHost {
 
 	/* One queue, so its calls are serialised across the render threads:
 	 * vkQueueSubmit() and vkQueuePresentKHR() are externally synchronised
-	 * per queue. Taken by vk_queue_submit(), vk_queue_present() and
-	 * vk_queue_wait_idle() alone. */
+	 * per queue, and vkDeviceWaitIdle() is every queue's. Taken by
+	 * vk_queue_submit(), vk_queue_present(), vk_queue_wait_idle() and
+	 * vk_device_wait_idle() alone. */
 	FnlMutex queue_lock;
 };
 
@@ -330,6 +331,12 @@ struct RendererState {
 
 	VkRenderPass          render_pass;
 	VkPipelineCache       pipeline_cache;
+	/* What the cache file held when create_pipeline_cache() read it, so a
+	 * run that compiled nothing new writes nothing back. The window's: two
+	 * windows read the one file, and each compares its own blob against what
+	 * it read (pipeline.c). */
+	size_t                cache_loaded_size;
+	uint64_t              cache_loaded_hash;
 	VkCommandPool         cmd_pool;
 
 	/* ---- the scene ---------------------------------------------------

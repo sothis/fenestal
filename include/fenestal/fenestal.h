@@ -395,25 +395,29 @@ typedef struct {
 	int width_pt, height_pt; /* presentable area; 0 for the default */
 
 	/* A position on the desktop, in points from the primary output's corner,
-	 * or 0/0 to let the window server place it. X11 and Win32 honour it; a
-	 * window server that places windows itself (Wayland) or that is the output
-	 * (KMS) leaves it to the desktop, which is where those put a window
-	 * anyway. The first window's descriptor (FnlInitDesc) has no position: a
-	 * program that opens one window leaves it to the desktop. */
+	 * or 0/0 to let the window server place it. X11, Win32 and Cocoa honour
+	 * it; a window server that places windows itself (Wayland) or that is
+	 * the output (KMS) leaves it to the desktop, which is where those put a
+	 * window anyway. The first window's descriptor (FnlInitDesc) has no
+	 * position: a program that opens one window leaves it to the desktop. */
 	int x_pt, y_pt;
 
 	/* Which GPU this window opens on, by the same rules as FnlInitDesc's:
 	 * gpu_index one-based into the renderer's list, gpu_name a part of the
 	 * name. A second window naming no GPU takes the host's ranking for its
-	 * display and its own automatic pick. */
+	 * display, and where none is kept its own automatic pick. Where the
+	 * renderer keeps one device for every window (Vulkan), the GPU is the
+	 * host's: a name or an index naming another is not used, and the log
+	 * says so for a name. */
 	int gpu_index;
 	const char *gpu_name;
 
 	/* The window's own settings, as FnlInitDesc's: the presentable area is
 	 * the caller's interface (content_is_ui), the titlebar controls to leave
 	 * out (no_titlebar_controls), the scale override and the frame times. The
-	 * renderer and its list are the host's -- one graphics API a program -- and
-	 * so are the callbacks, which the door takes. */
+	 * renderer and its list are the host's -- one graphics API a program --
+	 * and the callbacks are this window's, given to the door rather than
+	 * here. */
 	bool content_is_ui;
 	uint32_t no_titlebar_controls;
 	int scale_override120;
@@ -932,9 +936,10 @@ FNL_STATIC_ASSERT(sizeof(FnlEvent) == 48 || sizeof(FnlEvent) == 40,
  * own titlebar, with the frame the scene was drawn for -- in the same
  * recording, so as often as on_record and on the same terms.
  *
- * There is never more than one thread inside a callback. Any of them may use
- * the knobs and fnl_poll_event(); none may call fnl_run() or
- * fnl_shutdown().
+ * There is never more than one thread inside one window's callbacks. Two
+ * windows' callbacks are two threads, so what they share is the caller's to
+ * synchronise (see the note on threads at the top). Any of them may use the
+ * knobs and fnl_poll_event(); none may call fnl_run() or fnl_shutdown().
  *
  * The two device callbacks are strictly alternating: on_gpu_created on the
  * thread that called fnl_run() for the outermost pair and on the render
@@ -983,13 +988,16 @@ FNL_API FnlResult fnl_window_create(FnlApp *sibling,
 									const FnlCallbacks *cb,
 									FnlApp **out); /* [main] */
 
-/* After fnl_run() has returned. Called from a callback it logs a line and
- * does nothing, rather than wait for the render thread from the render
- * thread or free the app fnl_run() is still running on.
+/* After the run has returned, or for a window fnl_pump() stopped while
+ * another on the host kept the run going: either way the window's render
+ * thread is joined. Called from a callback it logs a line and does nothing,
+ * rather than wait for the render thread from the render thread or free an
+ * app the run still uses.
  *
  * One window's, once there are several: the window's surface, device and
- * render thread go, and the host's connection and pump go with the last one.
- * A host with one window is the case this is today. */
+ * render thread go, and the host's connection and pump go with the last one,
+ * which is given back after fnl_stop(). A window the run is still drawing is
+ * refused. */
 FNL_API void fnl_shutdown(FnlApp *app); /* [main] */
 
 /* Pump the host on this thread and every window's frame loop on one of the
@@ -1132,10 +1140,13 @@ FNL_API FnlRenderer fnl_renderer(const FnlApp *app); /* [any] */
  * so on_gpu_created asks fnl_renderer() which scene to build. A GPU that
  * will not build is gone back from, with one line through the log sink.
  * An index past the list, or the GPU in use, does nothing. The choice
- * holds for later rebuilds as gpu_index does. OpenGL lists the GPUs its
- * driver will open this window on -- every one where the window is the
- * output, and where it is a window server's, those whose driver takes the
- * GPU it is told, which on X11 is none but the server's own. Since 0.9. */
+ * holds for later rebuilds as gpu_index does. While a second window is open
+ * no move is made -- the device is every window's, and a move would rebuild
+ * it under the other's scene -- so the request is dropped, with one line
+ * through the log sink. OpenGL lists the GPUs its driver will open this
+ * window on -- every one where the window is the output, and where it is a
+ * window server's, those whose driver takes the GPU it is told, which on X11
+ * is none but the server's own. Since 0.9. */
 typedef enum {
 	FNL_GPU_KIND_UNKNOWN    = 0, /* hardware the API does not describe */
 	FNL_GPU_KIND_INTEGRATED = 1, /* shares the CPU's memory */
@@ -1145,7 +1156,10 @@ typedef enum {
 } FnlGpuKind;
 
 /* How many GPUs the list has, and which is in use: -1 with no window or no
- * device yet. */
+ * device yet. A second window drawn on the host's device (Vulkan) lists no
+ * entry of that renderer until a device rebuild of its own -- the GPU is the
+ * host's, and a move refused while both are open -- so the GPU in use is not
+ * one of its list's entries until then. */
 FNL_API int fnl_gpu_count(const FnlApp *app);   /* [any] */
 FNL_API int fnl_gpu_current(const FnlApp *app); /* [any] */
 /* An entry's name, as fnl_gpu_name() gives the one in use, and "" past the

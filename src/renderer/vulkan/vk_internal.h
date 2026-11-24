@@ -25,12 +25,14 @@ FNL_MUST_USE FnlResult fnl_vk_result(const char *expr, const char *file,
 									 int line, VkResult r);  /* device.c */
 
 /* The queue is the host's, one for every window on it, and Vulkan wants a
- * queue's calls externally synchronised: these three hold VkHost::queue_lock
+ * queue's calls externally synchronised: these four hold VkHost::queue_lock
  * around the call, and nothing else is to name vkQueueSubmit(),
- * vkQueuePresentKHR() or vkQueueWaitIdle() on it. device.c. */
+ * vkQueuePresentKHR(), vkQueueWaitIdle() or vkDeviceWaitIdle() on it -- the
+ * last is every queue's, and the host has one. device.c. */
 VkResult vk_queue_submit(App *a, uint32_t n, const VkSubmitInfo *s, VkFence f);
 VkResult vk_queue_present(App *a, const VkPresentInfoKHR *p);
 VkResult vk_queue_wait_idle(App *a);
+VkResult vk_device_wait_idle(App *a);
 
 /* Wrap a Vulkan call as an FnlResult.
  *

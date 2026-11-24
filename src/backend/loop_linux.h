@@ -179,10 +179,11 @@ static inline FnlResult loop_uevent_open(int *fd, int epoll_fd)
 	return FNL_OK;
 }
 
-/* Every uevent there is, drained; one app_gpu_hotplug() for any number of
- * this machine's. An overrun lost uevents nobody can read now, so the GPU
- * is said to have come or gone all the same -- a missed hotplug is a stale
- * list, which the next rebuild fixes. */
+/* Every uevent there is, drained; one app_gpu_hotplug() each window for any
+ * number of this machine's -- the list is a window's, and each draws with
+ * the GPU that came or went. An overrun lost uevents nobody can read now,
+ * so the GPU is said to have come or gone all the same -- a missed hotplug
+ * is a stale list, which the next rebuild fixes. */
 static inline void loop_uevent_drain(App *a, int fd)
 {
 	char buf[4096];
@@ -193,7 +194,8 @@ static inline void loop_uevent_drain(App *a, int fd)
 		gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
 	}
 	if (gpu || (got < 0 && errno == ENOBUFS))
-		app_gpu_hotplug(a);
+		for (App *w = a->host->windows; w; w = w->next)
+			app_gpu_hotplug(w);
 }
 
 #endif /* FNL_LOOP_LINUX_H */

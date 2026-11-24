@@ -1371,6 +1371,27 @@ static void host_publish_device(App *a)
  * it is not asked about or chosen again. The caller holds VkHost::lock. */
 static FnlResult attach_device(App *a, struct VkHost *h)
 {
+	/* A window on the host's device is on the host's GPU: a name that is
+	 * not the one drawing is not used, and one line says so rather than
+	 * leave a caller thinking the window opened where it asked. */
+	if (a->gpu_want[0] && !app_name_has(h->gpu_name, a->gpu_want))
+		fnl_log(FNL_LOG_WARN,
+				"a second window draws on the host's device (%s); %s, the "
+				"GPU asked for, is not used",
+				h->gpu_name, a->gpu_want);
+	/* The host's queue family was chosen for the first window's surface, and
+	 * presentation support is asked of a surface: ask it of this one rather
+	 * than assume the answer carries. A window the shared device cannot
+	 * present to is refused where it is built. */
+	if (!VK(a)->surfaceless && VK(a)->vk_surface != VK_NULL_HANDLE) {
+		VkBool32 yes = VK_FALSE;
+		const VkResult sr = vkGetPhysicalDeviceSurfaceSupportKHR(
+			h->phys, h->queue_family, VK(a)->vk_surface, &yes);
+		if (sr != VK_SUCCESS || !yes)
+			return fnl_fail(FNL_ERR_NO_DEVICE,
+							"the host's queue family cannot present to this "
+							"window");
+	}
 	VK(a)->phys             = h->phys;
 	VK(a)->queue_family     = h->queue_family;
 	VK(a)->phys_software    = h->phys_software;
@@ -1486,7 +1507,7 @@ static void destroy_device_objects(App *a, bool save_cache)
 
 	/* A device the drain finds lost has no cache worth keeping, whatever
 	 * the caller expected of it. */
-	if (vkDeviceWaitIdle(VK(a)->device) == VK_ERROR_DEVICE_LOST)
+	if (vk_device_wait_idle(a) == VK_ERROR_DEVICE_LOST)
 		save_cache = false;
 	vkDestroyQueryPool(VK(a)->device, VK(a)->ts_pool, NULL);
 	VK(a)->ts_pool = VK_NULL_HANDLE;
@@ -1745,10 +1766,23 @@ VkResult vk_queue_wait_idle(App *a)
 	return r;
 }
 
+/* vkDeviceWaitIdle() is every queue's: Vulkan asks host access to all of
+ * them to be externally synchronised. The host has one queue, submitted on
+ * by every window, so it takes the same lock the queue's own calls do. */
+VkResult vk_device_wait_idle(App *a)
+{
+	if (VK(a)->device == VK_NULL_HANDLE)
+		return VK_SUCCESS;
+	struct VkHost *h = VKH(a);
+	fnl_mutex_lock(&h->queue_lock);
+	const VkResult r = vkDeviceWaitIdle(VK(a)->device);
+	fnl_mutex_unlock(&h->queue_lock);
+	return r;
+}
+
 static void vk_wait_idle(App *a)
 {
-	if (VK(a)->device)
-		vkDeviceWaitIdle(VK(a)->device);
+	(void)vk_device_wait_idle(a);
 }
 
 /* The window's own loss, or the host's: a device lost on another window is

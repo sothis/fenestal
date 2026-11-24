@@ -209,7 +209,7 @@ static FnlResult ensure_readback(App *a)
 	if (!VK(a)->present_copy || need <= VK(a)->readback_bytes)
 		return FNL_OK;
 	if (VK(a)->readback_bytes) {
-		const VkResult wr = vkDeviceWaitIdle(VK(a)->device);
+		const VkResult wr = vk_device_wait_idle(a);
 		if (vk_lost(a, wr))
 			return FNL_ERR_DEVICE_LOST;
 		VK_TRY(wr);

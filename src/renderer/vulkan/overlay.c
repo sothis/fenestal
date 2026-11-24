@@ -469,7 +469,7 @@ void vk_image_free(App *a, FnlImage *img)
 	 * write. Drained first, as d3d_image_free() drains: a destroy waits and a
 	 * frame does not, so the cost is the caller's toggle. A lost device
 	 * answers at once and is recorded, and the destroy is legal there. */
-	(void)vk_lost(a, vkDeviceWaitIdle(VK(a)->device));
+	(void)vk_lost(a, vk_device_wait_idle(a));
 	vkDestroyImageView(VK(a)->device, o->view, NULL);
 	vkDestroyImage(VK(a)->device, o->image, NULL);
 	vkFreeMemory(VK(a)->device, o->mem, NULL);

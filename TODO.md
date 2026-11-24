@@ -1454,10 +1454,13 @@ so the work is the process state that is still in the app, not a handle to add.
   view the window's. The per-window frame loop is in -- `fnl_start`/`fnl_pump`/
   `fnl_stop` reach every window on the host, a window's render thread started
   with the run or the pump that follows its creation. The renderer seam does
-  not split. The GPU ranking is the host's in effect: `fnl_init()` reads it, and
-  a second window sets `App::rank_no_measure`, so it neither measures nor
-  writes the file. The log level stays a process static in `error.c`, as the log
-  sink is -- one program, one level.
+  not split. The GPU ranking is the host's: `fnl_init()` reads it and measures,
+  and a second window reads the same file and opens on its first entry
+  (`App::rank_read_only`, `RANK_KEEP`), so it neither measures nor writes the
+  file and does not aim again; a calibration is refused while two windows are
+  open, since its moves between GPUs are, and one under way ends when a second
+  opens. The log level stays a process static in `error.c`, as the log sink
+  is -- one program, one level.
 - **The process state the table in DESIGN names**, each row a site to move:
   the signal app, `this_thread` and `app_renderer_state_ours()` (done: the
   render thread's window is the thread-local `render_window`, and the accessor
@@ -1595,6 +1598,36 @@ so the work is the process state that is still in the app, not a handle to add.
   table is one a process (fine while a program has one renderer and both its
   windows' contexts are the same profile; the 4.1 shim's vertex-array records
   are per thread and Metal's stages per device now).
+- **The two-window review's fixes** (2026-11-24): a failed
+  `fnl_window_create()` no longer takes KMS's console and display path with
+  it (the last-window test is the registry's, and the copy path the attempt
+  forced is given back); `Host::window_count` is atomic, since render threads
+  read it, and `Host::opening` refuses a GPU move while a window is being
+  built; a GPU hotplug reaches every window (X11 and KMS, as Wayland already
+  did); the signal handlers follow the host to a window that outlives the one
+  that installed them; Win32's `WM_QUIT` ends every window's run; a second
+  window reads the host's ranking and opens on its first entry, and cannot
+  calibrate; Vulkan's `vkDeviceWaitIdle()` takes the host queue's lock, the
+  pipeline cache's loaded figures and temporary file are the window's, and the
+  GPU listers are serialised. Owed: a second Vulkan window lists no entry of
+  its own renderer until a rebuild of its own, so after the window that chose
+  the device closes it cannot yet be moved to another GPU of the renderer
+  drawing, nor take the ranking's calibration over from the window that went;
+  a survivor moved to another renderer leaves `Host::renderer` naming the
+  first window's choice, so a window created afterwards is built on that one;
+  a window created while the only window is moving to another GPU can be
+  built on the renderer being rebuilt, since `opening` is checked before the
+  move commits and not again -- a host-level moving flag, stored before
+  `opening` is loaded on the move's side, is the shape of the fix; KMS's copy
+  path is one-way, so closing the second window leaves the survivor on it
+  though it could take the display again (the remake wants the closing
+  window's unlink first); each Vulkan window keeps its own `VkPipelineCache`,
+  so two windows write the one cache file in turn and the last save loses
+  the other's newly compiled pipelines -- one pipeline cache for the host's
+  device, saved once and reused by every window, is the shape of the fix (and
+  stops both compiling the same pipelines); and Win32's size hold is the pump
+  thread's, so a border drag on one window holds every window's input for up
+  to `SIZE_AWAIT_MS`.
 - **Order.** The header and DESIGN, the core split with `fnl_init` unchanged,
   the backend seam's split and the per-window frame loop are done, and the seam
   is split on all five backends: X11, Win32 and Cocoa whole; Wayland (the one

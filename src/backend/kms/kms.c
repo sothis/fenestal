@@ -3080,9 +3080,12 @@ static FnlResult kms_window_open(App *a)
 	/* A second window means the direct-scanout display cannot be shared on
 	 * the one device: the whole host draws by the copy path from here, and a
 	 * window already showing lets its display go on its next build
-	 * (surface_kms.c). */
-	if (a->host->windows != a) {
+	 * (surface_kms.c). Already on: the remakes are owed from the window that
+	 * turned it on, and this one builds on the copy path anyway. */
+	if (a->host->windows != a &&
+		!fnl_atomic_load_bool(&hs->force_copy)) {
 		fnl_atomic_store_bool(&hs->force_copy, true);
+		p->force_copy_set = true;
 		for (App *w = a->host->windows; w; w = w->next)
 			app_surface_remake(w);
 	}
@@ -3136,6 +3139,12 @@ static void kms_window_close(App *a)
 	struct BackendState *p = a->backend_state;
 	if (!p)
 		return;
+	/* Whether this window ever joined the host's registry. A creation that
+	 * fails after its output was taken has not, and must not give the
+	 * console back over the windows that are still open. */
+	bool joined = false;
+	for (const App *w = a->host->windows; w && !joined; w = w->next)
+		joined = w == a;
 	/* The keyboard and pointer move to a window still open, before this
 	 * one's cursor and state go. */
 	if (p->host->focus == a) {
@@ -3151,14 +3160,23 @@ static void kms_window_close(App *a)
 	if (p->host->card_fd >= 0) {
 		flip_wait(a, FLIP_WAIT_MS);
 		p->flip_pending = false;
-		/* Only the last window gives the console back: a CRTC restored
-		 * while another window still shows on the card would take that
-		 * window's output with it. */
-		if (app_backend_host(a) && a->host->window_count == 1)
+		/* Only the last window gives the console back, and only one that
+		 * joined the host: a CRTC restored while another window still shows
+		 * on the card would take that window's output with it. */
+		if (joined && app_backend_host(a) &&
+			fnl_atomic_load_u32(&a->host->window_count) == 1)
 			crtcs_restore(p);
 		scan_release(p, &p->scan_old);
 		scan_release(p, &p->scan);
 		scan_parked_tidy(p, true);
+	}
+	/* A window that never joined the host took the copy path with it: the
+	 * windows that are open get their display path back (surface_kms.c). */
+	if (!joined && p->force_copy_set &&
+		fnl_atomic_load_u32(&a->host->window_count) == 1) {
+		fnl_atomic_store_bool(&p->host->force_copy, false);
+		for (App *w = a->host->windows; w; w = w->next)
+			app_surface_remake(w);
 	}
 	free(p);
 	a->backend_state = NULL;
@@ -3285,8 +3303,12 @@ static void kms_pump(App *a, int timeout_ms)
 				ours |= uevent_is_ours(hs, buf, (size_t)got);
 				gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
 			}
+			/* Every window's, as the Wayland backend's: the GPU list
+			 * is a window's, and each draws with the GPU that came
+			 * or went. */
 			if (gpu)
-				app_gpu_hotplug(a);
+				for (App *w = a->host->windows; w; w = w->next)
+					app_gpu_hotplug(w);
 			/* An overrun lost uevents nobody can read now; one of them may
 			 * have been ours. */
 			ours |= got < 0 && errno == ENOBUFS;

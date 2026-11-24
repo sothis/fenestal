@@ -135,7 +135,7 @@ static bool acquire_display(App *a, char *why, size_t size)
 	 * faulted anv, and a display swapchain beside a second window's on the
 	 * one device has too. So a host drawing more than one window, or one
 	 * whose display another window already has, draws by the copy path. */
-	if (a->host->window_count > 1) {
+	if (fnl_atomic_load_u32(&a->host->window_count) > 1) {
 		snprintf(why, size, "more than one window draws by the copy path");
 		return false;
 	}

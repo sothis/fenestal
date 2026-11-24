@@ -578,6 +578,23 @@ void app_rank_start(App *a)
 				"FNL_GPU_RANK is '%s': calibrate, keep, "
 				"order, off, or unset",
 				v);
+	/* A second window reads the ranking the first kept -- the figures are
+	 * the program's -- and opens on its first entry, but measures and writes
+	 * nothing: a calibration moves the window between GPUs, which a host of
+	 * several cannot do, and the file is the calibration's to write.
+	 * RANK_KEEP is that read: it aims once (open_on()), neither calibrates
+	 * nor saves, and names no later aim -- a move would be refused while two
+	 * are open. RANK_ORDER's explicit "order alone" is taken as given, and a
+	 * host whose first window asked for no ranking (RANK_OFF) has none to
+	 * read. */
+	if (a->rank_read_only) {
+		if (a->host->rank_off || a->rank_mode == RANK_OFF)
+			a->rank_mode = RANK_OFF;
+		else if (a->rank_mode != RANK_ORDER)
+			a->rank_mode = RANK_KEEP;
+	} else {
+		a->host->rank_off = a->rank_mode == RANK_OFF;
+	}
 	if (a->rank_mode == RANK_OFF)
 		return;
 	char dir[512], prog[96];
@@ -613,6 +630,11 @@ void app_rank_start(App *a)
 	char id[RANK_ID_MAX];
 	if (ranked_id(a, display, a->rank_target, id, sizeof id))
 		open_on(a, a->rank_target, id);
+	/* A second window's open is its one aim: opening on the ranked entry is
+	 * the read, and a move to it afterwards would be refused while two
+	 * windows are open (and is not wanted once the first has gone). */
+	if (a->rank_read_only)
+		a->rank_target = 0;
 }
 
 /* ---- the order ---------------------------------------------------------- */
@@ -1069,6 +1091,15 @@ static void check_missing(App *a)
 	a->rank_dirty = false;
 	if (a->rank_mode != RANK_CALIBRATE)
 		return;
+	/* A calibration moves the window between GPUs, which gpu_switch_owed()
+	 * refuses while a second window is open or opening. Asked again when the
+	 * host is one window: `rank_dirty` stays set, and the ask is an atomic
+	 * load until then. */
+	if (fnl_atomic_load_u32(&a->host->window_count) > 1 ||
+		fnl_atomic_load_u32(&a->host->opening) > 0) {
+		a->rank_dirty = true;
+		return;
+	}
 	char display[RANK_DISPLAY_MAX];
 	display_now(a, display, sizeof display);
 	/* No output yet -- on Wayland none is known until the window is shown
@@ -1087,7 +1118,12 @@ static void check_missing(App *a)
 
 bool app_rank_recalibrates(const App *a)
 {
-	return a->rank_mode == RANK_AUTO || a->rank_mode == RANK_CALIBRATE;
+	/* Not with a second window open or opening: the moves a calibration
+	 * needs are refused then (gpu_switch_owed()), and its window would take
+	 * no input while it waited. The box's row is dim on the same answer. */
+	return (a->rank_mode == RANK_AUTO || a->rank_mode == RANK_CALIBRATE) &&
+		   fnl_atomic_load_u32(&a->host->window_count) <= 1 &&
+		   fnl_atomic_load_u32(&a->host->opening) == 0;
 }
 
 void app_rank_recalibrate(App *a)
@@ -1188,6 +1224,19 @@ static bool quiet(App *a, const char *display, double now)
 void app_rank_tick(App *a)
 {
 	const double now = now_seconds();
+	/* A calibration under way when a window opens on the host ends here,
+	 * with what it measured: its moves between GPUs are refused from now on
+	 * (gpu_switch_owed()), and its window would take no input while it
+	 * waited for one. Asked again when the host is one window. */
+	if (a->cal.state != CAL_OFF &&
+		fnl_atomic_load_u32(&a->host->window_count) > 1) {
+		fnl_log(FNL_LOG_INFO,
+				"GPU rank: calibration ended, a second window is open");
+		a->cal.n = a->cal.i;
+		finish(a);
+		a->rank_dirty = true;
+		return;
+	}
 	if (a->cal.state == CAL_OFF) {
 		if (a->rank_mode == RANK_OFF || !settled(a))
 			return;

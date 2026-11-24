@@ -1174,12 +1174,28 @@ struct Host {
 	 * fnl_stop() before it stops. Written and read on the main thread alone
 	 * (the three calls are [main]), as App::in_run is for the window. */
 	bool running;
+	/* A main-thread callback is running: the outermost on_gpu_created or
+	 * on_gpu_lost, which run on this thread rather than a render thread.
+	 * fnl_start(), fnl_pump(), fnl_stop() and fnl_window_create() are [main]
+	 * too, so the thread test does not refuse them from inside one -- this
+	 * does, as the header says they may not be called from a callback.
+	 * Main-thread alone. */
+	bool in_callback;
 
 	/* The windows on this host, in the order they were made. A host with no
-	 * windows left goes. */
+	 * windows left goes. The count is atomic because every window's render
+	 * thread reads it, to know whether the device it draws on is shared
+	 * (frame.c's gpu_switch_owed(), surface_kms.c's display path); only the
+	 * main thread writes it. */
 	struct FnlApp *windows;
 	struct FnlApp *windows_tail;
-	size_t window_count;
+	FnlAtomicU32 window_count;
+	/* A window fnl_window_create() is opening, before it joins the list:
+	 * the link is the last of its build, and the GPU move guard
+	 * (frame.c's gpu_switch_owed()) asks this as well as the count -- a move
+	 * spent then would rebuild the device under the window being built.
+	 * Main thread writes, every render thread reads. */
+	FnlAtomicU32 opening;
 
 	/* ---- the one renderer, chosen once -------------------------------
 	 * A program has one graphics API, so the first window chooses the
@@ -1196,6 +1212,11 @@ struct Host {
 	/* Whether the listed GPUs span more than one renderer (renderer_spans),
 	 * as renderer_choose_and_build() computed it for the first window. */
 	bool gpu_spans;
+	/* The first window's ranking came out RANK_OFF (no_gpu_ranking, or
+	 * FNL_GPU_RANK=off): a window opened later reads none either, rather
+	 * than take up a file the program's first window was told to leave
+	 * alone. Set by rank.c's app_rank_start() for the first window. */
+	bool rank_off;
 	/* The renderer's own state for the host, where it has one that is the
 	 * host's rather than a window's: Vulkan's VkInstance, VkDevice and queue
 	 * are one for every window on it, and a second window is a second
@@ -1645,6 +1666,12 @@ struct FnlApp {
 	 * a kept ranking is still read for -- the order is used, nothing is
 	 * measured (rank.c's app_rank_start()). */
 	bool rank_no_measure;
+	/* A window fnl_window_create() opened: it reads the ranking the host's
+	 * first window keeps -- the figures are the program's -- opens on its
+	 * first entry, and measures and writes nothing, which is rank.c's
+	 * RANK_KEEP. A calibration moves the window between GPUs, which a host
+	 * of several cannot do. */
+	bool rank_read_only;
 	bool rank_dirty;
 	bool rank_forced;
 	char rank_display[RANK_DISPLAY_MAX];

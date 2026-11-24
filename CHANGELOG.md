@@ -66,6 +66,17 @@ promised: before 1.0, nothing between minor releases.
   card has one, its glyph wrapped in a framebuffer and its hotspot placed as
   the legacy ioctl placed it; a CRTC with no cursor plane, or a refusal, keeps
   the legacy cursor ioctl.
+- A second window reads the GPU ranking the first window kept and opens on its
+  first entry, and neither measures nor writes it: a calibration moves a
+  window between GPUs, which a host of more than one cannot do, so none starts
+  while two windows are open and one under way ends when a second opens. A
+  failed `fnl_window_create()` leaves the windows already open untouched --
+  KMS no longer gives the console back over them or keeps the copy path it
+  forced -- and a GPU hotplug reaches every window. A terminating signal, and
+  Win32's `WM_QUIT`, close every window as the program's end even when the
+  window that installed the handler was closed first. Win32 also honours an
+  explicit zero on one axis of `FnlWindowDesc::x_pt`/`y_pt` rather than
+  centring that axis.
 
 ## 0.9.0
 

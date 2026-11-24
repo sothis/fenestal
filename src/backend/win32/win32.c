@@ -2369,10 +2369,12 @@ static FnlResult win32_open(App *a)
 	 * asked for (fnl_window_create()'s x_pt/y_pt) is honoured; CW_USEDEFAULT
 	 * leaves it where Windows would put it. */
 	const int ws120 = want_s120(a);
-	const int cx    = a->init_x_pt ? scale_pt(a->init_x_pt, ws120)
-								   : CW_USEDEFAULT;
-	const int cy    = a->init_y_pt ? scale_pt(a->init_y_pt, ws120)
-								   : CW_USEDEFAULT;
+	/* 0/0 is the sentinel for "the window server places it", so an explicit
+	 * zero on one axis is a position -- as X11 and Cocoa take it -- and not
+	 * CW_USEDEFAULT for that axis alone. */
+	const bool placed = a->init_x_pt != 0 || a->init_y_pt != 0;
+	const int cx = placed ? scale_pt(a->init_x_pt, ws120) : CW_USEDEFAULT;
+	const int cy = placed ? scale_pt(a->init_y_pt, ws120) : CW_USEDEFAULT;
 	p->hwnd =
 		CreateWindowExW(0, FNL_WNDCLASS, wtitle, style, cx, cy, w_pt, h_pt,
 						NULL, NULL, p->instance, a);
@@ -2546,6 +2548,10 @@ static void win32_pump(App *a, int timeout_ms)
 		if (!PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
 			return;
 	}
+	/* WM_QUIT is the thread's, and this pump is the host's: it ends every
+	 * window's run, as a terminating signal does, not only the window the
+	 * caller happened to hand fnl_pump(). */
+	fnl_atomic_store_bool(&a->host->quit, true);
 	fnl_atomic_store_bool(&a->should_close, true);
 }
 

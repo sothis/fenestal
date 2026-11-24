@@ -936,9 +936,10 @@ static void gpu_switch_owed(App *a)
 	/* Not while a second window is open: the device is every window's
 	 * (DESIGN *A second window*), and a move rebuilds it under the other,
 	 * whose scene is the caller's to lose. Refused where the wish is spent,
-	 * so that fnl_request_gpu() and the titlebar's box both take it. The
-	 * count moves only as windows open and close, on the main thread. */
-	if (a->host->window_count > 1) {
+	 * so that fnl_request_gpu() and the titlebar's box both take it, and a
+	 * calibration's move too. The count and the opening flag move on the
+	 * main thread; this thread reads them as atomics. */
+	if (fnl_atomic_load_u32(&a->host->window_count) > 1) {
 		fnl_mutex_lock(&a->lock);
 		const bool wished = a->gpu_req != 0;
 		a->gpu_req        = 0;
@@ -950,6 +951,11 @@ static void gpu_switch_owed(App *a)
 		}
 		return;
 	}
+	/* A window is opening: the device this one may be built on is the
+	 * host's, so a move waits for the turn it ends -- a link then refuses it
+	 * (above), a failed creation lets it be spent as if no window had come. */
+	if (fnl_atomic_load_u32(&a->host->opening) > 0)
+		return;
 	/* A wish for nowhere is spent at once; one for another GPU stands
 	 * while the veil comes down over the frames this renderer still draws
 	 * (app_veil_gate()), and is read again then, so the latest wish is
