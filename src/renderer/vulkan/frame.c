@@ -129,6 +129,10 @@ static void record_scene_draws(App *a, VkCommandBuffer cb,
 		.target     = t,
 		.samples    = t == FNL_TARGET_OFFSCREEN_MS ? (int)scene_samples(a) : 1,
 		.scene_time = ds->scene_time,
+		/* The same offset the TAAU pass is handed: only the caller can put
+		 * it in its projection, and a frame without it gathers one sample. */
+		.jitter_x = ds->jitter_x,
+		.jitter_y = ds->jitter_y,
 	};
 
 	VK(a)->scene_cb = cb;

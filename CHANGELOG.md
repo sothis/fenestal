@@ -6,6 +6,9 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- `FnlFrame::jitter_x` and `jitter_y` reach `on_record` as the frame's TAAU
+  subpixel offset, as documented, in every renderer. They were zero before, so
+  a caller that shifted its projection by them drew without the accumulation.
 - KMS opens a second window on a free output: `fnl_window_create()` on KMS
   takes the next output no other window holds, at its preferred mode, and one
   seat is routed by the pointer over the outputs laid left to right (the window
