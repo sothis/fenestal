@@ -3855,8 +3855,11 @@ read at its site; what is *not* in this table was looked for and not found.
 and the caller sets it once), `text_measure.c`'s glyph table (a property of the
 build, written once before any thread), `egl_dyn.c`'s hold count (already
 counted across apps, which is why a window's close does not close the driver),
-`cocoa.m`'s `app_launched` (one `NSApplication` a process), and X11's static
-`xcb_extension_t` objects — libxcb caches each extension's reply *per
+the EGL display's holds in `egl.c`, one level down from it (every window on one
+window server asks EGL for the same display, and `eglTerminate()` ends it for
+all of them, so a window's close gives a hold back and the last one terminates
+it), `cocoa.m`'s `app_launched` (one `NSApplication` a process), and X11's
+static `xcb_extension_t` objects — libxcb caches each extension's reply *per
 connection* under the object's `global_id`, so one object serves every
 connection correctly and a copy per window would only change when the server
 is asked.

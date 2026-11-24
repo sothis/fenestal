@@ -36,6 +36,15 @@ promised: before 1.0, nothing between minor releases.
   `xcb_connection_t *`, and one destroyed and rebuilt at the same address drew
   X errors and a bogus allocation from it. The pump's connection stays the
   window's.
+- An **OpenGL** window's `EGLDisplay` is the process's, not the window's:
+  every window on one window server asks EGL for the same display (X11's
+  graphics connection is one now, and Wayland's display always was), so
+  closing one window no longer terminates it under the others. Each window
+  holds it, as every listing of OpenGL's GPUs does, and the last hold given
+  back ends it; every `eglInitialize()` the library made is given back there,
+  so a driver that counts initializes ends where it began. The two-window
+  `x11-gl` round found it: the second window's close left the first swapping
+  `EGL_NOT_INITIALIZED`.
 - `FnlFrame::jitter_x` and `jitter_y` reach `on_record` as the frame's TAAU
   subpixel offset, as documented, in every renderer. They were zero before, so
   a caller that shifted its projection by them drew without the accumulation.

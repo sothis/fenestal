@@ -77,6 +77,142 @@ static FnlResult egl_fail(App *a, FnlResult code, const char *what)
 	return fnl_fail(code, "%s failed: %s", what, egl_error_name(e));
 }
 
+/* ---- the display, which is the process's ----------------------------------
+ *
+ * Every window on one window server asks EGL for the same EGLDisplay -- the
+ * same native connection and screen name it -- and so does every listing of
+ * the GPUs. eglTerminate() takes everything made on a display with it,
+ * another window's context and surface included, so no window may end one
+ * another is drawing on. The library holds each display and terminates it
+ * only with the last hold given back: egl_dyn.c's count of holds on the
+ * library, one level down.
+ *
+ * Every eglInitialize() the library makes is paired with one eglTerminate()
+ * at the end, so that a display another library in the process holds, on a
+ * driver that counts initializes, ends where it was found. Whether a driver
+ * counts them is asked of the display, not assumed (egl_display_give()). */
+
+typedef struct EglHold {
+	EGLDisplay      dpy;
+	int             refs;
+	int             inits;
+	EGLint          major;
+	EGLint          minor;
+	struct EglHold *next;
+} EglHold;
+
+typedef enum {
+	EGL_TAKE_OK,
+	EGL_TAKE_EGL,        /* eglInitialize failed; the thread's error says why */
+	EGL_TAKE_NO_MEMORY,
+} EglTake;
+
+static FnlMutex egl_hold_lock = FNL_MUTEX_STATIC;
+static EglHold *egl_holds;
+
+/* Whether the display is initialized now, as EGL answers it. A display that
+ * is not leaves EGL_NOT_INITIALIZED on this thread, which a caller drains
+ * before it reads an error of its own. */
+static bool display_alive(EGLDisplay dpy)
+{
+	return eglQueryString(dpy, EGL_VERSION) != NULL;
+}
+
+/* The display held and initialized, with its version. A display another hold
+ * already has up is not initialized again -- the version the first initialize
+ * answered is cached -- so that a listing, or a window opening beside a
+ * drawing one, only reads a display another thread draws through. One
+ * terminated under the library (RendererState::display_gone) is made new. */
+static EglTake egl_display_take(EGLDisplay dpy, EGLint *major, EGLint *minor)
+{
+	fnl_mutex_lock(&egl_hold_lock);
+	EglHold *h = egl_holds;
+	while (h && h->dpy != dpy)
+		h = h->next;
+	if (!h) {
+		h = calloc(1, sizeof *h);
+		if (!h) {
+			fnl_mutex_unlock(&egl_hold_lock);
+			return EGL_TAKE_NO_MEMORY;
+		}
+		h->dpy    = dpy;
+		h->next   = egl_holds;
+		egl_holds = h;
+	} else if (display_alive(dpy)) {
+		h->refs++;
+		*major = h->major;
+		*minor = h->minor;
+		fnl_mutex_unlock(&egl_hold_lock);
+		return EGL_TAKE_OK;
+	} else {
+		(void)eglGetError();   /* display_alive()'s, before ours */
+	}
+	EglTake rc = EGL_TAKE_OK;
+	if (!eglInitialize(dpy, major, minor)) {
+		rc = EGL_TAKE_EGL;
+		/* A display another hold has is theirs still: only a node this take
+		 * made goes, so the failure leaves the table as it was. */
+		if (h->refs == 0) {
+			EglHold **pp = &egl_holds;
+			while (*pp && *pp != h)
+				pp = &(*pp)->next;
+			*pp = h->next;
+			free(h);
+		}
+	} else {
+		h->refs++;
+		h->inits++;
+		h->major = *major;
+		h->minor = *minor;
+	}
+	fnl_mutex_unlock(&egl_hold_lock);
+	return rc;
+}
+
+/* One hold given back; the last ends the display. One eglTerminate() for
+ * every eglInitialize() the library made on it, each asked afterwards
+ * whether the display is still up: a driver that counts initializes needs
+ * them all, and one that does not has ended it at the first. The error a
+ * terminate of a display already ended leaves on this thread is drained, so
+ * that no later eglGetError() reads it for its own. */
+static void egl_display_give(EGLDisplay dpy)
+{
+	fnl_mutex_lock(&egl_hold_lock);
+	EglHold **pp = &egl_holds;
+	while (*pp && (*pp)->dpy != dpy)
+		pp = &(*pp)->next;
+	EglHold *h = *pp;
+	if (!h || --h->refs > 0) {
+		fnl_mutex_unlock(&egl_hold_lock);
+		return;
+	}
+	*pp = h->next;
+	const int inits = h->inits;
+	free(h);
+	for (int i = 0; i < inits; i++) {
+		eglTerminate(dpy);
+		if (!display_alive(dpy))
+			break;
+	}
+	(void)eglGetError();   /* EGL keeps one error a thread, not a queue */
+	fnl_mutex_unlock(&egl_hold_lock);
+}
+
+/* egl_display_take() as the renderer's door says it. */
+static FnlResult take_display(App *a, EGLDisplay dpy, EGLint *major,
+							  EGLint *minor)
+{
+	switch (egl_display_take(dpy, major, minor)) {
+	case EGL_TAKE_OK:
+		return FNL_OK;
+	case EGL_TAKE_EGL:
+		return egl_fail(a, FNL_ERR_NO_DEVICE, "eglInitialize");
+	default:
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory holding the EGL display");
+	}
+}
+
 /* The configuration: 8-bit RGB, renderable by desktop GL, for a window, with
  * the window's visual where it already has one and alpha where the buffer
  * carries the window's transparency. No depth or multisampling: nothing is
@@ -251,11 +387,17 @@ static void list_devices(App *a, const EglNative *nat, GlDevices *l)
 			continue;
 		EGLDisplay dpy = window_display(a, nat, devs[i]);
 		EGLint major, minor;
-		if (dpy == EGL_NO_DISPLAY || !eglInitialize(dpy, &major, &minor))
+		if (dpy == EGL_NO_DISPLAY)
 			continue;
+		if (egl_display_take(dpy, &major, &minor) != EGL_TAKE_OK) {
+			/* The failed eglInitialize's error is this thread's; drained, so
+			 * that a failure said later is its own. */
+			(void)eglGetError();
+			continue;
+		}
 		const bool on_it = display_device(dpy) == devs[i];
 		const bool gl45 = on_it && makes_gl45(dpy);
-		eglTerminate(dpy);
+		egl_display_give(dpy);
 		/* Asked for one device, the display is on another: Mesa's Wayland
 		 * and X11 platforms (26.0 and 26.2) put a display asked of the
 		 * software device on the hardware one, so it is not this device's
@@ -338,8 +480,12 @@ static int server_gpu(const EglNative *nat, GpuEntry *out)
 	EGLDisplay dpy = eglGetPlatformDisplay(nat->platform, nat->display,
 										   nat->attrs);
 	EGLint major, minor;
-	if (dpy == EGL_NO_DISPLAY || !eglInitialize(dpy, &major, &minor))
+	if (dpy == EGL_NO_DISPLAY)
 		return 0;
+	if (egl_display_take(dpy, &major, &minor) != EGL_TAKE_OK) {
+		(void)eglGetError();   /* as list_devices() drains it */
+		return 0;
+	}
 	int n = 0;
 	const EGLint attrs[] = {
 		EGL_CONTEXT_MAJOR_VERSION, 4,
@@ -366,7 +512,7 @@ static int server_gpu(const EglNative *nat, GpuEntry *out)
 	}
 	if (c != EGL_NO_CONTEXT)
 		eglDestroyContext(dpy, c);
-	eglTerminate(dpy);
+	egl_display_give(dpy);
 	eglReleaseThread();
 	return n;
 }
@@ -436,8 +582,7 @@ FnlResult gl_bridge_open(App *a)
 	if (dpy == EGL_NO_DISPLAY)
 		return egl_fail(a, FNL_ERR_NO_DEVICE, "eglGetPlatformDisplay");
 	EGLint major = 0, minor = 0;
-	if (!eglInitialize(dpy, &major, &minor))
-		return egl_fail(a, FNL_ERR_NO_DEVICE, "eglInitialize");
+	FNL_TRY(take_display(a, dpy, &major, &minor));
 	/* EGL's own choice, made where no device is named, gives way to the
 	 * first listed GPU that is not software, else to the first, where it
 	 * is one the list left out: Mesa's surfaceless display (KMS) takes the
@@ -451,12 +596,11 @@ FnlResult gl_bridge_open(App *a)
 				k = i;
 		fnl_log(FNL_LOG_INFO, "EGL's own GPU makes no OpenGL 4.5 core "
 				"context; drawing on %s", g->devs.name[k]);
-		eglTerminate(dpy);
+		egl_display_give(dpy);
 		dpy = window_display(a, &nat, g->devs.dev[k]);
 		if (dpy == EGL_NO_DISPLAY)
 			return egl_fail(a, FNL_ERR_NO_DEVICE, "eglGetPlatformDisplay");
-		if (!eglInitialize(dpy, &major, &minor))
-			return egl_fail(a, FNL_ERR_NO_DEVICE, "eglInitialize");
+		FNL_TRY(take_display(a, dpy, &major, &minor));
 	}
 	g->bridge_display = dpy;
 	const EGLDeviceEXT on = display_device(dpy);
@@ -485,7 +629,7 @@ void gl_bridge_close(App *a)
 	eglBindAPI(EGL_OPENGL_API);
 	eglMakeCurrent(GLS(a)->bridge_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 				   EGL_NO_CONTEXT);
-	eglTerminate(GLS(a)->bridge_display);
+	egl_display_give(GLS(a)->bridge_display);
 	eglReleaseThread();
 	GLS(a)->bridge_display = NULL;
 	GLS(a)->bridge_config  = NULL;
