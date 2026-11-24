@@ -515,6 +515,7 @@ static const Fixture FIXTURE[] = {
 	  "  * tst:deep = +tst(deep)\n"
 	  "! option = symbols\n"
 	  "  euro:e = +opt(e)\n"
+	  "  tst:ralt = +opt(ralt)\n"
 	  "  tst:missing = +tst(missing)\n"
 	  "  tst:gone = +nofile(x)\n" },
 	{ "keycodes/evdev",
@@ -630,6 +631,11 @@ static const Fixture FIXTURE[] = {
 	{ "symbols/opt",
 	  "partial xkb_symbols \"e\" {\n"
 	  "    key <AD03> { [ NoSymbol, NoSymbol, EuroSign ] };\n"
+	  "};\n"
+	  "partial xkb_symbols \"ralt\" {\n"
+	  "    key <RALT> {\n"
+	  "        type[Group1]=\"TWO_LEVEL\", [ Multi_key, Multi_key ]\n"
+	  "    };\n"
 	  "};\n" },
 	{ "symbols/inet",
 	  "partial xkb_symbols \"evdev\" {\n"
@@ -874,6 +880,34 @@ static void check_files(Keymap *km)
 		EQ("files: a cycle's own key", keymap_text(km, K_Q, &PLAIN), 'l');
 		EQ("files: and the cycle is named", strstr(detail, "deep") != NULL,
 		   1);
+	}
+
+	/* The option that redefines a key: `compose:ralt` is `compose(ralt)`,
+	 * which makes the right Alt a two-level Multi_key and gives it a type
+	 * of its own. The concern `key_cut()` names is that a shorter type cuts
+	 * only the key it is set on: the right Alt's two levels cost it nothing
+	 * it cannot type anyway (it prints nothing either way), and every other
+	 * key keeps the third level its layout gave it, in both groups. */
+	names_set(&n, "pc105", "tst,tst", "", "tst:ralt");
+	if (load(km, &n, root, detail, sizeof detail, "files: compose:ralt")) {
+		EQ("files: compose:ralt leaves group 1's third level",
+		   keymap_text(km, K_Q, &(KeyMods){ .level3 = true }), 0x20ac);
+		EQ("files: compose:ralt leaves it in the table (group 0)",
+		   km->sym[K_Q][0][2], 0x20ac);
+		EQ("files: compose:ralt leaves group 2's third level",
+		   keymap_text(km, K_Q,
+					   &(KeyMods){ .level3 = true, .group = 1 }),
+		   0x20ac);
+		EQ("files: compose:ralt leaves it in the table (group 1)",
+		   km->sym[K_Q][1][2], 0x20ac);
+		EQ("files: compose:ralt leaves a group's selector",
+		   km->select[K_Q][0], KEY_SELECT_SHIFT);
+		EQ("files: compose:ralt types nothing itself",
+		   keymap_text(km, K_RALT, &PLAIN), 0);
+		EQ("files: compose:ralt is not a group key",
+		   group_to(km, K_RALT, (KeyMods){ 0 }), NO_GROUP);
+		EQ("files: compose:ralt keeps typing its group",
+		   keymap_text(km, K_Q, &(KeyMods){ .group = 1 }), 'q');
 	}
 
 	/* A $set with a continuation line, matched where * would have been. */

@@ -352,15 +352,19 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   `x11_clip_property()`): a paste from Firefox, Qt and xclip owners; a
   large one by INCR; one given up at the deadline, then another; and a
   copy made while a paste is on its way answering it with the copy.
-- **KMS's per-group key types** (`key_cut()`): a two-layout console
-  (`FNL_KMS_LAYOUT=us,de`) typing each layout's third level where its type
-  says, on the thinkpad, and an option that augments a key (`compose:ralt`)
-  leaving its group's levels. Seen on the thinkpad (2026-11-05): the
-  round's `de,us grp:alt_shift_toggle` console typed 17 sequences, the
-  third levels among them, and the group key switched Y both ways; a
-  `--layout='de,us compose:ralt'` run parses and draws (the log names it),
-  but no check types through that option yet -- owed, an option that
-  augments a key and the levels still typed through it.
+- **KMS's per-group key types** (`key_cut()`): the option that redefines a key
+  (`compose:ralt`, which is `compose(ralt)` -- the right Alt made a
+  two-level Multi_key with a type of its own) leaving the other keys' group
+  levels is now checked by `verifykeymap` (`files: compose:ralt`): the right
+  Alt types nothing and is no group key, and every other key keeps the third
+  level its layout gave it, in both groups and in the table, with its
+  selector. What is still owed is the **machine** half -- a two-layout
+  console (`FNL_KMS_LAYOUT=us,de`, or `--layout='de,us compose:ralt'`) typed
+  on the thinkpad, which is a round and not a check. The plain
+  `grp:alt_shift_toggle` console was seen there (2026-11-05), 17 sequences
+  with the third levels among them and the group key switching Y both ways;
+  the `compose:ralt` spelling there is owed, blocked on a hand at that
+  console.
 - **X11's output move from fullscreen or maximized** (`x11_set_output()`,
   `BackendState::norm_x`): an X11 window on this desk, where GNOME
   manages it, restored where it was, placed on the other monitor.
@@ -373,7 +377,10 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   and a checkbox pressed with a list open only puts it away.
 - **KMS's captured pointer from a tablet or touchscreen**
   (`pointer_to()`): no creep across a stroke, and no jump at a new
-  touch.
+  touch. Owed: blocked on hardware -- no machine in the lab has a tablet
+  or a touchscreen on a KMS console; the arithmetic (8 px/mm) is checked
+  with a uinput pad on the three laptops, but a uinput pad is one pointer
+  and cannot show a stroke or a new touch.
 - **macOS's output name with two monitors of one model**
   (`publish_output()`): `fnl_output_name()` handed to
   `fnl_request_output()` keeps the window where it is. The Mac's two are
@@ -699,7 +706,10 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   under NVK, which runtime-suspends too, keeps its images.
 - **The KMS backend by hand**: whether eight pixels a millimetre feels
   right under a finger. The arithmetic is checked with a uinput pad on all
-  three laptops (DESIGN *Input is evdev*); the feel is not.
+  three laptops (DESIGN *Input is evdev*); the feel is not. Owed: blocked on
+  a hand -- a finger on the panel, which no round can stand in for; a
+  second monitor or a multi-mode output would also let the fit be measured
+  rather than argued (below).
 - **KMS modes and outputs** (DESIGN *Its size is a mode, and its output one
   of the card's*): driven on both paths, and an output switch on the display
   path. Mesa's acquire timeout that was a lost surface is fixed in 26.2.6
@@ -730,11 +740,13 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   proprietary ICD at exit, the same single-window, which the harness
   suppresses. `DRM_MODE_ATOMIC_TEST_ONLY` before a mode set is in: a mode or
   plane the driver will not take is refused before the screen changes. Owed,
-  in order: the display path's own mode change and console return, and the
-  same on `black`'s amdgpu, which is where `remove_fb` fails, and on nouveau
-  with and without `nouveau.atomic=1` (schenker's opened card is Intel, so
-  nouveau's atomic is not in that path); and the **cursor plane** as a commit
-  of its own (below).
+  in order, all of them **blocked on a driver path no round here reaches** --
+  schenker's opened card is Intel (i915), and the two other cards the lab
+  has (black's amdgpu, aspire/schenker's nouveau) are a machine and a kernel
+  module away: the display path's own mode change and console return on
+  `black`'s amdgpu, where `remove_fb` fails, and on nouveau with and without
+  `nouveau.atomic=1`; and the **cursor plane** as a commit of its own
+  (below).
 - **The cursor plane's commit** (DESIGN *The pointer is drawn on the cursor
   plane*): in since 2026-11-23. The open finds each CRTC's cursor plane by
   `drm_plane_type.CURSOR`, one it may show and no other CRTC has taken, and
@@ -760,7 +772,9 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   line at the third refusal, every drawn-pointer check passing on the
   legacy ioctl, the two-window section eight with none failed and the round
   185 with none. Owed: a CRTC with no cursor plane, unseen -- it would say
-  the legacy line instead, which the round allows as a notice.
+  the legacy line instead, which the round allows as a notice. Blocked on
+  hardware: no card in the lab has a CRTC that offers no cursor plane, and
+  the path can only be reached where one does.
 - **The unplug section with a force that reaches the program and two
   outputs**: no machine has both today -- `black`'s kernel sends no uevent
   for a forced status (DESIGN *KMS*), and the laptops have one output each.
@@ -774,7 +788,10 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   leaves is away first*), driven only with monitors that came back: a
   dark output pulled leaving the list after 5 s, the window's own pulled
   moving it after 2.5 s, and a move owed to an output that does not come
-  back dropped with its line.
+  back dropped with its line. Both are blocked on a machine with two
+  outputs and a kernel that sends a uevent for a forced status; none in
+  the lab has both (schenker has the outputs, its i915 sends none for
+  eDP-1 and one write of five for HDMI-A-1).
 
 ## The Raspberry Pi 4
 
