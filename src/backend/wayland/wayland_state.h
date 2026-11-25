@@ -238,6 +238,11 @@ struct BackendState {
 	struct wl_buffer *backing;
 	bool parent_dirty;
 	bool presenting;
+	/* A cursor-position hint went out since the last commit of the window's
+	 * surface, which is where a locked pointer's hint latches: sent on the
+	 * pump (wl_hint_flush()), owed until the render thread's flush commits
+	 * it. Atomic because the two sides are those threads. */
+	FnlAtomicBool hint_dirty;
 	bool renew_refused;
 	/* The subsurface the frames went into before the last renew, kept
 	 * showing its last frame under the new one until the new one has shown

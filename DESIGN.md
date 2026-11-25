@@ -1372,7 +1372,10 @@ backend hears one (`fnl_frame_shown()`, a ring like the frames'): KMS's
 page-flip event, which carries the window out as the flip's `user_data` --
 the frame's index is that window's `flip_index`, since a host with two
 windows has one event queue on the node and either thread may read the
-completion -- and back with the kernel's timestamp, for the flips the
+completion: a poll and the read it licenses are one thread's at a time
+(`ev_lock`), and the window is found in the host's own flip list, not in
+the registry the main thread frees -- and back with the kernel's timestamp,
+for the flips the
 library makes -- the copy path and OpenGL's bridge; and Wayland's
 `wp_presentation`, a
 feedback asked for just before each present so it rides on that commit,
@@ -3719,8 +3722,10 @@ commit is never typed again as `WM_IME_CHAR`. Text entry switched off
 cancels a composition still up. The caret (`fnl_set_text_rect_pt()`) is
 handed over in client pixels each time it moves and again at
 `WM_IME_STARTCOMPOSITION` (`imm_place()`): the candidate list is told to
-keep off it (`ImmSetCandidateWindow`, `CFS_EXCLUDE`), and the composition
-window, never shown, is put at it as well (`ImmSetCompositionWindow`),
+keep off it (`ImmSetCandidateWindow`, `CFS_EXCLUDE`), in the screen
+coordinates that form takes -- not the client pixels the composition
+form's point is in -- and the composition window, never shown, is put at
+it as well (`ImmSetCompositionWindow`),
 since an IME may place its candidates by that one. `imm32.dll` is opened
 at run time (`imm_load()`), off the link line. Left to `DefWindowProc`,
 wine on X11 showed a dead key's accent in a box of its own: an
@@ -3788,9 +3793,10 @@ it — for as long as the offer stands.
   server's time -- read off a zero-length write to a property of the window's
   own, since ICCCM wants a time and not `CurrentTime`, and an owner may refuse
   one older than its ownership -- and an answer carrying another time, or
-  arriving on the other property, is a late one and ignored; the request after
-  one given up is asked on a second property, where the late owner's INCR pieces
-  land unread. A request made after this window copied, while an earlier paste
+  arriving on another of the paste properties, is a late one and ignored; the
+  request after one given up is asked on the next of four, rotating, where the
+  late owner's INCR pieces land unread -- two would come back onto a given-up
+  owner's property after two give-ups. A request made after this window copied, while an earlier paste
   is still on its way, gives that paste up and asks again, of this window now
   the owner, so the one answer is what was copied, as on Wayland; a paste with
   no request after the copy keeps the answer it asked for. Ownership is taken at

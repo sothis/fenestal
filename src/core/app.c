@@ -1824,17 +1824,20 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 	 * fails only where the window cannot have the host's device (out of
 	 * memory, a GPU gone), and there is no other to step to: every window on
 	 * the host shares the one renderer, by DESIGN *A second window*. */
+	/* A window created as a move lands would be built on the renderer the
+	 * host is leaving: refused, and the move's FNL_EVENT_GPU is the
+	 * caller's cue to open it again. Asked before the renderer is loaded
+	 * and not after: renderer_swap() publishes the new renderer and then
+	 * clears the flag, so a load that finds the flag clear finds the new
+	 * renderer -- in that order, and not in the other. */
+	if (fnl_atomic_load_u32(&a->host->renderer_moving))
+		return fnl_fail(FNL_ERR_NO_DEVICE,
+						"a move to another GPU is landing; "
+						"fnl_window_create() once its FNL_EVENT_GPU "
+						"has come");
 	const FnlRendererVtbl *host_g =
 		(const FnlRendererVtbl *)fnl_atomic_load_ptr(&a->host->renderer);
 	if (host_g) {
-		/* A window created as a move lands would be built on the renderer
-		 * the host is leaving: refused, and the move's FNL_EVENT_GPU is
-		 * the caller's cue to open it again. */
-		if (fnl_atomic_load_u32(&a->host->renderer_moving))
-			return fnl_fail(FNL_ERR_NO_DEVICE,
-							"a move to another GPU is landing; "
-							"fnl_window_create() once its FNL_EVENT_GPU "
-							"has come");
 		const FnlRendererVtbl *g = host_g;
 		a->renderer_first        = g->api;
 		a->renderer_named        = g->api;
@@ -2200,8 +2203,16 @@ void app_pointer_button(App *a, FnlButton b, bool pressed, double x_pt,
 		pressed ? event_button_clicks(a, b, x_pt, y_pt, time_ms) : 0;
 	app_event(a, &ev);
 
-	if (b != FNL_BUTTON_LEFT)
+	if (b != FNL_BUTTON_LEFT) {
+		/* Any press puts an open drop-down away, not only a left one:
+		 * deco_hit() routes every press to the controls while one is open
+		 * (ctl_modal()), and deco_press() is the left button's alone -- a
+		 * right or middle press would otherwise land under a list the
+		 * library still treats as modal. */
+		if (pressed && ctl_modal(a))
+			ctl_press(a, a->cur_w, (int)floor(x_pt), (int)floor(y_pt), -1);
 		return;
+	}
 	if (pressed)
 		deco_press(a, x_pt, y_pt, time_ms);
 	else
@@ -3756,9 +3767,11 @@ static FnlResult window_start(App *a)
 	 * fnl_init() and here, which the GL renderer meets as a refused
 	 * eglMakeCurrent -- is not handed to the caller: the loop's
 	 * device_recover() makes one and delivers the first on_gpu_created
-	 * itself, on the render thread, as it does after every later loss. */
-	const bool created = !(a->renderer && a->renderer_ready &&
-						   RENDERER(a)->lost(a));
+	 * itself, on the render thread, as it does after every later loss. Nor
+	 * is a window still owed a renderer (a swap that failed both ways): its
+	 * first on_gpu_created comes with renderer_owed_retry()'s build. */
+	const bool created = a->renderer && a->renderer_ready &&
+						 !RENDERER(a)->lost(a);
 	if (created) {
 		/* Set with or without a callback, so that a caller which registered
 		 * only on_gpu_lost gets exactly one per loss. See
@@ -3773,10 +3786,13 @@ static FnlResult window_start(App *a)
 
 	/* Handed to the render thread, which takes it at the top of its loop;
 	 * taken back in fnl_stop(), after the join. See
-	 * FnlRendererVtbl::thread_enter. */
-	RENDERER(a)->thread_leave(a);
+	 * FnlRendererVtbl::thread_enter. A window owed a renderer has no
+	 * context to hand or take. */
+	if (a->renderer && a->renderer_ready)
+		RENDERER(a)->thread_leave(a);
 	if (!fnl_thread_start(&a->render_thread, render_loop, a)) {
-		RENDERER(a)->thread_enter(a);
+		if (a->renderer && a->renderer_ready)
+			RENDERER(a)->thread_enter(a);
 		/* Where on_gpu_created ran the pair is balanced here:
 		 * fnl_shutdown() destroys the device objects and never calls back.
 		 * A device lost before the run was never handed over, so there is

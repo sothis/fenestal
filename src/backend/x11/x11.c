@@ -2296,6 +2296,7 @@ static void x11_pump(App *a, int timeout_ms)
 
 	bool any = false;
 	bool refresh_owed = false;
+	bool publish_owed = false;
 	for (App *w = h->windows; w; w = w->next) {
 		struct BackendState *p = w->backend_state;
 		if (!p)
@@ -2304,11 +2305,17 @@ static void x11_pump(App *a, int timeout_ms)
 			any = true;
 		if (p->refresh_stale)
 			refresh_owed = true;
+		/* A publish owed is made by publish_flush() at the turn's end:
+		 * nothing else wakes this turn, and a sync request whose
+		 * deadline has passed stops bounding the wait below -- the
+		 * serial would never be published on a quiet window. */
+		if (p->publish_pending)
+			publish_owed = true;
 	}
 	/* Not with the refresh rates owed: they are read on the turn after the
 	 * list, and a window that is left alone once open has no event to wake
 	 * that turn -- an idle window would be spaced by no refresh at all. */
-	if (!any && !refresh_owed) {
+	if (!any && !refresh_owed && !publish_owed) {
 		int ms = -1;
 		for (App *w = h->windows; w; w = w->next) {
 			struct BackendState *p = w->backend_state;

@@ -68,6 +68,8 @@
 	X(TEXT_PLAIN_UTF8, "text/plain;charset=utf-8")                             \
 	X(FNL_PASTE, "FNL_PASTE")                                                  \
 	X(FNL_PASTE2, "FNL_PASTE2")                                                \
+	X(FNL_PASTE3, "FNL_PASTE3")                                                \
+	X(FNL_PASTE4, "FNL_PASTE4")                                                \
 	X(FNL_STAMP, "FNL_STAMP")
 
 enum {
@@ -450,10 +452,13 @@ struct BackendState {
 	 * (ICCCM), which tells it from a late answer to a request given up. */
 	bool clip_asked;
 	xcb_timestamp_t clip_time;
-	/* The answer is asked for on FNL_PASTE2 instead of FNL_PASTE: flipped
+	/* Which of FNL_PASTE..FNL_PASTE4 the answer is asked for on: advanced
 	 * each time a request is given up, so that what its owner still sends
-	 * lands where the next request does not read. */
-	bool clip_alt;
+	 * lands where the next request does not read. Four, not two: an owner
+	 * given up on keeps watching its property, and two give-ups would
+	 * bring the next request back onto the first one's; advanced modulo
+	 * four. */
+	uint8_t clip_alt;
 	/* FNL_STAMP writes, counted as they go and as they come back: they
 	 * come back in the order written, so the count names the stamp. Only
 	 * the latest of each purpose acts -- the paste's, while one waits

@@ -81,7 +81,10 @@ void x11_keys_from_names(struct BackendState *p, const uint8_t *names,
 
 static FnlKey key_from_keycode(const struct BackendState *p, xcb_keycode_t kc)
 {
-	if (p->key_names)
+	/* A key the server's names gave is that key; one they did not is still
+	 * the evdev code eight above the keycode -- a minimal or vendor keymap
+	 * that names part of the board must not leave the rest dead. */
+	if (p->key_names && p->key_of[kc])
 		return (FnlKey)p->key_of[kc];
 	return kc < 8 ? FNL_KEY_UNKNOWN : key_from_evdev((uint32_t)kc - 8u);
 }

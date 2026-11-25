@@ -100,6 +100,11 @@ struct BackendState {
 	 * there: kept, the last one asked, and asked of AppKit as it ends
 	 * (fs_settle()). 0 none, else 1 on or 2 off. Main thread. */
 	int fs_owed;
+	/* And a maximize asked for there, where AppKit ignores a zoom as it
+	 * ignores a toggle: kept and asked as the animation ends, once the
+	 * window is out of fullscreen. 0 none, else 1 on or 2 off. Main
+	 * thread. */
+	int fs_max_owed;
 	/* Inside the library's own resize loop (cocoa_begin_resize()), which
 	 * reads the pointer itself. */
 	bool resizing;

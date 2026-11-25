@@ -228,9 +228,15 @@ bool gl_bridge_current(App *a, bool on)
 {
 	if (!GLS(a)->bridge_context)
 		return true;
-	const CGLError e = CGLSetCurrentContext(on ? GLS(a)->bridge_context
-											   : NULL);
-	if (e != kCGLNoError && on) {
+	if (!on) {
+		/* Only this context, as gl_bridge_context_close() does: clearing
+		 * one another window's would detach it from the thread. */
+		if (CGLGetCurrentContext() == GLS(a)->bridge_context)
+			CGLSetCurrentContext(NULL);
+		return true;
+	}
+	const CGLError e = CGLSetCurrentContext(GLS(a)->bridge_context);
+	if (e != kCGLNoError) {
 		fnl_log(FNL_LOG_ERROR, "CGLSetCurrentContext failed: %s",
 				CGLErrorString(e));
 		return false;

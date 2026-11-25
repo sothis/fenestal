@@ -25,12 +25,13 @@ bool mt_cb_lost(App *a, id<MTLCommandBuffer> cb)
 	if (cb.status != MTLCommandBufferStatusError)
 		return false;
 	const NSInteger code = cb.error.code;
-	if (code == MTLCommandBufferErrorDeviceRemoved ||
-		code == MTLCommandBufferErrorNotPermitted) {
+	if (code == MTLCommandBufferErrorDeviceRemoved) {
 		a->device_lost = true;
 		return true;
 	}
-	/* Any other failure is that frame's, said once and drawn again. */
+	/* Any other failure -- NotPermitted among them, which is a permission
+	 * or background failure and not a GPU gone -- is that frame's, said
+	 * once and drawn again. */
 	fnl_log(FNL_LOG_WARN, "a frame's command buffer failed: %s",
 			cb.error.localizedDescription.UTF8String ?: "(no reason)");
 	return false;

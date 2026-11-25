@@ -80,7 +80,10 @@ AMBIGUOUS = {
 
 # Every directory, and the one API it is allowed to name. core/ is allowed
 # *none*, with no file excused: each backend's state and each renderer's
-# are behind an opaque pointer of App's.
+# are behind an opaque pointer of App's. The walk below is every directory
+# under src/ holding a source file, and one that none of these names is a
+# failure rather than a silent pass: a new subdirectory is a new layer
+# nobody has argued for.
 ALLOWED = {
     'src/core':             None,
     # What the Linux backends share and none owns, so it can name none.
@@ -175,33 +178,51 @@ def main():
     print('-' * (24 + 9 * (len(cols) + len(amb))))
 
     failures = []
-    for d, allowed in ALLOWED.items():
-        path = os.path.join(ROOT, d)
-        if not os.path.isdir(path):
+    unmapped = []
+    rows = {d: dict.fromkeys(cols + amb, 0) for d in ALLOWED}
+    src = os.path.join(ROOT, 'src')
+    for base, dirs, files in os.walk(src):
+        dirs.sort()
+        rel = os.path.relpath(base, ROOT).replace(os.sep, '/')
+        names = sorted(f for f in files if f.endswith(('.c', '.h', '.m')))
+        if not names:
             continue
-        files = sorted(f for f in os.listdir(path)
-                       if f.endswith(('.c', '.h', '.m')))
-        counts = {c: 0 for c in cols}
-        ambiguous = {c: 0 for c in amb}
-        for f in files:
-            with open(os.path.join(path, f), encoding='utf-8') as fh:
-                src = strip(fh.read())
-            for name, pat in AMBIGUOUS.items():
-                ambiguous[name] += len(re.findall(pat, src))
+        owner = None
+        for d in ALLOWED:
+            if (rel == d or rel.startswith(d + '/')) and (
+                    owner is None or len(d) > len(owner)):
+                owner = d
+        if owner is None:
+            unmapped.append(rel)
+            continue
+        counts = rows[owner]
+        for f in names:
+            name = os.path.relpath(os.path.join(base, f),
+                                   os.path.join(ROOT, owner))
+            with open(os.path.join(base, f), encoding='utf-8') as fh:
+                text = strip(fh.read())
+            for a, pat in AMBIGUOUS.items():
+                counts[a] += len(re.findall(pat, text))
             for api, pat in APIS.items():
-                n = len(re.findall(pat, src))
+                n = len(re.findall(pat, text))
                 counts[api] += n
-                if n and api != allowed and f not in EXCUSED.get((d, api), ()):
-                    failures.append((d, f, api, n))
+                if n and api != ALLOWED[owner] and \
+                        name not in EXCUSED.get((owner, api), ()):
+                    failures.append((owner, name, api, n))
 
+    for d in ALLOWED:
+        counts = rows[d]
         print(f'{d:<24}' + ''.join(f'{counts[c]:>9}' for c in cols)
-              + ''.join(f'{ambiguous[c]:>9}' for c in amb))
+              + ''.join(f'{counts[c]:>9}' for c in amb))
 
     print()
-    if not failures:
+    if not failures and not unmapped:
         print('layering holds: no directory names an API it should not.')
         return 0
     print('LAYERING VIOLATIONS')
+    for rel in unmapped:
+        print(f'  {rel}: no ALLOWED entry names this directory; give it one '
+              f'in tools/check-layering.py')
     for d, f, api, n in failures:
         print(f'  {d}/{f}: {n} {api} reference{"s" if n > 1 else ""}')
     return 1

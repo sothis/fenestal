@@ -579,6 +579,17 @@ static bool raw_thread_holds(App *a)
 	return hs && hs->rawin && rawin_has_mouse(hs->rawin);
 }
 
+/* The host's raw input thread, or NULL: one a host, serving every window's
+ * input and capture (win32_rawin.c). A window keeping its own copy would
+ * go stale: a later window's open retries the start, and may succeed where
+ * the first window's failed, leaving the first's copy NULL while it takes
+ * the thread's path. */
+static struct RawIn *raw_thread(App *a)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	return hs ? hs->rawin : NULL;
+}
+
 /* The generic-desktop mouse (usage page 1, usage 2) as raw input, the
  * process's one registration, pointed at `target`. A process has one
  * registration a device and RegisterRawInputDevices is last-writer-wins, so
@@ -598,12 +609,14 @@ static bool raw_point(App *a, HWND target)
 		now.hwndTarget == target)
 		return true;
 	/* What the program is owed back: what the process has now, none where it
-	 * has none, and what was taken where the list cannot be read. The
-	 * host's own, moved, keeps the entry it took. */
+	 * has none, and what was taken where the list cannot be read. A
+	 * registration at the target last remembered is the host's own, owned
+	 * or not: after a give-back that could not read the list, saving it as
+	 * the program's would hand a dead window back at the next one. */
 	if (listed == 0) {
 		hs->raw_saved_valid = false;
 	} else if (listed > 0 &&
-			   !(hs->raw_owned && now.hwndTarget == hs->raw_target)) {
+			   !(now.hwndTarget && now.hwndTarget == hs->raw_target)) {
 		hs->raw_saved_valid = now.hwndTarget != target;
 		if (hs->raw_saved_valid)
 			hs->raw_saved = now;
@@ -632,12 +645,17 @@ static void raw_give(App *a)
 	hs->raw_owned = false;
 	RAWINPUTDEVICE now = { 0 };
 	const int listed   = raw_mouse_registration(&now);
-	/* Gone, or one the program made since: nothing to give back. */
-	if (listed <= 0 || now.hwndTarget != hs->raw_target) {
+	/* Gone, or one the program made since: nothing to give back. Where the
+	 * list cannot be read, ownership goes but the target stays remembered,
+	 * so a later take does not save the host's own registration as the
+	 * program's. */
+	if (listed == 0 || (listed > 0 && now.hwndTarget != hs->raw_target)) {
 		hs->raw_target      = NULL;
 		hs->raw_saved_valid = false;
 		return;
 	}
+	if (listed < 0)
+		return;
 	const RAWINPUTDEVICE remove_dev = { .usUsagePage = 0x01,
 										.usUsage     = 0x02,
 										.dwFlags     = RIDEV_REMOVE };
@@ -661,12 +679,13 @@ static void raw_give(App *a)
 static HWND raw_wanted(App *a)
 {
 	struct BackendState *self = a->backend_state;
+	const HWND front          = GetForegroundWindow();
 	HWND wheel                = NULL;
 	if (self && self->hwnd) {
 		if (a->pointer_captured)
 			return self->hwnd;
 		if (self->wheel_raw) {
-			if (GetForegroundWindow() == self->hwnd)
+			if (front == self->hwnd)
 				return self->hwnd;
 			wheel = self->hwnd;
 		}
@@ -678,7 +697,7 @@ static HWND raw_wanted(App *a)
 		if (w->pointer_captured)
 			return q->hwnd;
 		if (q->wheel_raw) {
-			if (GetForegroundWindow() == q->hwnd)
+			if (front == q->hwnd)
 				return q->hwnd;
 			if (!wheel)
 				wheel = q->hwnd;
@@ -743,9 +762,10 @@ static void win32_capture(App *a)
 			win32_release(w);
 
 	if (via_thread) {
-		rawin_moves_spend(p->rawin);
-		rawin_target(p->rawin, p->hwnd);
-		rawin_forward(p->rawin, true);
+		struct RawIn *r = raw_thread(a);
+		rawin_moves_spend(r);
+		rawin_target(r, p->hwnd);
+		rawin_forward(r, true);
 	}
 
 	/* The reticle starts at the click, and is published once the capture has
@@ -779,9 +799,10 @@ static void win32_release(App *a)
 	}
 
 	capture_apply(a, false);
-	if (p->rawin) {
-		rawin_forward(p->rawin, false);
-		rawin_target(p->rawin, NULL);
+	struct RawIn *r = raw_thread(a);
+	if (r) {
+		rawin_forward(r, false);
+		rawin_target(r, NULL);
 	}
 	a->pointer_captured = false;
 	/* Done with it, the process's raw mouse follows what wants it now --
@@ -1315,7 +1336,10 @@ static void present_follow(HWND hwnd, HWND present)
 
 static void on_size(App *a, HWND hwnd, WPARAM wp)
 {
-	a->is_maximized = (wp == SIZE_MAXIMIZED);
+	/* A minimize says nothing about the maximized state: the window still
+	 * is one, which matters for the state fullscreen saves and restores. */
+	if (wp != SIZE_MINIMIZED)
+		a->is_maximized = (wp == SIZE_MAXIMIZED);
 	present_follow(hwnd, a->backend_state->present);
 	publish_size(a);
 	/* Nothing bounded the resize, so this is what puts the floor back once
@@ -1556,9 +1580,10 @@ static bool on_composition(App *a, HWND hwnd, LPARAM lp)
 /* The caret (fnl_set_text_rect_pt()) to the input method, in client pixels:
  * the window's points with no ring around them, as on_motion() reads them.
  * A field that never said gets the window's corner, as on Wayland. The
- * candidate list is told to keep off the caret's rectangle; the composition
- * window is never shown, but placed as well, because an IME that puts its
- * candidates beside its composition reads that one and not the other. */
+ * composition window's point is client, as Win32 defines it, but the
+ * candidate list's point and its exclusion rectangle are screen
+ * coordinates, which nothing converts for us: told both in client pixels,
+ * the list lands away from the caret by the window's own corner. */
 static void imm_place(App *a, HWND hwnd)
 {
 	if (!hwnd || !imm_load())
@@ -1574,11 +1599,17 @@ static void imm_place(App *a, HWND hwnd)
 	const HIMC c = imm.get(hwnd);
 	if (!c)
 		return;
+	POINT cpt = { l, t };
+	POINT a0  = { l, t };
+	POINT a1  = { r, b };
+	ClientToScreen(hwnd, &cpt);
+	ClientToScreen(hwnd, &a0);
+	ClientToScreen(hwnd, &a1);
 	COMPOSITIONFORM cf = { .dwStyle = CFS_POINT, .ptCurrentPos = { l, t } };
 	CANDIDATEFORM cand = { .dwIndex      = 0,
 						   .dwStyle      = CFS_EXCLUDE,
-						   .ptCurrentPos = { l, t },
-						   .rcArea       = { l, t, r, b } };
+						   .ptCurrentPos = { cpt.x, cpt.y },
+						   .rcArea       = { a0.x, a0.y, a1.x, a1.y } };
 	imm.place_composition(c, &cf);
 	imm.place_candidates(c, &cand);
 	imm.release(hwnd, c);
@@ -1697,7 +1728,10 @@ static void raw_forwarded(App *a)
 	 * the pointer. */
 	if (!a->pointer_captured)
 		return;
-	while ((n = rawin_forwarded(p->rawin, got, 32)) > 0) {
+	struct RawIn *r = raw_thread(a);
+	if (!r)
+		return;
+	while ((n = rawin_forwarded(r, got, 32)) > 0) {
 		if (!a->pointer_captured || GetForegroundWindow() != p->hwnd)
 			continue;
 		const double now = now_seconds();
@@ -2135,10 +2169,10 @@ static unsigned raw_flag(UINT msg)
 
 static void input_stamp(App *a, UINT msg, LPARAM lp)
 {
-	struct BackendState *p = a->backend_state;
+	struct RawIn *r = raw_thread(a);
 	const double tick_age =
 		(double)(DWORD)(GetTickCount() - (DWORD)GetMessageTime()) * 1e-3;
-	if (p->rawin) {
+	if (r) {
 		if (a->pointer_captured)
 			raw_forwarded(a);
 		double age = -1.0;
@@ -2147,17 +2181,17 @@ static void input_stamp(App *a, UINT msg, LPARAM lp)
 		case WM_SYSKEYDOWN:
 		case WM_KEYUP:
 		case WM_SYSKEYUP:
-			age = rawin_key(p->rawin, (unsigned)(lp >> 16) & 0xffu,
+			age = rawin_key(r, (unsigned)(lp >> 16) & 0xffu,
 							(lp >> 24) & 1,
 							msg == WM_KEYUP || msg == WM_SYSKEYUP, tick_age);
 			break;
 		case WM_MOUSEMOVE:
 			if (a->pointer_captured) {
-				rawin_moves_spend(p->rawin);
+				rawin_moves_spend(r);
 			} else {
 				double sum, oldest;
 				uint32_t n;
-				if (rawin_moves(p->rawin, tick_age, &sum, &oldest, &n)) {
+				if (rawin_moves(r, tick_age, &sum, &oldest, &n)) {
 					app_input_ages(a, sum, oldest, n);
 					return;
 				}
@@ -2165,7 +2199,7 @@ static void input_stamp(App *a, UINT msg, LPARAM lp)
 			break;
 		default:
 			if (raw_flag(msg))
-				age = rawin_button(p->rawin, raw_flag(msg), tick_age);
+				age = rawin_button(r, raw_flag(msg), tick_age);
 			break;
 		}
 		if (age >= 0.0) {
@@ -2217,7 +2251,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		return 0;
 
 	case FNL_WM_RAW:
-		if (a->backend_state->rawin)
+		if (raw_thread(a))
 			raw_forwarded(a);
 		return 0;
 
@@ -2571,7 +2605,8 @@ static FnlResult win32_open(App *a)
 	/* On Windows itself: wine's tick is a millisecond already, and its
 	 * wheel wants the raw mouse on the window. The raw thread is the host's
 	 * -- one for the process, started with the first window and serving
-	 * every window's capture -- so a window borrows it. */
+	 * every window's capture -- so a window borrows it.
+	 */
 	if (!win32_host(a)[0]) {
 		if (FNL_FAULT("win32-no-raw-thread"))
 			fnl_log(FNL_LOG_WARN, "no raw input thread (FNL_FAULT); input "
@@ -2579,7 +2614,6 @@ static FnlResult win32_open(App *a)
 		else if (!hs->rawin)
 			hs->rawin = rawin_start(p->instance, p->hwnd);
 	}
-	p->rawin = hs->rawin;
 
 	/* The size again, at the density the window landed on: WM_DPICHANGED is
 	 * sent when the DPI *changes* and never at creation. At the *resolved*
@@ -2689,12 +2723,17 @@ static void win32_close(App *a)
 	 * it does, raw_wanted() counts it whether or not the registry has it,
 	 * and the registration must leave before the window it points at is
 	 * destroyed. */
-	p->wheel_raw = false;
+	p->wheel_raw   = false;
+	const bool was = a->pointer_captured;
 	win32_release(a);
-	raw_follow(a);
-	if (p->rawin && a->frame_times) {
+	/* A release follows the registration itself; only one that was not
+	 * captured leaves it to be followed here. */
+	if (!was)
+		raw_follow(a);
+	struct RawIn *r = raw_thread(a);
+	if (r && a->frame_times) {
 		uint32_t matched, missed;
-		rawin_tally(p->rawin, &matched, &missed);
+		rawin_tally(r, &matched, &missed);
 		fnl_log(FNL_LOG_INFO,
 				"raw input: %u inputs matched to their "
 				"reports, %u messages left to the tick",
@@ -2703,7 +2742,6 @@ static void win32_close(App *a)
 	/* The raw thread, the window classes and the module are the host's; they
 	 * go in win32_host_close(), once the last window has. A window drops only
 	 * its own handle on them. */
-	p->rawin = NULL;
 	if (p->hwnd) {
 		p->closing = true;
 		DestroyWindow(p->hwnd);
@@ -2796,6 +2834,11 @@ static void win32_request_size(App *a, int w_pt, int h_pt)
 
 static void win32_set_maximized(App *a, bool on)
 {
+	/* The window is the output in fullscreen, and Cocoa refuses there too:
+	 * a maximize would leave the state saying both, and the exit re-applies
+	 * the one it saved at entry. */
+	if (a->is_fullscreen)
+		return;
 	ShowWindow(a->backend_state->hwnd, on ? SW_MAXIMIZE : SW_RESTORE);
 }
 

@@ -700,6 +700,10 @@ static bool d3d_occluded(App *a)
 	struct RendererState *g = D3D(a);
 	if (!g->occluded || !g->swapchain)
 		return false;
+	/* Not while the shown waiter is inside the swapchain's own figures:
+	 * the frame path skips Present there for the same reason. */
+	if (g->shown_busy)
+		return g->occluded;
 	const HRESULT hr =
 		IDXGISwapChain3_Present(g->swapchain, 0, DXGI_PRESENT_TEST);
 	g->occluded = hr == DXGI_STATUS_OCCLUDED;

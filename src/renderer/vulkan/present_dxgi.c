@@ -651,6 +651,7 @@ FnlResult vk_dxgi_choose(App *a)
 		want = VK(a)->pick_via == 1;
 	}
 	VK(a)->dxgi = VK(a)->surfaceless = false;
+	fnl_atomic_store_bool(&a->present_dxgi, false);
 	if (forced && !want)
 		return FNL_OK;
 	if (!dxgi_offered(a)) {
@@ -665,5 +666,6 @@ FnlResult vk_dxgi_choose(App *a)
 			return FNL_OK;      /* the swapchain, then */
 	}
 	VK(a)->dxgi = VK(a)->surfaceless = true;
+	fnl_atomic_store_bool(&a->present_dxgi, true);
 	return FNL_OK;
 }

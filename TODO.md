@@ -406,6 +406,63 @@ proves it.
   `_NSAutoreleaseNoPool` from a title set every frame or an input-latency
   run, and the resident set should stay flat across them.
 
+## After the second 2026-11-25 review
+
+Found by reading, each proved at its site; these are the ones left, and what
+each wants.
+
+- **D3D12: a live `fnl_set_vsync()` does not remake its own swapchain.** The
+  tearing flag is fixed at creation (`DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`),
+  and `d3d_window_images()` only writes the interval when the size did not
+  change, so "off" cannot tear and "on" keeps paying the flag -- where the
+  Vulkan renderer's DXGI bridge recomputes it. Wants a Windows round, as the
+  flag costs 53 ms against 36 on the GTX 960M.
+- **D3D12: the Direct3D 11 bridge's back textures start in COMMON** while the
+  frame's first barrier names PRESENT as their before-state (a debug-layer
+  error, once per lifetime and per resize): track each one's state as the
+  targets' is. **And a window-depth allocation failure is raised as device
+  loss** in both D3D12 and Metal, which rebuilds into the same allocation
+  for ever; the scene target's own path refuses the frame instead.
+- **TAAU's history is two presents old**: the copy writes slot S's history
+  and the pass in slot S reads it on the next drawn frame, and the motion
+  vector is documented as the frame before's. Scale by the presents since
+  the history was written (a per-slot present index), or key the history to
+  the image. Shared by the four renderers; wants a panning measurement.
+- **Win32: the IME is not re-placed when the window moves**, so a candidate
+  list in screen coordinates stays where the window was until the next key
+  (Cocoa invalidates on move and resize now). `WM_MOVE` re-placement while
+  a composition is up wants a composition-active flag.
+- **The testbed's Vulkan scene keeps its entry points and `g_loaded` at file
+  scope**, alone among the scenes (GL's are in the per-window `Scene`), and
+  the VRAM/driver caches beside them: a second window's `load_vulkan()`
+  rewrites them under the first's render thread (TSAN-visible under
+  `--second-window`). Move them into `Scene` as scene_gl.c has them.
+- **GL: a refused swap interval logs a WARN every frame**, since the ask is
+  kept only on success; remember the refusal and say it once. `stress.py`'s
+  `expected()` has no rule for the line, so one such driver would also fail
+  a round's clean-log check.
+- **KMS: a completion given up on at a lend can be taken for the next
+  flip's**, reporting that frame with the older stamp (the renew clears the
+  stale count on purpose -- keeping it would eat a later completion for the
+  window's life). A submit token in the event's `user_data` -- a slot and a
+  sequence rather than the window's address -- would tell the two apart; it
+  wants the bare machines.
+- **Wayland, minor and latent:** `wl_window_close` leaves
+  `hs->pointer_inside` true for a second window closed under the pointer,
+  and `kb_leave` clears `kb_focused` for a surface that is not
+  `kb_window`; no present reader misbehaves today.
+- **Optimizations measured but not taken:** GL's `own_state` runs 8-12 times
+  a frame and only the two callback boundaries need it; the window image's
+  depth is drawn and cleared for frames that never test it; Win32's
+  `seed_held_keys()` asks ~230 scancodes per focus gain; Cocoa runs
+  `update_scale()` twice for one backing change and `screens_named()` is
+  O(n²) per forced publish; KMS re-enumerates the CRTCs five times per mode
+  set; CI's macOS job builds each slice and then the universal tree builds
+  them again; X11 asks a whole property before checking its limit, re-reads
+  `_NET_WM_STATE` inside dispatch, retries a refused pointer grab on every
+  motion while a capture is suspended, and pays three round trips for the
+  default cursor before the opening waits on a scaled desktop.
+
 ## The output box under a window server
 
 Written by reading (DESIGN *The titlebar controls*); its stress check was

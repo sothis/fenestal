@@ -122,11 +122,6 @@ struct BackendState {
 	 * WM_MOUSEWHEEL wheel_raw_here() accepts is that step's echo. */
 	bool wheel_raw;
 	bool wheel_raw_seen;
-	/* The raw input thread (win32_rawin.c), on Windows and not under wine,
-	 * or NULL: when each input reached the process, for
-	 * fnl_input_latency_ms(), and while it holds the process's raw mouse, a
-	 * capture's motion forwarded from it instead of read from a window. */
-	struct RawIn *rawin;
 	/* Whether this backend has taken one off ShowCursor's process-wide
 	 * display count. */
 	bool cursor_hidden;

@@ -2414,6 +2414,12 @@ struct FnlApp {
 	/* On unless FNL_VSYNC says "0", set once in fnl_init() before any
 	 * thread reads it. */
 	FnlAtomicBool vsync;
+	/* Whether the present goes through Direct3D 11's swapchain -- the
+	 * Vulkan renderer's way on Win32 -- kept here because
+	 * fnl_present_mode() is [any] and its seam entry may not read
+	 * App::renderer_state (renderer.h). The renderer sets it as it decides
+	 * how the frames go. */
+	FnlAtomicBool present_dxgi;
 	/* fnl_set_cost_sampling()'s: a window at rest draws a frame every
 	 * COST_WINDOW, to keep the cost figures measured. */
 	FnlAtomicBool cost_sampling;

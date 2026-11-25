@@ -168,6 +168,24 @@ have_ucrt() {
     find_ucrt_gcc >/dev/null 2>&1
 }
 
+# Whether the configure will have Direct3D 12 in its renderers: Windows' set
+# is all of them, or the last -DFNL_RENDERER= among the flags after the
+# target and variant. Only a set with the renderer compiles DXIL and wants
+# dxc, and fetching one for a -DFNL_RENDERER=vulkan tree would fail a build
+# that never uses it (CMakeLists.txt demands FNL_DXC where d3d12 is).
+want_d3d12() {
+    renderers=all
+    for a in "$@"; do
+        case $a in
+        -DFNL_RENDERER=*) renderers=${a#*=} ;;
+        esac
+    done
+    case $renderers in
+    all|d3d12) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
 # llvm-mingw's UCRT release is clang, which has no gcc -fanalyzer: the win64
 # analyser tree needs a gcc-based UCRT compiler (MSYS2's UCRT64, or Debian's
 # UCRT variant where a distribution has one).
@@ -299,10 +317,10 @@ find_llvm_objcopy() {
 # ---- the baked font --------------------------------------------------------
 # tools/mkfont's output is the same bytes in every native tree, so a tree may
 # take a release tree's instead of baking its own. Whether that tree's bake
-# can be lent: all four files are there, verifyfont passed on them since
-# they were written, and none of what the bake reads is newer than they
-# are. mkfont writes the files before verifyfont reads them, and a borrower
-# checks nothing, so a bake whose check failed or was turned off
+# can be lent: all four files are there, verifyfont as it stands now passed
+# on them since they were written, and none of what the bake reads is newer
+# than they are. mkfont writes the files before verifyfont reads them, and a
+# borrower checks nothing, so a bake whose check failed or was turned off
 # (FNL_VERIFY_FONT) is not lent; nor is a stale one, an old atlas under new
 # sources. The answer then is no: a native tree bakes its own, and the
 # cross tree, which cannot, is refused with the command that makes one.
@@ -311,7 +329,7 @@ font_ready() {
         [ -f "$1/$f" ] || return 1
     done
     [ -n "$(find "$1/font_verified.stamp" -newer "$1/font_atlas.bin" \
-            2>/dev/null)" ] || return 1
+            -newer tools/verifyfont.c 2>/dev/null)" ] || return 1
     for src in tools/mkfont.c tools/font_charset.h tools/font_codec.h \
                tools/font_raster.h \
                fonts/ubuntu/*.ttf; do
@@ -705,7 +723,10 @@ win64)
         if command -v cygpath >/dev/null 2>&1; then
             UCRT=$(cygpath -w "$UCRT")
         fi
-        DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+        if want_d3d12 "$@"; then
+            DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+            set -- "-DFNL_DXC=$DXC" "$@"
+        fi
         if ucrt_is_clang; then
             GNU_LD=$(find_mingw_ld) || need_mingw_binutils
             GNU_OBJCOPY=$(find_mingw_objcopy) || need_mingw_binutils
@@ -719,7 +740,7 @@ win64)
         set -- "-DCMAKE_C_COMPILER=$UCRT" \
                "-DCMAKE_CXX_COMPILER=${UCRT%gcc}g++" \
                "-DCMAKE_ASM_COMPILER=$UCRT" \
-               -DFNL_RENDERER=all "-DFNL_DXC=$DXC" "$@"
+               -DFNL_RENDERER=all "$@"
     else
         have_ucrt || {
             echo "build.sh: win64 needs a UCRT-targeted mingw-w64" >&2
@@ -740,8 +761,12 @@ win64)
             exit 1
         fi
         # Direct3D 12's shaders are DXIL, which Microsoft's dxc compiles
-        # and signs; tools/dxc.py fetches the pinned release once.
-        DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+        # and signs; tools/dxc.py fetches the pinned release once, for a
+        # set that has the renderer.
+        if want_d3d12 "$@"; then
+            DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+            set -- "-DFNL_DXC=$DXC" "$@"
+        fi
         if ucrt_is_clang; then
             GNU_LD=$(find_mingw_ld) || need_mingw_binutils
             GNU_OBJCOPY=$(find_mingw_objcopy) || need_mingw_binutils
@@ -749,8 +774,7 @@ win64)
                    "-DCMAKE_OBJCOPY=$GNU_OBJCOPY" "$@"
         fi
         set -- -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
-               -DFNL_RENDERER=all "-DFNL_GENERATED_DIR=$HOST_GEN" \
-               "-DFNL_DXC=$DXC" "$@"
+               -DFNL_RENDERER=all "-DFNL_GENERATED_DIR=$HOST_GEN" "$@"
     fi ;;
 win64-msvc)
     # A native Windows build with cl: no ASM stubs (tools/bin2c.c makes C
@@ -766,9 +790,12 @@ win64-msvc)
         echo "          Visual Studio developer prompt)" >&2
         exit 1
     fi
-    DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+    if want_d3d12 "$@"; then
+        DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+        set -- "-DFNL_DXC=$DXC" "$@"
+    fi
     set -- -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
-           -DFNL_RENDERER=all "-DFNL_DXC=$DXC" "$@" ;;
+           -DFNL_RENDERER=all "$@" ;;
 freebsd)
     # Native, with the base system's clang and LLVM's objcopy: the archive's
     # --keep-global-symbols is not in elftoolchain's.

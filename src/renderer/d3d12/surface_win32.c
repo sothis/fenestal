@@ -235,8 +235,13 @@ FnlResult d3d_bridge_swapchain(App *a, bool recolour)
 							"FNL_COLOR=%s was named, and the Direct3D 11 "
 							"swapchain presents 8-bit only",
 							app_color_key(a->want_color));
-		if (asked && !g->via11_on)
+		if (asked && !g->via11_on) {
 			g->hdr = colour_probe(a, &out, &g->sdr_scale, &g->peak);
+			/* The probe's output is its own reference, and nothing below
+			 * uses it: released here so the swapchain's failure paths
+			 * cannot leak it. */
+			D3D_RELEASE(out);
+		}
 		if (asked && !g->via11_on && !g->hdr)
 			fnl_log(FNL_LOG_INFO,
 					"this output is not in an advanced colour mode; "
@@ -279,7 +284,6 @@ FnlResult d3d_bridge_swapchain(App *a, bool recolour)
 			FNL_TRY(swapchain_create(a));
 		}
 	}
-	D3D_RELEASE(out);
 
 	/* A named space is taken or refused, as FNL_RENDERER's name is. */
 	if (recolour && a->color_named &&

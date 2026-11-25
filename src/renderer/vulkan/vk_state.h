@@ -385,6 +385,9 @@ struct RendererState {
 	/* LINEAR, and that one enum is the whole filter the render scale is
 	 * resolved with (see shaders/blit.frag). */
 	VkSampler             scene_sampler;
+	/* NEAREST, for the TAAU resolve's depth fetch: a depth format need not
+	 * advertise linear filtering (scene_target.c). */
+	VkSampler             depth_sampler;
 	/* What the scene is rendered into at one resolution. The first pair is
 	 * the target and exists whenever scene_extent is non-zero. */
 	TargetImage           scene;

@@ -71,11 +71,16 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	while (fnl_poll_event(app, &ev)) {
 	}
 	char line[160];
+	/* The frame's target names a row of the table built in on_gpu_created;
+	 * one outside it is no target, and the first row stands in. */
+	const int target = frame->target >= 0 && frame->target < FNL_TARGET_COUNT
+						   ? (int)frame->target
+						   : 0;
 	snprintf(line, sizeof line, "%s (%s)  target %d, %d sample%s",
 			 fnl_gpu_name(app),
 			 fnl_renderer(app) == FNL_RENDERER_D3D12 ? "Direct3D 12" : "?",
-			 (int)frame->target, s->layout[frame->target].samples,
-			 s->layout[frame->target].samples == 1 ? "" : "s");
+			 (int)frame->target, s->layout[target].samples,
+			 s->layout[target].samples == 1 ? "" : "s");
 	const FnlColor ink = { 0.9f, 0.9f, 0.9f, 1.0f };
 	fnl_overlay_text(app, 16, 48, FNL_TEXT_BODY, ink, line);
 }

@@ -1050,6 +1050,10 @@ static void compose_discard(App *a)
 	if (!app)
 		return;
 	publish_size(app);
+	/* The IME places its candidates in screen coordinates, which a resize
+	 * at the top edge moved: invalidated, it asks again on the next key as
+	 * NSTextInputContext requires whenever the visual coordinates change. */
+	[VIEW(app->backend_state).inputContext invalidateCharacterCoordinates];
 }
 
 - (void)windowDidMove:(NSNotification *)n
@@ -1058,6 +1062,7 @@ static void compose_discard(App *a)
 	if (!app)
 		return;
 	publish_output(app, false);
+	[VIEW(app->backend_state).inputContext invalidateCharacterCoordinates];
 }
 
 - (void)windowDidChangeScreen:(NSNotification *)n
@@ -1177,13 +1182,25 @@ static void fs_settle(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	const int owed = p->fs_owed;
-	p->fs_owed = 0;
-	if (!owed || !p->window)
-		return;
-	NSWindow *w = WIN(p);
-	const bool now = (w.styleMask & NSWindowStyleMaskFullScreen) != 0;
-	if ((owed == 1) != now)
-		[w toggleFullScreen:nil];
+	p->fs_owed     = 0;
+	bool toggling  = false;
+	if (owed && p->window) {
+		NSWindow *w = WIN(p);
+		const bool now = (w.styleMask & NSWindowStyleMaskFullScreen) != 0;
+		if ((owed == 1) != now) {
+			[w toggleFullScreen:nil];
+			toggling = true;
+		}
+	}
+	/* A maximize asked for in the same animation: out of fullscreen, and
+	 * with no toggle of its own just started, it is asked now. */
+	const int zoom = p->fs_max_owed;
+	p->fs_max_owed = 0;
+	if (!toggling && zoom && p->window && !a->is_fullscreen) {
+		NSWindow *w = WIN(p);
+		if ((zoom == 1) != (bool)w.zoomed)
+			[w zoom:nil];
+	}
 }
 
 /* Fullscreen is AppKit's own, a space of its own with the menu bar and the
@@ -1977,8 +1994,15 @@ static void cocoa_set_fullscreen(App *a, bool on)
 
 static void cocoa_set_maximized(App *a, bool on)
 {
+	struct BackendState *p = a->backend_state;
+	/* Inside AppKit's animation a zoom is ignored, as a toggle is: kept,
+	 * the last asked, and asked as the animation ends (fs_settle()). */
+	if (p->fs_transition) {
+		p->fs_max_owed = on ? 1 : 2;
+		return;
+	}
 	@autoreleasepool {
-		NSWindow *w = WIN(a->backend_state);
+		NSWindow *w = WIN(p);
 		if (a->is_fullscreen || on == (bool)w.zoomed)
 			return;
 		[w zoom:nil];

@@ -25,6 +25,75 @@ promised: before 1.0, nothing between minor releases.
   `fnl_window_create()` call some of these entries outside one, so what
   AppKit autoreleases there is no longer left for the frame.
 
+- **Win32: the raw input thread is the host's at every use.** A second
+  window's open that starts it no longer leaves the first window's capture
+  forwarding through a null thread, and a registration list that cannot be
+  read no longer hands a dead window back to the program as its own.
+
+- **Win32: the IME's candidate list is placed at the caret** -- screen
+  coordinates, which is the space that form takes -- a maximize is refused
+  while fullscreen (as Cocoa refuses it), and a minimize keeps the
+  maximized state it interrupts. **Cocoa** applies a maximize asked during
+  a fullscreen animation when the animation ends, and has the IME re-ask
+  when the window moves or resizes.
+
+- **`fnl_present_mode()` reads only App's atomics**, so calling it from
+  another thread while a renderer is built or moved no longer reads the
+  render thread's state; the Vulkan renderer's DXGI present is App's fact
+  now. A window created while a GPU move lands is refused before the
+  host's renderer is read, so it can no longer be built on the one the move
+  leaves; a window owed a renderer no longer crashes `fnl_start()`, and a
+  hand-asked recalibration waits until the host is one window again.
+
+- **TAAU samples the scene's depth through a NEAREST sampler**, which a
+  depth format without linear filtering requires, and Vulkan's device
+  handle is taken only from a successful `vkCreateDevice`.
+
+- **Wayland commits the window's own surface for a configure's ack and for
+  a captured pointer's cursor hint after a move**, where the frames are in
+  a subsurface and only a size change used to commit it; and a size asked
+  while another request is pending keeps the size the compositor still
+  believes.
+
+- **OpenGL retries a surface a recovery could not make**, so a driver with
+  no surfaceless context is not left failing for ever, and freeing a CGL
+  context on leave clears only that context. `fnl_gl.h` says what the
+  overlay leaves current: a library call leaves the library's program,
+  vertex array, unit and blend.
+
+- **Direct3D 12 releases the HDR probe's output on every path** and skips
+  its occlusion test while the shown waiter is inside the swapchain;
+  Metal no longer treats `NotPermitted` as a device gone.
+
+- **X11: the SYNC counter's query is sent at the length the server's
+  request is** -- the value struct the create and set requests take made it
+  four bytes too long, so the server refused it, the counter was never
+  advertised, and no manager's resize waited for a frame. A publish a sync
+  request is owed is also made before the pump sleeps, and the paste answer
+  rotates through four properties, so a given-up owner's late chunk cannot
+  land on the next request's.
+
+- **A text wrap cuts only at a whole character**, and a right or middle
+  press puts an open drop-down away as a left one does. X11's key names
+  fall back to the evdev subtraction for a key its keymap file does not
+  name, and examples guard a frame's target before indexing a scene table.
+
+- **KMS: one event queue, one reader.** A poll and the read it licenses
+  are serialized across the host's windows, and a completion is routed
+  through the host's own flip list rather than the registry the main
+  thread frees; a CRTC the open guessed is not taken when another output
+  drives it; a completion that never comes no longer freezes an unvsynced
+  copy path; a busy CRTC at a mode set is retried rather than refused; the
+  atomic cursor plane is used only when every property it names exists;
+  and the copy path's row conversion is one loop a format.
+
+- **Build and tools:** a lent font bake must have passed verifyfont as it
+  stands now; dxc is fetched only for a renderer set that has Direct3D 12;
+  `check-layering.py` walks every source directory and fails on one no
+  ALLOWED entry names; CI's release waits for ruff; a mingw tree without
+  objdump says the Universal CRT check is not made; and CLAUDE.md's claim
+  about a Mac's sweep now says what build.sh does.
+
 - **The copy path sets its mode on a CRTC chosen at that moment.** The
   open's guess could take a CRTC another output was lit on, or leave the
   display driver's CRTC scanning out the same pair; the CRTC is chosen

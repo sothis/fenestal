@@ -85,6 +85,18 @@ FnlResult create_scene_objects(App *a)
 	};
 	VK_TRY(vkCreateSampler(VK(a)->device, &sci, NULL, &VK(a)->scene_sampler));
 
+	/* The TAAU resolve reads one depth texel, and depth formats are not
+	 * required to filter linearly: sampling one through scene_sampler is
+	 * invalid wherever SAMPLED_IMAGE_FILTER_LINEAR is not advertised for
+	 * the format, and undefined there. */
+	sci.magFilter = VK_FILTER_NEAREST;
+	sci.minFilter = VK_FILTER_NEAREST;
+	/* Made aside and taken on success, as every handle here is: a driver
+	 * may leave anything in the out parameter of a refused create. */
+	VkSampler ds = VK_NULL_HANDLE;
+	VK_TRY(vkCreateSampler(VK(a)->device, &sci, NULL, &ds));
+	VK(a)->depth_sampler = ds;
+
 	VkDescriptorSetLayoutBinding b = {
 		.binding = 0,
 		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -390,8 +402,9 @@ static void write_taau_sets(App *a)
 			{ .sampler     = VK(a)->scene_sampler,
 			  .imageView   = view,
 			  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
-			{ .sampler     = VK(a)->scene_sampler,
-			  .imageView   = have_depth ? VK(a)->scene_depth.view
+			{ .sampler   = have_depth ? VK(a)->depth_sampler
+									  : VK(a)->scene_sampler,
+			  .imageView = have_depth ? VK(a)->scene_depth.view
 								: VK(a)->scene.view,
 			  .imageLayout = have_depth
 						  ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
@@ -867,6 +880,7 @@ void destroy_scene_objects(App *a)
 	vkDestroyDescriptorPool(VK(a)->device, VK(a)->blit_pool, NULL);
 	vkDestroyDescriptorSetLayout(VK(a)->device, VK(a)->blit_set_layout, NULL);
 	vkDestroySampler(VK(a)->device, VK(a)->scene_sampler, NULL);
+	vkDestroySampler(VK(a)->device, VK(a)->depth_sampler, NULL);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->post_pass, NULL);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->scene_pass_ms, NULL);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->scene_pass_lazy, NULL);
@@ -883,6 +897,7 @@ void destroy_scene_objects(App *a)
 	VK(a)->blit_set_mlaa = VK_NULL_HANDLE;
 	VK(a)->blit_set_layout = VK_NULL_HANDLE;
 	VK(a)->scene_sampler = VK_NULL_HANDLE;
+	VK(a)->depth_sampler = VK_NULL_HANDLE;
 	VK(a)->post_pass = VK_NULL_HANDLE;
 	VK(a)->scene_pass_ms = VK_NULL_HANDLE;
 	VK(a)->scene_pass = VK_NULL_HANDLE;

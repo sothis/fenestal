@@ -92,14 +92,12 @@
 	X(xcb_grab_pointer)                         \
 	X(xcb_grab_pointer_reply)                   \
 	X(xcb_image_text_8)                         \
-	X(xcb_image_text_8_checked)                 \
 	X(xcb_intern_atom)                          \
 	X(xcb_intern_atom_reply)                    \
 	X(xcb_map_window)                           \
 	X(xcb_open_font)                            \
 	X(xcb_poly_fill_rectangle)                  \
 	X(xcb_put_image)                            \
-	X(xcb_put_image_checked)                    \
 	X(xcb_query_font)                           \
 	X(xcb_query_font_reply)                     \
 	X(xcb_query_keymap)                         \
@@ -202,16 +200,12 @@ X11_XCB_FUNCS(X11_XCB_DECLARE)
 #define xcb_grab_pointer                         (*fnl_xcb_grab_pointer)
 #define xcb_grab_pointer_reply                   (*fnl_xcb_grab_pointer_reply)
 #define xcb_image_text_8                         (*fnl_xcb_image_text_8)
-#define xcb_image_text_8_checked \
-	(*fnl_xcb_image_text_8_checked)
 #define xcb_intern_atom                          (*fnl_xcb_intern_atom)
 #define xcb_intern_atom_reply                    (*fnl_xcb_intern_atom_reply)
 #define xcb_map_window                           (*fnl_xcb_map_window)
 #define xcb_open_font                            (*fnl_xcb_open_font)
 #define xcb_poly_fill_rectangle                  (*fnl_xcb_poly_fill_rectangle)
 #define xcb_put_image                            (*fnl_xcb_put_image)
-#define xcb_put_image_checked \
-	(*fnl_xcb_put_image_checked)
 #define xcb_query_font                           (*fnl_xcb_query_font)
 #define xcb_query_font_reply                     (*fnl_xcb_query_font_reply)
 #define xcb_query_keymap                         (*fnl_xcb_query_keymap)

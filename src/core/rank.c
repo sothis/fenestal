@@ -1323,7 +1323,9 @@ void app_rank_tick(App *a)
 			snprintf(display, sizeof display, "%s", a->rank_display);
 			fnl_mutex_unlock(&a->lock);
 		}
-		if (fnl_atomic_load_bool(&a->rank_recal_owed)) {
+		if (fnl_atomic_load_bool(&a->rank_recal_owed) &&
+			fnl_atomic_load_u32(&a->host->window_count) <= 1 &&
+			fnl_atomic_load_u32(&a->host->opening) == 0) {
 			fnl_atomic_store_bool(&a->rank_recal_owed, false);
 			recalibrate(a, display);
 			if (fnl_atomic_load_bool(&a->calibrating))

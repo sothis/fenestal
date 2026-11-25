@@ -88,7 +88,10 @@ static void on_record(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	Scene *s = (Scene *)ud;
 	FnlMetalScene sc;
-	if (!fnl_metal_scene(app, &sc) || !s->pso[frame->target])
+	/* The frame's target names a row of the table built in on_gpu_created;
+	 * one outside it is no target to draw. */
+	if (frame->target < 0 || frame->target >= FNL_TARGET_COUNT ||
+		!fnl_metal_scene(app, &sc) || !s->pso[frame->target])
 		return;
 	/* Into what the library bound, with the viewport and scissor on the
 	 * scene's rectangle. Recorded every frame shown; the colour still
@@ -111,11 +114,14 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	while (fnl_poll_event(app, &ev)) {
 	}
 	char line[160];
+	const int target = frame->target >= 0 && frame->target < FNL_TARGET_COUNT
+						   ? (int)frame->target
+						   : 0;
 	snprintf(line, sizeof line, "%s (%s)  target %d, %d sample%s",
 			 fnl_gpu_name(app),
 			 fnl_renderer(app) == FNL_RENDERER_METAL ? "Metal" : "?",
-			 (int)frame->target, s->layout[frame->target].samples,
-			 s->layout[frame->target].samples == 1 ? "" : "s");
+			 (int)frame->target, s->layout[target].samples,
+			 s->layout[target].samples == 1 ? "" : "s");
 	const FnlColor ink = { 0.9f, 0.9f, 0.9f, 1.0f };
 	fnl_overlay_text(app, 16, 48, FNL_TEXT_BODY, ink, line);
 }

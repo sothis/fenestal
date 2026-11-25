@@ -134,7 +134,9 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   build: on Linux `linux`, `linux-arm64` (where its compiler is), `win64`
   (where a UCRT compiler is), `macos`, `macos-arm64` and
   `macos-universal`; on FreeBSD `freebsd`; on Windows `win64` and
-  `win64-msvc`; on a Mac the macOS three. `release` comes first within
+  `win64-msvc`; on a Mac the macOS three, where a Linux release tree's bake
+  has been placed for them to lend (CI stages one; a bare Mac checkout
+  builds none and says so). `release` comes first within
   each — the cross trees borrow `build/linux/release`'s baked atlases, by
   that name, so that order is what keeps the sweep self-sufficient — and a
   target whose compiler is missing is skipped with one line. It stops at

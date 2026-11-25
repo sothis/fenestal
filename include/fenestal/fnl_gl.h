@@ -99,6 +99,11 @@ FNL_API bool fnl_gl_scene_layout(FnlApp *app, FnlSceneTarget target,
  * other piece of GL state is whatever the frame left it as: set what your
  * draws need. The library sets what its own need after you return.
  *
+ * The overlay is drawn in the same context: after any fnl_overlay_*() call
+ * -- a rectangle, an image, text, a flush, a clip -- the library's own
+ * program, vertex array, texture unit and blend are current, so a caller
+ * drawing its own GL beside the overlay sets what its draws need.
+ *
  * Bind it again after drawing into a framebuffer of your own. Do not delete
  * it, resize it, or change what it is attached to.
  *

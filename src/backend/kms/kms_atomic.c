@@ -258,7 +258,11 @@ static bool at_crtc_read(int fd, AtCrtc *c, const uint32_t *planes, int nplane,
 		c->c_crtc_y  = at_pprop(fd, cp, "CRTC_Y", &v);
 		c->c_crtc_w  = at_pprop(fd, cp, "CRTC_W", &v);
 		c->c_crtc_h  = at_pprop(fd, cp, "CRTC_H", &v);
-		if (!(c->c_crtc_id && c->c_fb_id && c->c_src_w && c->c_src_h &&
+		/* Every property the commit names, or none: one missing is named as
+		 * property 0 and the commit refused (EINVAL) -- for good, after the
+		 * three refusals that take the window to the legacy ioctl. */
+		if (!(c->c_crtc_id && c->c_fb_id && c->c_src_x && c->c_src_y &&
+			  c->c_src_w && c->c_src_h && c->c_crtc_x && c->c_crtc_y &&
 			  c->c_crtc_w && c->c_crtc_h))
 			c->cursor_plane = 0;
 	}

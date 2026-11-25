@@ -876,10 +876,14 @@ static void wl_hint_flush(App *a)
 	if (!p || !p->hint_owed)
 		return;
 	p->hint_owed = false;
-	if (p->locked)
+	if (p->locked) {
 		zwp_locked_pointer_v1_set_cursor_position_hint(
 			p->locked, wl_fixed_from_double(p->hint_x),
 			wl_fixed_from_double(p->hint_y));
+		/* Latched only by a commit of the window's surface, which after a
+		 * move is the render thread's flush: owed until then. */
+		fnl_atomic_store_bool(&p->hint_dirty, true);
+	}
 }
 static const struct zwp_relative_pointer_v1_listener relative_listener = {
 	.relative_motion = relative_motion,
@@ -2286,16 +2290,22 @@ static void present_settle(App *a)
 	present_old_drop(p);
 	if (p->backing_owed) {
 		p->backing_owed = false;
-		if (p->src_w > 0) {
-			wp_viewport_set_source(p->viewport, wl_fixed_from_int(-1),
-								   wl_fixed_from_int(-1), wl_fixed_from_int(-1),
-								   wl_fixed_from_int(-1));
-			p->src_w = p->src_h = 0;
+		/* Only while the frames are not on the window's own surface: a
+		 * move whose subsurface was not made leaves them there, and
+		 * attaching the backing over them would blank the frame. */
+		if (p->present != p->surface) {
+			if (p->src_w > 0) {
+				wp_viewport_set_source(p->viewport, wl_fixed_from_int(-1),
+									   wl_fixed_from_int(-1),
+									   wl_fixed_from_int(-1),
+									   wl_fixed_from_int(-1));
+				p->src_w = p->src_h = 0;
+			}
+			wl_surface_attach(p->surface, p->backing, 0, 0);
+			wl_surface_damage(p->surface, 0, 0, INT32_MAX, INT32_MAX);
+			wl_surface_set_opaque_region(p->surface, NULL);
+			p->parent_dirty = true;
 		}
-		wl_surface_attach(p->surface, p->backing, 0, 0);
-		wl_surface_damage(p->surface, 0, 0, INT32_MAX, INT32_MAX);
-		wl_surface_set_opaque_region(p->surface, NULL);
-		p->parent_dirty = true;
 	}
 }
 static const struct wl_callback_listener frame_listener = {
@@ -2479,11 +2489,16 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 static void request_window_size(App *a, int w, int h)
 {
 	struct BackendState *p = a->backend_state;
-	/* Before cur_* is overwritten: the size the compositor still believes. */
-	p->req_from_w = a->cur_w;
-	p->req_from_h = a->cur_h;
-	p->req_w      = w;
-	p->req_h      = h;
+	/* Before cur_* is overwritten: the size the compositor still believes.
+	 * A request already pending keeps its own from -- this window's cur_*
+	 * is that request's, which no commit has shown yet, and the configure
+	 * that answers this one echoes the size before both. */
+	if (p->req_w == 0) {
+		p->req_from_w = a->cur_w;
+		p->req_from_h = a->cur_h;
+	}
+	p->req_w = w;
+	p->req_h = h;
 	a->win_w      = w;
 	a->win_h      = h;
 	a->cur_w      = w;
@@ -2924,8 +2939,11 @@ static void wl_flush(App *a)
 	struct BackendState *p = a->backend_state;
 	if (p->presenting) {
 		p->presenting = false;
-		if (p->parent_dirty) {
+		const bool hint = fnl_atomic_load_bool(&p->hint_dirty);
+		if (p->parent_dirty || hint) {
 			p->parent_dirty = false;
+			if (hint)
+				fnl_atomic_store_bool(&p->hint_dirty, false);
 			wl_surface_commit(p->surface);
 		}
 	}
@@ -3046,11 +3064,14 @@ static void wl_present_window_renew(App *a)
 					strerror(errno));
 			return;
 		}
-		/* Attached once the first subsurface has shown a frame
-		 * (present_settle()), not now: until then the window's own last
-		 * frame stays on its surface, under that subsurface. */
-		p->backing_owed = true;
 	}
+	/* Attached once the first subsurface has shown a frame
+	 * (present_settle()), not now: until then the window's own last frame
+	 * stays on its surface, under that subsurface. Owed whenever the
+	 * frames are still there -- a renew that failed before making its
+	 * subsurface left them so, and this one brings the first. */
+	if (p->present == p->surface)
+		p->backing_owed = true;
 	present_drop(a);
 
 	struct wl_surface *s   = wl_compositor_create_surface(p->host->compositor);
@@ -3132,13 +3153,18 @@ static bool crop_apply(App *a)
 static bool wl_apply_scale(App *a)
 {
 	struct BackendState *p = a->backend_state;
+	/* A hint or an ack waits on the window surface's own commit, which a
+	 * flush is what makes (wl_flush()): the answer must say "changed"
+	 * although nothing of the surface's did. */
+	const bool owed = p->parent_dirty ||
+					  fnl_atomic_load_bool(&p->hint_dirty);
 	if (p->viewport) {
 		bool changed = crop_apply(a);
 		/* Onto the *surface*: the window plus the grab ring. */
 		int vw = a->draw_w + 2 * a->draw_margin;
 		int vh = a->draw_h + 2 * a->draw_margin;
 		if (vw == p->applied_vp_w && vh == p->applied_vp_h)
-			return changed;
+			return changed || owed;
 		wp_viewport_set_destination(p->viewport, vw, vh);
 		/* And the frames' own, where they have a surface of their own: the
 		 * window's pixel and the frame cover the same surface. */
@@ -3152,7 +3178,7 @@ static bool wl_apply_scale(App *a)
 	}
 
 	if (a->draw_scale120 == a->applied_scale120)
-		return false;
+		return owed;
 	/* clamp_buffer_scale120() made this a whole multiple of 120, and 120
 	 * itself where there is no set_buffer_scale. */
 	wl_surface_set_buffer_scale(p->surface, a->draw_scale120 / 120);

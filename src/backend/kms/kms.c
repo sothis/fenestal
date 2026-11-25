@@ -2114,16 +2114,19 @@ static void scan_retire(struct BackendState *p,
 /* A page-flip completion, given to the window whose flip it is: the event's
  * user_data was that window's address when the flip was made
  * (kms_scan_show()), so a wait reading another window's event clears the
- * right pending flip and counts the right frame. A stamp naming no window
- * of this host is nobody's now -- the window has closed -- and is dropped. */
+ * right pending flip and counts the right frame. The list walked is the
+ * host's, under the lock, and not Host::windows: this runs on whichever
+ * window's render thread read the event, and the registry is the main
+ * thread's alone -- a window closing there takes its state, and its App,
+ * away under the walk. A stamp naming no window of the list is nobody's
+ * now -- the window has closed -- and is dropped. */
 static void flip_complete(App *a, const struct drm_event_vblank *v)
 {
 	const double mono           = (double)v->tv_sec + (double)v->tv_usec * 1e-6;
 	struct BackendHostState *hs = a->backend_state->host;
 	fnl_mutex_lock(&hs->flip_lock);
-	for (App *w = a->host->windows; w; w = w->next) {
-		struct BackendState *q = w->backend_state;
-		if (!q || (uintptr_t)w != (uintptr_t)v->user_data)
+	for (struct BackendState *q = hs->flip_windows; q; q = q->flip_next) {
+		if ((uintptr_t)q->flip_app != (uintptr_t)v->user_data)
 			continue;
 		if (q->flip_stale > 0) {
 			/* The completion that was given up on (flip_give_up()):
@@ -2135,7 +2138,7 @@ static void flip_complete(App *a, const struct drm_event_vblank *v)
 		if (!q->flip_pending)
 			break; /* nobody's now */
 		q->flip_pending = false;
-		app_frame_shown(w, q->flip_index, mono, !q->flip_async);
+		app_frame_shown(q->flip_app, q->flip_index, mono, !q->flip_async);
 		break;
 	}
 	fnl_mutex_unlock(&hs->flip_lock);
@@ -2163,7 +2166,11 @@ static void flip_give_up(App *a)
  * copy of the descriptor: one open file is one event queue, and Mesa's
  * display WSI reads it on a thread of its own for as long as it is lent
  * one (surface_kms.c). Nothing here flips while it is, and events_drain()
- * keeps the two from reading each other's. */
+ * keeps the two from reading each other's. Between this library's windows
+ * the queue is shared too, so a poll and the read it licenses are one
+ * thread's (BackendHostState::ev_lock): a completion one window's read
+ * takes away is routed to the other by flip_complete(), where a read begun
+ * after that drain would block for an event no one still owes. */
 static bool flip_wait(App *a, int ms)
 {
 	struct BackendState *p      = a->backend_state;
@@ -2175,22 +2182,39 @@ static bool flip_wait(App *a, int ms)
 		if (!pending)
 			return true;
 		struct pollfd pf = { .fd = hs->card_fd, .events = POLLIN };
-		const int r      = poll(&pf, 1, ms);
-		if (r < 0 && errno == EINTR)
+		fnl_mutex_lock(&hs->ev_lock);
+		/* A completion another thread read while this one waited for the
+		 * queue cleared this window's flag with it, and there is nothing
+		 * left to poll for. */
+		fnl_mutex_lock(&hs->flip_lock);
+		const bool still = p->flip_pending;
+		fnl_mutex_unlock(&hs->flip_lock);
+		if (!still) {
+			fnl_mutex_unlock(&hs->ev_lock);
+			return true;
+		}
+		const int r = poll(&pf, 1, ms);
+		if (r < 0 && errno == EINTR) {
+			fnl_mutex_unlock(&hs->ev_lock);
 			continue;
+		}
 		if (r == 0) {
 			/* Timed out: another window's thread may have read this
 			 * window's completion while we polled -- the flag is the
 			 * answer, not the poll. */
 			fnl_mutex_lock(&hs->flip_lock);
-			const bool still = p->flip_pending;
+			const bool owed = p->flip_pending;
 			fnl_mutex_unlock(&hs->flip_lock);
-			return !still;
+			fnl_mutex_unlock(&hs->ev_lock);
+			return !owed;
 		}
-		if (r < 0)
+		if (r < 0) {
+			fnl_mutex_unlock(&hs->ev_lock);
 			return false;
+		}
 		_Alignas(struct drm_event) char buf[1024];
-		const ssize_t n = read(p->host->card_fd, buf, sizeof buf);
+		const ssize_t n = read(hs->card_fd, buf, sizeof buf);
+		fnl_mutex_unlock(&hs->ev_lock);
 		if (n <= 0)
 			return false;
 		for (ssize_t off = 0; off + (ssize_t)sizeof(struct drm_event) <= n;) {
@@ -2226,16 +2250,21 @@ static bool flip_wait(App *a, int ms)
  * busy and stay refused for good. */
 static void events_drain(App *a)
 {
-	const int fd = a->backend_state->host->card_fd;
+	struct BackendHostState *hs = a->backend_state->host;
+	const int fd                = hs->card_fd;
 	for (;;) {
 		struct pollfd pf = { .fd = fd, .events = POLLIN };
-		const int r      = poll(&pf, 1, 0);
-		if (r < 0 && errno == EINTR)
-			continue;
-		if (r <= 0)
+		fnl_mutex_lock(&hs->ev_lock);
+		const int r = poll(&pf, 1, 0);
+		if (r <= 0) {
+			fnl_mutex_unlock(&hs->ev_lock);
+			if (r < 0 && errno == EINTR)
+				continue;
 			return;
+		}
 		_Alignas(struct drm_event) char buf[1024];
 		const ssize_t n = read(fd, buf, sizeof buf);
+		fnl_mutex_unlock(&hs->ev_lock);
 		if (n <= 0)
 			return;
 		/* A completion is still a window's, and is routed rather than
@@ -2343,10 +2372,22 @@ int kms_scan_begin(App *a)
 	}
 	const bool vsync = fnl_atomic_load_bool(&a->vsync);
 	if (!flip_wait(a, vsync ? FLIP_WAIT_MS : 0)) {
-		if (vsync)
+		if (vsync) {
 			flip_give_up(a); /* lost: flip again regardless */
-		else
-			return -1;
+		} else {
+			/* A frame that still finds the last flip pending is
+			 * dropped -- but a completion that never comes would drop
+			 * every frame for the window's life, so one older than a
+			 * vsync wait is given up on, as that path's is. */
+			fnl_mutex_lock(&p->host->flip_lock);
+			const bool lost = p->flip_pending &&
+							  now_seconds() - p->flip_at >=
+								  (double)FLIP_WAIT_MS / 1000.0;
+			fnl_mutex_unlock(&p->host->flip_lock);
+			if (!lost)
+				return -1;
+			flip_give_up(a);
+		}
 	}
 	return p->scan_front == 0 ? 1 : 0;
 }
@@ -2460,8 +2501,9 @@ static void scan_hdr_clear(App *a)
  * drives the connector now -- the console's, the display path driver's, or
  * ours from before -- else a CRTC GETCRTC shows with no mode and no
  * framebuffer and that no other output of the card is driven by -- else the
- * open's guess, which the set then refuses through the same path as any mode
- * that will not show. The caller holds BackendHostState::crtc_lock. */
+ * open's guess where no other output is driven by it, a set on one that is
+ * cloning the two onto a plane rather than refusing; and 0, a refused set,
+ * where even that is busy. The caller holds BackendHostState::crtc_lock. */
 static uint32_t scan_crtc_pick(const struct BackendState *p,
 							   const KmsOutput *out)
 {
@@ -2495,7 +2537,13 @@ static uint32_t scan_crtc_pick(const struct BackendState *p,
 			!c.mode_valid && !c.fb_id)
 			return crtcs[j];
 	}
-	return out->crtc_id;
+	/* The open's guess, but only where no other output is driven by it: a
+	 * set on a CRTC another window's output is on would clone the two onto
+	 * that one plane, or take it from the other window. */
+	for (uint32_t j = 0; j < n; j++)
+		if (crtcs[j] == out->crtc_id && !(busy & (1u << j)))
+			return out->crtc_id;
+	return 0;
 }
 
 /* [render] No CRTC but `keep` scans out one of `s`'s framebuffers: a mode set
@@ -2565,10 +2613,16 @@ void kms_scan_show(App *a, int back)
 		 * is about to bind. */
 		fnl_mutex_lock(&hs->crtc_lock);
 		const uint32_t crtc = scan_crtc_pick(p, out);
-		bool set_ok = false;
-		if (hs->atomic && !forced && crtc)
+		bool set_ok      = false;
+		int atomic_err   = 0;
+		if (hs->atomic && !forced && crtc) {
 			set_ok = kms_atomic_set(hs->atomic, out->connector_id, crtc, mode,
 									p->scan.fb[back]);
+			/* Kept: the legacy fallback below overwrites errno, and a
+			 * CRTC busy a moment ago is not a refusal. */
+			if (!set_ok)
+				atomic_err = errno;
+		}
 		/* The legacy set where the card has no atomic, and where one it
 		 * offered refused this commit: the same call the backend made before
 		 * atomic, so a mode it will not take is refused by both. */
@@ -2585,7 +2639,15 @@ void kms_scan_show(App *a, int back)
 					 drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
 		}
 		if (!set_ok) {
+			const bool busy = crtc && !forced &&
+							  (atomic_err == EBUSY || errno == EBUSY);
 			fnl_mutex_unlock(&hs->crtc_lock);
+			/* A CRTC busy with a commit in flight is not a refusal, as at a
+			 * flip's EBUSY: the frame is dropped and the next tries again,
+			 * where a refusal here darkens the window for KMS_SCAN_RETRY_S.
+			 */
+			if (busy)
+				return;
 			if (!good) {
 				/* A mode the output was switched to and will not take: the
 				 * last that did comes back at the next frame. */
@@ -2625,6 +2687,7 @@ void kms_scan_show(App *a, int back)
 	p->flip_async   = async_now;
 	p->flip_index   = a->presents;
 	p->flip_pending = true;
+	p->flip_at      = now_seconds();
 	fnl_mutex_unlock(&hs->flip_lock);
 	if (hs->atomic) {
 		flipped = kms_atomic_flip(hs->atomic, crtc, p->scan.fb[back],
@@ -2709,32 +2772,62 @@ void kms_scan_show(App *a, int back)
  * 10-bit word is Vulkan's A2B10G10R10: R in bits 9:0, G 19:10 and B 29:20.
  * An 8-bit one is X in 31:24, R 23:16, G 15:8 and B 7:0 (XRGB8888). The
  * 10-bit scanout's own word is XRGB2101010, x 31:30, R 29:20, G 19:10 and B
- * 9:0 -- the opposite order -- so the two named channels must swap here. */
+ * 9:0 -- the opposite order -- so the two named channels must swap here.
+ *
+ * A loop a format rather than three tests a pixel: where the driver cannot
+ * take a display (lavapipe on the Pi and the thinkpad) this copy is the
+ * frame's whole CPU cost. The arithmetic is the general form's with the
+ * format known: the 8-bit sources are a byte a channel, so their shifts by
+ * two and back cancel. */
 static void scan_row(unsigned char *dst, const unsigned char *src, int n,
 					 FnlPixelFormat fmt, bool scan10)
 {
-	for (int x = 0; x < n; x++) {
-		const unsigned char *px = src + (size_t)x * 4u;
-		uint32_t r, g, b; /* ten bits each */
-		if (fmt == PIXELS_RGB10) {
+	if (fmt == PIXELS_RGB10 && scan10) {
+		for (int x = 0; x < n; x++) {
 			uint32_t w;
-			memcpy(&w, px, sizeof w);
-			r = w & 0x3ffu;
-			g = (w >> 10) & 0x3ffu;
-			b = (w >> 20) & 0x3ffu;
-		} else if (fmt == PIXELS_BGRA8) {
-			b = (uint32_t)px[0] << 2;
-			g = (uint32_t)px[1] << 2;
-			r = (uint32_t)px[2] << 2;
-		} else {
-			r = (uint32_t)px[0] << 2;
-			g = (uint32_t)px[1] << 2;
-			b = (uint32_t)px[2] << 2;
+			memcpy(&w, src + (size_t)x * 4u, sizeof w);
+			const uint32_t o = ((w & 0x3ffu) << 20) | (w & 0xffc00u) |
+							   ((w >> 20) & 0x3ffu);
+			memcpy(dst + (size_t)x * 4u, &o, sizeof o);
 		}
-		const uint32_t w =
-			scan10 ? (r << 20) | (g << 10) | b
-				   : ((b >> 2) << 0) | ((g >> 2) << 8) | ((r >> 2) << 16);
-		memcpy(dst + (size_t)x * 4u, &w, sizeof w);
+	} else if (fmt == PIXELS_RGB10) {
+		for (int x = 0; x < n; x++) {
+			uint32_t w;
+			memcpy(&w, src + (size_t)x * 4u, sizeof w);
+			const uint32_t o = (((w >> 20) & 0x3ffu) >> 2) |
+							   ((((w >> 10) & 0x3ffu) >> 2) << 8) |
+							   (((w & 0x3ffu) >> 2) << 16);
+			memcpy(dst + (size_t)x * 4u, &o, sizeof o);
+		}
+	} else if (fmt == PIXELS_BGRA8 && scan10) {
+		for (int x = 0; x < n; x++) {
+			const unsigned char *px = src + (size_t)x * 4u;
+			const uint32_t o        = ((uint32_t)px[2] << 22) |
+						   ((uint32_t)px[1] << 12) | ((uint32_t)px[0] << 2);
+			memcpy(dst + (size_t)x * 4u, &o, sizeof o);
+		}
+	} else if (fmt == PIXELS_BGRA8) {
+		for (int x = 0; x < n; x++) {
+			const unsigned char *px = src + (size_t)x * 4u;
+			const uint32_t o        = (uint32_t)px[0] |
+						   ((uint32_t)px[1] << 8) | ((uint32_t)px[2] << 16);
+			memcpy(dst + (size_t)x * 4u, &o, sizeof o);
+		}
+	} else if (scan10) {
+		for (int x = 0; x < n; x++) {
+			const unsigned char *px = src + (size_t)x * 4u;
+			const uint32_t o        = ((uint32_t)px[0] << 22) |
+						   ((uint32_t)px[1] << 12) | ((uint32_t)px[2] << 2);
+			memcpy(dst + (size_t)x * 4u, &o, sizeof o);
+		}
+	} else {
+		/* RGBA8, the default. */
+		for (int x = 0; x < n; x++) {
+			const unsigned char *px = src + (size_t)x * 4u;
+			const uint32_t o        = (uint32_t)px[2] |
+						   ((uint32_t)px[1] << 8) | ((uint32_t)px[0] << 16);
+			memcpy(dst + (size_t)x * 4u, &o, sizeof o);
+		}
 	}
 }
 
@@ -3668,6 +3761,7 @@ static FnlResult kms_host_open(App *a)
 	hs->away_owed                               = -1;
 	fnl_mutex_init(&hs->flip_lock);
 	fnl_mutex_init(&hs->crtc_lock);
+	fnl_mutex_init(&hs->ev_lock);
 
 	/* Every step conditional, and every failure unwinds through
 	 * kms_host_close() here: a NO_DISPLAY refusal (no output, a card held by
@@ -3757,6 +3851,13 @@ static FnlResult kms_window_open(App *a)
 						"out of memory for the KMS backend state");
 	a->backend_state = p;
 	p->host          = hs;
+	/* In the host's flip list from before its first frame: a completion is
+	 * routed by the list, whichever window's thread reads it. */
+	p->flip_app = a;
+	fnl_mutex_lock(&hs->flip_lock);
+	p->flip_next     = hs->flip_windows;
+	hs->flip_windows = p;
+	fnl_mutex_unlock(&hs->flip_lock);
 	/* A second window means the direct-scanout display cannot be shared on
 	 * the one device: the whole host draws by the copy path from here, and a
 	 * window already showing lets its display go on its next build
@@ -3885,6 +3986,17 @@ static void kms_window_close(App *a)
 		for (App *w = a->host->windows; w; w = w->next)
 			app_surface_remake(w);
 	}
+	/* Out of the host's flip list under its lock, before the state is
+	 * freed: a render thread routing a completion holds that lock while it
+	 * reads the list. */
+	fnl_mutex_lock(&p->host->flip_lock);
+	for (struct BackendState **q = &p->host->flip_windows; *q;
+		 q = &(*q)->flip_next)
+		if (*q == p) {
+			*q = p->flip_next;
+			break;
+		}
+	fnl_mutex_unlock(&p->host->flip_lock);
 	free(p);
 	a->backend_state = NULL;
 }
@@ -3917,6 +4029,7 @@ static void kms_host_close(App *a)
 	}
 	fnl_mutex_destroy(&hs->flip_lock);
 	fnl_mutex_destroy(&hs->crtc_lock);
+	fnl_mutex_destroy(&hs->ev_lock);
 	free(hs);
 	a->host->backend_host = NULL;
 }

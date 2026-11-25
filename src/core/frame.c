@@ -796,7 +796,11 @@ void app_snapshot_decline(App *a)
 static void device_recover(App *a)
 {
 	if (a->cb_gpu_created) {
-		RENDERER(a)->wait_idle(a);
+		/* A window owed a renderer (a swap that failed both ways) has no
+		 * device to drain; its caller's objects go with the loss all the
+		 * same. */
+		if (a->renderer && a->renderer_ready)
+			RENDERER(a)->wait_idle(a);
 		a->cb_gpu_created = false;
 		if (a->cb.on_gpu_lost)
 			a->cb.on_gpu_lost(a->cb.ud, a);
@@ -1485,8 +1489,13 @@ void app_surface_sync(App *a, uint32_t cfg_serial, bool cfg_pending)
 
 	surface_changed |= BACKEND(a)->apply_scale(a);
 
-	if (cfg_pending && !ack_first)
+	if (cfg_pending && !ack_first) {
 		ack(a, cfg_serial);
+		/* An ack is window-surface state a backend may owe its own
+		 * commit for -- Wayland's, where the frames go into a subsurface
+		 * and the window's surface is committed only by this flush. */
+		surface_changed = true;
+	}
 	/* The present's commit flushes too; this keeps the requests ahead of
 	 * it whatever the driver's own queue does, and after the ack, so the
 	 * pair leaves in one write. Thread-safe against the main thread's

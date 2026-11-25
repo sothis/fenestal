@@ -2298,6 +2298,11 @@ if(MINGW AND CMAKE_OBJDUMP)
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/check-crt.cmake
             COMMENT "Checking ${_t} imports the Universal CRT, not msvcrt")
     endforeach()
+elseif(MINGW)
+    # A hand-configured tree without objdump would otherwise carry the proof's
+    # absence as silence.
+    message(WARNING "no objdump for this mingw tree: the Universal CRT import "
+                    "check is not made (set CMAKE_OBJDUMP)")
 endif()
 
 # ---- The development instruments -------------------------------------------

@@ -191,7 +191,13 @@ void x11_sync_open(struct BackendState *p)
 	 * every resize. A BadCounter is the refusal -- there is no reply to
 	 * read it in -- so a reply at all is the confirmation, and
 	 * x11_ext_take() clears the counter when there is none. */
-	const SyncCounterValue q = { id, 0, 0 };
+	/* The query names the counter and nothing else: SyncQueryCounter's
+	 * request is its header and one CARD32 (sz_xSyncQueryCounterReq, 8
+	 * bytes), where CreateCounter and SetCounter carry the value as well.
+	 * Sent with the value struct the others take, the request was 16 bytes
+	 * and the server answered BadLength -- the counter was never
+	 * advertised, and no manager's resize waited for a frame. */
+	const uint32_t q = id;
 	p->sync_counter = id;
 	p->sync_query   = ext_send(p, &sync_ext, SYNC_QUERY_COUNTER, &q, sizeof q,
 							   true);

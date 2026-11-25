@@ -244,6 +244,23 @@ struct BackendHostState {
 	 * was late for it one decision. */
 	FnlMutex flip_lock;
 
+	/* The windows whose flips this host routes (BackendState::flip_next):
+	 * the event names a window by its App's address, and the walk is a
+	 * render thread's, where Host::windows -- the main thread's alone --
+	 * could be freed under it. Linked at a window's open and unlinked at
+	 * its close, under flip_lock, before its state is freed. */
+	struct BackendState *flip_windows;
+
+	/* The node's event queue, and the poll-and-read that takes events off
+	 * it: two windows' render threads wait on the one descriptor, and a
+	 * completion one thread's read takes is routed by flip_complete() to
+	 * whichever window it names -- but a read begun after another thread
+	 * has drained the queue blocks on the blocking descriptor with nothing
+	 * left to wake it. So a poll and the read it licenses are one thread's
+	 * at a time. crtc_lock holds before this one, and this one before
+	 * flip_lock. */
+	FnlMutex ev_lock;
+
 	/* The mode sets' one hand: a CRTC is chosen (scan_crtc_pick()) and set
 	 * under this, so a second window cannot choose the CRTC this one is
 	 * about to bind, nor darken one it has just bound. Holds before
@@ -409,16 +426,25 @@ struct BackendState {
 	int          hdr_out;
 	bool         hdr_set;
 	/* The pending flip: whether one is in flight, whether it tears (no
-	 * vblank), the frame it carries, and how many completions were given up
-	 * on after a wait's timeout and are still to be read (flip_give_up()).
-	 * All four under BackendHostState::flip_lock: the event's user_data
+	 * vblank), the frame it carries, when it was submitted (the async wait
+	 * gives a completion that never comes up once it is older than a vsync
+	 * wait), and how many completions were given up on after a wait's
+	 * timeout and are still to be read (flip_give_up()).
+	 * All under BackendHostState::flip_lock: the event's user_data
 	 * names the window (kms_scan_show()), so whichever thread reads the
 	 * completion clears the right window's flag. A stale completion is
 	 * consumed and not reported -- the frame it belongs to is older than
 	 * the one being waited for. */
 	bool         flip_async;
 	uint64_t     flip_index;
+	double       flip_at;
 	int          flip_stale;
+	/* This window in the host's flip list, and the App the flip's user_data
+	 * names: the routing is a render thread's, so it walks the host's list
+	 * under flip_lock rather than Host::windows (kms_window_open() links it,
+	 * kms_window_close() unlinks it before the state is freed). */
+	struct BackendState *flip_next;
+	App                 *flip_app;
 	/* The driver refused an asynchronous flip (EINVAL): vblank flips until
 	 * the next mode set, which asks again. */
 	bool         flip_async_off;

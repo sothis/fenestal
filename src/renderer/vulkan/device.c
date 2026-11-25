@@ -1084,7 +1084,12 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		 * borrowing a device that has it may. */
 		VK(a)->present_scale = VKH(a)->present_scale;
 	} else {
-		VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &VK(a)->device));
+		/* The handle a driver leaves on failure is undefined, and
+		 * destroy_device_objects() reads VK_NULL_HANDLE as "nothing to
+		 * unwind": made aside and taken only on success. */
+		VkDevice made = VK_NULL_HANDLE;
+		VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &made));
+		VK(a)->device = made;
 		VKH(a)->present_scale = VK(a)->present_scale;
 	}
 	VK(a)->memory_budget =
@@ -1948,8 +1953,9 @@ static const char *vk_current_present_mode(const App *a)
 {
 	/* Under the DXGI present there is no Vulkan swapchain to name and the
 	 * interval follows the live policy, so the answer is the policy's, as
-	 * Direct3D 12's is. */
-	if (VK(a)->dxgi)
+	 * Direct3D 12's is. The fact is App's atomic, not RendererState's: this
+	 * entry is [any]'s, and a move may free the state under it. */
+	if (fnl_atomic_load_bool(&a->present_dxgi))
 		return fnl_atomic_load_bool(&a->vsync) ? "sync interval 1 (vsync)"
 											   : "sync interval 0";
 	/* The answer is a literal in .rodata, so only the enum crosses threads --

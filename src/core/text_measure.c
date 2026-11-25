@@ -555,6 +555,11 @@ int text_wrap(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 			if (cap < w + fixed)
 				break; /* no room for a line at all */
 			take = cap - w - fixed;
+			/* A cut between a lead byte and its continuations would end
+			 * the line in half a character, which the decoder draws as a
+			 * replacement: the last whole one is the cut. */
+			while (take > 0 && ((unsigned char)p[take] & 0xc0u) == 0x80u)
+				take--;
 			if (take == 0)
 				break;
 		}

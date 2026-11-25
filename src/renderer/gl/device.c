@@ -331,8 +331,14 @@ static void recover_from_loss(App *a)
 		 * device's frames is not left to another's. */
 		if (a->gpu_switching)
 			BACKEND(a)->present_window_renew(a);
-		if (FNL_FAULT("create-surface") || gl_bridge_surface(a) < 0)
+		if (FNL_FAULT("create-surface") || gl_bridge_surface(a) < 0) {
+			/* Still owed: the display is open, but there is no surface,
+			 * and the next recovery must try the surface again -- a
+			 * driver with no surfaceless context would otherwise fail
+			 * create_device_objects() for ever. */
+			a->surface_lost = true;
 			return;
+		}
 		a->surface_lost = false;
 		a->device_lost  = true;
 	}

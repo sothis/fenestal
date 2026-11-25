@@ -532,7 +532,7 @@ jobs:
     # tag with no section falls back to GitHub's generated notes.
     release:
         name: publish
-        needs: [linux, macos, windows, freebsd]
+        needs: [linux, macos, windows, freebsd, ruff]
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         runs-on: ubuntu-latest
         timeout-minutes: 10

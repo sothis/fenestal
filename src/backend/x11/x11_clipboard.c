@@ -61,9 +61,15 @@ static uint32_t clip_stamp(struct BackendState *p)
 }
 
 /* Where this request's answer is asked to be put. */
+#define CLIP_PROPS 4
 static xcb_atom_t clip_prop(const struct BackendState *p)
 {
-	return p->atom[p->clip_alt ? FNL_ATOM_FNL_PASTE2 : FNL_ATOM_FNL_PASTE];
+	switch (p->clip_alt) {
+	case 1: return p->atom[FNL_ATOM_FNL_PASTE2];
+	case 2: return p->atom[FNL_ATOM_FNL_PASTE3];
+	case 3: return p->atom[FNL_ATOM_FNL_PASTE4];
+	default: return p->atom[FNL_ATOM_FNL_PASTE];
+	}
 }
 
 /* The paste is over, with `data` as the answer. NULL is no text -- which is
@@ -189,7 +195,7 @@ void x11_clip_expire(App *a)
 	/* An owner asked may yet answer, onto the property it was given: the
 	 * next request is asked for on the other. */
 	if (p->clip_asked)
-		p->clip_alt = !p->clip_alt;
+		p->clip_alt = (uint8_t)((p->clip_alt + 1) % CLIP_PROPS);
 	clip_finish(a, NULL, 0);
 }
 
@@ -205,7 +211,7 @@ void x11_clipboard_request(App *a)
 	if (p->clip_waiting && !p->clip_copied)
 		return;
 	if (p->clip_waiting && p->clip_asked)
-		p->clip_alt = !p->clip_alt;
+		p->clip_alt = (uint8_t)((p->clip_alt + 1) % CLIP_PROPS);
 	p->clip_copied = false;
 	p->clip_incr = p->clip_over = p->clip_asked = false;
 	p->clip.len = 0;
