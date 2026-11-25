@@ -43,13 +43,13 @@
 #define BTN_MARGIN    8
 #define TITLE_X      16
 
-static const FnlColor COL_BAR_ON   = TESTBED_RGB(0.10f, 0.11f, 0.16f);
-static const FnlColor COL_BAR_OFF  = TESTBED_RGB(0.08f, 0.08f, 0.10f);
-static const FnlColor COL_ACCENT   = TESTBED_RGB(0.35f, 0.75f, 1.00f);
-static const FnlColor COL_TEXT_ON  = TESTBED_RGB(0.92f, 0.94f, 1.00f);
-static const FnlColor COL_TEXT_OFF = TESTBED_RGB(0.50f, 0.52f, 0.58f);
-static const FnlColor COL_HOVER    = TESTBED_RGB(0.20f, 0.22f, 0.30f);
-static const FnlColor COL_CLOSE    = TESTBED_RGB(0.80f, 0.25f, 0.25f);
+static const FnlColor COL_BAR_ON   = { 0.10f, 0.11f, 0.16f, 1.0f };
+static const FnlColor COL_BAR_OFF  = { 0.08f, 0.08f, 0.10f, 1.0f };
+static const FnlColor COL_ACCENT   = { 0.35f, 0.75f, 1.00f, 1.0f };
+static const FnlColor COL_TEXT_ON  = { 0.92f, 0.94f, 1.00f, 1.0f };
+static const FnlColor COL_TEXT_OFF = { 0.50f, 0.52f, 0.58f, 1.0f };
+static const FnlColor COL_HOVER    = { 0.20f, 0.22f, 0.30f, 1.0f };
+static const FnlColor COL_CLOSE    = { 0.80f, 0.25f, 0.25f, 1.0f };
 
 /* Which button, in the order they are laid out from the right. One enum, so
  * the draw and the hit test index the same list. */

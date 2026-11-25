@@ -429,6 +429,9 @@ jobs:
               with:
                   msystem: UCRT64
                   update: false
+                  # The MSVC environment above is a PATH the step sets, and
+                  # the default path type drops it; cl is found through it.
+                  path-type: inherit
                   install: >-
                       git
                       mingw-w64-ucrt-x86_64-cmake
@@ -479,7 +482,7 @@ jobs:
               with:
                   usesh: true
                   prepare: |
-                      pkg install -y cmake ninja pkgconf python3 git xz \
+                      pkg install -y cmake pkgconf python3 git \
                           wayland libxcb libdrm mesa-libs libglvnd \
                           vulkan-headers glslang spirv-cross freetype2 \
                           xkeyboard-config llvm

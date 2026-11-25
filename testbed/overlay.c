@@ -25,13 +25,15 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The testbed's palette; the library ships none for a caller's own drawing. */
-static const FnlColor COL_PANEL  = TESTBED_RGB(0.06f, 0.06f, 0.08f);
-static const FnlColor COL_TITLE  = TESTBED_RGB(1.00f, 0.78f, 0.30f);
-static const FnlColor COL_KEY    = TESTBED_RGB(0.80f, 0.85f, 0.95f);
-static const FnlColor COL_DESC   = TESTBED_RGB(0.55f, 0.58f, 0.65f);
-static const FnlColor COL_DIM    = TESTBED_RGB(0.45f, 0.48f, 0.55f);
-static const FnlColor COL_ACTIVE = TESTBED_RGB(0.35f, 1.00f, 0.55f);
+/* The testbed's palette; the library ships none for a caller's own drawing.
+ * The braces are written out: an initialiser is no place for a function
+ * call, and TESTBED_RGB is one in every build (testbed.h). */
+static const FnlColor COL_PANEL  = { 0.06f, 0.06f, 0.08f, 1.0f };
+static const FnlColor COL_TITLE  = { 1.00f, 0.78f, 0.30f, 1.0f };
+static const FnlColor COL_KEY    = { 0.80f, 0.85f, 0.95f, 1.0f };
+static const FnlColor COL_DESC   = { 0.55f, 0.58f, 0.65f, 1.0f };
+static const FnlColor COL_DIM    = { 0.45f, 0.48f, 0.55f, 1.0f };
+static const FnlColor COL_ACTIVE = { 0.35f, 1.00f, 0.55f, 1.0f };
 
 /* Points from the window edge to the panels. */
 #define MARGIN 12

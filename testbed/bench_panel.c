@@ -24,18 +24,18 @@
 #include <math.h>
 #include <string.h>
 
-static const FnlColor COL_PANEL  = TESTBED_RGB(0.06f, 0.06f, 0.08f);
-static const FnlColor COL_ROW    = TESTBED_RGB(0.10f, 0.10f, 0.13f);
-static const FnlColor COL_HOVER  = TESTBED_RGB(0.17f, 0.18f, 0.24f);
-static const FnlColor COL_SEL    = TESTBED_RGB(0.22f, 0.24f, 0.32f);
-static const FnlColor COL_BUTTON = TESTBED_RGB(0.20f, 0.36f, 0.26f);
-static const FnlColor COL_BTN_HI = TESTBED_RGB(0.26f, 0.48f, 0.34f);
-static const FnlColor COL_TITLE  = TESTBED_RGB(1.00f, 0.78f, 0.30f);
-static const FnlColor COL_KEY    = TESTBED_RGB(0.80f, 0.85f, 0.95f);
-static const FnlColor COL_DESC   = TESTBED_RGB(0.55f, 0.58f, 0.65f);
-static const FnlColor COL_VALUE  = TESTBED_RGB(1.00f, 0.92f, 0.25f);
-static const FnlColor COL_GOOD   = TESTBED_RGB(0.35f, 1.00f, 0.55f);
-static const FnlColor COL_BAD    = TESTBED_RGB(1.00f, 0.38f, 0.35f);
+static const FnlColor COL_PANEL  = { 0.06f, 0.06f, 0.08f, 1.0f };
+static const FnlColor COL_ROW    = { 0.10f, 0.10f, 0.13f, 1.0f };
+static const FnlColor COL_HOVER  = { 0.17f, 0.18f, 0.24f, 1.0f };
+static const FnlColor COL_SEL    = { 0.22f, 0.24f, 0.32f, 1.0f };
+static const FnlColor COL_BUTTON = { 0.20f, 0.36f, 0.26f, 1.0f };
+static const FnlColor COL_BTN_HI = { 0.26f, 0.48f, 0.34f, 1.0f };
+static const FnlColor COL_TITLE  = { 1.00f, 0.78f, 0.30f, 1.0f };
+static const FnlColor COL_KEY    = { 0.80f, 0.85f, 0.95f, 1.0f };
+static const FnlColor COL_DESC   = { 0.55f, 0.58f, 0.65f, 1.0f };
+static const FnlColor COL_VALUE  = { 1.00f, 0.92f, 0.25f, 1.0f };
+static const FnlColor COL_GOOD   = { 0.35f, 1.00f, 0.55f, 1.0f };
+static const FnlColor COL_BAD    = { 1.00f, 0.38f, 0.35f, 1.0f };
 
 #define PAD        12
 #define ROW_GAP    2

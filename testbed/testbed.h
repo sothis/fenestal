@@ -20,8 +20,9 @@
 
 /* Authored in sRGB, which is what FnlColor takes -- the numbers a colour
  * picker gives. The library converts to whatever space the surface blends
- * in. A function and not a compound literal: cl.exe has no such literal,
- * and this is the one macro that would otherwise be one everywhere. */
+ * in. A function and not a compound literal: cl.exe has no such literal.
+ * It is for expressions alone -- a function call is no constant, so a
+ * static table writes its braces out. */
 static inline FnlColor testbed_rgb(float r, float g, float b)
 {
 	const FnlColor c = { r, g, b, 1.0f };
