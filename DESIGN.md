@@ -8340,8 +8340,9 @@ Scaling the quad also switches the subpixel path off, by pushing a texel step of
 zero. Its three samples are the pixel's three emitters only while one texel
 really is a third of a pixel across; a scaled quad breaks that and the fringes
 would colour the text rather than sharpen it. At a step of zero all three
-samples fall on the middle texel, which the FIR5 filter already made the
-weighted average of the three — so the shader's own arithmetic yields the
+samples fall on the middle texel, which is the grayscale answer already — the
+filter's weighted average of the three where ClearType ran, the unshifted
+coverage where harmony did — so the shader's own arithmetic yields the
 grayscale answer without a branch for it.
 
 ### Three details carry most of the quality
@@ -8378,8 +8379,10 @@ prevent; on the same bake it reads `every code point a face carries is drawn
   in linear light, so the weight it wants is the coverage untouched; the UNORM
   fallback wants it *encoded* (`shaders/text.frag` derives why).
 * **Subpixel antialiasing** where the device offers `dualSrcBlend`. The atlas is
-  rendered at `FT_RENDER_MODE_LCD` through FreeType's FIR5 filter — three
-  samples per pixel, one per emitter — and the blend takes a separate weight per
+  rendered at `FT_RENDER_MODE_LCD` — three samples per pixel, one per emitter,
+  through FreeType's FIR5 taps where its ClearType renderer is built and
+  through its harmony shifts, which need no filter, where it is not — and the
+  blend takes a separate weight per
   channel from a second fragment output. Without the feature the same shader
   compiles to a grayscale variant reading the middle of each pixel's three
   texels. `BGR` in `shaders/text.frag` is the one thing the program cannot

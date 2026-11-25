@@ -233,10 +233,15 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (font_raster_filter(ft)) {
-		fprintf(stderr, "mkfont: this FreeType has no LCD filter support\n");
+	const FT_Error lcd = font_raster_filter(ft);
+	if (lcd && lcd != FT_Err_Unimplemented_Feature) {
+		fprintf(stderr, "mkfont: FreeType's LCD filter cannot be set: %d\n",
+				(int)lcd);
 		return 1;
 	}
+	if (lcd)
+		fprintf(stderr, "mkfont: no ClearType filter; FreeType's harmony "
+						"rendering needs none\n");
 
 	/* ---- the code points the face actually carries ---------------------- */
 	/* FreeType walks the cmap in ascending order; the range table and its

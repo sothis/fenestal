@@ -9,6 +9,12 @@ this list.
 Written on 2026-11-25, the day the targets were added. The FreeBSD and
 MSVC trees are compiled in CI; none of the three has been driven.
 
+- **The bake's filter.** Ubuntu's FreeType is built with
+  `FT_CONFIG_OPTION_SUBPIXEL_RENDERING` and filters LCD coverage with the
+  ClearType taps; FreeBSD's package and vcpkg's build are not, and render
+  harmony instead, which needs no filter. `mkfont` accepts both now, but
+  text baked the harmony way has not been looked at on a screen.
+
 ### FreeBSD
 
 - **The console.** KMS takes DRM master and saves and restores the CRTCs;

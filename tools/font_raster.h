@@ -30,9 +30,13 @@ static inline FT_Error font_raster_face(FT_Library ft, const char *path,
 	return FT_New_Face(ft, path, 0, out);
 }
 
-/* The FIR5 filter every LCD render goes through: without it a stem that
- * lands on one emitter glows in that emitter's colour. It widens each bitmap
- * by a pixel either side. */
+/* FreeType's LCD filter, where its ClearType-style renderer has one: the
+ * FIR5 taps keep a stem that lands on one emitter from glowing in that
+ * emitter's colour. A library built without
+ * FT_CONFIG_OPTION_SUBPIXEL_RENDERING renders harmony instead -- a
+ * coverage map shifted per emitter, colour fringes impossible by
+ * construction -- and answers Unimplemented_Feature here, which is no
+ * failure and wants no filter. */
 static inline FT_Error font_raster_filter(FT_Library ft)
 {
 	return FT_Library_SetLcdFilter(ft, FT_LCD_FILTER_DEFAULT);

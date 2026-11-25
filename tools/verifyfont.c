@@ -212,8 +212,11 @@ int main(int argc, char **argv)
 		}
 	/* Face 0 carries the code point index and the layout metrics. */
 	face = faces[0];
-	if (font_raster_filter(ft)) {
-		fprintf(stderr, "this FreeType has no LCD filter support\n"); return 2;
+	const FT_Error lcd = font_raster_filter(ft);
+	if (lcd && lcd != FT_Err_Unimplemented_Feature) {
+		fprintf(stderr, "FreeType's LCD filter cannot be set: %d\n",
+				(int)lcd);
+		return 2;
 	}
 
 	/* Glyph index -> code point: the range table read backwards. */
