@@ -13,10 +13,11 @@
 #                                programs travel under; the source is an
 #                                archive of its own
 #   .github/stage.sh <target>    stage/fenestal-<target>-<commit>.tar.xz
-#                                for linux and linux-arm64, .zip for win64
-#                                and macos: common, the library, static and
-#                                shared, in lib/, and the programs linked
-#                                with the static one in bin/
+#                                for linux, linux-arm64 and freebsd, .zip
+#                                for win64, win64-msvc and macos: common,
+#                                the library, static and shared, in lib/,
+#                                and the programs linked with the static
+#                                one in bin/
 #
 # The programs are the testbed, fenestal-dev and each demo, never a demo's
 # -dyn twin, which wants the shared library beside it. A program the tree
@@ -64,9 +65,9 @@ TREE=build/$TARGET/release
 NAME=fenestal-$TARGET
 DIR=$OUT/$NAME
 EXE=
-if [ "$TARGET" = win64 ]; then
-    EXE=.exe
-fi
+case $TARGET in
+win64|win64-msvc) EXE=.exe ;;
+esac
 if [ ! -d "$OUT/common" ]; then
     echo "stage.sh: no $OUT/common; .github/stage.sh common first" >&2
     exit 1
@@ -84,24 +85,37 @@ for d in demos/*/; do
 done
 
 # ---- macOS: universal, and each program an app bundle ----------------------
-# The two macOS trees, x86-64 and arm64, joined by lipo into one file of
-# each, as a Mac's own downloads are. Each program is an app bundle: the
-# program in Contents/MacOS, MoltenVK in Contents/Frameworks, where the
-# library looks for it (src/renderer/vulkan/vk_load.c), and the whole signed
-# ad hoc, which Apple's processors require of all code. That is no Developer
-# ID's signature, so a bundle downloaded by a browser is still quarantined,
-# and Gatekeeper asks before it opens. Zipped by ditto, which keeps the
-# dylib's symlinks, where python's zipfile would not.
+# `./build.sh macos-universal release` has already joined the two macOS
+# trees into build/macos-universal/release; this packs that as a Mac's own
+# downloads are: each program an app bundle, the program in Contents/MacOS,
+# MoltenVK in Contents/Frameworks, where the library looks for it
+# (src/renderer/vulkan/vk_load.c), and the whole signed ad hoc, which
+# Apple's processors require of all code. That is no Developer ID's
+# signature, so a bundle downloaded by a browser is still quarantined, and
+# Gatekeeper asks before it opens. Zipped by ditto, which keeps the dylib's
+# symlinks, where python's zipfile would not.
+#
+# A checkout that has not built the universal tree packs the two slices as
+# it used to, joining them with lipo here.
 if [ "$TARGET" = macos ]; then
-    X=build/macos/release
-    A=build/macos-arm64/release
-    for t in "$X" "$A"; do
-        if [ ! -d "$t" ]; then
-            echo "stage.sh: macos joins two trees, and $t is missing" >&2
-            exit 1
-        fi
-    done
-    for tool in lipo codesign ditto; do
+    U=build/macos-universal/release
+    MERGED=0
+    if [ -d "$U" ]; then
+        X=$U
+        MERGED=1
+    else
+        X=build/macos/release
+        A=build/macos-arm64/release
+        for t in "$X" "$A"; do
+            if [ ! -d "$t" ]; then
+                echo "stage.sh: macos joins two trees, and $t is missing" >&2
+                exit 1
+            fi
+        done
+    fi
+    TOOLS="codesign ditto"
+    [ "$MERGED" = 1 ] || TOOLS="lipo $TOOLS"
+    for tool in $TOOLS; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             echo "stage.sh: macos is packed on a Mac: no $tool here" >&2
             exit 1
@@ -110,13 +124,19 @@ if [ "$TARGET" = macos ]; then
     VERSION=$(sed -n 's/^project(fenestal VERSION \([0-9.]*\).*/\1/p' \
               CMakeLists.txt)
 
-    for f in "$X"/libfenestal.a "$X"/libfenestal*.dylib; do
-        if [ -L "$f" ]; then
+    if [ "$MERGED" = 1 ]; then
+        for f in "$X"/libfenestal.a "$X"/libfenestal*.dylib; do
             cp -P "$f" "$DIR/lib/"
-        else
-            lipo -create "$f" "$A/${f##*/}" -output "$DIR/lib/${f##*/}"
-        fi
-    done
+        done
+    else
+        for f in "$X"/libfenestal.a "$X"/libfenestal*.dylib; do
+            if [ -L "$f" ]; then
+                cp -P "$f" "$DIR/lib/"
+            else
+                lipo -create "$f" "$A/${f##*/}" -output "$DIR/lib/${f##*/}"
+            fi
+        done
+    fi
 
     # MoltenVK only beside a program that has a Vulkan scene. The tree has
     # every renderer, so a program that never draws with Vulkan still lists
@@ -136,7 +156,11 @@ if [ "$TARGET" = macos ]; then
         app=$DIR/bin/$p.app
         mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" \
                  "$app/Contents/Resources"
-        lipo -create "$X/$p" "$A/$p" -output "$app/Contents/MacOS/$p"
+        if [ "$MERGED" = 1 ]; then
+            cp "$X/$p" "$app/Contents/MacOS/$p"
+        else
+            lipo -create "$X/$p" "$A/$p" -output "$app/Contents/MacOS/$p"
+        fi
         if has_vulkan "$p"; then
             cp "$X/libMoltenVK.dylib" "$app/Contents/Frameworks/"
             cp "$X/MoltenVK-LICENSE.txt" "$app/Contents/Resources/"
@@ -183,14 +207,25 @@ PLIST
     exit 0
 fi
 
-# ---- Linux and Windows ------------------------------------------------------
-# -P keeps the shared library's two names symlinks to the third.
-for f in "$TREE"/libfenestal.a "$TREE"/libfenestal.so* \
-         "$TREE"/libfenestal.dll "$TREE"/libfenestal.dll.a; do
-    if [ -e "$f" ]; then
-        cp -P "$f" "$DIR/lib/"
-    fi
-done
+# ---- Linux, Windows and FreeBSD ---------------------------------------------
+# -P keeps the shared library's two names symlinks to the third. MSVC's
+# archive and the DLL's import library are .lib, and named apart from each
+# other (CMakeLists.txt).
+if [ "$TARGET" = win64-msvc ]; then
+    for f in "$TREE"/libfenestal.dll "$TREE"/fenestal.lib \
+             "$TREE"/libfenestal-static.lib; do
+        if [ -e "$f" ]; then
+            cp "$f" "$DIR/lib/"
+        fi
+    done
+else
+    for f in "$TREE"/libfenestal.a "$TREE"/libfenestal.so* \
+             "$TREE"/libfenestal.dll "$TREE"/libfenestal.dll.a; do
+        if [ -e "$f" ]; then
+            cp -P "$f" "$DIR/lib/"
+        fi
+    done
+fi
 
 for p in fenestal-testbed fenestal-dev $DEMOS; do
     cp "$TREE/$p$EXE" "$DIR/bin/"
@@ -198,7 +233,7 @@ done
 
 cd "$OUT"
 case $TARGET in
-win64)
+win64|win64-msvc)
     rm -f "$NAME-$COMMIT.zip"
     python3 -m zipfile -c "$NAME-$COMMIT.zip" "$NAME" ;;
 *)

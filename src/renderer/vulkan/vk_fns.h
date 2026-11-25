@@ -140,9 +140,12 @@
 	X(vkUpdateDescriptorSets)                                                 \
 	X(vkWaitForFences)
 
-/* Before the redirects: __typeof__(f) must see the function, not them. */
-#define X_DECLARE(f) extern __typeof__(f) *fnl_##f;
-extern __typeof__(vkGetInstanceProcAddr) *fnl_vkGetInstanceProcAddr;
+/* Before the redirects: the PFN_ typedef must name the function, not the
+ * macro that stands in its place below. Every entry has one, core and
+ * extension alike, and it is what cl.exe can spell where __typeof__ is a
+ * GNU extension it does not take. */
+#define X_DECLARE(f) extern PFN_##f fnl_##f;
+extern PFN_vkGetInstanceProcAddr fnl_vkGetInstanceProcAddr;
 VK_GLOBAL_FNS(X_DECLARE)
 VK_INSTANCE_FNS(X_DECLARE)
 #undef X_DECLARE

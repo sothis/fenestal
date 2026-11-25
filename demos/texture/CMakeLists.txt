@@ -119,7 +119,9 @@ foreach(_kind static dyn)
     target_include_directories(${_t} PRIVATE ${TEXTURE_GEN_DIR})
     target_compile_definitions(${_t} PRIVATE ${TEXTURE_DEFS})
     target_link_libraries(${_t} PRIVATE ${_fnl} ${TEXTURE_LIBS})
-    target_compile_options(${_t} PRIVATE -Wall -Wextra)
+    if(NOT MSVC)
+        target_compile_options(${_t} PRIVATE -Wall -Wextra)
+    endif()
     # The shaders' own target: a custom command listed as a source of both
     # programs would run twice at once under make.
     add_dependencies(${_t} fenestal_demo_texture_shaders)

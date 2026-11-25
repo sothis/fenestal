@@ -3,13 +3,13 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The Linux event loop's plumbing: the eventfd that wakes a blocked pump, the
- * epoll set it sits in beside the window server's socket, and how long a pump
- * may block while a paste is owed. What the three Linux backends share and
+ * The Linux event loop: the eventfd that wakes a blocked pump, the epoll set
+ * it sits in beside the window server's socket, and the netlink socket the
+ * two GPU hotplugs are heard on. What the three Linux backends share and
  * none owns; eventfd and epoll are Linux rather than merely POSIX.
  *
- * Inline, so that this is a header a backend includes and not a source file a
- * build has to list.
+ * Included by loop.h, which has the descriptors' meaning, the wait's length
+ * and the input stamps both systems share.
  */
 
 #ifndef FNL_LOOP_LINUX_H
@@ -23,97 +23,136 @@
 #include <sys/socket.h>
 #include <linux/netlink.h>
 
-/* An eventfd for the epoll set: another thread has no other way to break the
- * pump out of an indefinite wait. A plain counter, so one descriptor covers
- * both directions where a self-pipe would need two, and draining it is a
- * single read. Non-blocking, so neither side can stall on the other. */
-static inline FNL_MUST_USE FnlResult loop_wake_create(int *wake_fd)
-{
-	*wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-	if (*wake_fd < 0)
-		return fnl_fail(FNL_ERR_SYSTEM, "eventfd() failed: %s",
-						strerror(errno));
-	return FNL_OK;
-}
+/* The epoll set itself. One per host, made beside the window server's
+ * socket and the wakeup. */
+struct Loop {
+	int fd;
+};
 
-/* Called from a signal handler, so it is a write() and nothing else. EAGAIN
- * means the counter is saturated, which is a wakeup pending already. */
-static inline void loop_wake(int wake_fd)
+static inline void loop_init(Loop *l)
 {
-	const uint64_t one = 1;
-	ssize_t n          = write(wake_fd, &one, sizeof one);
-	(void)n;
-}
-
-/* One read empties the counter. */
-static inline void loop_wake_drain(int wake_fd)
-{
-	uint64_t drain;
-	ssize_t got = read(wake_fd, &drain, sizeof drain);
-	(void)got;
+	l->fd = -1;
 }
 
 /* An epoll set watching the server's socket and the wakeup. Level-triggered
- * on purpose: a descriptor with data still buffered must go on being
- * reported, because neither the Wayland nor the X11 backend's read drains
- * its socket to EAGAIN. */
-static inline FNL_MUST_USE FnlResult loop_epoll_create(int *epoll_fd,
-													   int server_fd,
-													   int wake_fd)
+ * on purpose, which is epoll's default. */
+static inline FNL_MUST_USE FnlResult loop_create(Loop *l, int server_fd,
+												 int wake_fd)
 {
-	*epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-	if (*epoll_fd < 0)
+	l->fd = epoll_create1(EPOLL_CLOEXEC);
+	if (l->fd < 0)
 		return fnl_fail(FNL_ERR_SYSTEM, "epoll_create1() failed: %s",
 						strerror(errno));
 
 	const int fds[2] = { server_fd, wake_fd };
 	for (int i = 0; i < 2; i++) {
+		/* A backend with no connection of its own adds them as windows
+		 * open; a negative fd is one it has not. */
+		if (fds[i] < 0)
+			continue;
 		struct epoll_event ev = { .events = EPOLLIN, .data.fd = fds[i] };
-		if (epoll_ctl(*epoll_fd, EPOLL_CTL_ADD, fds[i], &ev) < 0)
-			return fnl_fail(FNL_ERR_SYSTEM, "epoll_ctl(ADD, %d) failed: %s",
-							fds[i], strerror(errno));
+		if (epoll_ctl(l->fd, EPOLL_CTL_ADD, fds[i], &ev) < 0) {
+			const int e = errno;
+			close(l->fd);
+			l->fd = -1;
+			return fnl_fail(FNL_ERR_SYSTEM,
+							"epoll_ctl(ADD, %d) failed: %s", fds[i],
+							strerror(e));
+		}
 	}
 	return FNL_OK;
 }
 
-/* How long the pump may block, for epoll_wait: for ever, unless something is
- * owed by `deadline` on now_seconds()'s clock -- then until that, rounded up
- * so the wait cannot end a fraction of a millisecond early and spin. */
-static inline int loop_wait_ms(bool owed, double deadline)
+static inline void loop_destroy(Loop *l)
 {
-	if (!owed)
-		return -1;
-	const double left = deadline - now_seconds();
-	return left > 0.0 ? (int)(left * 1e3) + 1 : 0;
+	if (l->fd >= 0)
+		close(l->fd);
+	l->fd = -1;
 }
 
-/* An input's stamp, on CLOCK_MONOTONIC in microseconds -- the clock the
- * compositors, the X server and evdev (EVIOCSCLOCKID) stamp input on, and
- * the one now_seconds() reads here -- as the age app_input_age() takes. A
- * stamp on another clock is an age past INPUT_AGE_MAX, or below zero, and
- * is taken for none. */
-static inline void loop_input_us(App *a, uint64_t us)
+/* Readiness alone; a descriptor with room is not asked for here. */
+static inline bool loop_add(Loop *l, int fd)
 {
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	const uint64_t now =
-		(uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
-	app_input_age(a, now >= us ? (double)(now - us) * 1e-6 : -1.0);
+	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fd };
+	return epoll_ctl(l->fd, EPOLL_CTL_ADD, fd, &ev) == 0;
 }
 
-/* Wayland's and the X server's: whole milliseconds of that clock, wrapping
- * in 32 bits, so the age is the difference in 32 bits. The stamp is the
- * millisecond the input fell in, so it is taken from that millisecond's
- * middle. */
-static inline void loop_input_ms(App *a, uint32_t ms)
+/* Whether the descriptor's socket has room, which a flush that found it
+ * full waits for. Level-triggered, so it is watched only when wanted. */
+static inline bool loop_mod(Loop *l, int fd, bool want_write)
 {
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	const uint64_t now_us =
-		(uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
-	const int32_t d = (int32_t)((uint32_t)(now_us / 1000u) - ms);
-	app_input_age(
-		a, d < 0 ? -1.0 : d * 1e-3 + (double)(now_us % 1000u) * 1e-6 - 0.5e-3);
+	struct epoll_event ev = {
+		.events  = EPOLLIN | (want_write ? EPOLLOUT : 0u),
+		.data.fd = fd,
+	};
+	return epoll_ctl(l->fd, EPOLL_CTL_MOD, fd, &ev) == 0;
+}
+
+static inline void loop_del(Loop *l, int fd)
+{
+	epoll_ctl(l->fd, EPOLL_CTL_DEL, fd, NULL);
+}
+
+/* The pump's block: at most LOOP_EVENTS of them, each as an fd and what is
+ * ready on it. A negative answer is the wait's own (EINTR). */
+static inline int loop_wait(Loop *l, LoopEvent *out, int max, int timeout_ms)
+{
+	if (max > LOOP_EVENTS)
+		max = LOOP_EVENTS;
+	struct epoll_event evs[LOOP_EVENTS];
+	const int n = epoll_wait(l->fd, evs, max, timeout_ms);
+	for (int i = 0; i < n; i++) {
+		unsigned events = 0;
+		if (evs[i].events & EPOLLIN)
+			events |= LOOP_IN;
+		if (evs[i].events & EPOLLOUT)
+			events |= LOOP_OUT;
+		if (evs[i].events & EPOLLERR)
+			events |= LOOP_ERR;
+		if (evs[i].events & EPOLLHUP)
+			events |= LOOP_HUP;
+		out[i].fd     = evs[i].data.fd;
+		out[i].events = events;
+	}
+	return n;
+}
+
+/* An eventfd for the set: another thread has no other way to break the pump
+ * out of an indefinite wait. A plain counter, so one descriptor covers both
+ * directions where a self-pipe would need two, and draining it is a single
+ * read. Non-blocking, so neither side can stall on the other. */
+static inline FNL_MUST_USE FnlResult loop_wake_create(LoopWake *w)
+{
+	w->fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+	if (w->fd < 0)
+		return fnl_fail(FNL_ERR_SYSTEM, "eventfd() failed: %s",
+						strerror(errno));
+	w->wfd = w->fd;
+	return FNL_OK;
+}
+
+/* Called from a signal handler, so it is a write() and nothing else. EAGAIN
+ * means the counter is saturated, which is a wakeup pending already. */
+static inline void loop_wake(const LoopWake *w)
+{
+	const uint64_t one = 1;
+	ssize_t n          = write(w->wfd, &one, sizeof one);
+	(void)n;
+}
+
+/* One read empties the counter. */
+static inline void loop_wake_drain(const LoopWake *w)
+{
+	uint64_t drain;
+	ssize_t got = read(w->fd, &drain, sizeof drain);
+	(void)got;
+}
+
+static inline void loop_wake_destroy(LoopWake *w)
+{
+	if (w->fd >= 0)
+		close(w->fd);
+	w->fd = w->wfd = -1;
 }
 
 /* ---- GPU hotplug, the backends that hear none -------------------------
@@ -152,11 +191,11 @@ static inline bool loop_uevent_is_gpu(const App *a, const char *buf, size_t n)
 	return drm && card && change && !moved;
 }
 
-/* Open the uevent socket and add it to the backend's epoll set, beside the
- * window server's socket and the wakeup. A failure leaves *fd -1 and logs
- * once: nothing hears a hotplug, which is what the caller asked for by
- * naming a backend that has no uevent socket of its own. */
-static inline FnlResult loop_uevent_open(int *fd, int epoll_fd)
+/* Open the uevent socket and add it to the set, beside the window server's
+ * socket and the wakeup. A failure leaves *fd -1 and logs once: nothing
+ * hears a hotplug, which is what the caller asked for by naming a backend
+ * that has no uevent socket of its own. */
+static inline FnlResult loop_uevent_open(int *fd, Loop *l)
 {
 	*fd = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
 				 NETLINK_KOBJECT_UEVENT);
@@ -167,9 +206,8 @@ static inline FnlResult loop_uevent_open(int *fd, int epoll_fd)
 		return FNL_OK;
 	}
 	struct sockaddr_nl at = { .nl_family = AF_NETLINK, .nl_groups = 1 };
-	struct epoll_event ev = { .events = EPOLLIN, .data.fd = *fd };
 	if (bind(*fd, (struct sockaddr *)&at, sizeof at) < 0 ||
-		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, *fd, &ev) < 0) {
+		!loop_add(l, *fd)) {
 		fnl_log(FNL_LOG_WARN,
 				"no uevents (%s); a GPU plugged in later is not seen",
 				strerror(errno));

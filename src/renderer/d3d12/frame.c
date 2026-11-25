@@ -170,7 +170,8 @@ static void record_scene(App *a, const FnlDrawState *ds,
 	g->scene_list_now = g->list;
 	g->scene_rtv_now  = rtv;
 	g->scene_dsv_now  = dsv;
-	g->scene_rect_now = (D3D12_RECT){ x, y, x + w, y + h };
+	const D3D12_RECT rect = { x, y, x + w, y + h };
+	g->scene_rect_now = rect;
 	a->cb.on_record(a->cb.ud, a, &f);
 	g->scene_list_now = NULL;
 }

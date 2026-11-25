@@ -6,13 +6,24 @@ cmake_minimum_required(VERSION 3.18)
 # gcc unless told otherwise, and before project() because that is when the
 # compiler is detected. CC is checked by hand: it is only consulted during
 # project(), so an unguarded default would shadow `CC=clang cmake ...`.
+# Windows is left to CMake's own default, which is MSVC there; FreeBSD has
+# clang in its base system and gcc only as a port.
 if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED ENV{CC})
-    set(CMAKE_C_COMPILER gcc)
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "FreeBSD")
+        set(CMAKE_C_COMPILER clang)
+    elseif(NOT CMAKE_HOST_WIN32)
+        set(CMAKE_C_COMPILER gcc)
+    endif()
 endif()
 
 # ASM is for the generated .incbin stubs that carry the font blob and the
-# licence text into .rodata.
-project(fenestal VERSION 0.9.0 LANGUAGES C ASM)
+# licence text into .rodata. MSVC has no assembler that takes them and
+# embeds the same blobs as generated C arrays instead (tools/bin2c.c), so
+# the language is enabled only where an assembler is what makes them.
+project(fenestal VERSION 0.9.0 LANGUAGES C)
+if(NOT MSVC)
+    enable_language(ASM)
+endif()
 # And on macOS Objective-C, for the two directories that speak to AppKit and
 # Metal (src/backend/cocoa/, src/renderer/metal/), which have no C interface.
 # Nothing else in the tree is Objective-C.
@@ -25,18 +36,44 @@ endif()
 # this tree adds them; a demo configured on its own compiles its own
 # sources without them, and none needs them. Here and not as the
 # toolchain file's CMAKE_C_FLAGS_INIT, which a -DCMAKE_C_FLAGS replaces
-# (build.sh's checker trees pass one). A Windows tree builds no host
-# tool.
+# (build.sh's checker trees pass one). A cross Windows tree builds no host
+# tool; a native one builds them for Windows and runs them there.
 #
 #   _WIN32_WINNT / WINVER  Windows 10. SetProcessDpiAwarenessContext and
 #                          GetDpiForWindow arrive in 1607 and mingw's headers
 #                          hide them behind this.
-#   __USE_MINGW_ANSI_STDIO mingw's own printf and not msvcrt.dll's, which
-#                          predates C99 and prints %zu as the text "zu". It
-#                          must precede <stdio.h>, which a -D does.
+#   __USE_MINGW_ANSI_STDIO mingw's own printf and not the C runtime's, which
+#                          on msvcrt predates C99 and prints %zu as "zu".
+#                          mingw's alone: MSVC's UCRT is C99's already, and
+#                          the macro means nothing to it. It must precede
+#                          <stdio.h>, which a -D does.
 if(WIN32)
-    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00
-                            __USE_MINGW_ANSI_STDIO=1)
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+    if(MINGW)
+        add_compile_definitions(__USE_MINGW_ANSI_STDIO=1)
+    endif()
+endif()
+# The mingw tree links the Universal CRT, whose printf is C99's, and not
+# msvcrt.dll: a compiler configured for it ships mingw-w64's headers for the
+# UCRT, whose _mingw.h says so (or names the runtime's version). That is the
+# header's to say and not a builtin macro's, so the probe includes it.
+# build.sh refuses one that does not; this catches a cmake run that did not
+# come through build.sh.
+if(MINGW AND NOT MSVC)
+    include(CheckCSourceCompiles)
+    check_c_source_compiles("
+        #include <_mingw.h>
+        #if !defined(_UCRT) && \
+            !(defined(__MSVCRT_VERSION__) && __MSVCRT_VERSION__ >= 0xE00)
+        #error not the Universal CRT
+        #endif
+        int main(void) { return 0; }" FNL_MINGW_UCRT)
+    if(NOT FNL_MINGW_UCRT)
+        message(FATAL_ERROR
+            "this mingw-w64 compiler targets msvcrt, and the tree links "
+            "the Universal CRT: use MSYS2's UCRT64, llvm-mingw's UCRT "
+            "release, or FNL_MINGW_PREFIX")
+    endif()
 endif()
 
 # The version is said twice, here for the shared object's name and in
@@ -52,6 +89,16 @@ endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+# MSVC takes /std:c11 from VS 16.7; CMake passes it itself only from 3.21,
+# and the tree configures from 3.18. Said here so a 3.18 configure is C11
+# too, which every designated initialiser and _Static_assert in it needs.
+if(MSVC)
+    add_compile_options(/std:c11)
+    # The testbed's benchmark and the harness's pace mode keep their state in
+    # C11 atomics, which MSVC takes only behind this switch. The library
+    # itself uses compiler.h's _Interlocked* shim and needs nothing.
+    add_compile_options(/experimental:c11atomics)
+endif()
 
 # The default build type, whether the fixtures are built and whether the
 # demos are added are a project's to decide and not a dependency's.
@@ -86,29 +133,43 @@ foreach(_old_new FNL_PLATFORM:FNL_BACKEND:linux FNL_GPU:FNL_RENDERER:all)
     endif()
 endforeach()
 
-# Linux has three backends -- two window servers and none, the bare
-# display (kms) -- and a build has all three by default (linux), the one to
-# open chosen from the session's environment. A single name builds that one
-# alone, for a consumer that wants the smaller library and the shorter link
-# line. Windows and macOS have one each and force it, so that a
-# -DFNL_BACKEND=x11 there is refused here and not at the first #include.
+# Linux and FreeBSD have three backends -- two window servers and none, the
+# bare display (kms) -- and a build has all three by default (linux, or
+# freebsd on that system), the one to open chosen from the session's
+# environment. A single name builds that one alone, for a consumer that
+# wants the smaller library and the shorter link line. Windows and macOS
+# have one each and force it, so that a -DFNL_BACKEND=x11 there is refused
+# here and not at the first #include.
 #
 # FNL_BACKENDS is the list the rest of this file reads. Its order is not
 # the order they are tried in, which is backend.h's (FNL_BACKENDS(X)).
-set(FNL_BACKEND "linux" CACHE STRING
-    "Backend: linux (all three), wayland, x11, kms, win32 or cocoa")
-set_property(CACHE FNL_BACKEND PROPERTY STRINGS linux wayland x11 kms win32
-             cocoa)
+if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    set(_fnl_backend_default freebsd)
+    set(_fnl_backend_says "freebsd, wayland, x11 or kms")
+else()
+    set(_fnl_backend_default linux)
+    set(_fnl_backend_says "linux, wayland, x11 or kms")
+endif()
+set(FNL_BACKEND "${_fnl_backend_default}" CACHE STRING
+    "Backend: ${_fnl_backend_says}, win32 or cocoa")
+set_property(CACHE FNL_BACKEND PROPERTY STRINGS linux freebsd wayland x11 kms
+             win32 cocoa)
 if(WIN32)
     set(FNL_BACKEND win32)
 elseif(APPLE)
     set(FNL_BACKEND cocoa)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    if(NOT FNL_BACKEND MATCHES "^(freebsd|wayland|x11|kms)$")
+        message(FATAL_ERROR
+            "FNL_BACKEND is '${FNL_BACKEND}'; this target takes "
+            "freebsd, wayland, x11 or kms")
+    endif()
 elseif(NOT FNL_BACKEND MATCHES "^(linux|wayland|x11|kms)$")
     message(FATAL_ERROR
         "FNL_BACKEND is '${FNL_BACKEND}'; this target takes linux, "
         "wayland, x11 or kms")
 endif()
-if(FNL_BACKEND STREQUAL linux)
+if(FNL_BACKEND STREQUAL linux OR FNL_BACKEND STREQUAL freebsd)
     set(FNL_BACKENDS wayland x11 kms)
 else()
     set(FNL_BACKENDS ${FNL_BACKEND})
@@ -220,7 +281,16 @@ option(FNL_VERIFY_FONT "Check the baked font atlases against FreeType" ON)
 set(_ipo_key "${CMAKE_C_COMPILER}|${CMAKE_C_COMPILER_VERSION}")
 if(NOT DEFINED FNL_IPO_OK OR NOT "${FNL_IPO_KEY}" STREQUAL "${_ipo_key}")
     include(CheckIPOSupported)
-    check_ipo_supported(RESULT _ipo_ok OUTPUT _ipo_msg)
+    if(MINGW AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+        # lld's MinGW driver has no -r, so the archive's partial link is
+        # binutils' ld, which cannot run LLVM's LTO; and clang's MinGW
+        # target takes no -ffat-lto-objects, so a slim LTO object would
+        # leave that link no machine code. This target has no LTO.
+        set(_ipo_ok FALSE)
+        set(_ipo_msg "clang's MinGW target has no LTO (binutils' ld)")
+    else()
+        check_ipo_supported(RESULT _ipo_ok OUTPUT _ipo_msg)
+    endif()
     set(FNL_IPO_OK "${_ipo_ok}" CACHE INTERNAL "Whether LTO is available")
     set(FNL_IPO_MSG "${_ipo_msg}" CACHE INTERNAL "Why LTO is unavailable")
     set(FNL_IPO_KEY "${_ipo_key}" CACHE INTERNAL "Compiler FNL_IPO_OK is for")
@@ -230,8 +300,13 @@ include(CheckCCompilerFlag)
 
 # __FILE__ reaches the binary through the VKR macro, and with it the directory
 # this tree was built in. The macro only: debug info keeps its real paths, so
-# a debugger still finds the sources without being told where they are.
-check_c_compiler_flag("-fmacro-prefix-map=/a=/b" FNL_HAS_MACRO_PREFIX_MAP)
+# a debugger still finds the sources without being told where they are. MSVC
+# ignores an unknown option with a warning, which a flag probe counts as
+# success, so its probes are not asked.
+set(FNL_HAS_MACRO_PREFIX_MAP FALSE)
+if(NOT MSVC)
+    check_c_compiler_flag("-fmacro-prefix-map=/a=/b" FNL_HAS_MACRO_PREFIX_MAP)
+endif()
 set(FNL_PREFIX_MAP)
 if(FNL_HAS_MACRO_PREFIX_MAP)
     set(FNL_PREFIX_MAP "-fmacro-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}/=")
@@ -418,13 +493,30 @@ exports:
             INTERFACE_LINK_OPTIONS "${_rpaths}")
     endif()
 else()
-    fnl_find_global(Vulkan Vulkan::Vulkan)
+    # The loader is opened at run time and never linked (src/core/vk_load.c),
+    # so the headers are all a tree needs. A native find that has them and no
+    # library -- MSYS2's vulkan-headers with no .lib -- still builds; the
+    # header-only target is otherwise the same seam.
+    find_package(Vulkan QUIET)
+    if(NOT TARGET Vulkan::Vulkan)
+        find_path(FNL_VULKAN_INCLUDE_DIR vulkan/vulkan.h
+                  HINTS ${Vulkan_INCLUDE_DIR} REQUIRED)
+        add_library(Vulkan::Vulkan INTERFACE IMPORTED GLOBAL)
+        set_target_properties(Vulkan::Vulkan PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES ${FNL_VULKAN_INCLUDE_DIR})
+        message(STATUS "Vulkan headers only: ${FNL_VULKAN_INCLUDE_DIR}")
+    endif()
 endif()
 if(NOT WIN32)
     # The render thread. Windows has CreateThread; see src/core/thread.h.
     fnl_find_global(Threads Threads::Threads)
 endif()
-find_package(PkgConfig REQUIRED)
+# pkg-config for the Linux and macOS trees' headers, and for a native
+# mingw tree's FreeType. MSVC finds FreeType with CMake's own module and
+# needs none of the others.
+if(NOT MSVC)
+    find_package(PkgConfig REQUIRED)
+endif()
 if(gl IN_LIST FNL_RENDERERS AND FNL_BACKEND STREQUAL cocoa)
     # Khronos's own header, declaring every GL type and enum and no
     # function: entry points come from the bridge (cgl.m). Copied from this
@@ -464,10 +556,29 @@ if(x11 IN_LIST FNL_BACKENDS)
     # a consumer's link line. src/backend/x11/x11_ext.c has the encoding.
     pkg_check_modules(XCB REQUIRED IMPORTED_TARGET GLOBAL xcb)
 endif()
+# FreeBSD's libdrm installs its headers under <prefix>/include/libdrm,
+# named drm.h and not drm/drm.h as the sources write them. A forwarding
+# directory gives them the Linux spelling; Linux itself needs none of it,
+# its /usr/include/drm being the kernel's own UAPI.
+if(kms IN_LIST FNL_BACKENDS AND CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    pkg_check_modules(LIBDRM REQUIRED IMPORTED_TARGET GLOBAL libdrm)
+    set(_drmff ${CMAKE_CURRENT_BINARY_DIR}/generated/drm)
+    file(MAKE_DIRECTORY ${_drmff})
+    foreach(_h drm.h drm_mode.h drm_fourcc.h)
+        file(WRITE ${_drmff}/${_h}.in "#include <${_h}>\n")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        ${_drmff}/${_h}.in ${_drmff}/${_h})
+    endforeach()
+    set(FNL_DRM_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+endif()
 # FreeType is a *build* dependency: linked into tools/mkfont, never into the
 # library, and not wanted at all by a tree that borrows its bake.
 if(NOT FNL_FONT_FROM)
-    pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
+    if(MSVC)
+        find_package(Freetype REQUIRED)
+    else()
+        pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
+    endif()
 endif()
 
 # ---- Generated files ------------------------------------------------------
@@ -769,39 +880,53 @@ endfunction()
 # One set, for the library, the examples and the host tools alike. Absent on
 # purpose: -Wcast-qual (fires only inside the generated Wayland headers) and
 # -Wswitch-enum (the VkResult and present-mode switches have a default:).
-set(FNL_WARNINGS -Wall -Wextra
-                -Wshadow -Wpointer-arith -Wstrict-prototypes
-                -Wmissing-prototypes -Wold-style-definition
-                -Wredundant-decls -Wwrite-strings -Wundef -Wvla
-                -Wdouble-promotion -Wformat=2
-                -Wmissing-field-initializers -Wsign-compare)
-# Warning-clean is a rule under clang as under gcc. -Wthread-safety reads the
-# FNL_GUARDED_BY/FNL_REQUIRES annotations (core/compiler.h), which are no-ops
-# elsewhere; gcc has no such analysis, so there it is simply not asked for.
-if(CMAKE_C_COMPILER_ID MATCHES "Clang")
-    list(APPEND FNL_WARNINGS -Wthread-safety -Wconditional-uninitialized
-                             -Wcomma -Wunreachable-code -Wloop-analysis
-                             -Wimplicit-fallthrough -Wassign-enum)
-endif()
-# gcc's, beyond -Wall -Wextra, each clean on this tree when it was added.
-# Tried and left out, for a reason that is the tree's and not the warning's:
-# -Wjump-misses-init (204 hits, every one a `goto fail` past a declaration,
-# which is the unwind style here), -Wformat-truncation=2 (it also warns on
-# calls whose length is checked, which level 1 in -Wall does not),
-# -Wlogical-op (EAGAIN || EWOULDBLOCK, which POSIX lets differ) and
-# -Wcast-align=strict (casts into the mapped overlay arena, aligned by
-# construction and pinned by an assert in app.h).
-if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    list(APPEND FNL_WARNINGS -Wnull-dereference -Wduplicated-cond
-                             -Wduplicated-branches -Wformat-overflow=2
-                             -Wstringop-overflow=4 -Walloca)
+# MSVC's set is its own: its C compiler takes none of the GNU spellings, and
+# /W3 with /utf-8 is what the testbed and the examples are read with. The
+# tree is warning-clean under gcc and clang; MSVC is not held to /WX by
+# default, its warning set not having been gone over yet.
+if(MSVC)
+    set(FNL_WARNINGS /W3 /utf-8)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+else()
+    set(FNL_WARNINGS -Wall -Wextra
+                    -Wshadow -Wpointer-arith -Wstrict-prototypes
+                    -Wmissing-prototypes -Wold-style-definition
+                    -Wredundant-decls -Wwrite-strings -Wundef -Wvla
+                    -Wdouble-promotion -Wformat=2
+                    -Wmissing-field-initializers -Wsign-compare)
+    # Warning-clean is a rule under clang as under gcc. -Wthread-safety reads
+    # the FNL_GUARDED_BY/FNL_REQUIRES annotations (core/compiler.h), which
+    # are no-ops elsewhere; gcc has no such analysis, so there it is simply
+    # not asked for.
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        list(APPEND FNL_WARNINGS -Wthread-safety -Wconditional-uninitialized
+                                 -Wcomma -Wunreachable-code -Wloop-analysis
+                                 -Wimplicit-fallthrough -Wassign-enum)
+    endif()
+    # gcc's, beyond -Wall -Wextra, each clean on this tree when it was added.
+    # Tried and left out, for a reason that is the tree's and not the
+    # warning's: -Wjump-misses-init (204 hits, every one a `goto fail` past a
+    # declaration, which is the unwind style here), -Wformat-truncation=2 (it
+    # also warns on calls whose length is checked, which level 1 in -Wall
+    # does not), -Wlogical-op (EAGAIN || EWOULDBLOCK, which POSIX lets
+    # differ) and -Wcast-align=strict (casts into the mapped overlay arena,
+    # aligned by construction and pinned by an assert in app.h).
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        list(APPEND FNL_WARNINGS -Wnull-dereference -Wduplicated-cond
+                                 -Wduplicated-branches -Wformat-overflow=2
+                                 -Wstringop-overflow=4 -Walloca)
+    endif()
 endif()
 # The clang trees build with this ON (build.sh), which is what makes the rule
 # a check: a warning there fails the build. Off by default, because a
 # consumer's newer compiler must not fail on a warning nobody here has seen.
 option(FNL_WERROR "Treat warnings as errors" OFF)
 if(FNL_WERROR)
-    list(APPEND FNL_WARNINGS -Werror)
+    if(MSVC)
+        list(APPEND FNL_WARNINGS /WX)
+    else()
+        list(APPEND FNL_WARNINGS -Werror)
+    endif()
 endif()
 
 # ---- Host tools -----------------------------------------------------------
@@ -815,7 +940,10 @@ endif()
 #
 # Not host tools in CMake's sense: a cross build would compile them for the
 # target, which is why a cross tree runs none of them.
-check_c_compiler_flag("-fno-sanitize=all" FNL_HAS_NO_SANITIZE)
+set(FNL_HAS_NO_SANITIZE FALSE)
+if(NOT MSVC)
+    check_c_compiler_flag("-fno-sanitize=all" FNL_HAS_NO_SANITIZE)
+endif()
 function(fnl_host_tool name)
     set(_srcs ${ARGN})
     list(FIND _srcs SANITIZED _sanitized)
@@ -823,13 +951,39 @@ function(fnl_host_tool name)
     add_executable(${name} ${_srcs})
     # C only: fuzz_text assembles the font stub, where a C warning draws a
     # "not valid for assembler" note (fenestal_objects' reason).
-    target_compile_options(${name} PRIVATE -O2
-                           $<$<COMPILE_LANGUAGE:C>:${FNL_WARNINGS}>)
+    if(MSVC)
+        target_compile_options(${name} PRIVATE /O2
+                               $<$<COMPILE_LANGUAGE:C>:${FNL_WARNINGS}>)
+    else()
+        target_compile_options(${name} PRIVATE -O2
+                               $<$<COMPILE_LANGUAGE:C>:${FNL_WARNINGS}>)
+    endif()
     if(FNL_HAS_NO_SANITIZE AND _sanitized EQUAL -1)
         target_compile_options(${name} PRIVATE -fno-sanitize=all)
         target_link_options(${name} PRIVATE -fno-sanitize=all)
     endif()
 endfunction()
+
+# cl has no assembler that takes the .incbin stubs, so the same blobs are
+# generated as C arrays by tools/bin2c.c, at build time so that a borrowed
+# bake's re-bake over there is still what rebuilds here. The grammar is
+#   bin2c <out.c> <symbol> <file> <nul|-> ...
+if(MSVC)
+    fnl_host_tool(bin2c tools/bin2c.c)
+    function(fnl_bin2c out)
+        set(_args)
+        set(_deps)
+        while(ARGN)
+            list(POP_FRONT ARGN _sym _file _nul)
+            list(APPEND _args ${_sym} ${_file} ${_nul})
+            list(APPEND _deps ${_file})
+        endwhile()
+        add_custom_command(
+            OUTPUT ${out}
+            COMMAND bin2c ${out} ${_args}
+            DEPENDS bin2c ${_deps} VERBATIM)
+    endfunction()
+endif()
 
 # ---- Baked font -----------------------------------------------------------
 # The overlay's glyphs are rasterised by FreeType during the build, once per
@@ -903,11 +1057,18 @@ if(FNL_FONT_FROM)
         fnl_embed_c(${FNL_FONT_STUB}
                     font_atlas_blob ${FNL_FONT_FROM}/font_atlas.bin ""
                     font_cells_blob ${FNL_FONT_FROM}/font_cells.bin "")
+    elseif(MSVC)
+        set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_borrowed.c)
+        fnl_bin2c(${FNL_FONT_STUB}
+                  font_atlas_blob ${FNL_FONT_FROM}/font_atlas.bin -
+                  font_cells_blob ${FNL_FONT_FROM}/font_cells.bin -)
     endif()
     # Staged and installed with copy_if_different, as every file written at
     # configure is: file(WRITE) alone bumps the mtime and a re-configure would
-    # then reassemble the stub and relink everything.
-    file(WRITE ${FNL_GEN_DIR}/font_borrowed.S.in
+    # then reassemble the stub and relink everything. Not where the stub is
+    # C: that one is a build rule of its own.
+    if(NOT APPLE AND NOT MSVC)
+        file(WRITE ${FNL_GEN_DIR}/font_borrowed.S.in
 "/* Generated by CMakeLists.txt -- do not edit. */
     .section .rodata
     .globl font_atlas_blob
@@ -919,7 +1080,6 @@ font_atlas_blob:
 font_cells_blob:
     .incbin \"${FNL_FONT_FROM}/font_cells.bin\"
 ${FNL_GNU_STACK}")
-    if(NOT APPLE)
         execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         ${FNL_FONT_STUB}.in ${FNL_FONT_STUB})
     endif()
@@ -934,7 +1094,11 @@ else()
     fnl_host_tool(mkfont
                   tools/mkfont.c tools/font_charset.h tools/font_codec.h
                   tools/font_raster.h)
-    target_link_libraries(mkfont PRIVATE PkgConfig::FREETYPE m)
+    if(MSVC)
+        target_link_libraries(mkfont PRIVATE Freetype::Freetype)
+    else()
+        target_link_libraries(mkfont PRIVATE PkgConfig::FREETYPE m)
+    endif()
 
     # Order matters: mkfont's FACE[] indexes these, and face 0 -- the
     # monospaced one -- is what the code point index and the metrics come off.
@@ -943,18 +1107,38 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/fonts/ubuntu/UbuntuSans-Regular.ttf)
     set(FNL_FONT_BINS ${FNL_GEN_DIR}/font_atlas.bin
                       ${FNL_GEN_DIR}/font_cells.bin)
-    set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_atlas.S)
+    if(MSVC)
+        set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_atlas.c)
+    else()
+        set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_atlas.S)
+    endif()
     # mkfont writes each under a .new name and renames them all at the end,
     # as the shader rule does and for its reason.
     set(_font_new)
-    foreach(_f ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS})
+    foreach(_f ${FNL_FONT_HDRS} ${FNL_FONT_BINS})
         list(APPEND _font_new ${_f}.new)
     endforeach()
-    add_custom_command(
-        OUTPUT ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS}
-        BYPRODUCTS ${_font_new}
-        COMMAND mkfont ${FONT_TTF} ${FNL_GEN_DIR}
-        DEPENDS mkfont ${FONT_TTF} VERBATIM)
+    if(MSVC)
+        # mkfont still writes its assembler stub, which cl cannot assemble:
+        # the arrays are made from the blobs in the same rule.
+        list(APPEND _font_new ${FNL_GEN_DIR}/font_atlas.S
+                              ${FNL_GEN_DIR}/font_atlas.S.new)
+        add_custom_command(
+            OUTPUT ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS}
+            BYPRODUCTS ${_font_new}
+            COMMAND mkfont ${FONT_TTF} ${FNL_GEN_DIR}
+            COMMAND bin2c ${FNL_FONT_STUB}
+                    font_atlas_blob ${FNL_GEN_DIR}/font_atlas.bin -
+                    font_cells_blob ${FNL_GEN_DIR}/font_cells.bin -
+            DEPENDS mkfont bin2c ${FONT_TTF} VERBATIM)
+    else()
+        list(APPEND _font_new ${FNL_FONT_STUB}.new)
+        add_custom_command(
+            OUTPUT ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS}
+            BYPRODUCTS ${_font_new}
+            COMMAND mkfont ${FONT_TTF} ${FNL_GEN_DIR}
+            DEPENDS mkfont ${FONT_TTF} VERBATIM)
+    endif()
 endif()
 
 # font_metrics.h is included by app.h and so by every translation unit, here
@@ -976,8 +1160,14 @@ if(APPLE)
     fnl_embed_c(${FNL_LICENCE_STUB}
                 ubuntu_copyright_txt ${FONT_LICENCE_DIR}/COPYRIGHT.txt 1
                 ubuntu_licence_txt ${FONT_LICENCE_DIR}/LICENCE.txt 1)
+elseif(MSVC)
+    set(FNL_LICENCE_STUB ${FNL_GEN_DIR}/font_licence.c)
+    fnl_bin2c(${FNL_LICENCE_STUB}
+              ubuntu_copyright_txt ${FONT_LICENCE_DIR}/COPYRIGHT.txt nul
+              ubuntu_licence_txt ${FONT_LICENCE_DIR}/LICENCE.txt nul)
 endif()
-file(WRITE ${FNL_GEN_DIR}/font_licence.S.in
+if(NOT MSVC)
+    file(WRITE ${FNL_GEN_DIR}/font_licence.S.in
 "/* Generated by CMakeLists.txt -- do not edit. */
     .section .rodata
     .globl ubuntu_copyright_txt
@@ -989,8 +1179,10 @@ ubuntu_licence_txt:
     .incbin \"${FONT_LICENCE_DIR}/LICENCE.txt\"
     .byte 0
 ${FNL_GNU_STACK}")
-execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${FNL_GEN_DIR}/font_licence.S.in ${FNL_GEN_DIR}/font_licence.S)
+    execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${FNL_GEN_DIR}/font_licence.S.in
+                    ${FNL_GEN_DIR}/font_licence.S)
+endif()
 
 # verifyfont re-runs the whole rasterisation through FreeType and compares
 # the blob texel by texel, on every build that re-bakes. Only where the bake
@@ -1002,7 +1194,11 @@ if(NOT FNL_FONT_FROM)
                   tools/verifyfont.c tools/font_charset.h tools/font_codec.h
                   tools/font_raster.h)
     target_include_directories(verifyfont PRIVATE ${FNL_GEN_DIR})
-    target_link_libraries(verifyfont PRIVATE PkgConfig::FREETYPE m)
+    if(MSVC)
+        target_link_libraries(verifyfont PRIVATE Freetype::Freetype)
+    else()
+        target_link_libraries(verifyfont PRIVATE PkgConfig::FREETYPE m)
+    endif()
     add_dependencies(verifyfont fenestal_font)
 
     if(FNL_VERIFY_FONT)
@@ -1074,40 +1270,71 @@ endif()
 # without one the C++ half says so and is skipped.
 include(CheckLanguage)
 check_language(CXX)
-set(_hc_inc -I${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(MSVC)
+    set(_hc_inc /I${CMAKE_CURRENT_SOURCE_DIR}/include)
+else()
+    set(_hc_inc -I${CMAKE_CURRENT_SOURCE_DIR}/include)
+endif()
 if(vulkan IN_LIST FNL_RENDERERS)
     get_target_property(_vk_inc Vulkan::Vulkan INTERFACE_INCLUDE_DIRECTORIES)
     foreach(_d ${_vk_inc})
-        list(APPEND _hc_inc -I${_d})
+        if(MSVC)
+            list(APPEND _hc_inc /I${_d})
+        else()
+            list(APPEND _hc_inc -I${_d})
+        endif()
     endforeach()
-    list(APPEND _hc_inc -DFNL_CHECK_VULKAN)
+    if(MSVC)
+        list(APPEND _hc_inc /DFNL_CHECK_VULKAN)
+    else()
+        list(APPEND _hc_inc -DFNL_CHECK_VULKAN)
+    endif()
 endif()
 # <d3d12.h> is the Windows tree's alone, where the renderer is.
 if(d3d12 IN_LIST FNL_RENDERERS)
-    list(APPEND _hc_inc -DFNL_CHECK_D3D12)
+    if(MSVC)
+        list(APPEND _hc_inc /DFNL_CHECK_D3D12)
+    else()
+        list(APPEND _hc_inc -DFNL_CHECK_D3D12)
+    endif()
 endif()
 set(_hc_src ${CMAKE_CURRENT_SOURCE_DIR}/tools/headercheck.c)
-set(_hc_flags -fsyntax-only -pedantic-errors -Wall -Wextra -Werror)
-# A custom command gets none of CMake's own target and sysroot flags, and the
-# macOS tree's clang is the host's: without these it checks the headers for
-# Linux, against the host's libc.
-set(_hc_c_on)
-set(_hc_cxx_on)
-if(APPLE)
-    set(_hc_c_on --target=${CMAKE_C_COMPILER_TARGET}
-                 -isysroot ${CMAKE_OSX_SYSROOT})
-    set(_hc_cxx_on --target=${CMAKE_CXX_COMPILER_TARGET}
-                   -isysroot ${CMAKE_OSX_SYSROOT})
-endif()
-set(_hc_cmds COMMAND ${CMAKE_C_COMPILER} ${_hc_c_on} -std=c11 ${_hc_flags}
-              ${_hc_inc} -x c ${_hc_src})
-if(CMAKE_CXX_COMPILER)
-    foreach(_std 11 14 17 20)
-        list(APPEND _hc_cmds COMMAND ${CMAKE_CXX_COMPILER} ${_hc_cxx_on}
-             -std=c++${_std} ${_hc_flags} ${_hc_inc} -x c++ ${_hc_src})
-    endforeach()
+if(MSVC)
+    # /Zs is syntax-only. MSVC has no C++11 mode; its C++14 is the oldest.
+    set(_hc_flags /nologo /Zs /W3)
+    set(_hc_cmds COMMAND ${CMAKE_C_COMPILER} /std:c11 ${_hc_flags}
+                  ${_hc_inc} ${_hc_src})
+    if(CMAKE_CXX_COMPILER)
+        foreach(_std 14 17 20)
+            list(APPEND _hc_cmds COMMAND ${CMAKE_CXX_COMPILER} /TP
+                 /std:c++${_std} ${_hc_flags} ${_hc_inc} ${_hc_src})
+        endforeach()
+    else()
+        message(STATUS "No C++ compiler: the headers are checked as C11 only")
+    endif()
 else()
-    message(STATUS "No C++ compiler: the headers are checked as C11 only")
+    set(_hc_flags -fsyntax-only -pedantic-errors -Wall -Wextra -Werror)
+    # A custom command gets none of CMake's own target and sysroot flags, and
+    # the macOS tree's clang is the host's: without these it checks the
+    # headers for Linux, against the host's libc.
+    set(_hc_c_on)
+    set(_hc_cxx_on)
+    if(APPLE)
+        set(_hc_c_on --target=${CMAKE_C_COMPILER_TARGET}
+                     -isysroot ${CMAKE_OSX_SYSROOT})
+        set(_hc_cxx_on --target=${CMAKE_CXX_COMPILER_TARGET}
+                       -isysroot ${CMAKE_OSX_SYSROOT})
+    endif()
+    set(_hc_cmds COMMAND ${CMAKE_C_COMPILER} ${_hc_c_on} -std=c11
+                  ${_hc_flags} ${_hc_inc} -x c ${_hc_src})
+    if(CMAKE_CXX_COMPILER)
+        foreach(_std 11 14 17 20)
+            list(APPEND _hc_cmds COMMAND ${CMAKE_CXX_COMPILER} ${_hc_cxx_on}
+                 -std=c++${_std} ${_hc_flags} ${_hc_inc} -x c++ ${_hc_src})
+        endforeach()
+    else()
+        message(STATUS "No C++ compiler: the headers are checked as C11 only")
+    endif()
 endif()
 # And as Objective-C under ARC against the SDK, where fnl_metal.h's types
 # are Metal's own and its fields __unsafe_unretained.
@@ -1165,7 +1392,8 @@ if(NOT FNL_GENERATED_DIR)
     set(_abi_dir ${CMAKE_CURRENT_SOURCE_DIR}/tools/abi)
     add_custom_command(
         OUTPUT ${FNL_GEN_DIR}/abi_checked.stamp
-        COMMAND abidump > ${FNL_GEN_DIR}/fenestal.abi
+        BYPRODUCTS ${FNL_GEN_DIR}/fenestal.abi
+        COMMAND abidump ${FNL_GEN_DIR}/fenestal.abi
         COMMAND ${CMAKE_COMMAND} -DABI=${FNL_GEN_DIR}/fenestal.abi
                 -DSYMS=${FNL_GEN_DIR}/fenestal.syms
                 -DBASE_ABI=${_abi_dir}/${_abi_layout}.abi
@@ -1340,8 +1568,17 @@ else()
     if(kms IN_LIST FNL_BACKENDS)
         list(APPEND FNL_BACKEND_SOURCES src/backend/keymap_rules.c
                                         src/backend/kms/kms.c
-                                        src/backend/kms/kms_atomic.c
-                                        src/backend/kms/kms_driver.c)
+                                        src/backend/kms/kms_atomic.c)
+        # The NVIDIA/nouveau move is Linux's: sysfs, systemd's socket and
+        # the module loader's tree. FreeBSD's KMS vtable names no-op entries.
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            list(APPEND FNL_BACKEND_SOURCES src/backend/kms/kms_driver.c)
+        endif()
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+        # poll()/pipe for the pump, the Linux header's epoll/eventfd being
+        # that system's alone.
+        list(APPEND FNL_BACKEND_SOURCES src/backend/loop_bsd.c)
     endif()
 endif()
 
@@ -1456,8 +1693,9 @@ endif()
 # is then discarded in favour of the program's while our code still points
 # into it -- every stack canary reads garbage, and __stack_chk_fail recurses
 # until the stack is gone. The small model addresses data directly, which a
-# DLL or an executable under 2 GB, which is every one, can.
-if(WIN32)
+# DLL or an executable under 2 GB, which is every one, can. mingw's alone:
+# MSVC makes no .refptr slots, and its archive is not localised (below).
+if(MINGW)
     target_compile_options(fenestal_objects PRIVATE
                            $<$<COMPILE_LANGUAGE:C>:-mcmodel=small>)
 endif()
@@ -1477,6 +1715,12 @@ target_link_libraries(fenestal_objects PUBLIC fenestal_usage)
 target_include_directories(fenestal_objects PRIVATE ${FNL_GEN_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
                            ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+if(FNL_DRM_INCLUDE_DIR)
+    # FreeBSD's <drm/drm.h> forwarding headers (the libdrm include itself is
+    # added with the backend's below).
+    target_include_directories(fenestal_objects PRIVATE
+                               ${FNL_DRM_INCLUDE_DIR})
+endif()
 # The runtimes are each one's headers here, and none is on the link line:
 # what is not part of the system is opened at run time (src/core/dynlib.h),
 # so a machine missing one still loads the program and steps past the
@@ -1494,8 +1738,9 @@ foreach(_g IN LISTS FNL_RENDERERS)
     string(TOUPPER ${_g} _G)
     target_compile_definitions(fenestal_objects PRIVATE FNL_HAVE_RENDERER_${_G})
 endforeach()
-target_link_libraries(fenestal_usage INTERFACE m)
 if(NOT WIN32)
+    # MSVC has no separate math library; its CRT carries it.
+    target_link_libraries(fenestal_usage INTERFACE m)
     target_link_libraries(fenestal_usage INTERFACE ${CMAKE_DL_LIBS})
 endif()
 if(gl IN_LIST FNL_RENDERERS AND FNL_BACKEND STREQUAL cocoa)
@@ -1542,7 +1787,8 @@ if(NOT FNL_BACKEND MATCHES "^(win32|cocoa)$")
     # Each define puts the backend in backend.h's list (FNL_BACKENDS(X)).
     # PRIVATE because nothing a consumer compiles sees that header. KMS adds
     # nothing beside the render thread: the DRM node and evdev are ioctls
-    # against the kernel's own headers, and the layout is a subprocess.
+    # against the kernel's UAPI headers on Linux and libdrm's on FreeBSD,
+    # and the layout is a subprocess.
     target_link_libraries(fenestal_usage INTERFACE Threads::Threads)
     foreach(_p IN LISTS FNL_BACKENDS)
         string(TOUPPER ${_p} _P)
@@ -1556,6 +1802,9 @@ if(NOT FNL_BACKEND MATCHES "^(win32|cocoa)$")
     endif()
     if(x11 IN_LIST FNL_BACKENDS)
         fnl_headers_of(PkgConfig::XCB)
+    endif()
+    if(kms IN_LIST FNL_BACKENDS AND FNL_DRM_INCLUDE_DIR)
+        fnl_headers_of(PkgConfig::LIBDRM)
     endif()
 elseif(FNL_BACKEND STREQUAL cocoa)
     # AppKit for the window and the events, QuartzCore for the CAMetalLayer
@@ -1608,6 +1857,21 @@ file(GENERATE OUTPUT ${FNL_GEN_DIR}/fenestal.syms CONTENT "${_syms}\n")
 # library's files, as the shared object does, and no IR -- which is also why
 # it no longer needs fat objects to be linkable by another compiler. Other
 # compilers link the machine code and drop whatever IR rode along.
+#
+# binutils' PE ld, for clang's MinGW tree alone: lld's MinGW driver, which
+# llvm-mingw links with, has no -r. build.sh finds it, and the objcopy to
+# match, and passes both.
+set(FNL_MINGW_LD "" CACHE FILEPATH "binutils' PE ld, for clang's MinGW")
+if(MSVC)
+    # No relocatable link and no objcopy: the archive is the objects
+    # themselves, and the internals a consumer could collide with are
+    # global in it. The DLL's surface is still the API alone, through the
+    # .def below. The one relaxation the MSVC tree takes; DESIGN says so.
+    add_library(fenestal_static STATIC $<TARGET_OBJECTS:fenestal_objects>)
+    add_library(fenestal_shared SHARED $<TARGET_OBJECTS:fenestal_objects>)
+    set_target_properties(fenestal_static fenestal_shared PROPERTIES
+                          LINKER_LANGUAGE C)
+else()
 set(FNL_PARTIAL
     ${CMAKE_CURRENT_BINARY_DIR}/fenestal_partial${CMAKE_C_OUTPUT_EXTENSION})
 set(_fnl_r_lto -fno-lto)
@@ -1646,13 +1910,37 @@ if(APPLE)
         COMMAND_EXPAND_LISTS VERBATIM)
     target_compile_options(fenestal_objects PRIVATE
                            $<$<COMPILE_LANGUAGE:C,OBJC>:-flto=full>)
+elseif(MINGW AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+    # llvm-mingw links with lld's MinGW driver, which has no -r, and
+    # llvm-objcopy takes no --keep-global-symbols on COFF: the archive's
+    # one object is binutils' ld and objcopy's. Neither knows the CRT, so
+    # the msvcrt-flavoured ones a Linux host has will do.
+    if(NOT FNL_MINGW_LD)
+        message(FATAL_ERROR
+            "clang's MinGW link is lld's, which has no relocatable link: "
+            "the archive's one object needs binutils' PE ld and objcopy "
+            "(-DFNL_MINGW_LD=... -DCMAKE_OBJCOPY=...; build.sh finds them)")
+    endif()
+    add_custom_command(
+        OUTPUT ${FNL_PARTIAL}
+        COMMAND ${FNL_MINGW_LD} -r $<TARGET_OBJECTS:fenestal_objects>
+                -o ${FNL_PARTIAL}.r
+        COMMAND ${CMAKE_OBJCOPY} --wildcard -R .llvm.lto
+                --keep-global-symbols=${FNL_GEN_DIR}/fenestal.syms
+                ${FNL_PARTIAL}.r ${FNL_PARTIAL}
+        COMMAND ${CMAKE_COMMAND} -E remove ${FNL_PARTIAL}.r
+        DEPENDS fenestal_objects $<TARGET_OBJECTS:fenestal_objects>
+                ${FNL_GEN_DIR}/fenestal.syms
+        COMMENT "Linking the archive's one object, the API its only globals"
+        COMMAND_EXPAND_LISTS VERBATIM)
 else()
 add_custom_command(
     OUTPUT ${FNL_PARTIAL}
     COMMAND ${CMAKE_C_COMPILER} -r -nostdlib ${_fnl_r_lto}
             $<TARGET_OBJECTS:fenestal_objects> -o ${FNL_PARTIAL}.r
-    COMMAND ${CMAKE_OBJCOPY} -w -R .gnu.lto_* -R .gnu.debuglto_*
-            -R .llvm.lto --keep-global-symbols=${FNL_GEN_DIR}/fenestal.syms
+    COMMAND ${CMAKE_OBJCOPY} --wildcard -R .gnu.lto_*
+            -R .gnu.debuglto_* -R .llvm.lto
+            --keep-global-symbols=${FNL_GEN_DIR}/fenestal.syms
             ${FNL_PARTIAL}.r ${FNL_PARTIAL}
     COMMAND ${CMAKE_COMMAND} -E remove ${FNL_PARTIAL}.r
     DEPENDS fenestal_objects $<TARGET_OBJECTS:fenestal_objects>
@@ -1679,9 +1967,26 @@ if(WIN32)
 else()
     add_library(fenestal_shared SHARED $<TARGET_OBJECTS:fenestal_objects>)
 endif()
+endif()
 foreach(_t fenestal_static fenestal_shared)
     target_link_libraries(${_t} PUBLIC fenestal_usage)
-    set_target_properties(${_t} PROPERTIES OUTPUT_NAME fenestal)
+    if(MSVC)
+        # The static archive and the DLL's import library would both be
+        # fenestal.lib, the archive's name from its OUTPUT_NAME and the
+        # import library's from the default import prefix; the archive takes
+        # a name of its own, libfenestal-static.lib. The DLL is
+        # libfenestal.dll, as the mingw tree's is, and the import library
+        # fenestal.lib, which is what an MSVC consumer writes.
+        if("${_t}" STREQUAL "fenestal_static")
+            set_target_properties(${_t} PROPERTIES PREFIX "lib"
+                                  OUTPUT_NAME fenestal-static)
+        else()
+            set_target_properties(${_t} PROPERTIES PREFIX "lib"
+                                  OUTPUT_NAME fenestal)
+        endif()
+    else()
+        set_target_properties(${_t} PROPERTIES OUTPUT_NAME fenestal)
+    endif()
 endforeach()
 set_target_properties(fenestal_static PROPERTIES LINKER_LANGUAGE C)
 # Without FNL_STATIC a consumer of the archive gets dllimport on Windows,
@@ -1712,12 +2017,16 @@ endif()
 # is not enough. GNU-style linkers only. LINK_DEPENDS so editing the map
 # relinks.
 include(CheckLinkerFlag)
-set(_vs "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map")
-check_linker_flag(C "${_vs}" _has_version_script)
-if(_has_version_script)
-    target_link_options(fenestal_shared PRIVATE "${_vs}")
-    set_target_properties(fenestal_shared PROPERTIES
-        LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map)
+if(NOT MSVC)
+    # MSVC's linker ignores the flag with a warning CMake's probe does not
+    # catch, so it is asked of the GNU-style linkers alone.
+    set(_vs "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map")
+    check_linker_flag(C "${_vs}" _has_version_script)
+    if(_has_version_script)
+        target_link_options(fenestal_shared PRIVATE "${_vs}")
+        set_target_properties(fenestal_shared PROPERTIES
+            LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map)
+    endif()
 endif()
 # The DLL's exports: the same list as the archive's globals.
 if(WIN32)
@@ -1731,8 +2040,11 @@ if(WIN32)
                  LINK_DEPENDS ${FNL_GEN_DIR}/fenestal.def)
     # mingw's gcc links a -shared image against libgcc_s_seh-1.dll, which
     # is not Windows' own, for __emutls_get_address: _Thread_local is
-    # emulated there. Static, as every program's already is.
-    target_link_options(fenestal_shared PRIVATE -static-libgcc)
+    # emulated there. Static, as every program's already is. gcc's flag;
+    # llvm-mingw and MSVC link no such runtime.
+    if(MINGW AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_link_options(fenestal_shared PRIVATE -static-libgcc)
+    endif()
 endif()
 # The names a consumer writes: fenestal::fenestal is the shared object and
 # fenestal::static the archive. Namespaced because CMake treats a name with
@@ -1753,13 +2065,20 @@ add_library(fenestal::static ALIAS fenestal_static)
 #     PKG_CONFIG_PATH=<this dir> pkg-config --static --libs fenestal
 #
 # The two libraries have the same name, so --static is what brings the system
-# libraries an archive does not carry. The Linux trees only: a Windows consumer
-# links what CMake hands it, and a Mac one wants the frameworks by name.
+# libraries an archive does not carry. The Unix trees only: a Windows
+# consumer links what CMake hands it, and a Mac one wants the frameworks by
+# name. CMAKE_DL_LIBS is empty on glibc 2.34 and on FreeBSD, which is why
+# the flag is written from it and not spelled -ldl.
 if(NOT WIN32 AND NOT APPLE)
     set(_fnl_pc_vk_inc "")
     if(vulkan IN_LIST FNL_RENDERERS AND _vk_usage_inc)
         list(JOIN _vk_usage_inc " -I" _fnl_pc_vk_inc)
         set(_fnl_pc_vk_inc " -I${_fnl_pc_vk_inc}")
+    endif()
+    set(FNL_PC_LIBS "-lm -lpthread")
+    if(CMAKE_DL_LIBS)
+        list(JOIN CMAKE_DL_LIBS " -l" _fnl_dl)
+        string(APPEND FNL_PC_LIBS " -l${_fnl_dl}")
     endif()
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fenestal.pc.in
                    ${CMAKE_CURRENT_BINARY_DIR}/fenestal.pc @ONLY)
@@ -1909,12 +2228,29 @@ set_target_properties(fenestal_testbed PROPERTIES OUTPUT_NAME fenestal-testbed)
 # Windows*.
 if(WIN32)
     set_target_properties(fenestal_testbed PROPERTIES WIN32_EXECUTABLE TRUE)
+    # mingw's crt2.o defines mainCRTStartup beside WinMainCRTStartup; MSVC's
+    # GUI subsystem asks for WinMain, and this program has main().
+    if(MSVC)
+        target_link_options(fenestal_testbed PRIVATE /ENTRY:mainCRTStartup)
+    endif()
 endif()
 target_compile_definitions(fenestal_testbed PRIVATE ${TESTBED_DEFINES})
 target_link_libraries(fenestal_testbed PRIVATE fenestal_static)
 if(APPLE)
     target_compile_options(fenestal_testbed PRIVATE
                            $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
+endif()
+# The UCRT the tree was configured for is the one the images import:
+# msvcrt.dll in an import table is a compiler that slipped through, and
+# tools/check-crt.cmake fails the build. MSVC is UCRT by construction.
+if(MINGW AND CMAKE_OBJDUMP)
+    foreach(_t fenestal_testbed fenestal_shared)
+        add_custom_command(TARGET ${_t} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -DOBJDUMP=${CMAKE_OBJDUMP}
+                    -DFILE=$<TARGET_FILE:${_t}>
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/check-crt.cmake
+            COMMENT "Checking ${_t} imports the Universal CRT, not msvcrt")
+    endforeach()
 endif()
 
 # ---- The development instruments -------------------------------------------
@@ -1985,7 +2321,12 @@ set_source_files_properties(${FNL_LICENCE_STUB} PROPERTIES
     "${FONT_LICENCE_DIR}/COPYRIGHT.txt;${FONT_LICENCE_DIR}/LICENCE.txt")
 
 # ---- Optimization flags (applied on top of the build-type -O level) --------
-if(FNL_NATIVE_ARCH)
+if(MSVC)
+    # cl's /arch: names instruction set extensions (AVX2), not the
+    # microarchitecture levels -march names, and it has no native form; an
+    # unknown option is a warning, which a flag probe counts as success.
+    # MSVC's default is the answer.
+elseif(FNL_NATIVE_ARCH)
     check_c_compiler_flag("-march=native" _has_march_native)
     if(_has_march_native)
         target_compile_options(fenestal_objects PRIVATE -march=native)
@@ -2014,10 +2355,15 @@ if(FNL_IPO_OK AND NOT APPLE)
     # own. Another compiler's partial link takes the machine code and drops
     # the IR, so there the objects carry both: fat. A compile option so that
     # it lands after CMake's own -fno-fat-lto-objects and wins.
-    check_c_compiler_flag("-ffat-lto-objects" _has_fat_lto)
-    if(_has_fat_lto AND NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(fenestal_objects PRIVATE
-                               $<$<COMPILE_LANGUAGE:C>:-ffat-lto-objects>)
+    # MSVC's /GL objects already carry machine code beside the IR, and cl
+    # ignores an unknown option with a warning a flag probe counts as
+    # success; its probes are not asked.
+    if(NOT MSVC)
+        check_c_compiler_flag("-ffat-lto-objects" _has_fat_lto)
+        if(_has_fat_lto AND NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(fenestal_objects PRIVATE
+                                   $<$<COMPILE_LANGUAGE:C>:-ffat-lto-objects>)
+        endif()
     endif()
 else()
     message(STATUS "Link-time optimisation unavailable: ${FNL_IPO_MSG}")
@@ -2044,6 +2390,16 @@ set(FNL_HARDEN_C)
 set(FNL_HARDEN_EXE_LINK)
 set(FNL_HARDEN_SO_LINK)
 if(FNL_HARDEN)
+if(MSVC)
+    # Its own set: control-flow guard at compile and link, and the image
+    # flags cl.exe's linker takes. /GS, the stack protector, is on by
+    # default.
+    set(FNL_HARDEN_C /guard:cf)
+    set(FNL_HARDEN_EXE_LINK /guard:cf /DYNAMICBASE /NXCOMPAT
+                            /HIGHENTROPYVA)
+    set(FNL_HARDEN_SO_LINK ${FNL_HARDEN_EXE_LINK})
+    message(STATUS "Hardening (optimised builds): ${FNL_HARDEN_C}")
+else()
     set(CMAKE_REQUIRED_FLAGS "-O2")
     check_c_compiler_flag("-fhardened" FNL_HAS_FHARDENED)
     if(FNL_HAS_FHARDENED)
@@ -2115,13 +2471,18 @@ if(FNL_HARDEN)
     endforeach()
     message(STATUS "Hardening (optimised builds): ${FNL_HARDEN_C}")
 endif()
+endif()
 # The other side of the zeroing above: in an unoptimised tree -- every
 # checker tree but the analyser's -- an automatic variable read before it is
 # written holds a repeated 0xFE byte pattern, which is a wild pointer, a
 # negative count or a NaN, and so is loud. Not in a consumer's Debug build,
 # where it would change behaviour nobody asked about: the top-level build
 # only.
-check_c_compiler_flag("-ftrivial-auto-var-init=pattern" FNL_HAS_INIT_PATTERN)
+set(FNL_HAS_INIT_PATTERN FALSE)
+if(NOT MSVC)
+    check_c_compiler_flag("-ftrivial-auto-var-init=pattern"
+                          FNL_HAS_INIT_PATTERN)
+endif()
 set(FNL_INIT_PATTERN)
 if(FNL_HAS_INIT_PATTERN AND FNL_IS_TOP_LEVEL)
     set(FNL_INIT_PATTERN -ftrivial-auto-var-init=pattern)

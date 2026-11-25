@@ -19,6 +19,7 @@
 
 #include "backend/clip_linux.h"
 #include "backend/keymap.h"
+#include "backend/loop.h"
 
 /* An event's type, and the bit above it that says another client sent it
  * rather than the server. */
@@ -121,7 +122,7 @@ typedef struct {
 #define X11_PRESENT_Q 16
 
 /* The host's own half: the event loop that serves every window's connection.
- * One epoll set, one eventfd to wake it and one uevent socket, made once when
+ * One wait set, one wakeup to wake it and one uevent socket, made once when
  * the first window opens and held until the last window goes. A window's
  * *event* connection (BackendState::conn) is its own, so the host owns no
  * connection to the pump -- only the set that waits on all of them. It does
@@ -129,12 +130,12 @@ typedef struct {
  * renderer a program, so one presentation connection, and every window's
  * Vulkan surface is made on it. */
 struct BackendHostState {
-	/* The eventfd any thread can wake the pump with, and the epoll set
-	 * watching it beside every window's connection. */
-	int wake_fd;
-	int epoll_fd;
-	/* The uevent socket (loop_uevent_open()), in the epoll set: a GPU that
-	 * came or went. -1 where the kernel has no such group. */
+	/* The wakeup any thread can wake the pump with, and the set watching it
+	 * beside every window's connection. */
+	LoopWake wake;
+	Loop     loop;
+	/* The uevent socket (loop_uevent_open()), in the set: a GPU that came
+	 * or went. -1 where the system has no such group. */
 	int uevent_fd;
 	/* The presentation engine's connection, the host's, made with the first
 	 * window and let go with the last (BackendState::gfx borrows it). One
@@ -158,7 +159,7 @@ struct BackendState {
 	 * to the presentation engine, which blocks in it once a frame from the
 	 * render thread. Shared with `conn`, that blocking read would move the
 	 * pump's events out of the socket into xcb's decoded queue, and the
-	 * pump's epoll would sleep on input it had already been handed; the split
+	 * pump's set would sleep on input it had already been handed; the split
 	 * is what lets that wait be indefinite. It is not shared *between
 	 * windows*: no pump reads it, the renderer is one a program, and every
 	 * window's surface is made on the one connection.

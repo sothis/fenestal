@@ -26,8 +26,8 @@
 #include "core/dynlib.h"
 #include "renderer/vulkan/vk_internal.h"
 
-#define X_DEFINE(f) __typeof__(fnl_##f) fnl_##f;
-__typeof__(fnl_vkGetInstanceProcAddr) fnl_vkGetInstanceProcAddr;
+#define X_DEFINE(f) PFN_##f fnl_##f;
+PFN_vkGetInstanceProcAddr fnl_vkGetInstanceProcAddr;
 VK_GLOBAL_FNS(X_DEFINE)
 VK_INSTANCE_FNS(X_DEFINE)
 #undef X_DEFINE
@@ -74,7 +74,7 @@ FnlResult vk_load_global(void)
 		snprintf(reason, sizeof reason, "no Vulkan loader: %s", why);
 		return fnl_fail(FNL_ERR_NO_DEVICE, "%s", reason);
 	}
-	fnl_vkGetInstanceProcAddr = (__typeof__(fnl_vkGetInstanceProcAddr))
+	fnl_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)
 		fnl_lib_sym(lib, "vkGetInstanceProcAddr");
 	if (!fnl_vkGetInstanceProcAddr) {
 		snprintf(reason, sizeof reason, "no Vulkan loader: the library "
@@ -84,7 +84,7 @@ FnlResult vk_load_global(void)
 	/* The first entry missing is the one named; the pointers already
 	 * filled are never called, since the answer stays no. */
 #define X_GLOBAL(f)                                                           \
-	fnl_##f = (__typeof__(fnl_##f))vkGetInstanceProcAddr(NULL, #f);           \
+	fnl_##f = (PFN_##f)vkGetInstanceProcAddr(NULL, #f);                       \
 	if (!fnl_##f) {                                                           \
 		snprintf(reason, sizeof reason, "no Vulkan loader: the library "      \
 				 "has no %s", #f);                                            \
@@ -102,7 +102,7 @@ FnlResult vk_load_global(void)
 FnlResult vk_load_instance(VkInstance instance)
 {
 #define X_INSTANCE(f)                                                         \
-	fnl_##f = (__typeof__(fnl_##f))vkGetInstanceProcAddr(instance, #f);       \
+	fnl_##f = (PFN_##f)vkGetInstanceProcAddr(instance, #f);                   \
 	if (!fnl_##f)                                                             \
 		return fnl_fail(FNL_ERR_NO_DEVICE, "the Vulkan loader has no %s",     \
 						#f);

@@ -700,8 +700,9 @@ static bool claim_add(App *a, int x, int y, int w, int h)
 	/* Bounded like everything else a caller passes in points: claim_at()
 	 * tests `x < r->x + r->w`, and a corner that overflows an int is a claim
 	 * that swallows presses nowhere near it. */
-	a->claims[a->claim_count++] =
-		(FnlRect){ clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h) };
+	const FnlRect claim = { clamp_pt(x), clamp_pt(y), clamp_pt(w),
+							clamp_pt(h) };
+	a->claims[a->claim_count++] = claim;
 	return true;
 }
 

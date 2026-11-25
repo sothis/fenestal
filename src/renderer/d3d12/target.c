@@ -260,13 +260,12 @@ FnlResult d3d_window_images(App *a)
 	struct RendererState *g = D3D(a);
 	fnl_atomic_store_u32(&a->max_extent_w, D3D_MAX_EXTENT);
 	fnl_atomic_store_u32(&a->max_extent_h, D3D_MAX_EXTENT);
-	const Extent e = app_buffer_extent(
-		a, (Extent){ 1, 1 }, (Extent){ D3D_MAX_EXTENT, D3D_MAX_EXTENT });
-	const bool resized =
-		!g->back[0] ||
-		!app_buffer_room_fits(a, e, (Extent){ g->buf_w, g->buf_h });
-	const Extent b =
-		app_buffer_room(a, e, (Extent){ D3D_MAX_EXTENT, D3D_MAX_EXTENT });
+	const Extent one  = { 1, 1 };
+	const Extent most = { D3D_MAX_EXTENT, D3D_MAX_EXTENT };
+	const Extent have = { g->buf_w, g->buf_h };
+	const Extent e    = app_buffer_extent(a, one, most);
+	const bool resized = !g->back[0] || !app_buffer_room_fits(a, e, have);
+	const Extent b = app_buffer_room(a, e, most);
 	if (resized) {
 		if (!d3d_wait_idle(a))
 			return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost "
@@ -335,9 +334,9 @@ FnlResult d3d_window_images(App *a)
 	}
 	a->extent = e;
 	/* Larger than the window, for the loop's settle (app_buffer_room()). */
-	a->buffer   = g->buf_w != e.w || g->buf_h != e.h
-					  ? (Extent){ g->buf_w, g->buf_h }
-					  : (Extent){ 0, 0 };
+	const Extent got  = { g->buf_w, g->buf_h };
+	const Extent none = { 0, 0 };
+	a->buffer = g->buf_w != e.w || g->buf_h != e.h ? got : none;
 	g->interval = fnl_atomic_load_bool(&a->vsync) ? 1 : 0;
 	fnl_atomic_store_u32(&a->present_mode, (uint32_t)g->interval);
 	return FNL_OK;
@@ -393,7 +392,8 @@ static void destroy_scene_target(App *a)
 	D3D(a)->scene_ms_refused = false;
 	D3D(a)->mlaa_refused     = false;
 	D3D(a)->taau_refused     = false;
-	a->scene_extent          = (Extent){ 0, 0 };
+	const Extent none        = { 0, 0 };
+	a->scene_extent          = none;
 }
 
 /* As Vulkan's scene_ensure_aa(): only what a mode asks for, once it does,
@@ -499,7 +499,8 @@ void d3d_scene_set_size(App *a, int w, int h)
 		depth_sampled_view(a, D3D(a)->scene.depth, SRV_PAIR0_D);
 		depth_sampled_view(a, D3D(a)->scene.depth, SRV_PAIR1_D);
 	}
-	a->scene_extent = (Extent){ w, h };
+	const Extent extent = { w, h };
+	a->scene_extent = extent;
 }
 
 void d3d_destroy_targets(App *a)

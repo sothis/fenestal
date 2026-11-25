@@ -374,7 +374,7 @@ const void *vk_dxgi_submit_chain(App *a, uint32_t img)
 	d->key_acquire = 0;
 	d->key_release = 1;
 	d->km_timeout = 2000;
-	d->km_info = (VkWin32KeyedMutexAcquireReleaseInfoKHR){
+	const VkWin32KeyedMutexAcquireReleaseInfoKHR info = {
 		.sType = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR,
 		.acquireCount = 1,
 		.pAcquireSyncs = &d->km_mem,
@@ -384,6 +384,7 @@ const void *vk_dxgi_submit_chain(App *a, uint32_t img)
 		.pReleaseSyncs = &d->km_mem,
 		.pReleaseKeys = &d->key_release,
 	};
+	d->km_info = info;
 	return &d->km_info;
 }
 

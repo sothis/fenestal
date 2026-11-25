@@ -147,7 +147,7 @@ int app_gpu_driver_entries(App *a, GpuEntry *list, int n, int max)
 		/* Afresh: the slot may hold an entry of an earlier list, whose
 		 * `via` and `way_default` no move has. */
 		GpuEntry *e = &list[n + m++];
-		*e = (GpuEntry){ 0 };
+		memset(e, 0, sizeof *e);
 		snprintf(e->name, sizeof e->name, "%s, on %s", gpu, g->other);
 		e->kind = own >= 0 ? list[own].kind : FNL_GPU_KIND_DISCRETE;
 		e->renderer = r;

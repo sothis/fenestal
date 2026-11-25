@@ -5,12 +5,13 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 **Fenestal** is a portable C11 library — a window, a device, a swapchain, a
 render thread and a text overlay, wrapped around a scene that is the caller's.
 Its backends are Wayland, X11, Win32, Cocoa (macOS, cross-compiled here and
-driven on a Mac over ssh) and KMS -- a Linux console with no window server, the
-window being the output; its renderers are Direct3D 12, OpenGL (4.5 on Linux,
-4.1 on macOS), Metal and Vulkan; and a platform is one of each, such as Vulkan
-on X11. The GPU is the device that draws, hardware or a software rasteriser. A
-build has every backend its system has -- on Linux, Wayland, X11 and KMS, the
-one a program opens chosen at `fnl_init()` or named by `FNL_BACKEND` in its
+driven on a Mac over ssh) and KMS -- a console with no window server, on
+Linux and FreeBSD, the window being the output; its renderers are Direct3D
+12, OpenGL (4.5 on Linux and FreeBSD, 4.1 on macOS), Metal and Vulkan; and a
+platform is one of each, such as Vulkan on X11. The GPU is the device that
+draws, hardware or a software rasteriser. A build has every backend its
+system has -- on Linux and FreeBSD, Wayland, X11 and KMS, the one a program
+opens chosen at `fnl_init()` or named by `FNL_BACKEND` in its
 environment -- and every renderer its system has, chosen the same way or named
 by `FNL_RENDERER` (DESIGN *One build per operating system*); every runtime that
 is not the system's is opened at run time, never linked. It makes
@@ -52,25 +53,27 @@ and the questions left open for them. A question it lists is answered in
   `pre-push` hook refuses any other ref there. GitHub's CI
   (`.github/workflows/ci.yml`) builds each target's release tree on a
   push to `main` and on a pull request -- macOS on a Mac runner, against
-  its Xcode's SDK -- and runs ruff; it builds no checker tree and opens no
-  window. This tree's own work takes no PR flow — do not propose one;
+  its Xcode's SDK, `win64-msvc` with cl.exe on a Windows runner, and
+  FreeBSD in a VM -- and runs ruff; it builds no checker tree and opens
+  no window. This tree's own work takes no PR flow — do not propose one;
   pull requests are how others send changes (`CONTRIBUTING.md`).
 
 ## Build
 
 ```sh
-./build.sh                        # every tree -- thirteen, and the ARM
-                                  # Linux target's four where its cross
-                                  # compiler is
+./build.sh                        # every tree this host can build
 ./build.sh linux                  # that target, release: Wayland, X11 and
                                   # KMS, drawn with Vulkan and OpenGL
-./build.sh win64                  # that target: Win32, drawn with
-                                  # Direct3D 12 and Vulkan
+./build.sh win64                  # that target: Win32 on the UCRT, drawn
+                                  # with Direct3D 12 and Vulkan
+./build.sh win64-msvc             # the same, native on Windows with cl.exe
 ./build.sh macos                  # that target: Cocoa, drawn with Metal,
                                   # Vulkan on MoltenVK and OpenGL 4.1
 ./build.sh macos-arm64            # the macos tree for Apple's own
                                   # processors, cross-compiled; release
                                   # and gc
+./build.sh macos-universal        # the two macOS trees joined by lipo
+./build.sh freebsd                # FreeBSD, native: Wayland, X11 and KMS
 ./build.sh linux-arm64            # the linux tree for the Raspberry Pi 4,
                                   # cross-compiled; release, asan, tsan
                                   # and gc
@@ -81,12 +84,14 @@ and the questions left open for them. A question it lists is answered in
 ```
 
 Every tree lands under **`build/<target>/<variant>`**. Targets are
-`linux`, `win64` and `macos`, one for each operating system; variants are
-`release`, `clang`, `asan`, `tsan`, `analyzer` and `gc`. Each tree holds
-`libfenestal.a`, the shared object and two programs -- `fenestal-testbed`
+`linux`, `win64`, `win64-msvc`, `macos`, `macos-arm64`,
+`macos-universal`, `freebsd` and `linux-arm64`; variants are `release`,
+`clang`, `asan`, `tsan`, `analyzer` and `gc`, each target taking the ones
+it can (below). Each tree holds `libfenestal.a` (or `libfenestal-static.lib`
+under MSVC), the shared object and two programs -- `fenestal-testbed`
 and `fenestal-dev`, the development instruments, whose modes are `pace` and
 `lifecycle` -- and each demo's two, `<name>` and `<name>-dyn`, as `.dll` and
-`.exe` in the cross tree.
+`.exe` in the Windows trees.
 
 - **`linux-arm64` is the `linux` tree for 64-bit ARM** (the Pi 4), built
   here by Ubuntu's `aarch64-linux-gnu-gcc` with its own glibc
@@ -102,32 +107,36 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   tree writes to `generated/checks.txt`. DESIGN *Cross-compiling for ARM
   Linux*.
 
-- **A Linux tree has Wayland, X11 and KMS.** A program opens the first its
-  session has -- Wayland where `WAYLAND_DISPLAY` is set, X11 where
-  `DISPLAY` is, KMS where neither is -- stepping past one whose `open()`
-  says `FNL_ERR_NO_DISPLAY`, and logs `backend: <Name>`;
+- **A Linux or FreeBSD tree has Wayland, X11 and KMS.** A program opens
+  the first its session has -- Wayland where `WAYLAND_DISPLAY` is set, X11
+  where `DISPLAY` is, KMS where neither is -- stepping past one whose
+  `open()` says `FNL_ERR_NO_DISPLAY`, and logs `backend: <Name>`;
   `FNL_BACKEND=x11` in its environment opens that one or fails. The
   harness names one for every round, and so should a command run by hand
   here, since this desktop has both variables. The old per-backend
   target names are refused with the new one. `-DFNL_BACKEND=x11` after
-  the target builds one backend alone (`linux` is the default), and
-  `-DFNL_RENDERER=vulkan` one renderer alone (`all` is the default).
+  the target builds one backend alone (`linux` and `freebsd` are the
+  defaults), and `-DFNL_RENDERER=vulkan` one renderer alone (`all` is the
+  default).
 - **Every tree has every renderer its system has**: Direct3D 12 and Vulkan
-  on Windows, Vulkan and OpenGL on Linux, Metal, Vulkan (on MoltenVK)
-  and OpenGL on macOS. A program passes the renderers it has a scene for
-  (`FnlInitDesc::renderers`; `FNL_RENDERERS_ANY` for none), and
+  on Windows, Vulkan and OpenGL on Linux and FreeBSD, Metal, Vulkan (on
+  MoltenVK) and OpenGL on macOS. A program passes the renderers it has a
+  scene for (`FnlInitDesc::renderers`; `FNL_RENDERERS_ANY` for none), and
   `fnl_init()` tries them in that order on the open window, stepping past
   one that fails, and logs `renderer: <Name>`; `FNL_RENDERER=gl` in its
   environment draws with that one or fails. The harness names one for
   every round, as it names the backend. The old per-renderer target names
   are refused with the new one. `FNL_GPU` in a program's environment is
   the *device*.
-- A bare `./build.sh` sweeps every valid target/variant pair: `linux`,
-  then `linux-arm64` (where its compiler is), then `win64`, then `macos`,
-  then `macos-arm64`, and `release` first within each — the cross
-  trees borrow `build/linux/release`'s baked atlases, by that name, so that
-  order is what keeps the sweep self-sufficient. It stops at the first
-  failure.
+- A bare `./build.sh` sweeps every valid target/variant pair this host can
+  build: on Linux `linux`, `linux-arm64` (where its compiler is), `win64`
+  (where a UCRT compiler is), `macos`, `macos-arm64` and
+  `macos-universal`; on FreeBSD `freebsd`; on Windows `win64` and
+  `win64-msvc`; on a Mac the macOS three. `release` comes first within
+  each — the cross trees borrow `build/linux/release`'s baked atlases, by
+  that name, so that order is what keeps the sweep self-sufficient — and a
+  target whose compiler is missing is skipped with one line. It stops at
+  the first failure.
 - The cross targets need `linux`'s release tree first: `tools/mkfont`
   links FreeType and
   runs *during* the build, so a cross build would compile it for Windows and
@@ -144,9 +153,25 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   compile- and link-time passes needing no runtime. Its `gc` tree also
   carries UBSan in trap mode, which needs none: the one runtime check
   `win32.c` runs under. It refuses `clang` too:
-  clang against mingw-w64 wants a sysroot of its own. Thirteen trees: six
-  variants of the native target, three of the Windows one and two of each
-  macOS one.
+  clang against mingw-w64 wants a sysroot of its own. **Its compiler must
+  target the Universal CRT** — MSYS2's UCRT64 or llvm-mingw's UCRT release,
+  named by `FNL_MINGW_PREFIX` or probed for; Ubuntu's is msvcrt's and is
+  refused, as is a configure that names one. `tools/check-crt.cmake` then
+  proves the built image imports `ucrtbase` rather than `msvcrt.dll`.
+  llvm-mingw links with lld, whose MinGW driver has no relocatable link,
+  so the archive's one object needs binutils' PE `ld` and `objcopy` beside
+  it (`FNL_MINGW_LD`, `FNL_MINGW_OBJCOPY`, found by `build.sh`), and that
+  tree has no LTO: binutils' ld cannot run it.
+- **`win64-msvc` is the same system built natively by cl.exe**, with Ninja
+  and the Visual Studio environment set; it takes `release` and `gc`. MSVC
+  has no assembler for the `.incbin` stubs (`tools/bin2c.c` makes C arrays),
+  no relocatable link and no objcopy, so `fenestal::static` keeps its
+  internal symbols global there; the DLL still exports the API alone through
+  the same `.def`. Its static archive is `libfenestal-static.lib`, its import
+  library `fenestal.lib`. It is built in CI on `windows-latest`.
+- Counts: `linux` six variants, `linux-arm64` four where its compiler is,
+  `win64` three, `win64-msvc` two, `freebsd` four, each macOS tree two, and
+  `macos-universal` two joins. A sweep builds the ones its host has.
 - **The macOS tree is cross-compiled here**, by clang-21 and `ld64.lld`
   (`lld-21`) against Apple's SDK, which `tools/macos_sdk.py --fetch` copies once
   from the Mac (schenker's stick, `ssh schenker-mac`) into
@@ -162,8 +187,20 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   *macOS*. **`macos-arm64` is the same tree for Apple's own processors**
   (`cmake/macos-arm64.cmake`: the x86-64 file, included with
   `FNL_MACOS_ARCH` set), built here and run nowhere here, since the one
-  Mac is an Intel one; CI joins the two trees into universal binaries and
-  app bundles (`.github/stage.sh`).
+  Mac is an Intel one. **`macos-universal`** builds both slices and joins
+  every library and program with `lipo` into
+  `build/macos-universal/<variant>` (`tools/macos_universal.py`); CI packs
+  that tree as app bundles (`.github/stage.sh`). `build/macos` stays the
+  tree the harness drives on the Mac.
+- **FreeBSD is native**, with the base system's clang: Wayland, X11 and
+  KMS, Vulkan and OpenGL. libdrm's headers are made to the `drm/` spelling
+  the sources use; its evdev is the input (`src/backend/evdev_input.h`);
+  its event loop is `poll()` and a pipe (`src/backend/loop_bsd.c`), not
+  epoll and eventfd. There is no netlink uevent socket and no inotify, so
+  KMS rescans its outputs and `/dev/input` on a deadline, and the
+  NVIDIA/nouveau move is Linux's alone. It takes `release`, `asan`, `tsan`
+  and `gc` and is built in CI in a FreeBSD VM; the harness has no FreeBSD
+  environment yet (TODO *FreeBSD*).
 - **`clang` is the release build compiled by clang** (`clang-21`, or
   `FNL_CLANG`), optimised, with `-Wthread-safety` and `-Werror`
   (`FNL_WERROR`). It is what makes warning-clean under clang a check.
@@ -654,7 +691,9 @@ finding not on it is new.
   difference: a change, intended, updates the baseline in the same commit.
   The version lives in the header and in `project()`, and configure refuses
   a mismatch. `CHANGELOG.md` gets a line for anything a caller would notice.
-  MSVC is not supported.
+  MSVC is supported for the Windows tree, with one relaxation: no objcopy
+  means the static archive keeps its internals global (DESIGN *Building
+  Windows with MSVC*).
 - **The API reference is generated** (`tools/mkapidoc.py`, run by `build.sh`
   into `build/api/index.html`) from the headers, with `examples/*.c` as its
   examples. A new `FNL_API` function wants a comment directly above it, a thread
@@ -665,9 +704,11 @@ finding not on it is new.
 - **`fenestal::static` exports the API and nothing else.** The archive is one
   partially linked object with every non-`FNL_API` symbol made local; the
   list is read from the headers at configure. A program linking it must be
-  free to name its own `app_event`, which `fenestal-dev` does. On
-  Windows the objects are `-mcmodel=small`, or mingw's `.refptr` slots break
-  the localisation (DESIGN *Building*).
+  free to name its own `app_event`, which `fenestal-dev` does -- unless the
+  compiler is MSVC, whose archive keeps them global (DESIGN *Building
+  Windows with MSVC*), and whose `fenestal-dev` therefore skips that check.
+  On Windows the objects are `-mcmodel=small`, or mingw's `.refptr` slots
+  break the localisation (DESIGN *Building*).
 - `src/core/app.h` holds all shared state, constants and core's cross-TU
   prototypes, plus `_Static_assert`s locking the instance structs against the
   shaders; the Vulkan renderer's own prototypes and the push-constant structs
@@ -841,10 +882,11 @@ src/core/              the lifetime, the two error tiers, the frame policy,
                        the client titlebar's layout and behaviour, the text
                        measure, and the two seams (backend.h, renderer.h) plus
                        the compiler and threading shims
-src/backend/           what the Linux backends share and none owns: the
-                       layout (keymap*.c), evdev's key table, the event
-                       loop's plumbing (loop_linux.h) and a paste's
-                       (clip_linux.h)
+src/backend/           what the backends with no character delivery share
+                       and none owns: the layout (keymap*.c), evdev's key
+                       table and input ABI (evdev_keys.h, evdev_input.h),
+                       the event loop (loop.h, loop_linux.h, loop_bsd.*)
+                       and a paste's (clip_linux.h)
 src/backend/wayland/   \
 src/backend/x11/        > one per window server; each names no graphics API
 src/backend/win32/     /

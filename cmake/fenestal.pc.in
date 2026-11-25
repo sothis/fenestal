@@ -9,4 +9,4 @@ Libs: -L${prefix} -lfenestal
 # What the archive needs beyond -lfenestal: the math the layout does, the
 # runtimes it opens at run time, and the render thread. Ask for them with
 # pkg-config --static, or link the shared object and leave them to it.
-Libs.private: -lm -ldl -lpthread
+Libs.private: @FNL_PC_LIBS@

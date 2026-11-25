@@ -42,7 +42,9 @@ foreach(_kind static dyn)
                           OUTPUT_NAME ${_out}
                           RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
     target_link_libraries(${_t} PRIVATE ${_fnl})
-    target_compile_options(${_t} PRIVATE -Wall -Wextra)
+    if(NOT MSVC)
+        target_compile_options(${_t} PRIVATE -Wall -Wextra)
+    endif()
 endforeach()
 
 # The shared library beside hello-dyn, which looks for it in its own folder

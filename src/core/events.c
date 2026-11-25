@@ -114,7 +114,7 @@ static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	}
 
 	a->ev_ring[a->ev_head] = *ev;
-	a->ev_born[a->ev_head] = (EvBorn){ 0 };
+	memset(&a->ev_born[a->ev_head], 0, sizeof a->ev_born[0]);
 	born_add(&a->ev_born[a->ev_head], in);
 	a->ev_ring[a->ev_head].input_age = input_age(ev->time, in);
 	a->ev_head = (a->ev_head + 1) % EVENT_QUEUE_MAX;
@@ -150,7 +150,8 @@ void app_input_age(App *a, double age)
 	const double now = now_seconds();
 	const double born = now - a->started_at - (age > 0.0 ? age : 0.0);
 	a->in_stamped_at = now;
-	a->in_born = (EvBorn){ .sum = born, .oldest = born, .n = 1 };
+	const EvBorn stamp = { .sum = born, .oldest = born, .n = 1 };
+	a->in_born = stamp;
 }
 
 void app_input_ages(App *a, double sum, double oldest, uint32_t n)
@@ -164,8 +165,9 @@ void app_input_ages(App *a, double sum, double oldest, uint32_t n)
 	const double now = now_seconds();
 	const double t = now - a->started_at;
 	a->in_stamped_at = now;
-	a->in_born = (EvBorn){ .sum = t * n - sum, .oldest = t - oldest,
+	const EvBorn stamp = { .sum = t * n - sum, .oldest = t - oldest,
 						   .n = n };
+	a->in_born = stamp;
 }
 
 void app_event(App *a, FnlEvent *ev)
@@ -179,7 +181,8 @@ void app_event(App *a, FnlEvent *ev)
 	 * start, which a stamp from before fnl_init() would be. */
 	EvBorn in = { 0 };
 	if (counts_as_input(ev)) {
-		in = (EvBorn){ .sum = ev->time, .oldest = ev->time, .n = 1 };
+		const EvBorn one = { .sum = ev->time, .oldest = ev->time, .n = 1 };
+		in = one;
 		if (a->in_stamped_at > 0.0 &&
 			now - a->in_stamped_at <= INPUT_STAMP_FRESH &&
 			a->in_born.oldest >= 0.0) {
@@ -318,6 +321,7 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 		return;
 
 	FnlEvent ev;
+	const EvBorn born0 = { 0 };
 	const double t = now_seconds() - a->started_at;
 
 	fnl_mutex_lock(&a->ev_lock);
@@ -325,59 +329,66 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 	if (d_size) {
 		a->ev_last_w_pt = area_w_pt;   a->ev_last_h_pt = area_h_pt;
 		a->ev_last_w_px = area_w_px;   a->ev_last_h_px = area_h_px;
-		ev = (FnlEvent){ .type = FNL_EVENT_RESIZE, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_RESIZE, .time = t };
+		ev = e;
 		ev.resize.w_pt = area_w_pt;    ev.resize.h_pt = area_h_pt;
 		ev.resize.w_px = area_w_px;    ev.resize.h_px = area_h_px;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_scale) {
 		a->ev_last_scale120 = s120;
-		ev = (FnlEvent){ .type = FNL_EVENT_SCALE, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_SCALE, .time = t };
+		ev = e;
 		ev.scale.scale120 = s120;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_window) {
 		a->ev_last_fullscreen = ds->is_fullscreen;
 		a->ev_last_maximized  = ds->is_maximized;
-		ev = (FnlEvent){ .type = FNL_EVENT_WINDOW, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_WINDOW, .time = t };
+		ev = e;
 		ev.window.fullscreen = ds->is_fullscreen;
 		ev.window.maximized  = ds->is_maximized;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_aa) {
 		a->ev_last_aa = ds->aa;
-		ev = (FnlEvent){ .type = FNL_EVENT_ANTIALIAS, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_ANTIALIAS, .time = t };
+		ev = e;
 		ev.antialias.aa = ds->aa;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_scene) {
 		a->ev_last_scene_w = ds->scene_w;
 		a->ev_last_scene_h = ds->scene_h;
-		ev = (FnlEvent){ .type = FNL_EVENT_SCENE_SIZE, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_SCENE_SIZE, .time = t };
+		ev = e;
 		ev.scene.w_px = ds->scene_w;
 		ev.scene.h_px = ds->scene_h;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_capture) {
 		a->ev_last_captured = ds->pointer_captured;
-		ev = (FnlEvent){ .type = FNL_EVENT_CAPTURE, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_CAPTURE, .time = t };
+		ev = e;
 		ev.capture.captured = ds->pointer_captured;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_output) {
 		memcpy(a->ev_last_output, ds->output, sizeof a->ev_last_output);
 		a->ev_last_out_w_pt = ds->out_w_pt;
 		a->ev_last_out_h_pt = ds->out_h_pt;
-		ev = (FnlEvent){ .type = FNL_EVENT_OUTPUT, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_OUTPUT, .time = t };
+		ev = e;
 		ev.output.w_pt = ds->out_w_pt;
 		ev.output.h_pt = ds->out_h_pt;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_gpu) {
@@ -385,18 +396,20 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 		a->ev_last_gpu_renderer = gpu_rnd;
 		a->ev_last_gpu_n = gpu_n;
 		a->ev_last_gpu_cur = gpu_cur;
-		ev = (FnlEvent){ .type = FNL_EVENT_GPU, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_GPU, .time = t };
+		ev = e;
 		ev.gpu.index = gpu_cur;
 		ev.gpu.renderer = fnl_renderer(a);
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	if (d_color) {
 		a->ev_last_color_space = (int)color.space;
 		a->ev_last_sdr_scale   = color.sdr_scale;
-		ev = (FnlEvent){ .type = FNL_EVENT_COLOR, .time = t };
+		const FnlEvent e = { .type = FNL_EVENT_COLOR, .time = t };
+		ev = e;
 		ev.color.color = color;
-		queue_push(a, &ev, &(EvBorn){ 0 });
+		queue_push(a, &ev, &born0);
 	}
 
 	fnl_mutex_unlock(&a->ev_lock);
@@ -432,8 +445,11 @@ bool fnl_poll_event(App *a, FnlEvent *out)
 		 * from before it. Cleared as it is reported, so a second overflow is
 		 * a second report. */
 		if (a->ev_lost > 0) {
-			*out = (FnlEvent){ .type = FNL_EVENT_LOST,
-							   .time = now_seconds() - a->started_at };
+			const FnlEvent lost = {
+				.type = FNL_EVENT_LOST,
+				.time = now_seconds() - a->started_at,
+			};
+			*out = lost;
 			out->lost.count = a->ev_lost;
 			a->ev_lost = 0;
 			fnl_mutex_unlock(&a->ev_lock);

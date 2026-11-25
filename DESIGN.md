@@ -61,50 +61,67 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 | `egl`, `wayland-egl`, `GL/glcorearb.h` | where OpenGL is built on Linux: EGL's and the Wayland native window's headers, opened at run time; and Khronos's header of GL's types and enums, with no function in it (`src/renderer/gl/loader.c`) |
 | `freetype2` | **build-time only** — `tools/mkfont` bakes the glyph atlases with it; the program does not link it |
 | pthreads | the render thread |
+| `libdrm` (FreeBSD) | the KMS backend's DRM headers; FreeBSD names them under `libdrm/`, and the build makes the `drm/` spelling Linux's sources use |
+| a UCRT mingw-w64 | the Windows cross build: MSYS2's UCRT64 or llvm-mingw's UCRT release. Ubuntu's is msvcrt's and is refused, as is a configure that names one |
+| MSVC 19.27+, the Windows SDK and Ninja | the native Windows build (`win64-msvc`) |
 
 ```sh
-./build.sh                        # every tree -- thirteen, and the ARM
-                                  # Linux target's four where its cross
-                                  # compiler is
+./build.sh                        # every tree this host can build
 ./build.sh linux                  # that target, release
 ./build.sh linux asan             # that target, that checker
 ./build.sh linux clang            # that target, built by clang
+./build.sh win64                  # Windows, cross, on the UCRT
+./build.sh win64-msvc             # Windows, native, cl.exe
+./build.sh macos-universal        # the two macOS trees joined by lipo
+./build.sh freebsd                # FreeBSD, native
 ./build.sh linux release -DFNL_NATIVE_ARCH=ON  # for this CPU only
 ./build/linux/release/fenestal-testbed       # the platform it finds
 FNL_BACKEND=x11 FNL_RENDERER=gl ./build/linux/release/fenestal-testbed
 ```
 
 Every tree lands under `build/<target>/<variant>`. Targets are `linux`,
-with Wayland, X11 and KMS and Vulkan and OpenGL in it, `win64`, with
-Direct3D 12 and Vulkan, and `macos`, with Metal, Vulkan on MoltenVK
-and OpenGL 4.1; variants are `release`, `clang`, `asan`, `tsan`, `analyzer` and
-`gc`. Thirteen trees: six variants of the native target, three of the
-Windows one and two of each macOS one, `macos` and `macos-arm64` —
-mingw-w64 ships no sanitizer
-runtime, so `win64` refuses `asan` and `tsan` and takes the two
-link-time checkers, and it refuses `clang`, which against mingw-w64 would want
-a sysroot of its own. The `clang` tree is the release build compiled by
-`clang-21` (or `FNL_CLANG`) with `-Wthread-safety` and `-Werror`: the tree is
-warning-clean under both compilers, and that tree is the check.
+with Wayland, X11 and KMS and Vulkan and OpenGL in it, `win64` and
+`win64-msvc`, with Direct3D 12 and Vulkan, `freebsd`, with the same three
+backends and renderers as Linux, `macos`, with Metal, Vulkan on MoltenVK
+and OpenGL 4.1, and `macos-arm64` and `macos-universal`; variants are
+`release`, `clang`, `asan`, `tsan`, `analyzer` and `gc`. `linux` takes all
+six, `linux-arm64` four where its cross compiler is, `win64` three
+(release, analyzer and gc: mingw-w64 ships no sanitizer runtime, and clang
+against it would want a sysroot of its own), `win64-msvc` two (release and
+gc), `freebsd` four (release, asan, tsan and gc: its release already uses
+clang), and each macOS one two (release and gc). `macos-universal` takes
+release and gc and joins the two slices of its variant; it is a tree of
+joined binaries, not a third compilation. The `clang` tree is the release
+build compiled by `clang-21` (or `FNL_CLANG`) with `-Wthread-safety` and
+`-Werror`: the tree is warning-clean under both compilers, and that tree is
+the check.
 
 The target and the optional variant are positional and come first; anything
 after them is forwarded to the configure step, so a flag on the command line
-beats one the script chose. A bare `./build.sh` sweeps every tree, host target
-first and `release` first within it — the cross tree borrows the host release
-tree's baked atlases, so that order is what keeps the sweep self-sufficient. It
-stops at the first failure. A build that succeeds is followed by
+beats one the script chose. A bare `./build.sh` sweeps every tree this host
+can build -- the cross set on Linux, `freebsd` on FreeBSD, the two Windows
+trees on Windows, the macOS trees and their join on a Mac -- host target
+first and `release` first within it. The cross tree borrows the host release
+tree's baked atlases, so that order is what keeps the sweep self-sufficient;
+a target whose compiler is not installed is skipped with one line. It stops
+at the first failure. A build that succeeds is followed by
 `tools/check-layering.py`, once for a sweep, and a reference that crosses the
 layers fails the script with the trees already built. From clean, the
-thirteen gcc trees took 125 s on the eight cores this was written on; the
-clang trees have not been timed.
+thirteen gcc trees this was written on took 125 s on eight cores; the clang
+trees have not been timed.
 
 `CMAKE_BUILD_TYPE` defaults to `Release` and the compiler is pinned to gcc
-before `project()`; `CC=clang` overrides. LTO is on for optimised builds. So
-is hardening (`-DFNL_HARDEN=OFF` to leave it out): `-fhardened` where gcc
-has it, and where it does not -- mingw's gcc 13, clang -- each of its parts
-the compiler takes, checked by a link, and none that would add a library to the
-link line. The Debug checker trees are not hardened, and the analyser tree
-turns it off; what it costs in frame time has not been measured yet.
+before `project()`; `CC=clang` overrides, FreeBSD's default is its base
+clang, and Windows is left to CMake's own default, MSVC. LTO is on for
+optimised builds -- clang's MinGW tree excepted, whose archive links with
+binutils' ld (*Cross-compiling for Windows*). So is hardening
+(`-DFNL_HARDEN=OFF` to leave it out):
+`-fhardened` where gcc has it, and where it does not -- mingw's gcc 13,
+clang -- each of its parts the compiler takes, checked by a link, and none
+that would add a library to the link line. MSVC gets `/guard:cf` and the
+image flags instead. The Debug checker trees are not hardened, and the
+analyser tree turns it off; what it costs in frame time has not been measured
+yet.
 `-DFNL_VERIFY_FONT=OFF` skips the in-build bake check, which is otherwise run on
 every build that re-bakes; a bake it did not check is lent to no other tree
 (`build.sh`'s `font_ready()`).
@@ -172,8 +189,8 @@ archive carries code optimised across the library's files, as the shared
 object does, and no IR. So the objects need not be fat any more, and the
 archive is linkable by any toolchain; what a consumer gives up is optimisation
 across the boundary between its code and ours, which the shared object never
-offered either. Another compiler's tree (clang's) keeps fat objects and links
-their machine code.
+offered either. Another compiler's tree (clang on Linux and macOS) keeps fat
+objects and links their machine code.
 
 mingw adds one constraint: its default code model reaches extern data through
 `.refptr` slots in COMDAT sections, one per name program-wide, and a slot made
@@ -181,6 +198,14 @@ local is still discarded in favour of the program's copy -- the library's
 stack canary then read garbage and `__stack_chk_fail` recursed until the
 stack ran out. The library's objects are built `-mcmodel=small` on Windows,
 which addresses data directly and has no slots.
+
+llvm-mingw adds another: it links with lld, whose MinGW driver has no
+relocatable link, and its `llvm-objcopy` takes no `--keep-global-symbols` for
+COFF. The archive's one object is therefore made by binutils' PE `ld -r` and
+`objcopy` (`FNL_MINGW_LD`, found by `build.sh` beside the compiler); neither
+knows the CRT, so the msvcrt-flavoured pair a Linux host has will do. That
+link cannot run LLVM's LTO, and clang's MinGW target takes no
+`-ffat-lto-objects`, so this tree has no LTO.
 
 The public headers compile as **C11 and as C++11 through C++20**, under
 `-pedantic-errors -Wall -Wextra -Werror`, which is what the `extern "C"` block
@@ -196,6 +221,14 @@ Clean means `rm -rf build`. `build/` is one gitignore entry for every tree, and
 ./build.sh linux                  # the host tree first, release first
 ./build.sh win64
 ```
+
+The compiler is a mingw-w64 configured for the **Universal CRT** -- MSYS2's
+UCRT64 or llvm-mingw's UCRT release, named by `FNL_MINGW_PREFIX` or found
+by the toolchain file's probe -- and not Ubuntu's, which targets msvcrt and
+is refused. It is the UCRT's `%zu` and `_UCRT` the tree is built against:
+`ucrtbase.dll` is a Windows 10 component, msvcrt.dll a compatibility one.
+The built image's import tables are checked for it (tools/check-crt.cmake),
+so a compiler that slipped through fails the link.
 
 `tools/mkfont` links FreeType and runs *during* the build, so a cross build
 would compile it for Windows and then fail to run it. The cross tree borrows a
@@ -216,8 +249,10 @@ with `-I/usr/include`, which would put glibc's headers ahead of mingw's and
 break the first `#include <stdint.h>`.
 
 The result is `libfenestal.dll`, `libfenestal.a` and the programs, importing
-Windows' own DLLs alone; `vulkan-1.dll` is opened at run time, by the library
-for itself and for the examples' scenes (*One build per operating system*).
+Windows' own DLLs alone -- `KERNEL32`, `USER32`, `GDI32`, `d3d12`, `dxgi`
+and the UCRT's `ucrtbase`/`api-ms-win-crt-*` -- and not `msvcrt.dll`;
+`vulkan-1.dll` is opened at run time, by the library for itself and for the
+examples' scenes (*One build per operating system*).
 
 The DLL's exports are a list, `generated/fenestal.def`, read out of the public
 headers at configure time: every prototype marked `FNL_API`. The attribute
@@ -245,6 +280,36 @@ console, but only after checking `GetStdHandle(STD_OUTPUT_HANDLE)` is empty, so
 a shell or a harness that redirects keeps its file. The subsystem is set on the
 **example**, not on the library: a console tool that links `fenestal` is an
 ordinary thing to want.
+
+### Building Windows with MSVC
+
+`./build.sh win64-msvc` is the same tree built natively by Microsoft's
+compiler, from a Windows shell with the Visual Studio environment set and
+Ninja on `PATH`; CMake is driven with `-DCMAKE_C_COMPILER=cl`. CI builds it
+on every push (`windows-latest`), which is where it is compiled at all -- no
+MSVC runs on the Linux machine this tree is developed on.
+
+Four things differ from every other compiler's tree:
+
+- **No assembler.** cl.exe has none for the `.incbin` stubs, so the font
+  and licence blobs are generated as C arrays by `tools/bin2c.c`, run at
+  build time so a borrowed bake's re-bake is still what rebuilds here.
+- **No relocatable link.** `link.exe` has no `/r` and there is no objcopy,
+  so `fenestal::static` is the objects themselves: its internal symbols
+  stay global, and a consumer defining one of the same names could meet a
+  duplicate. The DLL's surface is still the API alone, through the same
+  `.def` list. It is the one property the MSVC tree does not have.
+- **GNU extensions.** `__typeof__` in the Vulkan loader is replaced by the
+  `PFN_vk*` typedefs, and cl has no compound literals, so every source it
+  compiles names a local instead. The testbed's and `fenestal-dev`'s C11
+  atomics are `/experimental:c11atomics`, the switch MSVC takes them behind.
+- **Names.** MSVC's static archive and a DLL's import library would both be
+  `fenestal.lib`; the archive is `libfenestal-static.lib`, the import
+  library `fenestal.lib`, and the DLL `libfenestal.dll`.
+
+The testbed's entry is `main`, and the linker's GUI subsystem asks for
+`WinMain`; `/ENTRY:mainCRTStartup` is the one line mingw's `crt2.o` answers
+for free.
 
 ### Cross-compiling for macOS
 
@@ -276,8 +341,13 @@ GPU here. `macos-arm64` is the same tree for Apple's own processors
 x86-64 file): a Mac sold since 2020 has one, and runs an x86-64 program
 only through Rosetta 2, which Apple is retiring. It is built and never run
 here, with no such Mac at hand. One tree is one architecture, because the
-archive is made from one module of bitcode; CI joins the two with `lipo`
-into universal binaries, each program an app bundle that carries MoltenVK
+archive is made from one module of bitcode. `./build.sh macos-universal`
+builds both slices and joins every library and program with `lipo` into
+`build/macos-universal/<variant>` (`tools/macos_universal.py`): the
+archive's one object is joined and the archive remade where lipo cannot
+fatten an archive directly, and MoltenVK, already universal, is copied.
+`build/macos` stays the tree the harness drives on the one Intel Mac here.
+CI packs the joined tree, each program an app bundle that carries MoltenVK
 in its `Contents/Frameworks`, where the library also looks for it
 (`.github/stage.sh`). The two directories that speak to AppKit and Metal,
 `src/backend/cocoa/` and `src/renderer/metal/`, are **Objective-C** under ARC:
@@ -902,9 +972,11 @@ The version is said in two places, `FNL_VERSION_*` in the header and
 `CHANGELOG.md` is what each release changed.
 
 Toolchains: gcc, which the build defaults to, and clang, which the `clang`
-trees build warning-free, on Linux; mingw-w64's gcc for Windows. MSVC is not
-supported and no support is planned: the MSVC branches in `core/compiler.h`
-are written and have never been compiled.
+trees build warning-free, on Linux; a UCRT-targeted mingw-w64 for the
+Windows cross tree; cl.exe for `win64-msvc`; and FreeBSD's base clang. The
+warning-free rule is gcc's and clang's. MSVC is built at `/W3` and not held
+to `/WX`: its warning set has not been gone over, and the branches in
+`core/compiler.h` are the ones it compiles first.
 
 ## The testbed
 
@@ -1638,8 +1710,12 @@ src/backend/keysym_table.h   keysyms and the code points they stand for, and
                              their names. Generated, and the one generated
                              file that is tracked; keysym_notice.txt is what
                              it travels under
-src/backend/loop_linux.h   the wakeup eventfd and the epoll set, which the
-                           three Linux backends share
+src/backend/loop.h         the wait's descriptors, the wakeup and the
+                           deadlines, which every backend with no character
+                           delivery shares; loop_linux.h is Linux's epoll and
+                           eventfd, loop_bsd.h/.c FreeBSD's poll() and pipe
+src/backend/evdev_input.h  the kernel's input ABI: Linux's UAPI headers or
+                           FreeBSD's evdev, which KMS and Wayland include
 src/backend/clip_linux.h   a paste arriving from another program: what the
                            Wayland and X11 backends share of it
 src/backend/wayland/   registry, xdg-shell, keyboard and pointer
@@ -1650,7 +1726,8 @@ src/backend/x11/       ICCCM/EWMH, the pointer and the event loop
   x11_clipboard.c  the CLIPBOARD selection, INCR included
 src/backend/kms/       no window server: one output of the DRM node taken
                        whole, and the kernel's input devices read directly
-  kms_driver.c   an NVIDIA GPU moved between nouveau and NVIDIA's module
+  kms_driver.c   an NVIDIA GPU moved between nouveau and NVIDIA's module;
+                 Linux's alone, FreeBSD's KMS naming no-op entries
 src/backend/win32/     window class, message loop, raw input, per-monitor DPI
 src/backend/cocoa/     the borderless window, its view and layer, the run
                        loop and its wakeup, text through NSTextInputClient;
@@ -1778,7 +1855,16 @@ shaders/       GLSL the library owns: the three overlay pipelines, the
                covering triangle, the fetch and the MLAA filter
 protocols/     vendored Wayland protocol XML
 fonts/ubuntu/  vendored Ubuntu Sans + Ubuntu Sans Mono, with the licence
-cmake/mingw-w64-x86_64.cmake  the Windows cross-compile toolchain
+cmake/mingw-w64-x86_64.cmake  the Windows cross-compile toolchain: a
+                              UCRT-targeted compiler, probed for and refused
+                              when it is msvcrt's
+cmake/macos-x86_64.cmake, cmake/macos-arm64.cmake  the macOS cross
+                              toolchains, one architecture each
+cmake/linux-aarch64.cmake     the ARM Linux cross toolchain
+tools/bin2c.c                 a blob as a C array, for MSVC's stubs
+tools/check-crt.cmake         the import-table check that the mingw tree
+                              imports the UCRT and not msvcrt.dll
+tools/macos_universal.py      joins the two macOS trees with lipo
 CMakeLists.txt the build of one tree
 build.sh       the build as one command: every tree, or one target and variant
 run_all.sh     the release testbed four ways at once, with the same options:
@@ -1855,10 +1941,11 @@ server's events into those calls and its answers into requests.
 
 ### One build per operating system
 
-One build per operating system -- `linux`, `win64`, `macos` -- holding
-every backend and every renderer that system has, with the platform chosen
-in `fnl_init()`. The first of the three steps below is built and driven: a
-Linux build has Wayland, X11 and KMS, and the backend is chosen when the
+One build per operating system -- `linux`, `win64` (and its native MSVC
+twin), `freebsd`, `macos` -- holding every backend and every renderer that
+system has, with the platform chosen in `fnl_init()`. The first of the three
+steps below is built and driven: a Linux build has Wayland, X11 and KMS, and
+the backend is chosen when the
 program starts. The second -- every runtime opened at run time, none
 linked -- and the third for Windows -- Direct3D 12 and Vulkan in one
 build, the renderer chosen on the open window -- are built and driven
@@ -1874,10 +1961,11 @@ runs, and made eleven targets and forty-seven trees.
 |---|---|---|
 | Linux   | Wayland, X11, KMS | Vulkan, OpenGL               |
 | Windows | Win32             | Direct3D 12, Vulkan          |
+| FreeBSD | Wayland, X11, KMS | Vulkan, OpenGL               |
 | macOS   | Cocoa             | Metal, Vulkan (on MoltenVK), OpenGL 4.1 |
 
-Only Linux has a choice of backend; on the other two the choice is the
-renderer's alone. OpenGL on macOS is 4.1, through CGL, its frames copied
+Linux and FreeBSD have a choice of backend; on Windows and macOS the choice
+is the renderer's alone. OpenGL on macOS is 4.1, through CGL, its frames copied
 into the Metal layer (*OpenGL on macOS*); Windows draws with Direct3D 12,
 on WARP where there is no driver, and Vulkan.
 
@@ -1892,8 +1980,9 @@ caller with a scene per renderer will switch on `fnl_renderer()` inside
 **The backends, as built.** `backend.h`'s `FNL_BACKENDS(X)` is the list
 of what the build has, in the order tried: Wayland, X11, KMS, each there by
 a `-DFNL_HAVE_<NAME>` that CMake passes with its sources. `FNL_BACKEND` at
-configure is `linux` for all three, the default, or one name for a build of
-that one alone. `backend_choose_and_open()` (`app.c`) walks the list:
+configure is `linux` (or `freebsd`) for all three, the default, or one name
+for a build of that one alone. `backend_choose_and_open()` (`app.c`) walks
+the list:
 
 - **`absent()` first**, from the environment alone: Wayland where
   `WAYLAND_DISPLAY` or `WAYLAND_SOCKET` is set, X11 where `DISPLAY` is, KMS
@@ -2161,7 +2250,10 @@ built without a warning once one test was put in the form clang's
 `-Wunreachable-code` reads as a constant on purpose. The shared object and
 `fenestal-dev` need libc and libm alone on Linux and Windows' own DLLs
 alone on Windows (`d3d12`, `dxgi`, `GDI32`, `KERNEL32`, `msvcrt`,
-`USER32`); the testbed adds the Vulkan loader, for its own scene. Every
+`USER32`); the testbed adds the Vulkan loader, for its own scene. (The
+mingw tree now links the Universal CRT, so its list has `ucrtbase` and
+the `api-ms-win-crt-*` contracts in `msvcrt`'s place; the figures here are
+the msvcrt trees' and have not been re-measured.) Every
 round passed with none failed, each saying the backend and the renderer it
 was named: the twelve bare environments on the aspire and on the thinkpad,
 Linux's six and wine's six; this desktop's four and wine's four; and both

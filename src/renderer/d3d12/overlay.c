@@ -203,8 +203,8 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 #define PSO_INPUTS_MAX 5
 	D3D12_INPUT_ELEMENT_DESC in[PSO_INPUTS_MAX];
 	FNL_ASSERT(s->n_inputs <= PSO_INPUTS_MAX);
-	for (int i = 0; i < s->n_inputs; i++)
-		in[i] = (D3D12_INPUT_ELEMENT_DESC){
+	for (int i = 0; i < s->n_inputs; i++) {
+		const D3D12_INPUT_ELEMENT_DESC element = {
 			.SemanticName      = SEMANTIC,
 			.SemanticIndex     = (UINT)i,
 			.Format            = DXGI_FORMAT_R32G32B32A32_FLOAT,
@@ -213,6 +213,8 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 			.InputSlotClass    = D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA,
 			.InstanceDataStepRate = 1,
 		};
+		in[i] = element;
+	}
 
 	D3D12_RENDER_TARGET_BLEND_DESC b = {
 		.BlendEnable           = s->blend != BLEND_NONE,
@@ -722,9 +724,13 @@ void d3d_overlay_scissor(App *a, const FnlRect *r)
 {
 	if (!D3D(a)->overlay_on)
 		return;
-	const D3D12_RECT s =
-		r ? (D3D12_RECT){ r->x, r->y, r->x + r->w, r->y + r->h }
-		  : (D3D12_RECT){ 0, 0, a->extent.w, a->extent.h };
+	D3D12_RECT s = { 0, 0, a->extent.w, a->extent.h };
+	if (r) {
+		s.left   = r->x;
+		s.top    = r->y;
+		s.right  = r->x + r->w;
+		s.bottom = r->y + r->h;
+	}
 	ID3D12GraphicsCommandList_RSSetScissorRects(D3D(a)->list, 1, &s);
 }
 

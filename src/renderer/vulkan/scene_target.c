@@ -422,8 +422,8 @@ static bool taau_history_ready(App *a)
 											1 };
 	VkImageMemoryBarrier b[MAX_FRAMES_IN_FLIGHT];
 
-	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-		b[i] = (VkImageMemoryBarrier){
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		const VkImageMemoryBarrier barrier = {
 			.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 			.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
 			.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -434,6 +434,8 @@ static bool taau_history_ready(App *a)
 			.srcAccessMask       = 0,
 			.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
 		};
+		b[i] = barrier;
+	}
 	VkCommandBuffer cb = begin_oneshot(a);
 	if (cb == VK_NULL_HANDLE)
 		return false;
@@ -567,7 +569,8 @@ static bool create_scene_target(App *a, uint32_t w, uint32_t h, bool resident)
 
 	write_scene_set(a, VK(a)->blit_set_scene, VK(a)->scene.view);
 	VK(a)->scene_depth_resident = resident;
-	a->scene_extent = (Extent){ (int)w, (int)h };
+	const Extent extent = { (int)w, (int)h };
+	a->scene_extent = extent;
 	return true;
 }
 
@@ -620,7 +623,8 @@ static void destroy_scene_target(App *a)
 	VK(a)->scene_ms_refused = false;
 	VK(a)->mlaa_refused     = false;
 	VK(a)->taau_refused     = false;
-	a->scene_extent     = (Extent){ 0, 0 };
+	const Extent none       = { 0, 0 };
+	a->scene_extent     = none;
 }
 
 void scene_set_size(App *a, int w, int h)

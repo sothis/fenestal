@@ -97,15 +97,19 @@ static void layout(FnlApp *app, const BenchPanel *p, Layout *l)
 	y += PAD + fnl_text_line(FNL_TEXT_LARGE) + PAD;      /* the title */
 	if (!p->result) {
 		const int tw = (w - 2 * PAD) / BENCH_PAGE_COUNT;
-		for (int i = 0; i < BENCH_PAGE_COUNT; i++)
-			l->tabs[i] = (Rect){ x + PAD + i * tw, y, tw - ROW_GAP, rh };
+		for (int i = 0; i < BENCH_PAGE_COUNT; i++) {
+			const Rect tab = { x + PAD + i * tw, y, tw - ROW_GAP, rh };
+			l->tabs[i] = tab;
+		}
 		y += rh + PAD;
 		for (int i = 0; i < OPT_COUNT && l->count < ROWS_MAX; i++) {
 			if ((int)BENCH_OPTIONS[i].page != p->page)
 				continue;
 			l->ids[l->count] = i;
-			l->rows[l->count] = (Rect){ x + PAD, y + l->count * (rh + ROW_GAP),
-										w - 2 * PAD, rh };
+			const Rect row = { x + PAD,
+							   y + l->count * (rh + ROW_GAP),
+							   w - 2 * PAD, rh };
+			l->rows[l->count] = row;
 			l->count++;
 		}
 		/* As tall as the longest page, whichever is shown, so the help and
@@ -122,10 +126,13 @@ static void layout(FnlApp *app, const BenchPanel *p, Layout *l)
 	}
 	const int bw = (w - 2 * PAD - (l->button_count - 1) * PAD) /
 				   l->button_count;
-	for (int i = 0; i < l->button_count; i++)
-		l->buttons[i] = (Rect){ x + PAD + i * (bw + PAD), y, bw, rh + 6 };
+	for (int i = 0; i < l->button_count; i++) {
+		const Rect button = { x + PAD + i * (bw + PAD), y, bw, rh + 6 };
+		l->buttons[i] = button;
+	}
 	y += rh + 6 + PAD;
-	l->panel = (Rect){ x, top, w, y - top };
+	const Rect panel = { x, top, w, y - top };
+	l->panel = panel;
 }
 
 static const char *const SETUP_BUTTONS[] = { "Start  F5", "Quit  Esc" };

@@ -13,6 +13,7 @@
 #define FNL_KMS_STATE_H
 
 #include "backend/keymap.h"
+#include "backend/loop.h"
 
 #include <drm/drm_mode.h>
 
@@ -183,7 +184,15 @@ struct BackendHostState {
 	App         *away_owed_app;  /* the window that asked for it */
 	bool         away_said;
 
-	int          wake_fd, epoll_fd, inotify_fd;
+	LoopWake     wake;
+	Loop         loop;
+	/* /dev/input's watch where the system has inotify; -1 where it has
+	 * none, and the inputs are then rescanned on rescan_due. */
+	int          inotify_fd;
+	/* The next rescan of outputs and inputs, on now_seconds()'s clock:
+	 * FreeBSD has no netlink uevent and no inotify, so a monitor or a
+	 * keyboard that comes or goes is found by looking again. */
+	double       rescan_due;
 
 	/* The output the host's open ranked first, the one a window opens on
 	 * until a move says otherwise: the host's open runs before any window

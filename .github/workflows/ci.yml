@@ -78,9 +78,21 @@ jobs:
                       python3 linux-libc-dev libvulkan-dev libegl-dev \
                       libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
-                      xz-utils zstd \
-                      gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 \
+                      xz-utils zstd curl binutils-mingw-w64-x86-64 \
                       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            # mingw-w64's Ubuntu packaging is built for msvcrt, and the tree
+            # links the Universal CRT. llvm-mingw's UCRT release is the cross
+            # compiler the win64 tree takes; build.sh refuses any other.
+            - name: Install llvm-mingw's UCRT toolchain
+              run: |
+                  url=https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-ubuntu-22.04-x86_64.tar.xz
+                  sha=e7a15a49a2ea95e9f3d8a9d0cfabe5052a4b10fb4777cc54de5a8c27b64bb701
+                  curl -fsSL "$url" -o /tmp/llvm-mingw.tar.xz
+                  echo "$sha  /tmp/llvm-mingw.tar.xz" | sha256sum -c -
+                  mkdir -p /opt/llvm-mingw
+                  tar -xJf /tmp/llvm-mingw.tar.xz -C /opt/llvm-mingw \
+                      --strip-components=1
+                  echo "FNL_MINGW_PREFIX=/opt/llvm-mingw/bin/x86_64-w64-mingw32-" >> "$GITHUB_ENV"
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
             # The checkout is the runner's user's and the container runs as
@@ -131,12 +143,10 @@ jobs:
                   cp /usr/include/GL/glcorearb.h mac/include/GL/
                   cp /usr/include/KHR/khrplatform.h mac/include/KHR/
                   cp -R stage/common mac/common
-            # Through the cache and not as an artifact, which would be one
-            # more download on the run's page. The key is this run's alone;
-            # an entry nothing restores again is evicted after seven days.
-            # zstd above is what makes the entry the Mac's to restore: the
-            # compression is part of a cache's version, and the Mac's tar
-            # has zstd.
+            # The Mac restores them through the cache: the key is this run's
+            # alone, and zstd above is what makes the entry the Mac's to
+            # restore, the compression being part of a cache's version and
+            # the Mac's tar having zstd.
             - name: Hand them to the macOS job
               # v6.1.0
               uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -203,9 +213,20 @@ jobs:
                       python3 linux-libc-dev libvulkan-dev libegl-dev \
                       libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
-                      xz-utils zstd clang-21 \
-                      gcc-mingw-w64-x86-64-win32 g++-mingw-w64-x86-64-win32 \
+                      xz-utils zstd clang-21 curl binutils-mingw-w64-x86-64 \
                       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            # The win64 checker trees need the same UCRT compiler the Linux
+            # job builds the release tree with; see that job's step.
+            - name: Install llvm-mingw's UCRT toolchain
+              run: |
+                  url=https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/llvm-mingw-20261117-ucrt-ubuntu-22.04-x86_64.tar.xz
+                  sha=e7a15a49a2ea95e9f3d8a9d0cfabe5052a4b10fb4777cc54de5a8c27b64bb701
+                  curl -fsSL "$url" -o /tmp/llvm-mingw.tar.xz
+                  echo "$sha  /tmp/llvm-mingw.tar.xz" | sha256sum -c -
+                  mkdir -p /opt/llvm-mingw
+                  tar -xJf /tmp/llvm-mingw.tar.xz -C /opt/llvm-mingw \
+                      --strip-components=1
+                  echo "FNL_MINGW_PREFIX=/opt/llvm-mingw/bin/x86_64-w64-mingw32-" >> "$GITHUB_ENV"
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
             # The font tools run during the build and a cross or checker
@@ -242,6 +263,14 @@ jobs:
                       echo "::endgroup::"
                   done
                   for v in analyzer gc; do
+                      if [ "$v" = analyzer ] &&
+                         "${FNL_MINGW_PREFIX}gcc" --version |
+                         grep -qi clang; then
+                          echo "::group::win64 analyzer skipped"
+                          echo "clang-based UCRT has no -fanalyzer"
+                          echo "::endgroup::"
+                          continue
+                      fi
                       echo "::group::win64 $v"
                       ./build.sh win64 $v
                       echo "::endgroup::"
@@ -340,6 +369,12 @@ jobs:
                           "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                       echo "::endgroup::"
                   done
+                  echo "::group::macos-universal release"
+                  ./build.sh macos-universal release \
+                      "-DFNL_HOST_INCLUDE=$inc" \
+                      "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
+                      "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
+                  echo "::endgroup::"
                   .github/stage.sh macos
             - name: Keep the macos archive
               # v7.0.2
@@ -361,6 +396,104 @@ jobs:
                           "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                       echo "::endgroup::"
                   done
+                  echo "::group::macos-universal gc"
+                  ./build.sh macos-universal gc \
+                      "-DFNL_HOST_INCLUDE=$inc" \
+                      "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
+                      "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
+                  echo "::endgroup::"
+
+    # Native Windows with cl.exe: no mingw, no cross sysroot. FreeType comes
+    # from vcpkg, so mkfont and verifyfont are built by MSVC and the tree
+    # bakes its own font -- the native bake path, not a borrowed one. The
+    # shader tools and Vulkan headers are MSYS2's UCRT64 packages, and dxc
+    # is Microsoft's Windows release through tools/dxc.py. The library opens
+    # the Vulkan loader at run time and links none, so headers without a
+    # .lib are enough.
+    windows:
+        name: win64-msvc
+        runs-on: windows-latest
+        timeout-minutes: 60
+        steps:
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - name: Install FreeType with vcpkg
+              run: vcpkg install freetype:x64-windows
+            # UCRT64's glslang, spirv-cross and Vulkan headers, and the
+            # shell, CMake, Ninja and Python the build runs under. Python is
+            # the UCRT64 build: os.name is "nt", which is how tools/dxc.py
+            # chooses the Windows release.
+            - name: Install MSYS2's tools
+              # v2.34.0
+              uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
+              with:
+                  msystem: UCRT64
+                  update: false
+                  install: >-
+                      git
+                      mingw-w64-ucrt-x86_64-cmake
+                      mingw-w64-ucrt-x86_64-ninja
+                      mingw-w64-ucrt-x86_64-python
+                      mingw-w64-ucrt-x86_64-glslang
+                      mingw-w64-ucrt-x86_64-spirv-cross
+                      mingw-w64-ucrt-x86_64-vulkan-headers
+            # cl, link, lib and the Windows SDK on PATH for the step below.
+            - name: Enter the MSVC environment
+              # v1.13.0
+              uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+              with:
+                  arch: x64
+            - name: win64-msvc release
+              id: msvc
+              shell: msys2 {0}
+              run: |
+                  export FNL_DXC="$(python3 tools/dxc.py --path)"
+                  export GITHUB_OUTPUT="$(cygpath -u "$GITHUB_OUTPUT")"
+                  ./build.sh win64-msvc release \
+                      "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+                      "-DVCPKG_TARGET_TRIPLET=x64-windows" \
+                      "-DVulkan_INCLUDE_DIR=$(cygpath -w /ucrt64/include)"
+                  .github/stage.sh common
+                  .github/stage.sh win64-msvc
+            - name: Keep the win64-msvc archive
+              if: ${{ !cancelled() && steps.msvc.outcome == 'success' }}
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  path: ${{ steps.msvc.outputs.archive }}
+                  archive: false
+                  if-no-files-found: error
+
+    # FreeBSD, in a VM: the native build and the checks it runs. No hosted
+    # FreeBSD runner exists, and this builds, never drives, the programs.
+    freebsd:
+        name: freebsd
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        steps:
+            # v7.0.1
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - name: Build and pack on FreeBSD
+              # v1.6.0
+              uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b
+              with:
+                  usesh: true
+                  prepare: |
+                      pkg install -y cmake ninja pkgconf python3 git xz \
+                          wayland libxcb libdrm mesa-libs libglvnd \
+                          vulkan-headers glslang spirv-cross freetype2 \
+                          xkeyboard-config llvm
+                  run: |
+                      ./build.sh freebsd release
+                      .github/stage.sh common
+                      GITHUB_OUTPUT= .github/stage.sh freebsd
+            - name: Keep the freebsd archive
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  path: stage/fenestal-freebsd-*.tar.xz
+                  archive: false
+                  if-no-files-found: error
 
     ruff:
         runs-on: ubuntu-latest
@@ -381,7 +514,7 @@ jobs:
     # tag with no section falls back to GitHub's generated notes.
     release:
         name: publish
-        needs: [linux, macos]
+        needs: [linux, macos, windows, freebsd]
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -457,7 +590,7 @@ jobs:
         # `workflow_run` because that trigger fires for every completed run,
         # and when the retry job's `if` then skips it GitHub still creates the
         # run and lists it as skipped.
-        needs: [linux, checkers, macos, ruff, release]
+        needs: [linux, checkers, macos, windows, freebsd, ruff, release]
         # A real failure is handed over too; the retry workflow tells it apart
         # and leaves the run alone. A cancelled job is the shortage's own
         # signature; `!cancelled()` keeps out a run superseded by a newer

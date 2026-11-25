@@ -32,9 +32,9 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	fnl_window_size_pt(app, &w, &h);
 	b->buttons_x = w - 3 * BTN_W;
 
-	const FnlColor bar  = fnl_is_active(app)
-		? (FnlColor){ 0.20f, 0.22f, 0.28f, 1.0f }
-		: (FnlColor){ 0.16f, 0.16f, 0.18f, 1.0f };
+	const FnlColor active = { 0.20f, 0.22f, 0.28f, 1.0f };
+	const FnlColor idle   = { 0.16f, 0.16f, 0.18f, 1.0f };
+	const FnlColor bar    = fnl_is_active(app) ? active : idle;
 	const FnlColor ink  = { 0.9f, 0.9f, 0.9f, 1.0f };
 	/* The band as the library reports it, rather than the height asked
 	 * for: 0 in fullscreen, where there is none. */

@@ -127,17 +127,21 @@ Some changes are a row in several places, and each is listed in one spot:
 
 ## Development Setup
 
-The tree builds on Linux; Windows and macOS are cross-compiled from there.
+The tree builds on Linux and FreeBSD; Windows is cross-compiled from Linux
+and also built natively with MSVC, and macOS is cross-compiled.
 [`README.md`](README.md) *Building* lists what each target needs: CMake 3.18 or
 later, gcc or clang, the Wayland, xcb and Vulkan headers, `glslangValidator`,
-`spirv-cross` and FreeType; mingw-w64 for Windows; clang-21, `lld-21` and
-Apple's SDK for macOS.
+`spirv-cross` and FreeType; a UCRT-targeted mingw-w64 (or MSVC and the
+Windows SDK) for Windows; libdrm on FreeBSD; clang-21, `lld-21` and Apple's
+SDK for macOS.
 
 ```sh
 ./build.sh linux                  # the release tree: Wayland, X11, KMS
 ./build.sh linux asan             # the same under AddressSanitizer
-./build.sh win64                  # Windows, cross; needs linux first
-./build.sh                        # every target and variant
+./build.sh win64                  # Windows, cross on the UCRT; needs linux
+./build.sh win64-msvc             # Windows, native; needs cl on PATH
+./build.sh freebsd                # FreeBSD, native
+./build.sh                        # every target this host can build
 ```
 
 Every tree lands under `build/<target>/<variant>`, and clean is
@@ -151,8 +155,8 @@ and one-time consents, and is not needed to contribute: the checks below are.
 ## Before You Open a Pull Request
 
 CI (`.github/workflows/ci.yml`) builds each target's release tree on
-every pull request -- Linux, Windows, ARM Linux and macOS -- and runs
-ruff; the checker trees are yours to run:
+every pull request -- Linux, Windows with mingw and with MSVC, FreeBSD,
+ARM Linux and macOS -- and runs ruff; the checker trees are yours to run:
 
 ```sh
 ./build.sh linux                  # warnings, ABI, tables, layering, fuzz replay

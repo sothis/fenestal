@@ -4,6 +4,78 @@ What is owed, as opposed to what is known. `DESIGN.md` is the record of
 what was measured; an item answered there, with its measurement, comes off
 this list.
 
+## FreeBSD, MSVC and the UCRT
+
+Written on 2026-11-25, the day the targets were added. The FreeBSD and
+MSVC trees are compiled in CI; none of the three has been driven.
+
+### FreeBSD
+
+- **The console.** KMS takes DRM master and saves and restores the CRTCs;
+  on FreeBSD `vt(4)` owns the device (`vt_drmfb`), and whether master, a
+  mode set and the restore behave as they do on Linux is a hardware
+  question. `EVIOCGRAB` on evdev is not the vt keyboard path's grab: a
+  key may still reach the console shell under the window.
+- **The picture.** Whether Mesa on FreeBSD offers
+  `VK_EXT_acquire_drm_display` (else the copy path) and
+  `EGL_EXT_image_dma_buf_import` (else GL-on-KMS is readback), and whether
+  drm-kmod's atomic client capability is there (else the legacy ioctls).
+- **Hotplug.** There is no kobject uevent group and no inotify; outputs
+  and `/dev/input` are rescanned every `KMS_RESCAN_S` seconds. A monitor
+  or keyboard that comes or goes is seen that late, and the GPU hotplug
+  that netlink carries on Linux is not heard at all.
+- **Device access.** `/dev/dri/*` and `/dev/input/event*` want a devfs
+  rule or the `video`/operator groups; `README.md` *On a bare display*
+  says so. Whether `EVIOCSCLOCKID` takes there is unmeasured (the call is
+  unchecked and a refusal leaves the default clock).
+- **Figures.** `parts.c`'s thread list and `metrics.c`'s RSS read
+  `/proc`; on FreeBSD the first is empty and the second is `-1` (the
+  panel shows unknown). `rank.c` has the `sysctl` path for its name.
+- **Keymap names.** There is no `/etc/default/keyboard` or
+  `/etc/vconsole.conf`, so the console layout defaults to US unless
+  `FNL_KMS_LAYOUT` names one; `kbdmap`/`rc.conf` names are not read.
+- **The harness** has no FreeBSD environment: `bare_driver.TREES`,
+  `DISTROS` and the `uname` gate know Linux and Windows only. A round
+  there is by hand.
+
+### win64-msvc
+
+- **C11 atomics.** The testbed and `fenestal-dev` build with
+  `/experimental:c11atomics`, which is the switch MSVC takes `_Atomic`
+  behind. `_Atomic double` and `_Atomic float` are the forms most likely
+  to be refused; if cl refuses them the six files want a local
+  `_Interlocked*` shim, as `compiler.h` has.
+- **The archive.** `fenestal::static` keeps its internals global: MSVC has
+  no relocatable link and no objcopy. The DLL's exports are still the API
+  list alone. A consumer defining a library-internal name could meet a
+  duplicate at the link, and `fenestal-dev`'s five-name check is guarded
+  out there (`tools/drive/lifecycle.c`).
+- **The ABI baseline.** `abidump` runs natively, and the baseline is the
+  Linux one; it holds if no public struct uses `long` (none does). If
+  MSVC's layout differs, the check is the first to say so.
+- **Warnings.** The tree is built at `/W3` and not held to `/WX`; its
+  warnings have not been gone over, unlike gcc's and clang's.
+- **The win64 analyser tree** needs a gcc-based UCRT compiler; CI's
+  llvm-mingw is clang and has no `-fanalyzer`, so the checkers job skips
+  that tree. MSYS2's UCRT64 gcc on Windows can run it.
+
+### The Universal CRT
+
+- **The import list on Windows itself** -- `ucrtbase` and the
+  `api-ms-win-crt-*` contracts in `msvcrt`'s place -- has not been read
+  off a machine: only the build's own check (tools/check-crt.cmake) says
+  the image imports it and not msvcrt. DESIGN's measured list is the
+  msvcrt tree's.
+- **The harness under wine** has run only msvcrt trees. Wine provides the
+  UCRT, but the four wine environments have not been re-run against the
+  UCRT build.
+- **llvm-mingw's archive.** llvm-mingw links with lld, which has no
+  relocatable link, and its `llvm-objcopy` no COFF symbol localisation, so
+  the tree needs binutils' PE `ld` and `objcopy` and has no LTO. That
+  path -- binutils' `ld -r` over clang's COFF objects, then its
+  `objcopy --keep-global-symbols` -- has not been run on a real tree: the
+  first CI `win64` build is its test.
+
 ## HDR
 
 Written on 2026-11-25; every tree of the four targets was built the same

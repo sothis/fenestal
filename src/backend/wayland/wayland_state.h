@@ -28,6 +28,7 @@
 
 #include "backend/clip_linux.h"
 #include "backend/keymap.h"
+#include "backend/loop.h"
 
 #define WL_MAX_OUTPUTS 16
 
@@ -126,11 +127,12 @@ struct BackendHostState {
 	WlOutput outputs[WL_MAX_OUTPUTS];
 	int output_count;
 
-	/* eventfd and epoll: Linux, not merely POSIX. */
-	int wake_fd;
-	int epoll_fd;
-	/* The uevent socket (loop_uevent_open()), in the epoll set beside the
-	 * display: a GPU that came or went. -1 where the kernel has no such
+	/* The wakeup and the set, which watches it beside the display: Linux's
+	 * eventfd and epoll, or FreeBSD's pipe and poll (backend/loop.h). */
+	LoopWake wake;
+	Loop     loop;
+	/* The uevent socket (loop_uevent_open()), in the set beside the
+	 * display: a GPU that came or went. -1 where the system has no such
 	 * group, which is a hotplug nobody hears. */
 	int uevent_fd;
 	/* The display's descriptor is watched for room as well as for input:
@@ -144,13 +146,14 @@ struct BackendHostState {
 	uint32_t kb_mods;
 	uint32_t kb_group;
 
-	/* Key repeat is the client's on Wayland: a timerfd, armed while text entry
-	 * is on and a repeating key is down. -1 costs repeats alone. One
-	 * keyboard, one repeat, which fires into the focused window. */
-	int repeat_fd;
-	int32_t repeat_rate;  /* per second; 0 is off */
-	int32_t repeat_delay; /* milliseconds before the first */
-	uint32_t repeat_key;  /* evdev code */
+	/* Key repeat is the client's on Wayland: a deadline the pump folds into
+	 * its wait, armed while text entry is on and a repeating key is down.
+	 * One keyboard, one repeat, which fires into the focused window. */
+	double   repeat_due;    /* on now_seconds()'s clock */
+	double   repeat_period; /* seconds between repeats */
+	int32_t repeat_rate;    /* per second; 0 is off */
+	int32_t repeat_delay;   /* milliseconds before the first */
+	uint32_t repeat_key;    /* evdev code */
 	bool repeat_armed;
 
 	/* zwp_text_input_v3 is the seat's: one object, which entered one surface
@@ -177,7 +180,7 @@ struct BackendHostState {
 	 * `clip_source` is what this program is offering. An offer is described
 	 * one mime type at a time and only then named as the selection, so the one
 	 * being described is kept apart from the one in force; `*_kind` indexes
-	 * CLIP_MIME. clip_fd is a paste's pipe, in the epoll set until end of file
+	 * CLIP_MIME. clip_fd is a paste's pipe, in the set until end of file
 	 * and -1 otherwise; `clip` is what has arrived of it (clip_linux.h).
 	 * `clip_sync` is outstanding from a set until the compositor has answered
 	 * it, while `offer_sel` is still the selection before. */

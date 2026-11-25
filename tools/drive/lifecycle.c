@@ -467,7 +467,12 @@ static void wrong_threads(void)
  * internals have. fenestal::static is one object whose only globals are the
  * API, so these link; were the archive to export its internals again, this
  * program would fail to link with a duplicate definition, which is the
- * check. Called, so that nothing is discarded before the linker sees it. */
+ * check. Called, so that nothing is discarded before the linker sees it.
+ *
+ * Not under MSVC: its archive keeps the internals global, having no
+ * relocatable link to localise them (DESIGN *Building Windows with MSVC*),
+ * so these names would be the duplicates the check looks for. */
+#if !defined(_MSC_VER)
 int app_event(int x);
 int create_swapchain(int x);
 int text_width(int x);
@@ -493,6 +498,7 @@ int utf8_next(int x)
 {
 	return x + 5;
 }
+#endif /* !_MSC_VER */
 
 /* ---- main ---------------------------------------------------------------- */
 
@@ -507,10 +513,12 @@ int lifecycle_main(int argc, char **argv)
 	if (cycles < 2)
 		cycles = 2;
 
+#if !defined(_MSC_VER)
 	check(app_event(0) + create_swapchain(0) + text_width(0) + render_loop(0) +
 				  utf8_next(0) ==
 			  15,
 		  "this program's app_event() and four more are its own");
+#endif
 	null_app();
 	bad_descriptors();
 	void (*host)(int) = sigint_handler();

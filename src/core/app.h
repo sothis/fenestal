@@ -1312,7 +1312,7 @@ struct FnlApp {
 	 * The thread that called fnl_init() and runs fnl_run(): it owns the
 	 * window server. Nothing here is read by the render thread except where
 	 * a field says which lock carries it across. */
-	_Alignas(64) bool pointer_captured;
+	FNL_ALIGNAS(64) bool pointer_captured;
 	/* Where the reticle is, in pixels of the presentable area. Kept here
 	 * rather than derived from the pointer, which does not move while the
 	 * pointer is captured. */
@@ -1406,7 +1406,7 @@ struct FnlApp {
 	 * The frame policy (src/core/frame.c), the overlay's streams and the
 	 * renderer. The main thread writes these only before fnl_run()
 	 * starts the render thread and after it has joined it. */
-	_Alignas(64) uint32_t frame;
+	FNL_ALIGNAS(64) uint32_t frame;
 	bool resized;
 	/* When a toplevel state change was last answered; see TRANSITION_GRACE. */
 	double transition_at;
@@ -2095,7 +2095,7 @@ struct FnlApp {
 	uint32_t ovl_img;
 
 	/* ---- shared: under App::lock -------------------------------------- */
-	_Alignas(64) FnlMutex lock;
+	FNL_ALIGNAS(64) FnlMutex lock;
 	FnlCond cond;
 	int want_w, want_h;
 	int want_scale120;
@@ -2483,7 +2483,7 @@ struct FnlApp {
 	 * The lock and the indices start a cache line of their own, ahead of the
 	 * ring: the pump takes the lock per event, and the atomics before it are
 	 * stored by the render thread. */
-	_Alignas(64) FnlMutex ev_lock;
+	FNL_ALIGNAS(64) FnlMutex ev_lock;
 	int ev_head, ev_tail;
 	unsigned ev_lost;
 	FnlEvent ev_ring[EVENT_QUEUE_MAX];

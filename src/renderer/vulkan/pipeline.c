@@ -513,7 +513,7 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 	VkAttachmentDescription attachments[3];
 	uint32_t n = 0;
 
-	attachments[n++] = (VkAttachmentDescription){
+	const VkAttachmentDescription colour_att = {
 		.format = colour,
 		.samples = d->samples,
 		.loadOp = d->clear ? VK_ATTACHMENT_LOAD_OP_CLEAR
@@ -525,6 +525,7 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		.finalLayout = ms ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : result,
 	};
+	attachments[n++] = colour_att;
 	VkAttachmentReference color_ref = {
 		.attachment = 0,
 		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -534,8 +535,8 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 		.attachment = n,
 		.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 	};
-	if (d->depth)
-		attachments[n++] = (VkAttachmentDescription){
+	if (d->depth) {
+		const VkAttachmentDescription depth_att = {
 			.format = VK(a)->depth_format,
 			.samples = d->samples,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -552,13 +553,15 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 							 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
 							 : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 		};
+		attachments[n++] = depth_att;
+	}
 
 	VkAttachmentReference resolve_ref = {
 		.attachment = n,
 		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	};
-	if (ms)
-		attachments[n++] = (VkAttachmentDescription){
+	if (ms) {
+		const VkAttachmentDescription resolve_att = {
 			.format = colour,
 			.samples = VK_SAMPLE_COUNT_1_BIT,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,   /* fully written */
@@ -568,6 +571,8 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 			.finalLayout = result,
 		};
+		attachments[n++] = resolve_att;
+	}
 
 	VkSubpassDescription subpass = {
 		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,

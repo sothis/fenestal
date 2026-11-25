@@ -62,31 +62,39 @@ change; `SECURITY.md` is how to report a vulnerability, and
 
 ## Building
 
-CMake ≥ 3.18, a C11 compiler (gcc or clang; mingw-w64's gcc for Windows), and:
+CMake ≥ 3.18, a C11 compiler (gcc, clang, a UCRT-targeted mingw-w64, or
+MSVC), and:
 
 | Dependency | Provides |
 |---|---|
 | `wayland-client` + `wayland-scanner` | the Wayland connection's headers; the protocol XML is vendored in `protocols/` |
 | `xcb` | the X11 connection's headers -- core protocol only |
 | Linux's own headers (`linux-libc-dev`) | the KMS backend's DRM and evdev ioctls; nothing linked |
+| `libdrm` (FreeBSD) | the KMS backend's DRM headers; FreeBSD's libdrm names them under `libdrm/`, and the build makes the `drm/` spelling |
 | Vulkan loader + headers | `find_package(Vulkan)`: the headers, which reach a consumer through `fenestal::static`; nothing links the loader |
 | `glslangValidator` | compiles `shaders/*` to SPIR-V at build time |
 | `spirv-cross` | translates the shaders for OpenGL, Direct3D 12 and Metal; needed by every build but one with Vulkan alone (`-DFNL_RENDERER=vulkan`) |
 | `libegl-dev`, `libgl-dev` | OpenGL on Linux: the EGL and GL headers; EGL is opened at run time, nothing linked |
-| `dxc` | Direct3D 12 only: Microsoft's shader compiler for Linux, fetched once by `tools/dxc.py`; run at build time |
+| `dxc` | Direct3D 12 only: Microsoft's shader compiler, fetched once by `tools/dxc.py` (Linux and Windows releases); run at build time |
 | `freetype2` | build-time only: bakes the glyph atlases; not linked |
 | pthreads | the render thread |
+| a UCRT mingw-w64 (`FNL_MINGW_PREFIX`) | Windows cross only: MSYS2's UCRT64 or llvm-mingw's UCRT release; Ubuntu's mingw is msvcrt's and is refused |
+| binutils' PE `ld` and `objcopy` | the clang UCRT tree only: llvm-mingw links with lld, which has no relocatable link; Linux's `binutils-mingw-w64`, or MSYS2's `binutils` |
+| MSVC 19.27+ | native Windows, with the Windows SDK and Ninja (`./build.sh win64-msvc`) |
 | `clang-21`, `lld-21` and Apple's SDK | macOS only, cross: the SDK copied once from a Mac by `tools/macos_sdk.py` |
 | `gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu` | ARM Linux only, cross (the Raspberry Pi 4); Ubuntu's, with their own glibc |
 
 ```sh
 ./build.sh linux                  # one target, release: Wayland, X11, KMS
 ./build.sh linux asan             # one target under a checker
-./build.sh win64                  # cross build; needs linux first
+./build.sh win64                  # cross build on UCRT; needs linux first
+./build.sh win64-msvc             # native Windows; needs cl on PATH
 ./build.sh macos                  # cross build for macOS; needs linux
 ./build.sh macos-arm64            # the same for Apple's own processors
+./build.sh macos-universal        # the two macOS trees, joined by lipo
+./build.sh freebsd                # native FreeBSD: Wayland, X11, KMS
 ./build.sh linux-arm64            # cross build for ARM Linux; needs linux
-./build.sh                        # every target and variant
+./build.sh                        # every target this host can build
 ./build.sh dist                   # the source zips alone, no build
 ```
 
@@ -100,42 +108,67 @@ FNL_RENDERER=vulkan wine build/win64/release/fenestal-testbed.exe
 ```
 
 Every tree lands under `build/<target>/<variant>`. The targets are one
-per operating system: `linux` (Wayland, X11 and KMS, drawn with Vulkan or
-OpenGL 4.5), `win64` (Win32 drawn with Direct3D 12 or Vulkan) and
-`macos` (Cocoa drawn with Metal, Vulkan on MoltenVK or OpenGL 4.1), with
-`linux-arm64` the `linux` tree cross-compiled for the Raspberry Pi 4 and
-`macos-arm64` the `macos` tree for Apple's own processors;
-variants are `release`, `clang`, `asan`, `tsan`, `analyzer` and `gc` (the
-Windows target takes `release`, `analyzer` and `gc`, the macOS ones
-`release` and `gc`): thirteen trees, and the ARM Linux one's `release`,
-`asan`, `tsan` and `gc` where its cross compiler is. A Linux program opens the
-backend its session has -- Wayland, else X11, else, with neither, KMS on
-the console -- and says which in its log; `FNL_BACKEND=wayland`, `x11` or
-`kms` in its environment opens that one or fails. Every program draws
-with the first renderer that works there of those it has a scene for --
-Direct3D 12, Vulkan on Windows; Vulkan, OpenGL on Linux; Metal, Vulkan,
-OpenGL on macOS -- and says which; `FNL_RENDERER=d3d12`, `vulkan`, `gl`
-or `metal` names one. Arguments after the target and variant go to the
-configure step. Clean is `rm -rf build`.
+per operating system, plus the native-Windows and universal
+builds: `linux` (Wayland, X11 and KMS, drawn with Vulkan or OpenGL 4.5),
+`win64` (mingw-w64 on the Universal CRT, Win32 drawn with Direct3D 12 or
+Vulkan) and `win64-msvc` (the same, built natively by cl.exe), `macos`
+(Cocoa drawn with Metal, Vulkan on MoltenVK or OpenGL 4.1), `macos-arm64`
+for Apple's own processors, `macos-universal` the two joined by lipo,
+and `freebsd` (native; Wayland, X11 and KMS, drawn with Vulkan or
+OpenGL), with `linux-arm64` the `linux` tree cross-compiled for the
+Raspberry Pi 4. Variants are `release`, `clang`, `asan`, `tsan`,
+`analyzer` and `gc`: `linux` takes all six, `linux-arm64` release, asan,
+tsan and gc where its cross compiler is, `win64` release, analyzer and
+gc, `win64-msvc` release and gc, `freebsd` release, asan, tsan and gc,
+and the macOS trees release and gc. `macos-universal` takes release and
+gc, and joins the two slices of its variant. A Linux or FreeBSD program
+opens the backend its session has -- Wayland, else X11, else, with
+neither, KMS on the console -- and says which in its log;
+`FNL_BACKEND=wayland`, `x11` or `kms` in its environment opens that one
+or fails. Every program draws with the first renderer that works there of
+those it has a scene for -- Direct3D 12, Vulkan on Windows; Vulkan,
+OpenGL on Linux and FreeBSD; Metal, Vulkan, OpenGL on macOS -- and says
+which; `FNL_RENDERER=d3d12`, `vulkan`, `gl` or `metal` names one.
+Arguments after the target and variant go to the configure step. Clean is
+`rm -rf build`.
 
-The four cross targets -- `win64`, `macos`, `macos-arm64` and
-`linux-arm64` -- borrow
-the `linux` release tree's baked font, since the font tool runs during the
-build and would otherwise be compiled for the target. The Windows tree
-produces `libfenestal.dll`, `libfenestal.a` and the `.exe` programs, the
-library importing only Windows' own DLLs -- `KERNEL32`, `msvcrt`, `USER32`,
-`GDI32`, `d3d12` and `dxgi` -- and opening `vulkan-1.dll` when it tries
-Vulkan. The programs import nothing more: their Vulkan scenes ask the
-loader the library opened for every entry, so a machine without one runs
-them on Direct3D 12.
+The cross targets -- `win64`, `macos`, `macos-arm64` and `linux-arm64` --
+borrow the `linux` release tree's baked font, since the font tool runs
+during the build and would otherwise be compiled for the target. The
+Windows tree produces `libfenestal.dll`, `libfenestal.a` and the `.exe`
+programs, the library importing only Windows' own DLLs -- `KERNEL32`,
+`ucrtbase`, `USER32`, `GDI32`, `d3d12` and `dxgi` -- and opening
+`vulkan-1.dll` when it tries Vulkan. It links the Universal CRT and not
+`msvcrt.dll`: `build.sh` refuses an msvcrt-targeted mingw, and the build
+checks the import tables (tools/check-crt.cmake). The programs import
+nothing more: their Vulkan scenes ask the loader the library opened for
+every entry, so a machine without one runs them on Direct3D 12.
+
+`win64-msvc` is the same tree built natively by cl.exe, with Ninja, from
+a Windows shell with the Visual Studio environment set: it produces
+`libfenestal.dll`, its `fenestal.lib` import library,
+`libfenestal-static.lib` and the `.exe` programs. The font is the Linux
+bake (`FNL_FONT_DIR`), or FreeType's if the tree bakes its own; dxc comes
+from `tools/dxc.py`'s Windows release. MSVC has no relocatable link and
+no objcopy, so the static archive keeps its internal symbols global: the
+DLL still exports the API alone, but the archive's "API only" property is
+the gcc and clang trees'. `DESIGN` *Building* says so.
 
 The macOS tree is cross-compiled by clang and `ld64.lld` against Apple's
 SDK. It produces `libfenestal.dylib`, `libfenestal.a` and the programs,
 linking AppKit, QuartzCore, Metal, OpenGL and IOSurface, with MoltenVK
 beside the programs (`tools/moltenvk.py`, pinned by SHA-256), which the
 library opens when it draws with Vulkan and hands to a program's Vulkan
-scene. The harness drives it on a Mac with each renderer; `TODO.md`
-*macOS* has what is owed.
+scene. `macos-universal` builds the two slices and joins each library and
+program with `lipo` into `build/macos-universal/<variant>`
+(`tools/macos_universal.py`). The harness drives `build/macos` on the
+Mac with each renderer; `TODO.md` *macOS* has what is owed.
+
+`freebsd` is native, with the base system's clang, Wayland, X11 and KMS
+drawn with Vulkan and OpenGL. FreeBSD's evdev is the input, libdrm the
+DRM headers, and the event loop is `poll()` rather than epoll. It has no
+kernel uevent socket or inotify, so monitors and input devices are found
+by rescanning on a deadline. `TODO.md` *FreeBSD* has what is owed.
 
 Optimised builds are hardened (`-DFNL_HARDEN=OFF` to leave that out), and
 on x86-64 target `x86-64-v2` (`-DFNL_NATIVE_ARCH=ON` for the build
@@ -272,7 +305,9 @@ at the source and at the binary; `CHANGELOG.md` says what moved,
 `fnl_init()` refuses a header from another minor release, and the shared
 object's soname carries the minor (`libfenestal.so.0.9`). The header's
 *stability* block says what 1.0 will promise. The headers compile as C11
-and as C++11 through C++20. MSVC is not supported.
+and as C++11 through C++20. The library builds under MSVC as under the
+others, though the static archive keeps its internal symbols global there
+(DESIGN *Building*).
 
 ## On a bare display
 
@@ -303,6 +338,13 @@ does (lavapipe has no display), each frame is drawn on a headless surface and
 copied onto the output, and the log says which. `FNL_GPU_DRIVER` (the
 testbed's `--gpu-driver=`) offers a move of an NVIDIA GPU between nouveau and
 NVIDIA's own driver with the window open, an entry in the GPU box for each.
+
+On FreeBSD the same backends are there, but the devices want a devfs rule
+or the `video` and operator groups rather than Linux's `video`/`input`;
+the console's layout files are not there, so the layout is US unless
+`FNL_KMS_LAYOUT` names one. Monitors and keyboards are found by rescanning
+on a deadline, FreeBSD having no kernel uevent socket or inotify; the
+NVIDIA/nouveau move is Linux's alone.
 
 ## The testbed
 

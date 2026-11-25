@@ -342,7 +342,7 @@ void app_drain_requests(App *a)
 	FNL_ASSERT_THREAD(APP_THREAD_MAIN);
 	fnl_mutex_lock(&a->lock);
 	const PendingReq r = a->req;
-	a->req             = (PendingReq){ 0 };
+	memset(&a->req, 0, sizeof a->req);
 	char title[TITLE_MAX];
 	if (r.title)
 		memcpy(title, a->title, sizeof title);
@@ -3150,7 +3150,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory for the host");
 	memset(h, 0, sizeof(Host));
 
-	/* Aligned rather than plain malloc: App has _Alignas(64) members keeping
+	/* Aligned rather than plain malloc: App has FNL_ALIGNAS(64) members keeping
 	 * what each thread writes on cache lines of its own, and malloc guarantees
 	 * only max_align_t. See compiler.h for the wrapper. */
 	App *a = fnl_aligned_alloc(FNL_ALIGNOF(App), sizeof(App));
@@ -3463,7 +3463,7 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	memset(&d, 0, sizeof d);
 	memcpy(&d, desc, desc->size);
 
-	/* Aligned for App's _Alignas(64) members, as fnl_init() allocates it;
+	/* Aligned for App's FNL_ALIGNAS(64) members, as fnl_init() allocates it;
 	 * the host's is kept, so the registry's links are the only state shared. */
 	App *a = fnl_aligned_alloc(FNL_ALIGNOF(App), sizeof(App));
 	if (!a)
@@ -3595,7 +3595,8 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	 * rank_read_only makes it RANK_KEEP). Before the build, which takes the
 	 * GPU from what open_on() named. */
 	app_rank_start(a);
-	if ((rc = renderer_choose_and_build(a, &(FnlInitDesc){ 0 })) < 0)
+	const FnlInitDesc no_desc = { 0 };
+	if ((rc = renderer_choose_and_build(a, &no_desc)) < 0)
 		goto fail;
 	BACKEND(a)->apply_size_bounds(a);
 	BACKEND(a)->update_scale(a);

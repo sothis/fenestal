@@ -175,8 +175,8 @@ static void rawin_take(struct RawIn *r, HRAWINPUT h)
 		(m->lLastX || m->lLastY)) {
 		rec.moved = false;
 		if (r->fwd_n < RAW_FORWARD) {
-			r->fwd[(r->fwd_head + r->fwd_n) % RAW_FORWARD] =
-				(RawForward){ .m = *m, .t = t };
+			const RawForward fw = { .m = *m, .t = t };
+			r->fwd[(r->fwd_head + r->fwd_n) % RAW_FORWARD] = fw;
 			r->fwd_n++;
 		} else {
 			RAWMOUSE *last = &r->fwd[(r->fwd_head + r->fwd_n - 1) %
@@ -243,14 +243,18 @@ static void *rawin_main(void *arg)
 		UINT n = 0;
 		r->has_mouse = !usage_target(USAGE_MOUSE, r->hwnd);
 		r->has_keys = !usage_target(USAGE_KEYS, r->hwnd);
-		if (r->has_mouse)
-			rid[n++] = (RAWINPUTDEVICE){ .usUsagePage = 0x01,
-										 .usUsage = USAGE_MOUSE,
-										 .hwndTarget = r->hwnd };
-		if (r->has_keys)
-			rid[n++] = (RAWINPUTDEVICE){ .usUsagePage = 0x01,
-										 .usUsage = USAGE_KEYS,
-										 .hwndTarget = r->hwnd };
+		if (r->has_mouse) {
+			const RAWINPUTDEVICE mouse = { .usUsagePage = 0x01,
+										   .usUsage = USAGE_MOUSE,
+										   .hwndTarget = r->hwnd };
+			rid[n++] = mouse;
+		}
+		if (r->has_keys) {
+			const RAWINPUTDEVICE keys = { .usUsagePage = 0x01,
+										  .usUsage = USAGE_KEYS,
+										  .hwndTarget = r->hwnd };
+			rid[n++] = keys;
+		}
 		/* None free leaves err 0: the program's own, said as such. */
 		if (n > 0 && RegisterRawInputDevices(rid, n, sizeof rid[0]))
 			r->ok = true;
@@ -344,14 +348,18 @@ void rawin_stop(struct RawIn *r)
 	 * From here, since a removal names no window. */
 	RAWINPUTDEVICE rid[2];
 	UINT n = 0;
-	if (r->has_mouse && usage_target(USAGE_MOUSE, NULL) == r->hwnd)
-		rid[n++] = (RAWINPUTDEVICE){ .usUsagePage = 0x01,
-									 .usUsage = USAGE_MOUSE,
-									 .dwFlags = RIDEV_REMOVE };
-	if (r->has_keys && usage_target(USAGE_KEYS, NULL) == r->hwnd)
-		rid[n++] = (RAWINPUTDEVICE){ .usUsagePage = 0x01,
-									 .usUsage = USAGE_KEYS,
-									 .dwFlags = RIDEV_REMOVE };
+	if (r->has_mouse && usage_target(USAGE_MOUSE, NULL) == r->hwnd) {
+		const RAWINPUTDEVICE mouse = { .usUsagePage = 0x01,
+									   .usUsage = USAGE_MOUSE,
+									   .dwFlags = RIDEV_REMOVE };
+		rid[n++] = mouse;
+	}
+	if (r->has_keys && usage_target(USAGE_KEYS, NULL) == r->hwnd) {
+		const RAWINPUTDEVICE keys = { .usUsagePage = 0x01,
+									  .usUsage = USAGE_KEYS,
+									  .dwFlags = RIDEV_REMOVE };
+		rid[n++] = keys;
+	}
 	if (n)
 		RegisterRawInputDevices(rid, n, sizeof rid[0]);
 	/* A queue too full for the close still takes a quit, which ends the

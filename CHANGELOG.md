@@ -6,6 +6,17 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **FreeBSD.** A native `freebsd` target: Wayland, X11 and KMS, drawn with
+  Vulkan and OpenGL. The KMS backend's DRM headers come from libdrm, its
+  input from FreeBSD's evdev, and the event loop is `poll()` and a pipe.
+- **Windows: the Universal CRT, and MSVC.** The `win64` mingw tree now
+  links the UCRT and not msvcrt.dll, and refuses a compiler that targets
+  msvcrt. A native `win64-msvc` target builds the same library and
+  programs with cl.exe; its static archive keeps its internal symbols
+  global, and the DLL exports the API alone as before.
+- **macOS universal.** `./build.sh macos-universal` builds the two
+  architecture slices and joins every library and program with `lipo` into
+  `build/macos-universal/<variant>`.
 - **HDR, and the colour of the window in the API.** `FnlInitDesc::want_color`
   asks for an extended-linear or PQ output, `FNL_COLOR` in the environment
   names one that is taken or fails, and `FnlFrame::color` /

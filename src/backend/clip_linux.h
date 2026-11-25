@@ -10,7 +10,7 @@
  * here, so that the two cannot answer the same paste differently. DESIGN
  * *The clipboard*.
  *
- * Inline, as loop_linux.h is. The buffer lives in a field of the backend's
+ * Inline, as loop.h is. The buffer lives in a field of the backend's
  * state and nowhere else, which is the shape -fanalyzer can follow.
  */
 

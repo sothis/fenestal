@@ -3,18 +3,24 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * What the compilers disagree about: GCC (the tree's default), Clang and MSVC.
- *
- * The MSVC branches are written but have never been compiled -- the cross
- * toolchain is mingw-w64, which is GCC.
+ * What the compilers disagree about: GCC (the tree's default), Clang and
+ * MSVC. MSVC is the native Windows build (`win64-msvc`); the cross toolchain
+ * is mingw-w64, which is GCC.
  */
 
 /* Pinned here because this is the lowest header in the tree and the first to
  * pull in libc: glibc hides pthread_condattr_setclock and CLOCK_MONOTONIC
  * behind it, and a feature-test macro set after the first libc include is set
- * too late. It is why app.h, which includes this first, leads every .c. */
+ * too late. It is why app.h, which includes this first, leads every .c.
+ *
+ * Not on FreeBSD, whose cdefs leaves __BSD_VISIBLE at 0 under it and then
+ * hides pipe2, memfd_create, SOCK_CLOEXEC/SOCK_NONBLOCK and the evdev
+ * ioctls. Its default environment is POSIX 2024 plus BSD, which is more
+ * than 200809 asks for; _GNU_SOURCE is not a spelling it knows. */
 #ifndef _POSIX_C_SOURCE
+#if !defined(__FreeBSD__)
 #define _POSIX_C_SOURCE 200809L
+#endif
 #endif
 /* And on macOS everything beside POSIX as well: the system's headers hide
  * whatever POSIX does not name once _POSIX_C_SOURCE is set, which is half
@@ -57,9 +63,9 @@
  * (-Wstringop-overflow, "likely at address zero"). */
 #  define FNL_NONNULL      __attribute__((nonnull))
 #elif defined(_MSC_VER)
-/* Only enforced under /analyze, so weaker there: GCC is the compiler that
- * polices this, MSVC the one that has to accept it. */
-#  define FNL_MUST_USE   _Check_return_
+/* Empty rather than _Check_return_: it is only read under /analyze, and
+ * several uses here are function-pointer members, which SAL does not take. */
+#  define FNL_MUST_USE
 #  define FNL_PRINTF(f, a)
 /* MSVC takes _Thread_local only in recent C mode; this means the same for a
  * static, which is the only way it is used here. */
@@ -96,13 +102,15 @@
 /* MSVC accepts _Alignof only in its C11 mode. */
 #if defined(_MSC_VER)
 #  define FNL_ALIGNOF(T) __alignof(T)
+#  define FNL_ALIGNAS(n) __declspec(align(n))
 #else
 #  define FNL_ALIGNOF(T) _Alignof(T)
+#  define FNL_ALIGNAS(n) _Alignas(n)
 #endif
 
 /* ---- aligned allocation --------------------------------------------------
  *
- * App carries _Alignas(64) members: one at the head of each run of fields
+ * App carries FNL_ALIGNAS(64) members: one at the head of each run of fields
  * with its own writer -- the pump thread's, the render thread's, and what the
  * two share -- and one on the event queue's lock. Plain malloc guarantees
  * only max_align_t, and getting this wrong fails no build and no test: it

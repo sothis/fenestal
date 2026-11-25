@@ -138,23 +138,26 @@ static void record_scene_draws(App *a, VkCommandBuffer cb,
 	};
 
 	VK(a)->scene_cb = cb;
-	VK(a)->scene_rect = (VkRect2D){ .offset = { x, y },
-									.extent = { (uint32_t)w, (uint32_t)h } };
+	const VkRect2D rect = { .offset = { x, y },
+							.extent = { (uint32_t)w, (uint32_t)h } };
+	VK(a)->scene_rect = rect;
 	a->cb.on_record(a->cb.ud, a, &f);
 	VK(a)->scene_cb = VK_NULL_HANDLE;
 }
 
 static VkExtent2D win_vk_extent(const App *a)
 {
-	return (VkExtent2D){ (uint32_t)a->extent.w, (uint32_t)a->extent.h };
+	const VkExtent2D e = { (uint32_t)a->extent.w, (uint32_t)a->extent.h };
+	return e;
 }
 
 /* One conversion, so VkExtent2D stays out of a field the shared frame policy
  * also reads. */
 static VkExtent2D scene_vk_extent(const App *a)
 {
-	return (VkExtent2D){ (uint32_t)a->scene_extent.w,
-						 (uint32_t)a->scene_extent.h };
+	const VkExtent2D e = { (uint32_t)a->scene_extent.w,
+						   (uint32_t)a->scene_extent.h };
+	return e;
 }
 
 /* Viewport and scissor over the whole of a target of extent `e`. */
@@ -604,10 +607,12 @@ static bool record_command_buffer(App *a, VkCommandBuffer cb, uint32_t img,
 		VkClearRect cr[4];
 		uint32_t k = 0;
 		for (int i = 0; i < 4; i++)
-			if (ring[i].extent.width && ring[i].extent.height)
-				cr[k++] = (VkClearRect){ .rect           = ring[i],
-										 .baseArrayLayer = 0,
-										 .layerCount = 1 };
+			if (ring[i].extent.width && ring[i].extent.height) {
+				const VkClearRect clear = { .rect           = ring[i],
+											.baseArrayLayer = 0,
+											.layerCount = 1 };
+				cr[k++] = clear;
+			}
 		if (k) {
 			/* The API rejects a zero extent, and clipping is free to produce
 			 * one -- hence the filter above, not a flat count of four. */
@@ -904,12 +909,14 @@ static void timing_take(App *a)
 		return;
 	VkPresentStageTimeEXT st[TIMING_QUEUE];
 	VkPastPresentationTimingEXT t[TIMING_QUEUE];
-	for (uint32_t i = 0; i < TIMING_QUEUE; i++)
-		t[i] = (VkPastPresentationTimingEXT){
+	for (uint32_t i = 0; i < TIMING_QUEUE; i++) {
+		const VkPastPresentationTimingEXT timing = {
 			.sType = VK_STRUCTURE_TYPE_PAST_PRESENTATION_TIMING_EXT,
 			.presentStageCount = 1,
 			.pPresentStages = &st[i],
 		};
+		t[i] = timing;
+	}
 	const VkPastPresentationTimingInfoEXT info = {
 		.sType = VK_STRUCTURE_TYPE_PAST_PRESENTATION_TIMING_INFO_EXT,
 		.swapchain = VK(a)->swapchain,

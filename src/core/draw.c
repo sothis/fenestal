@@ -109,7 +109,8 @@ Extent app_buffer_extent(App *a, Extent min, Extent max)
 		if (h < gran)
 			h = gran;
 	}
-	return (Extent){ (int)w, (int)h };
+	const Extent side = { (int)w, (int)h };
+	return side;
 }
 
 /* How much larger than the window the images it shows part of are made
@@ -127,8 +128,9 @@ Extent app_buffer_extent(App *a, Extent min, Extent max)
 static Extent output_px(const App *a)
 {
 	const int s120 = scale120(a);
-	return (Extent){ (int)scale_pt(a->last_draw.out_w_pt, s120),
-					 (int)scale_pt(a->last_draw.out_h_pt, s120) };
+	const Extent px = { (int)scale_pt(a->last_draw.out_w_pt, s120),
+						(int)scale_pt(a->last_draw.out_h_pt, s120) };
+	return px;
 }
 
 bool app_buffer_at_rest(const App *a)
@@ -165,8 +167,9 @@ Extent app_buffer_room(const App *a, Extent e, Extent max)
 {
 	const Extent out = output_px(a);
 	const bool rest  = app_buffer_at_rest(a);
-	return (Extent){ room_side(e.w, max.w, out.w, rest),
-					 room_side(e.h, max.h, out.h, rest) };
+	const Extent room = { room_side(e.w, max.w, out.w, rest),
+						  room_side(e.h, max.h, out.h, rest) };
+	return room;
 }
 
 /* Whether images of `room` still serve a window of `e`: at rest, only

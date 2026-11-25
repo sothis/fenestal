@@ -26,7 +26,6 @@
 #include <poll.h>
 
 #include "backend/x11/x11_state.h"
-#include "backend/loop_linux.h"
 
 /* How long a _NET_WM_SYNC_REQUEST waits for the ConfigureNotify that
  * follows it before its value goes out with the size the window has: one
@@ -2161,7 +2160,7 @@ static void dispatch_read(App *a)
 	struct BackendState *p = a->backend_state;
 	xcb_generic_event_t *ev;
 
-	/* Runs to empty, so nothing is left for a level-triggered epoll to report
+	/* Runs to empty, so nothing is left for a level-triggered set to report
 	 * again. */
 	while ((ev = xcb_poll_for_event(p->conn))) {
 		dispatch(a, ev);
@@ -2196,19 +2195,18 @@ static void wait_fds(App *a, int timeout_ms)
 {
 	Host *h                    = a->host;
 	struct BackendHostState *hs = app_backend_host(a);
-	struct epoll_event evs[16];
+	LoopEvent evs[LOOP_EVENTS];
 
-	const int n = epoll_wait(hs->epoll_fd, evs, 16, timeout_ms);
+	const int n = loop_wait(&hs->loop, evs, LOOP_EVENTS, timeout_ms);
 	for (int i = 0; i < n; i++) {
-		if (evs[i].data.fd == hs->wake_fd)
-			loop_wake_drain(hs->wake_fd);
-		else if (evs[i].data.fd == hs->uevent_fd)
+		if (evs[i].fd == hs->wake.fd)
+			loop_wake_drain(&hs->wake);
+		else if (evs[i].fd == hs->uevent_fd)
 			loop_uevent_drain(a, hs->uevent_fd);
 		else {
 			for (App *w = h->windows; w; w = w->next) {
 				struct BackendState *p = w->backend_state;
-				if (p && xcb_get_file_descriptor(p->conn) ==
-							 evs[i].data.fd) {
+				if (p && xcb_get_file_descriptor(p->conn) == evs[i].fd) {
 					dispatch_read(w);
 					break;
 				}
@@ -2263,11 +2261,12 @@ static void x11_pump(App *a, int timeout_ms)
 				continue;
 			/* For ever, unless a paste is owed: then only for as long as
 			 * its owner is given to send the next piece. */
-			int wms = loop_wait_ms(p->clip_waiting, p->clip.deadline);
+			int wms = loop_wait_ms(p->clip_waiting ? p->clip.deadline
+												   : -1.0, -1.0);
 			/* And back by a sync request's deadline, where its configure
 			 * has not come: the publish that answers it is owed then. */
 			if (p->sync_asked && !p->sync_configured) {
-				const int sync_ms = loop_wait_ms(true, p->sync_deadline);
+				const int sync_ms = loop_wait_ms(p->sync_deadline, -1.0);
 				wms = wms < 0 || sync_ms < wms ? sync_ms : wms;
 			}
 			/* And by a size's hold, which a frame presented also ends. */
@@ -2306,8 +2305,8 @@ static void x11_pump(App *a, int timeout_ms)
 static void x11_wakeup(App *a)
 {
 	struct BackendHostState *hs = app_backend_host(a);
-	if (hs && hs->wake_fd >= 0)
-		loop_wake(hs->wake_fd);
+	if (hs && hs->wake.fd >= 0)
+		loop_wake(&hs->wake);
 }
 
 static FnlResult x11_check_error(App *a)
@@ -2406,7 +2405,8 @@ void x11_sync_answered(struct BackendState *p, uint64_t index)
 static int sync_await_ms(struct BackendState *p)
 {
 	fnl_mutex_lock(&p->sync_lock);
-	const int ms = loop_wait_ms(p->sync_await, p->sync_await_until);
+	const int ms = loop_wait_ms(
+		p->sync_await ? p->sync_await_until : -1.0, -1.0);
 	fnl_mutex_unlock(&p->sync_lock);
 	return ms;
 }
@@ -2503,7 +2503,7 @@ static void x11_frame_request(App *a)
 			sent = sync_release_owed(p);
 		fnl_mutex_unlock(&p->sync_lock);
 		if (sent)
-			loop_wake(p->host->wake_fd);
+			loop_wake(&p->host->wake);
 		if (p->present_log)
 			fnl_log(FNL_LOG_INFO,
 					"X11 present: swapchain %u, %llu's queue discarded",
@@ -2559,7 +2559,7 @@ static void x11_frame_cancel(App *a)
 		sent = sync_release_owed(p);
 	fnl_mutex_unlock(&p->sync_lock);
 	if (sent)
-		loop_wake(p->host->wake_fd);
+		loop_wake(&p->host->wake);
 }
 
 static void x11_flush(App *a)
@@ -2612,7 +2612,7 @@ static void x11_flush(App *a)
 	if (sent)
 		xcb_flush(p->conn);
 	if (kept || sent)
-		loop_wake(p->host->wake_fd);
+		loop_wake(&p->host->wake);
 	/* The size the frame just presented was drawn at, for a size held
 	 * behind it (size_give()), and the pump woken for that size. */
 	if (a->presents != p->flush_presents) {
@@ -2621,7 +2621,7 @@ static void x11_flush(App *a)
 		fnl_atomic_store_u32(&p->shown_h, (uint32_t)a->extent.h);
 		if (fnl_atomic_load_bool(&p->held_wake)) {
 			fnl_atomic_store_bool(&p->held_wake, false);
-			loop_wake(p->host->wake_fd);
+			loop_wake(&p->host->wake);
 		}
 	}
 }
@@ -2640,7 +2640,7 @@ static void x11_ack_release(App *a)
 	if (!sent)
 		return;
 	xcb_flush(p->conn);
-	loop_wake(p->host->wake_fd);
+	loop_wake(&p->host->wake);
 }
 
 /* Mapped, and not hidden by the manager. Not "covered": no window server
@@ -2879,7 +2879,7 @@ static void wait_for_map(App *a)
 		const double left = deadline - now_seconds();
 		if (left <= 0.0)
 			break;
-		/* This window's connection alone: the host's epoll carries every
+		/* This window's connection alone: the host's set carries every
 		 * window's, and a second window's open must not dispatch the first's
 		 * events while it waits for its own map. */
 		struct pollfd pfd = { .fd = xcb_get_file_descriptor(p->conn),
@@ -2905,14 +2905,13 @@ static void wait_for_map(App *a)
 	publish_flush(a);
 }
 
-/* Add a descriptor to the host's epoll set. The set is made before any window
+/* Add a descriptor to the host's set. The set is made before any window
  * connects, so the wakeup and the uevent socket go in here and each window's
  * connection joins as it opens. */
-static FnlResult epoll_watch(int epoll_fd, int fd)
+static FnlResult poll_watch(Loop *loop, int fd)
 {
-	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fd };
-	if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0)
-		return fnl_fail(FNL_ERR_SYSTEM, "epoll_ctl(ADD) failed: %s",
+	if (!loop_add(loop, fd))
+		return fnl_fail(FNL_ERR_SYSTEM, "poll set add failed: %s",
 						strerror(errno));
 	return FNL_OK;
 }
@@ -2938,19 +2937,17 @@ static FnlResult x11_host_open(App *a)
 	/* Not left at the calloc's zero, which is stdin: x11_host_close() decides
 	 * whether to close these, and "never made" has to be a value that is not
 	 * somebody else's descriptor. */
-	hs->wake_fd = hs->epoll_fd = hs->uevent_fd = -1;
+	loop_init(&hs->loop);
+	hs->wake.fd = hs->wake.wfd = -1;
+	hs->uevent_fd = -1;
 
 	/* The wakeup first: everything after this can fail, and x11_host_close()
 	 * -- the failure path out of here -- is written to cope with any prefix. */
-	FNL_TRY(loop_wake_create(&hs->wake_fd));
-	hs->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-	if (hs->epoll_fd < 0)
-		return fnl_fail(FNL_ERR_SYSTEM, "epoll_create1 failed: %s",
-						strerror(errno));
-	FNL_TRY(epoll_watch(hs->epoll_fd, hs->wake_fd));
+	FNL_TRY(loop_wake_create(&hs->wake));
+	FNL_TRY(loop_create(&hs->loop, -1, hs->wake.fd));
 	/* A GPU that came or went: the same netlink group KMS reads, opened
 	 * here so the window servers' backends hear a hotplug too. */
-	FNL_TRY(loop_uevent_open(&hs->uevent_fd, hs->epoll_fd));
+	FNL_TRY(loop_uevent_open(&hs->uevent_fd, &hs->loop));
 	return FNL_OK;
 }
 
@@ -2975,14 +2972,14 @@ static void x11_host_close(App *a)
 	 * still reach them through app_wakeup(): app_teardown() clears the
 	 * host's installed_signals once it has waited every handler out. */
 	if (!app_signals_installed(a)) {
-		if (hs->epoll_fd >= 0)
-			close(hs->epoll_fd);
-		if (hs->wake_fd >= 0)
-			close(hs->wake_fd);
+		loop_destroy(&hs->loop);
+		loop_wake_destroy(&hs->wake);
 		if (hs->uevent_fd >= 0)
 			close(hs->uevent_fd);
 	}
-	hs->epoll_fd = hs->wake_fd = hs->uevent_fd = -1;
+	loop_init(&hs->loop);
+	hs->wake.fd = hs->wake.wfd = -1;
+	hs->uevent_fd = -1;
 	free(hs);
 	a->host->backend_host = NULL;
 }
@@ -3009,7 +3006,7 @@ static FnlResult x11_window_open(App *a)
 	/* The host's presentation connection, made with the first window. */
 	FNL_TRY(create_gfx_connection(p->host));
 	p->gfx = p->host->gfx;
-	FNL_TRY(epoll_watch(p->host->epoll_fd, xcb_get_file_descriptor(p->conn)));
+	FNL_TRY(poll_watch(&p->host->loop, xcb_get_file_descriptor(p->conn)));
 	wait_for_map(a);
 	return FNL_OK;
 }
@@ -3044,6 +3041,10 @@ static void x11_window_close(App *a)
 			xcb_destroy_window(p->conn, p->window);
 		xcb_flush(p->conn);
 	}
+	/* Out of the set first: epoll drops a closed descriptor by itself,
+	 * poll() would report it invalid for ever. */
+	if (p->conn)
+		loop_del(&p->host->loop, xcb_get_file_descriptor(p->conn));
 	/* Frees the connection whether or not it is in error, and copes with a
 	 * NULL -- which is what a failed xcb_connect leaves. */
 	xcb_disconnect(p->conn);

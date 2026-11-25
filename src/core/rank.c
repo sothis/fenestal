@@ -60,6 +60,10 @@
 #else
 #include <unistd.h>
 #endif
+#if defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#endif
 
 #define CAL_SETTLE 1.5     /* seconds drawn at most before sampling */
 #define CAL_SAMPLE 2.0     /* seconds sampled at most */
@@ -98,6 +102,11 @@ static void program_name(char *out, size_t size)
 		snprintf(path, sizeof path, "%s", _pgmptr);
 #elif defined(__APPLE__)
 	snprintf(path, sizeof path, "%s", getprogname());
+#elif defined(__FreeBSD__)
+	int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+	size_t n = sizeof path;
+	if (sysctl(mib, 4, path, &n, NULL, 0) != 0)
+		path[0] = '\0';
 #else
 	const ssize_t k     = readlink("/proc/self/exe", path, sizeof path - 1);
 	path[k > 0 ? k : 0] = '\0';

@@ -39,22 +39,24 @@
 #include "backend/evdev_keys.h"
 #include "backend/kms/kms_atomic.h"
 #include "backend/kms/kms_driver.h"
-#include "backend/loop_linux.h"
+#include "backend/evdev_input.h"
+#include "backend/loop.h"
 
 #include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <sys/inotify.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/socket.h>
 #include <time.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#include <sys/socket.h>
+#include <linux/netlink.h>
+#endif
 
 #include <drm/drm.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_mode.h>
-#include <linux/input.h>
-#include <linux/netlink.h>
 
 /* ---- the DRM node -------------------------------------------------------- */
 
@@ -82,6 +84,12 @@ static const char *const CONNECTOR_NAMES[] = {
 };
 #define CONNECTOR_NAME_COUNT                                                   \
 	(sizeof CONNECTOR_NAMES / sizeof CONNECTOR_NAMES[0])
+
+/* How often the outputs and the input devices are looked at again where
+ * there is no uevent socket or inotify to say they changed (FreeBSD): an
+ * EDID probe for each connector is tens of milliseconds, on the pump's
+ * thread, which is why it is not a tighter loop. */
+#define KMS_RESCAN_S 2.0
 
 /* Cards looked at, card0 upwards. */
 #define KMS_MAX_CARDS 8
@@ -1638,8 +1646,7 @@ static void input_add(App *a, const char *node)
 		d->ax    = x.value;
 		d->ay    = y.value;
 	}
-	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fd };
-	if (epoll_ctl(hs->epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
+	if (!loop_add(&hs->loop, fd)) {
 		close(fd);
 		return;
 	}
@@ -1667,6 +1674,9 @@ static void input_remove(App *a, KmsInput *d)
 {
 	struct BackendState *p = a->backend_state;
 	const bool keyboard    = (d->kind & KMS_KEYBOARD) != 0;
+	/* Out of the set before the close: epoll drops a closed descriptor by
+	 * itself, poll() would report it as invalid for ever. */
+	loop_del(&p->host->loop, d->fd);
 	close(d->fd);
 	*d = p->host->inputs[--p->host->input_count];
 	if (keyboard) {
@@ -1685,6 +1695,7 @@ static void inputs_scan(App *a)
 	closedir(dir);
 }
 
+#if defined(__linux__)
 static void inputs_hotplug(App *a)
 {
 	struct BackendState *p = a->backend_state;
@@ -1703,6 +1714,7 @@ static void inputs_hotplug(App *a)
 		}
 	}
 }
+#endif
 
 /* One batch from a device; false when it has gone. Level-triggered, so what
  * is left is read on the next turn. */
@@ -2503,7 +2515,7 @@ void kms_sel_refused(App *a, int sel, bool whole)
 		fnl_atomic_store_u32(m,
 							 fnl_atomic_load_u32(m) | 1u << KMS_SEL_MODE(sel));
 	}
-	loop_wake(p->host->wake_fd);
+	loop_wake(&p->host->wake);
 }
 
 void kms_sel_shown(App *a, int sel)
@@ -2968,6 +2980,7 @@ static int kms_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
 
 static void uevent_open(struct BackendHostState *hs)
 {
+#if defined(__linux__)
 	hs->uevent_fd = socket(AF_NETLINK,
 							SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
 							NETLINK_KOBJECT_UEVENT);
@@ -2979,9 +2992,8 @@ static void uevent_open(struct BackendHostState *hs)
 		return;
 	}
 	struct sockaddr_nl at = { .nl_family = AF_NETLINK, .nl_groups = 1 };
-	struct epoll_event ev = { .events = EPOLLIN, .data.fd = hs->uevent_fd };
 	if (bind(hs->uevent_fd, (struct sockaddr *)&at, sizeof at) < 0 ||
-		epoll_ctl(hs->epoll_fd, EPOLL_CTL_ADD, hs->uevent_fd, &ev) < 0) {
+		!loop_add(&hs->loop, hs->uevent_fd)) {
 		fnl_log(FNL_LOG_WARN,
 				"KMS: no uevents (%s); a monitor plugged in "
 				"later is not seen",
@@ -2989,8 +3001,16 @@ static void uevent_open(struct BackendHostState *hs)
 		close(hs->uevent_fd);
 		hs->uevent_fd = -1;
 	}
+#else
+	/* No kobject uevent group here: outputs and inputs are looked at again
+	 * on rescan_due instead. */
+	(void)hs;
+	fnl_log(FNL_LOG_INFO,
+			"KMS: no uevents here; monitors are rescanned");
+#endif
 }
 
+#if defined(__linux__)
 /* Whether a uevent is a hotplug of this card: its strings, NUL-separated
  * after the "action@path" header, carry SUBSYSTEM=drm, HOTPLUG=1 and the
  * card's DEVNAME. The host's, like the socket the pump reads it from. */
@@ -3010,6 +3030,7 @@ static bool uevent_is_ours(const struct BackendHostState *hs, const char *buf,
 	}
 	return drm && hotplug && card;
 }
+#endif
 
 /* A slot that was this connector and saw these same modes, as the lists
  * name them -- a size and a refresh, and the same preferred: a monitor
@@ -3293,15 +3314,16 @@ static FnlResult kms_host_open(App *a)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 						"out of memory for the KMS host state");
 	a->host->backend_host = hs;
-	hs->card_fd = hs->wake_fd = hs->epoll_fd = hs->inotify_fd = -1;
-	hs->uevent_fd                                               = -1;
-	hs->away_owed                                               = -1;
+	loop_init(&hs->loop);
+	hs->wake.fd = hs->wake.wfd = -1;
+	hs->card_fd = hs->inotify_fd = hs->uevent_fd = -1;
+	hs->away_owed                               = -1;
 
 	/* Every step conditional, and every failure unwinds through
 	 * kms_host_close() here: a NO_DISPLAY refusal (no output, a card held by
 	 * another program) makes fnl_init() step to the next backend without
 	 * calling host_close() on this one. */
-	FnlResult rc = loop_wake_create(&hs->wake_fd);
+	FnlResult rc = loop_wake_create(&hs->wake);
 	/* The card, and the outputs the open found on it: the window picks
 	 * one of them next (kms_window_open). */
 	if (rc == FNL_OK)
@@ -3317,6 +3339,7 @@ static FnlResult kms_host_open(App *a)
 	if (hs->atomic)
 		fnl_log(FNL_LOG_INFO, "KMS: atomic commits on card%d", hs->card_index);
 
+#if defined(__linux__)
 	hs->inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 	if (hs->inotify_fd < 0) {
 		kms_host_close(a);
@@ -3324,14 +3347,21 @@ static FnlResult kms_host_open(App *a)
 						strerror(errno));
 	}
 	/* Watched before the scan, so a device that appears between the two is
-	 * reported rather than missed; input_add() takes a node once. */
+	 * reported rather than missed; inputs_scan() takes each node once. */
 	if (inotify_add_watch(hs->inotify_fd, "/dev/input",
 						  IN_CREATE | IN_ATTRIB) < 0)
 		fnl_log(FNL_LOG_WARN,
 				"KMS: /dev/input is not watched (%s); a "
 				"device plugged in later is not read",
 				strerror(errno));
-	rc = loop_epoll_create(&hs->epoll_fd, hs->inotify_fd, hs->wake_fd);
+	rc = loop_create(&hs->loop, hs->inotify_fd, hs->wake.fd);
+#else
+	/* No inotify here: the set watches the wakeup, and /dev/input and the
+	 * card's outputs are looked at again on a deadline. */
+	hs->inotify_fd = -1;
+	hs->rescan_due = now_seconds() + KMS_RESCAN_S;
+	rc = loop_create(&hs->loop, -1, hs->wake.fd);
+#endif
 	if (rc < 0) {
 		kms_host_close(a);
 		return rc;
@@ -3513,10 +3543,8 @@ static void kms_host_close(App *a)
 		close(hs->card_fd);
 	/* The two a signal handler may still be writing to: see wl_host_close(). */
 	if (!app_signals_installed(a)) {
-		if (hs->epoll_fd >= 0)
-			close(hs->epoll_fd);
-		if (hs->wake_fd >= 0)
-			close(hs->wake_fd);
+		loop_destroy(&hs->loop);
+		loop_wake_destroy(&hs->wake);
 	}
 	free(hs);
 	a->host->backend_host = NULL;
@@ -3552,7 +3580,7 @@ static void kms_present_window_renew(App *a)
 static void kms_pump(App *a, int timeout_ms)
 {
 	struct BackendHostState *hs = app_backend_host(a);
-	struct epoll_event evs[16];
+	LoopEvent evs[LOOP_EVENTS];
 	/* The pump is the host's and serves every window on it, but `a` is only
 	 * whichever window fnl_pump() was handed -- under fnl_run() always the
 	 * first. Its per-window work (the cursor recheck after a switch, a refused
@@ -3572,16 +3600,20 @@ static void kms_pump(App *a, int timeout_ms)
 			(wait_ms < 0 || CURSOR_RECHECK_MS < wait_ms))
 			wait_ms = CURSOR_RECHECK_MS;
 	}
-	if (hs->outputs_away) {
-		const int ms = loop_wait_ms(true, away_at);
-		if (wait_ms < 0 || ms < wait_ms)
-			wait_ms = ms;
-	}
+#if defined(__linux__)
+	const double rescan_at = -1.0;
+#else
+	const double rescan_at = hs->rescan_due;
+#endif
+	const int ms = loop_wait_ms(hs->outputs_away ? away_at : -1.0,
+								rescan_at);
+	if (ms >= 0 && (wait_ms < 0 || ms < wait_ms))
+		wait_ms = ms;
 	/* And by the caller's own bound, for a loop that is not fnl_run()'s
 	 * (fnl_pump()). */
 	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
 		wait_ms = timeout_ms;
-	const int n = epoll_wait(hs->epoll_fd, evs, 16, wait_ms);
+	const int n = loop_wait(&hs->loop, evs, LOOP_EVENTS, wait_ms);
 	for (App *w = a->host->windows; w; w = w->next) {
 		struct BackendState *q = w->backend_state;
 		if (q && q->cursor_recheck > 0)
@@ -3589,16 +3621,31 @@ static void kms_pump(App *a, int timeout_ms)
 	}
 	if (hs->outputs_away && now_seconds() >= away_at)
 		outputs_rescan(a);
+#if !defined(__linux__)
+	/* No uevent socket and no inotify: a monitor or a keyboard that came or
+	 * went is found by looking again, on the pump's thread, at this rate. */
+	if (now_seconds() >= hs->rescan_due) {
+		outputs_rescan(a);
+		for (App *w = a->host->windows; w; w = w->next)
+			if (w->backend_state) {
+				inputs_scan(w);
+				break;
+			}
+		hs->rescan_due = now_seconds() + KMS_RESCAN_S;
+	}
+#endif
 	for (int i = 0; i < n; i++) {
-		const int fd = evs[i].data.fd;
-		if (fd == hs->wake_fd) {
-			loop_wake_drain(hs->wake_fd);
+		const int fd = evs[i].fd;
+		if (fd == hs->wake.fd) {
+			loop_wake_drain(&hs->wake);
 			/* The wake names no window: any window the render thread marked
 			 * refused is the one to adopt back. */
 			for (App *w = a->host->windows; w; w = w->next)
 				if (w->backend_state)
 					sel_refused_seen(w);
-		} else if (fd == hs->inotify_fd) {
+		}
+#if defined(__linux__)
+		else if (fd == hs->inotify_fd) {
 			inputs_hotplug(a);
 		} else if (fd == hs->uevent_fd) {
 			/* Every uevent there is, drained; one rescan for any number of
@@ -3622,7 +3669,9 @@ static void kms_pump(App *a, int timeout_ms)
 			ours |= got < 0 && errno == ENOBUFS;
 			if (ours)
 				outputs_rescan(a);
-		} else {
+		}
+#endif
+		else {
 			KmsInput *d = input_by_fd(hs, fd);
 			if (d && !input_read(a, d))
 				input_remove(a, d);
@@ -3633,8 +3682,8 @@ static void kms_pump(App *a, int timeout_ms)
 static void kms_wakeup(App *a)
 {
 	struct BackendHostState *hs = app_backend_host(a);
-	if (hs && hs->wake_fd >= 0)
-		loop_wake(hs->wake_fd);
+	if (hs && hs->wake.fd >= 0)
+		loop_wake(&hs->wake);
 }
 
 /* The output is ours for as long as the program runs -- the keyboard is
@@ -3762,9 +3811,17 @@ const FnlBackendVtbl fnl_backend_kms = {
 	.absent          = kms_absent,
 	.host            = backend_noop_host,
 	.shared_driver   = backend_noop_shared_driver,
+#if defined(__linux__)
 	.gpu_drivers     = gpu_driver_list,
 	.gpu_driver_set  = gpu_driver_bind,
 	.gpu_driver_held = gpu_driver_held,
+#else
+	/* The NVIDIA/nouveau move is Linux's: sysfs, systemd's socket and the
+	 * module loader's tree. There is no move here, so no GPU is offered. */
+	.gpu_drivers     = backend_noop_gpu_drivers,
+	.gpu_driver_set  = backend_noop_gpu_driver_set,
+	.gpu_driver_held = backend_noop_gpu_driver_held,
+#endif
 	/* No resize edges: there is nothing to resize. */
 	.grab_ring = 0,
 	/* The present is the throttle; a display swapchain flips on vblank. */

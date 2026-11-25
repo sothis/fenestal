@@ -602,11 +602,10 @@ static void raw_unregister(struct BackendState *p)
 	RAWINPUTDEVICE now;
 	if (!raw_mouse_registration(&now) || now.hwndTarget != p->hwnd)
 		return;
-	RAWINPUTDEVICE rid = p->raw_saved_valid
-							 ? p->raw_saved
-							 : (RAWINPUTDEVICE){ .usUsagePage = 0x01,
-												 .usUsage     = 0x02,
-												 .dwFlags     = RIDEV_REMOVE };
+	const RAWINPUTDEVICE remove_dev = { .usUsagePage = 0x01,
+										.usUsage     = 0x02,
+										.dwFlags     = RIDEV_REMOVE };
+	RAWINPUTDEVICE rid = p->raw_saved_valid ? p->raw_saved : remove_dev;
 	if (!RegisterRawInputDevices(&rid, 1, sizeof rid))
 		fnl_log(FNL_LOG_WARN,
 				"the raw mouse could not be given back to "

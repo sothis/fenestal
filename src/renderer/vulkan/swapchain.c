@@ -94,7 +94,8 @@ static VkExtent2D choose_extent(App *a, const VkSurfaceCapabilitiesKHR *caps)
 		max_h > INT_MAX ? INT_MAX : (int)max_h,
 	};
 	const Extent e = app_buffer_extent(a, lo, hi);
-	return (VkExtent2D){ (uint32_t)e.w, (uint32_t)e.h };
+	const VkExtent2D out = { (uint32_t)e.w, (uint32_t)e.h };
+	return out;
 }
 
 /* Decided per build: opaque when there is no grab ring (fullscreen), which
@@ -591,15 +592,16 @@ static void surfaceless_caps(App *a, VkSurfaceCapabilitiesKHR *caps)
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(VK(a)->phys, &props);
 	const uint32_t max = props.limits.maxImageDimension2D;
-	*caps              = (VkSurfaceCapabilitiesKHR){
-					 .minImageCount           = 2,
-					 .maxImageCount           = 2,
-					 .currentExtent           = { UINT32_MAX, UINT32_MAX },
-					 .minImageExtent          = { 1, 1 },
-					 .maxImageExtent          = { max, max },
-					 .currentTransform        = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-					 .supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+	const VkSurfaceCapabilitiesKHR c = {
+		.minImageCount           = 2,
+		.maxImageCount           = 2,
+		.currentExtent           = { UINT32_MAX, UINT32_MAX },
+		.minImageExtent          = { 1, 1 },
+		.maxImageExtent          = { max, max },
+		.currentTransform        = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+		.supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 	};
+	*caps = c;
 }
 
 /* The window pass's depth image, kept across sizes while the extent fits
@@ -678,9 +680,10 @@ static VkExtent2D buffer_extent(App *a, VkExtent2D e,
 						 caps->maxImageExtent.height > INT_MAX
 							 ? INT_MAX
 							 : (int)caps->maxImageExtent.height };
-	const Extent r =
-		app_buffer_room(a, (Extent){ (int)e.width, (int)e.height }, max);
-	return (VkExtent2D){ (uint32_t)r.w, (uint32_t)r.h };
+	const Extent cur = { (int)e.width, (int)e.height };
+	const Extent r   = app_buffer_room(a, cur, max);
+	const VkExtent2D out = { (uint32_t)r.w, (uint32_t)r.h };
+	return out;
 }
 
 /* Inside the range a scaled image must lie in. A max of zero is no range:
@@ -757,8 +760,8 @@ static VkExtent2D scale_extent(App *a, VkExtent2D e, VkExtent2D b,
 		mx > (uint32_t)INT_MAX ? INT_MAX : (int)mx,
 		my > (uint32_t)INT_MAX ? INT_MAX : (int)my,
 	};
-	const Extent room =
-		app_buffer_room(a, (Extent){ (int)e.width, (int)e.height }, lim);
+	const Extent cur = { (int)e.width, (int)e.height };
+	const Extent room = app_buffer_room(a, cur, lim);
 	const VkExtent2D rb = { (uint32_t)room.w, (uint32_t)room.h };
 	if (extent_scaled(rb, &sc)) {
 		*scale = true;
@@ -796,7 +799,8 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	fnl_atomic_store_u32(&a->max_extent_h, caps.maxImageExtent.height);
 
 	const VkExtent2D e = choose_extent(a, &caps);
-	a->extent          = (Extent){ (int)e.width, (int)e.height };
+	const Extent chosen = { (int)e.width, (int)e.height };
+	a->extent          = chosen;
 	/* The one place the present mode changes, because this is where a
 	 * swapchain is made with it; the loop only asks whether it matches (see
 	 * vk_present_mode_matches). Read into a local once: a field another thread
@@ -809,9 +813,9 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	const VkExtent2D b =
 		scale_extent(a, e, buffer_extent(a, e, &caps), &caps, mode, &scale);
 	VK(a)->sc_extent = b;
-	a->buffer        = b.width != e.width || b.height != e.height
-						   ? (Extent){ (int)b.width, (int)b.height }
-						   : (Extent){ 0, 0 };
+	const Extent buffer = { (int)b.width, (int)b.height };
+	const Extent none   = { 0, 0 };
+	a->buffer = b.width != e.width || b.height != e.height ? buffer : none;
 
 	uint32_t want = caps.minImageCount;
 	if (mode == VK_PRESENT_MODE_MAILBOX_KHR && want < 3)
@@ -1017,8 +1021,10 @@ void destroy_swapchain(App *a)
 	if (VK(a)->bridge->scanout_take && VK(a)->swapchain != VK_NULL_HANDLE)
 		VK(a)->bridge->scanout_take(a);
 	swapchain_hand_over(a, &r);
-	a->buffer        = (Extent){ 0, 0 };
-	VK(a)->sc_extent = (VkExtent2D){ 0, 0 };
+	const Extent none = { 0, 0 };
+	const VkExtent2D no_extent = { 0, 0 };
+	a->buffer        = none;
+	VK(a)->sc_extent = no_extent;
 	/* The depth image too, at teardown: the device is idle. */
 	r.depth = VK(a)->depth;
 	memset(&VK(a)->depth, 0, sizeof VK(a)->depth);
@@ -1074,8 +1080,9 @@ static int resize_in_place(App *a)
 		return 0;
 	const VkExtent2D e = choose_extent(a, &caps);
 	const VkExtent2D b = VK(a)->sc_extent;
-	if (!app_buffer_room_fits(a, (Extent){ (int)e.width, (int)e.height },
-							  (Extent){ (int)b.width, (int)b.height }))
+	const Extent cur   = { (int)e.width, (int)e.height };
+	const Extent room  = { (int)b.width, (int)b.height };
+	if (!app_buffer_room_fits(a, cur, room))
 		return 0;
 
 	if (VK(a)->retired_count == MAX_RETIRED)
@@ -1091,7 +1098,8 @@ static int resize_in_place(App *a)
 	memset(VK(a)->encode_fb, 0, sizeof VK(a)->encode_fb);
 	memset(VK(a)->img_cmd, 0, sizeof VK(a)->img_cmd);
 
-	a->extent = (Extent){ (int)e.width, (int)e.height };
+	const Extent chosen = { (int)e.width, (int)e.height };
+	a->extent = chosen;
 	image_frames_reset(a);
 	if (image_cmds_make(a) < 0 || depth_ensure(a, e, &caps) < 0 ||
 		create_framebuffers(a, false) < 0)

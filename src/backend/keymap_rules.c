@@ -673,6 +673,8 @@ const char *keymap_data_root(void)
 {
 	static const char *const ROOTS[] = {
 		"/usr/share/X11/xkb", "/usr/share/xkeyboard-config-2",
+		/* FreeBSD's ports install under /usr/local. */
+		"/usr/local/share/X11/xkb", "/usr/local/share/xkeyboard-config-2",
 	};
 	const char *env = getenv("XKB_CONFIG_ROOT");
 	if (env && env[0])

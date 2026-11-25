@@ -20,8 +20,14 @@
 
 /* Authored in sRGB, which is what FnlColor takes -- the numbers a colour
  * picker gives. The library converts to whatever space the surface blends
- * in. */
-#define TESTBED_RGB(r, g, b) ((FnlColor){ (r), (g), (b), 1.0f })
+ * in. A function and not a compound literal: cl.exe has no such literal,
+ * and this is the one macro that would otherwise be one everywhere. */
+static inline FnlColor testbed_rgb(float r, float g, float b)
+{
+	const FnlColor c = { r, g, b, 1.0f };
+	return c;
+}
+#define TESTBED_RGB(r, g, b) testbed_rgb((r), (g), (b))
 
 /* What F4 puts on the clipboard. One word, so that a harness reading it back
  * out of an echoed line can find where it ends. */

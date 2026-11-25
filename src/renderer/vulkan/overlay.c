@@ -242,10 +242,14 @@ void vk_overlay_scissor(App *a, const FnlRect *r)
 {
 	if (VK(a)->overlay_cb == VK_NULL_HANDLE)
 		return;
-	VkRect2D sc =
-		r ? (VkRect2D){ { r->x, r->y }, { (uint32_t)r->w, (uint32_t)r->h } }
-		  : (VkRect2D){ { 0, 0 },
-						{ (uint32_t)a->extent.w, (uint32_t)a->extent.h } };
+	VkRect2D sc = { { 0, 0 },
+					{ (uint32_t)a->extent.w, (uint32_t)a->extent.h } };
+	if (r) {
+		sc.offset.x      = r->x;
+		sc.offset.y      = r->y;
+		sc.extent.width  = (uint32_t)r->w;
+		sc.extent.height = (uint32_t)r->h;
+	}
 	vkCmdSetScissor(VK(a)->overlay_cb, 0, 1, &sc);
 }
 

@@ -798,7 +798,9 @@ bool fnl_d3d12_gpu(App *a, FnlD3D12Gpu *out)
 		renderer_any(a) != &fnl_renderer_d3d12 || !a->renderer_state ||
 		!D3D(a)->device)
 		return false;
-	*out = (FnlD3D12Gpu){ .device = D3D(a)->device, .queue = D3D(a)->queue };
+	const FnlD3D12Gpu gpu = { .device = D3D(a)->device,
+							  .queue = D3D(a)->queue };
+	*out = gpu;
 	return true;
 }
 
@@ -813,11 +815,12 @@ bool fnl_d3d12_scene_layout(App *a, FnlSceneTarget t, FnlD3D12SceneLayout *out)
 		if (samples <= 1)
 			return false;
 	}
-	*out = (FnlD3D12SceneLayout){
+	const FnlD3D12SceneLayout layout = {
 		.samples      = samples,
 		.color_format = D3D(a)->color_format,
 		.depth_format = D3D_DEPTH_FORMAT,
 	};
+	*out = layout;
 	return true;
 }
 
@@ -828,11 +831,12 @@ bool fnl_d3d12_scene(App *a, FnlD3D12Scene *out)
 		a->renderer != &fnl_renderer_d3d12 || !a->renderer_state ||
 		!D3D(a)->scene_list_now)
 		return false;
-	*out = (FnlD3D12Scene){
+	const FnlD3D12Scene scene = {
 		.list = D3D(a)->scene_list_now,
 		.rtv  = D3D(a)->scene_rtv_now,
 		.dsv  = D3D(a)->scene_dsv_now,
 		.rect = D3D(a)->scene_rect_now,
 	};
+	*out = scene;
 	return true;
 }

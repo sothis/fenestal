@@ -269,11 +269,13 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 			return fnl_fail(FNL_ERR_NO_DEVICE,
 							"none of Mesa's Intel, AMD "
 							"or CPU Vulkan drivers is installed");
-		for (uint32_t i = 0; i < cross_n; i++)
-			direct[i] = (VkDirectDriverLoadingInfoLUNARG){
+		for (uint32_t i = 0; i < cross_n; i++) {
+			const VkDirectDriverLoadingInfoLUNARG dl = {
 				.sType = VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_INFO_LUNARG,
 				.pfnGetInstanceProcAddr = cross_gipa[i],
 			};
+			direct[i] = dl;
+		}
 		direct_list.driverCount = cross_n;
 		exts[n++] = VK_LUNARG_DIRECT_DRIVER_LOADING_EXTENSION_NAME;
 	}
@@ -1205,11 +1207,12 @@ static bool is_srgb_format(VkFormat f)
  * through DXGI*). */
 static void surfaceless_format(App *a)
 {
-	VK(a)->surf_format = (VkSurfaceFormatKHR){
+	const VkSurfaceFormatKHR sf = {
 		FNL_FAULT("unorm-surface") || VK(a)->dxgi ? VK_FORMAT_B8G8R8A8_UNORM
 												  : VK_FORMAT_B8G8R8A8_SRGB,
 		VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
 	};
+	VK(a)->surf_format = sf;
 }
 
 /* Whether the surface offers the HDR pair this renderer takes -- 10-bit PQ,
@@ -1234,10 +1237,11 @@ static bool hdr_available(App *a, const VkSurfaceFormatKHR *formats, uint32_t n,
 			return false;
 		if (!VK(a)->bridge->display_hdr(a, NULL))
 			return false;
-		*out = (VkSurfaceFormatKHR){
+		const VkSurfaceFormatKHR hdr = {
 			VK_FORMAT_A2B10G10R10_UNORM_PACK32,
 			VK_COLOR_SPACE_HDR10_ST2084_EXT,
 		};
+		*out = hdr;
 		return true;
 	}
 	for (uint32_t i = 0; i < n; i++)
@@ -2034,7 +2038,7 @@ bool fnl_vulkan_gpu(App *a, FnlVulkanGpu *out)
 		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
 		!VK(a)->device)
 		return false;
-	*out = (FnlVulkanGpu){
+	const FnlVulkanGpu gpu = {
 		.instance        = VK(a)->instance,
 		.physical_device = VK(a)->phys,
 		.device          = VK(a)->device,
@@ -2043,6 +2047,7 @@ bool fnl_vulkan_gpu(App *a, FnlVulkanGpu *out)
 		.pipeline_cache  = VK(a)->pipeline_cache,
 		.get_instance_proc_addr = fnl_vkGetInstanceProcAddr,
 	};
+	*out = gpu;
 	return true;
 }
 
@@ -2072,13 +2077,14 @@ bool fnl_vulkan_scene_layout(App *a, FnlSceneTarget t,
 	if (pass == VK_NULL_HANDLE)
 		return false;
 
-	*out = (FnlVulkanSceneLayout){
+	const FnlVulkanSceneLayout layout = {
 		.render_pass  = pass,
 		.subpass      = 0,
 		.samples      = samples,
 		.color_format = VK(a)->color_format,
 		.depth_format = VK(a)->depth_format,
 	};
+	*out = layout;
 	return true;
 }
 

@@ -76,7 +76,9 @@ foreach(_kind static dyn)
                           RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
     target_include_directories(${_t} PRIVATE ${MOTION_GEN_DIR})
     target_link_libraries(${_t} PRIVATE ${_fnl} ${MOTION_LIBS})
-    target_compile_options(${_t} PRIVATE -Wall -Wextra)
+    if(NOT MSVC)
+        target_compile_options(${_t} PRIVATE -Wall -Wextra)
+    endif()
     # The shaders' own target: a custom command listed as a source of both
     # programs would run twice at once under make.
     add_dependencies(${_t} fenestal_demo_motion_shaders)

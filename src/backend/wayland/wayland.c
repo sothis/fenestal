@@ -13,29 +13,24 @@
 /* For pipe2() and memfd_create(), which glibc declares only under it. A
  * pipe made and then marked close-on-exec is inherited by a child forked in
  * between, and a paste whose write end a stranger holds never sees end of
- * file. This file is Linux's already (epoll, timerfd), so the wider feature
- * set costs it nothing; it has to be asked for ahead of app.h, whose own
- * pin is the narrower one every other file builds under. */
+ * file. glibc's spelling: FreeBSD's default environment exposes both, which
+ * is why compiler.h leaves its POSIX pin off there. Asked for ahead of
+ * app.h, whose own pin is the narrower one every other file builds under. */
 #define _GNU_SOURCE
 
 #include "core/app.h"
 
 #include "backend/wayland/wayland_state.h"
 #include "backend/evdev_keys.h"
-#include "backend/loop_linux.h"
-
-/* For the pointer's buttons. The keys are evdev_keys.h's. */
-#include <linux/input-event-codes.h>
+#include "backend/evdev_input.h"
 
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/epoll.h>
 #include <poll.h>
 
-/* mmap and fstat for the keymap, timerfd for key repeat. */
+/* mmap and fstat for the keymap. */
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/timerfd.h>
 
 /* The clipboard's: a write to a pipe whose reader may have gone. */
 #include <signal.h>
@@ -518,34 +513,23 @@ static void key_repeat_stop(struct BackendHostState *hs)
 {
 	if (!hs->repeat_armed)
 		return;
-	struct itimerspec its;
-	memset(&its, 0, sizeof its);
-	timerfd_settime(hs->repeat_fd, 0, &its, NULL);
 	hs->repeat_armed = false;
+	hs->repeat_due   = 0.0;
 }
 
 static void key_repeat_start(struct BackendHostState *hs, uint32_t key)
 {
-	if (hs->repeat_fd < 0 || hs->repeat_rate <= 0)
+	if (hs->repeat_rate <= 0)
 		return;
 
-	const long period = 1000000000L / hs->repeat_rate;
-	struct itimerspec its;
-	memset(&its, 0, sizeof its);
-	its.it_interval.tv_sec  = period / 1000000000L;
-	its.it_interval.tv_nsec = period % 1000000000L;
-	/* A zero it_value disarms the timer rather than firing it at once, so a
-	 * compositor that asks for no delay gets one period of it. */
-	if (hs->repeat_delay > 0) {
-		its.it_value.tv_sec  = hs->repeat_delay / 1000;
-		its.it_value.tv_nsec = (long)(hs->repeat_delay % 1000) * 1000000L;
-	} else {
-		its.it_value = its.it_interval;
-	}
-	if (timerfd_settime(hs->repeat_fd, 0, &its, NULL) == 0) {
-		hs->repeat_key   = key;
-		hs->repeat_armed = true;
-	}
+	hs->repeat_period = 1.0 / (double)hs->repeat_rate;
+	/* A compositor that asks for no delay gets one period of it. */
+	const double delay = hs->repeat_delay > 0
+							 ? (double)hs->repeat_delay * 1e-3
+							 : hs->repeat_period;
+	hs->repeat_key   = key;
+	hs->repeat_due   = now_seconds() + delay;
+	hs->repeat_armed = true;
 }
 
 /* An input method takes a dead key before it is delivered as a key, so an
@@ -568,15 +552,12 @@ static void key_type(App *a, uint32_t key, bool repeat)
 	}
 }
 
-/* Called after the turn's dispatch, so a release that arrived beside the timer
- * has already disarmed it. One repeat however many periods were missed, and it
- * goes to the window with the keyboard, which is the one that started it. */
+/* Called after the turn's dispatch, so a release that arrived beside the
+ * deadline has already disarmed it. One repeat however many periods were
+ * missed, and it goes to the window with the keyboard, which is the one that
+ * started it. */
 static void key_repeat_fire(struct BackendHostState *hs)
 {
-	uint64_t periods;
-	const ssize_t got = read(hs->repeat_fd, &periods, sizeof periods);
-	if (got != (ssize_t)sizeof periods)
-		return;
 	if (!hs->repeat_armed)
 		return;
 	App *a = hs->kb_window;
@@ -590,6 +571,7 @@ static void key_repeat_fire(struct BackendHostState *hs)
 	}
 	app_key_repeat(a, key_from_evdev(hs->repeat_key));
 	key_type(a, hs->repeat_key, true);
+	hs->repeat_due = now_seconds() + hs->repeat_period;
 }
 
 /* The keys already down arrive with focus. Seeded, not replayed through
@@ -1341,7 +1323,7 @@ static void wl_text_input_changed(App *a)
  *
  * Neither direction holds the bytes. Offering is a promise to write them down
  * a pipe when asked, so App::clip_out stays for as long as the offer stands;
- * asking reads a pipe from the epoll set and never in a loop here, because
+ * asking reads a pipe from the set and never in a loop here, because
  * the pump does not wait on other programs. */
 static const char *const CLIP_MIME[] = { NULL, "text/plain", "UTF8_STRING",
 										 "text/plain;charset=utf-8" };
@@ -1352,12 +1334,12 @@ static const char *const CLIP_MIME[] = { NULL, "text/plain", "UTF8_STRING",
  * Another program's pace must not become this window's. */
 #define CLIP_WRITE_MS 250
 
-/* The paste's pipe out of the epoll set and closed: at its end, or given
+/* The paste's pipe out of the set and closed: at its end, or given
  * up. The owner then sees its write fail, which is how it learns. */
 static void clip_close(struct BackendHostState *hs)
 {
 	if (hs->clip_fd >= 0) {
-		epoll_ctl(hs->epoll_fd, EPOLL_CTL_DEL, hs->clip_fd, NULL);
+		loop_del(&hs->loop, hs->clip_fd);
 		close(hs->clip_fd);
 		hs->clip_fd = -1;
 	}
@@ -1378,7 +1360,7 @@ static void clip_finish(struct BackendHostState *hs, bool whole)
 }
 
 /* One read a turn, straight into the buffer the answer is handed over in. The
- * epoll set is level-triggered, so what this leaves brings the pump back; it
+ * set is level-triggered, so what this leaves brings the pump back; it
  * never loops on another program's descriptor, and -fanalyzer loses a buffer
  * grown inside a loop. */
 static void clip_readable(struct BackendHostState *hs)
@@ -1442,8 +1424,7 @@ static void wl_clipboard_request(App *a)
 	/* Ours has to close, or end of file never comes. */
 	close(fds[1]);
 
-	struct epoll_event ev = { .events = EPOLLIN, .data.fd = fds[0] };
-	if (epoll_ctl(hs->epoll_fd, EPOLL_CTL_ADD, fds[0], &ev) < 0) {
+	if (!loop_add(&hs->loop, fds[0])) {
 		close(fds[0]);
 		app_clipboard_deliver(a, NULL, 0);
 		hs->clip_waiter = NULL;
@@ -1481,7 +1462,7 @@ static void clip_write(int fd, const char *s, size_t n)
 		if (w < 0 && errno == EINTR)
 			continue;
 		if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-			const int ms     = loop_wait_ms(true, deadline);
+			const int ms     = loop_wait_ms(deadline, -1.0);
 			struct pollfd pf = { .fd = fd, .events = POLLOUT };
 			if (ms > 0 && poll(&pf, 1, ms) > 0)
 				continue;
@@ -2564,34 +2545,16 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 
 /* After create_window(), which opens the connection. The set is
  * level-triggered and has to be: wl_display_read_events() does one read, not a
- * drain to EAGAIN. */
-static FNL_MUST_USE FnlResult create_epoll(App *a)
+ * drain to EAGAIN. Key repeat is a deadline the pump folds into its wait, not
+ * a descriptor of its own. */
+static FNL_MUST_USE FnlResult create_loop(App *a)
 {
-	FNL_TRY(loop_epoll_create(&app_backend_host(a)->epoll_fd,
-							  wl_display_get_fd(app_backend_host(a)->display),
-							  app_backend_host(a)->wake_fd));
-
-	/* The one descriptor allowed to be missing: a held key then types once.
-	 * Non-blocking, because a timer disarmed after epoll reported it has
-	 * nothing to read. */
-	app_backend_host(a)->repeat_fd =
-		timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-	if (app_backend_host(a)->repeat_fd >= 0) {
-		struct epoll_event ev = { .events  = EPOLLIN,
-								  .data.fd = app_backend_host(a)->repeat_fd };
-		if (epoll_ctl(app_backend_host(a)->epoll_fd, EPOLL_CTL_ADD,
-					  app_backend_host(a)->repeat_fd, &ev) < 0) {
-			close(app_backend_host(a)->repeat_fd);
-			app_backend_host(a)->repeat_fd = -1;
-		}
-	}
-	if (app_backend_host(a)->repeat_fd < 0)
-		fnl_log(FNL_LOG_WARN, "no timer for key repeat; a held key will type "
-							  "once");
+	struct BackendHostState *hs = app_backend_host(a);
+	FNL_TRY(loop_create(&hs->loop, wl_display_get_fd(hs->display),
+						hs->wake.fd));
 	/* A GPU that came or went: the same netlink group KMS reads, opened
 	 * here so the window servers' backends hear a hotplug too. */
-	FNL_TRY(loop_uevent_open(&app_backend_host(a)->uevent_fd,
-							 app_backend_host(a)->epoll_fd));
+	FNL_TRY(loop_uevent_open(&hs->uevent_fd, &hs->loop));
 	return FNL_OK;
 }
 
@@ -2632,8 +2595,10 @@ static FnlResult wl_host_open(App *a)
 	a->host->backend_host = hs;
 	/* Not the calloc's zero, which is stdin: wl_host_close() closes whatever
 	 * is not negative. */
-	hs->wake_fd = hs->epoll_fd = hs->repeat_fd = hs->uevent_fd = -1;
-	hs->clip_fd = -1;
+	loop_init(&hs->loop);
+	hs->wake.fd = hs->wake.wfd = -1;
+	hs->uevent_fd = -1;
+	hs->clip_fd   = -1;
 	snprintf(hs->clip_marker, sizeof hs->clip_marker,
 			 "application/x-fenestal-owner-%ld", (long)getpid());
 	hs->repeat_rate  = REPEAT_RATE_DEFAULT;
@@ -2643,11 +2608,11 @@ static FnlResult wl_host_open(App *a)
 	 * wl_host_close(), which copes with every prefix of what this builds --
 	 * and must, because a NO_DISPLAY refusal makes fnl_init() step to the
 	 * next backend without calling host_close() on this one. */
-	FnlResult rc = loop_wake_create(&hs->wake_fd);
+	FnlResult rc = loop_wake_create(&hs->wake);
 	if (rc == FNL_OK)
 		rc = connect_display(a);
 	if (rc == FNL_OK)
-		rc = create_epoll(a);
+		rc = create_loop(a);
 	if (rc < 0) {
 		wl_host_close(a);
 		return rc;
@@ -2695,23 +2660,21 @@ static void wl_wakeup(App *a)
 	/* Reachable from a signal handler at any point, and wl_host_close()
 	 * leaves NULL behind. */
 	if (a->backend_state)
-		loop_wake(app_backend_host(a)->wake_fd);
+		loop_wake(&app_backend_host(a)->wake);
 }
 
 /* A flush that found the socket full leaves what this thread buffered -- a
  * title, a size floor -- for the next wake, which may be a long way off; so
  * the display is watched for room until a flush gets through. Armed only
  * then: the set is level-triggered, and EPOLLOUT on a socket with room would
- * end every wait at once. A refused epoll_ctl leaves it as it was, and the
+ * end every wait at once. A refused loop_mod leaves it as it was, and the
  * requests wait for the next wake as before. */
 static void display_watch_out(struct BackendHostState *hs, bool on)
 {
 	if (hs->display_out == on)
 		return;
-	const int fd          = wl_display_get_fd(hs->display);
-	struct epoll_event ev = { .events  = EPOLLIN | (on ? EPOLLOUT : 0u),
-							  .data.fd = fd };
-	if (epoll_ctl(hs->epoll_fd, EPOLL_CTL_MOD, fd, &ev) == 0)
+	const int fd = wl_display_get_fd(hs->display);
+	if (loop_mod(&hs->loop, fd, on))
 		hs->display_out = on;
 }
 
@@ -2730,28 +2693,28 @@ static void wl_pump(App *a, int timeout_ms)
 			return;
 	display_watch_out(hs, wl_display_flush(d) < 0 && errno == EAGAIN);
 
-	/* For ever, unless a paste's owner owes its next piece or the caller's
-	 * own loop asked to be back sooner (fnl_pump()). */
-	int wait_ms = loop_wait_ms(hs->clip_fd >= 0, hs->clip.deadline);
+	/* For ever, unless a paste's owner owes its next piece, a held key is
+	 * repeating, or the caller's own loop asked to be back sooner
+	 * (fnl_pump()). */
+	const double repeat_at = hs->repeat_armed ? hs->repeat_due : -1.0;
+	int wait_ms = loop_wait_ms(
+		hs->clip_fd >= 0 ? hs->clip.deadline : -1.0, repeat_at);
 	if (timeout_ms >= 0 && (wait_ms < 0 || timeout_ms < wait_ms))
 		wait_ms = timeout_ms;
-	struct epoll_event evs[4];
-	int n = epoll_wait(hs->epoll_fd, evs, 4, wait_ms);
+	LoopEvent evs[4];
+	int n = loop_wait(&hs->loop, evs, 4, wait_ms);
 
 	/* n < 0 (EINTR) leaves all of these clear, and the read is cancelled. */
-	uint32_t display_ev = 0;
+	unsigned display_ev = 0;
 	bool woken          = false;
-	bool repeat         = false;
 	bool paste          = false;
 	bool uevent         = false;
 	for (int i = 0; i < n; i++) {
-		if (evs[i].data.fd == hs->wake_fd)
+		if (evs[i].fd == hs->wake.fd)
 			woken = true;
-		else if (evs[i].data.fd == hs->repeat_fd)
-			repeat = true;
-		else if (evs[i].data.fd == hs->clip_fd)
+		else if (evs[i].fd == hs->clip_fd)
 			paste = true;
-		else if (evs[i].data.fd == hs->uevent_fd)
+		else if (evs[i].fd == hs->uevent_fd)
 			uevent = true;
 		else
 			display_ev |= evs[i].events;
@@ -2759,21 +2722,22 @@ static void wl_pump(App *a, int timeout_ms)
 
 	/* On hangup and error too: wl_display_read_events() then latches the
 	 * display error, which ends the main loop. A bare cancel_read would leave
-	 * epoll_wait returning the same events for ever. Room alone (EPOLLOUT) is
+	 * the wait returning the same events for ever. Room alone (LOOP_OUT) is
 	 * a cancel: the next turn's flush is what it was for. */
-	if (display_ev & (EPOLLIN | EPOLLERR | EPOLLHUP))
+	if (display_ev & (LOOP_IN | LOOP_ERR | LOOP_HUP))
 		wl_display_read_events(d);
 	else
-		wl_display_cancel_read(d); /* woken by the eventfd, or epoll failed */
+		wl_display_cancel_read(d); /* woken by the wakeup, or poll failed */
 
 	if (woken)
-		loop_wake_drain(hs->wake_fd);
+		loop_wake_drain(&hs->wake);
 
 	wl_display_dispatch_pending(d);
 
 	/* After the dispatch: a release in this same turn has then stopped the
-	 * timer. The repeat is the focused window's. */
-	if (repeat)
+	 * repeat. The repeat is the focused window's, and one however many
+	 * periods the turn was late by. */
+	if (hs->repeat_armed && now_seconds() >= hs->repeat_due)
 		key_repeat_fire(hs);
 	/* Guarded again: a dispatch above may have finished or dropped it. */
 	if (paste && hs->clip_fd >= 0)
@@ -2781,7 +2745,7 @@ static void wl_pump(App *a, int timeout_ms)
 	if (hs->clip_fd >= 0 && clip_in_expired(&hs->clip))
 		clip_finish(hs, false);
 	/* A GPU that came or went is every window's: each draws with it. */
-	if (uevent) {
+	if (uevent && hs->uevent_fd >= 0) {
 		char buf[4096];
 		bool gpu = false;
 		ssize_t got;
@@ -3174,7 +3138,7 @@ static void wl_host_close(App *a)
 	if (hs->display)
 		wl_display_disconnect(hs->display);
 
-	/* The wakeup and epoll descriptors close unless a signal handler could
+	/* The wakeup and the set's descriptors close unless a signal handler could
 	 * still be on its way to them: one that loaded the App pointer on some
 	 * other thread before teardown cleared it must not write() to a closed --
 	 * or recycled -- descriptor number. app_teardown() waits every handler
@@ -3182,16 +3146,11 @@ static void wl_host_close(App *a)
 	 * stopped where it stands, past the wait's bound, leaves the two open
 	 * until exit. */
 	if (!app_signals_installed(a)) {
-		if (hs->epoll_fd >= 0)
-			close(hs->epoll_fd);
-		if (hs->wake_fd >= 0)
-			close(hs->wake_fd);
+		loop_destroy(&hs->loop);
+		loop_wake_destroy(&hs->wake);
 		if (hs->uevent_fd >= 0)
 			close(hs->uevent_fd);
 	}
-	/* The repeat timer is the pump's alone, so it closes either way. */
-	if (hs->repeat_fd >= 0)
-		close(hs->repeat_fd);
 
 	free(hs);
 	a->host->backend_host = NULL;

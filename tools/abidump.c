@@ -10,7 +10,11 @@
  * something a compiled caller depends on fails the build instead of a
  * program built against an older header.
  *
- *   abidump > fenestal.abi
+ *   abidump [fenestal.abi]
+ *
+ * The file is optional and a convenience for the build: a custom command's
+ * redirection is not a shell's on every generator (Ninja hands `>` to the
+ * program on Windows), so the build names its file instead.
  *
  * An intended change is made by copying the build's output over the
  * baseline in the same commit, which is what makes it a decision and not an
@@ -38,8 +42,12 @@
 #define F(t, f) printf("offset %s.%s %zu\n", #t, #f, offsetof(t, f))
 #define E(c) printf("enum %s %lld\n", #c, (long long)(c))
 
-int main(void)
+int main(int argc, char **argv)
 {
+	if (argc > 1 && !freopen(argv[1], "w", stdout)) {
+		perror(argv[1]);
+		return 1;
+	}
 	/* The major alone: minor and patch move with every release, and the
 	 * baseline is one per major (and before 1.0 simply updated). */
 	printf("major %d\n", FNL_VERSION_MAJOR);
