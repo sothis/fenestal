@@ -511,9 +511,15 @@ static void gl_choose_interval(App *a)
 	const int give =
 		GLS(a)->interval_asked && !gl_bridge_pacer(a) && !resizing ? 1 : 0;
 	/* Kept only once the driver took it, so a refusal is asked again --
-	 * on Wayland, 0 refused would leave Mesa's untimed wait in place. */
-	if (give != GLS(a)->interval && gl_bridge_interval(a, give))
-		GLS(a)->interval = give;
+	 * on Wayland, 0 refused would leave Mesa's untimed wait in place. A
+	 * driver that keeps refusing would otherwise log every frame: the ask
+	 * is repeated, but the line is said once (interval_said). */
+	if (give != GLS(a)->interval && gl_bridge_interval(a, give)) {
+		GLS(a)->interval      = give;
+		GLS(a)->interval_said = false;
+	} else if (give != GLS(a)->interval && !GLS(a)->interval_said) {
+		GLS(a)->interval_said = true;
+	}
 }
 
 /* The GPU's time on this slot's last frame, which the slot's fence -- just

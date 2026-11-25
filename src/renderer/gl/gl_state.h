@@ -161,6 +161,10 @@ struct RendererState {
 	 * paces, or during a resize (gl_choose_interval()). */
 	int interval;
 	int interval_asked;
+	/* Whether the interval last refused has been logged: a driver that will
+	 * not take one is asked again every frame (gl_choose_interval()), and
+	 * one line a frame is a flood. Cleared when an ask is taken. */
+	bool interval_said;
 	/* When the window's image last changed size, on now_seconds()'s clock. */
 	double resized_at;
 
