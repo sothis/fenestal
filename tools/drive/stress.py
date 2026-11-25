@@ -4316,27 +4316,40 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
             and not given_back(hold)
         ):
             r2 = Round(b, False)
-            try:
-                b.start(
-                    args.variant,
-                    args=tuple(program_args) + ("--second-window",),
-                    env=env
-                    if isinstance(b, B._OnBare)
-                    else dict(env, **desk),
-                )
-                two_window(b, r2)
-            except Exception as e:
-                r2.check(
+            home, others = (None, None)
+            if getattr(b, "BACKEND", None) == "kms":
+                home, others = outputs_offered(b)
+            if home and others is not None and not others:
+                # A KMS window is an output: on a host with one, that output
+                # is the first window's, and the program refuses the second at
+                # its start (DESIGN *A second window*). The round's other
+                # output checks skip the same way.
+                r2.skip(
                     "a second window opens beside the first",
-                    False,
-                    "%s: %s" % (type(e).__name__, e),
+                    "one output connected, and a KMS window is an output",
                 )
-            finally:
-                for stop in (b.stop, b.close):
-                    try:
-                        stop()
-                    except Exception:
-                        pass
+            else:
+                try:
+                    b.start(
+                        args.variant,
+                        args=tuple(program_args) + ("--second-window",),
+                        env=env
+                        if isinstance(b, B._OnBare)
+                        else dict(env, **desk),
+                    )
+                    two_window(b, r2)
+                except Exception as e:
+                    r2.check(
+                        "a second window opens beside the first",
+                        False,
+                        "%s: %s" % (type(e).__name__, e),
+                    )
+                finally:
+                    for stop in (b.stop, b.close):
+                        try:
+                            stop()
+                        except Exception:
+                            pass
             rounds.append(r2)
         if given_back(hold):
             break
