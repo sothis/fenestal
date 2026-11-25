@@ -6,6 +6,20 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- Every text size now draws every code point the bundled Ubuntu faces carry.
+  `FNL_TEXT_LARGE` was baked for space, the digits and `F`, `P` and `S`
+  alone, so a string set in it -- `fnl_overlay_text()` at that size, which the
+  API reference's hello example did -- drew U+FFFD (`�`) for every other
+  character. Only a code point no bundled face maps -- CJK, emoji, arrows --
+  is drawn as U+FFFD now. The baked font grows from 0.96 MB to 3.1 MB, and
+  decoding an atlas on a display-scale change costs about three times as
+  much.
+
+- `fnl_text_wrap()` puts `'\n'` between its lines, and overlay text draws one
+  line per call: a buffer drawn whole sets U+FFFD at each break. The hello
+  example now draws its wrapped buffer line by line, and the call's comment
+  says so.
+
 - `fnl_is_closing()` says whether a close has been asked for a window, by the
   window server or by `fnl_quit()`. A program with several windows needs it:
   the window's `FNL_EVENT_CLOSE` is read on its render thread, and that is the

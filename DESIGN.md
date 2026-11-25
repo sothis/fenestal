@@ -8163,8 +8163,12 @@ blank, absent by design, or failed — and the check fails on a glyph a size is
 baked for that FreeType cannot load or render, on a glyph index no code point
 reaches, and when the four do not add up to the table or nothing was compared
 at all: a check that compared nothing has not passed. On the current bake it
-reads `29178 cells: 6780 compared, 60 blank, 22338 absent by design, 0
-failed`.
+reads `29178 cells: 21666 compared, 96 blank, 7416 absent by design, 0
+failed`. A check of its own walks the code point index — which another check
+holds to the face — and fails if a code point face 0 maps has neither a cell
+of its own nor one its size borrows, the substitution these sets exist to
+prevent; it reads `every code point a face carries is drawn (21762 baked,
+7416 borrowed, 0 substituted)`.
 
 * **The outline is grid-aligned before it is filled.** The face's own hinting
   fits crossbars to a row but leaves vertical stems wherever the outline falls,
@@ -8221,28 +8225,37 @@ An entropy-coded stage at an equal window is therefore worth about 350 KB and
 a larger window about 200 KB more. The first is taken. The second is not: the
 window is what the offset model and the encoder's working set are sized by.
 
-What ships is 926,059 bytes of atlas for the six scales, each 1536 texels
-wide, and the cell table beside it:
+What ships is 3,023,717 bytes of atlas for the six scales, each 3072 texels
+wide, and 83,183 bytes of cell table beside it:
 
-| scale | atlas | coded | decode |
-|---|---|---|---|
-| 1.0 | 1536×229 | 92,113 | 4.75 ms |
-| 1.25 | 1536×342 | 131,180 | 6.76 ms |
-| 4/3 | 1536×362 | 133,871 | 6.90 ms |
-| 1.5 | 1536×473 | 163,533 | 8.46 ms |
-| 5/3 | 1536×542 | 180,171 | 9.33 ms |
-| 2.0 | 1536×766 | 225,191 | 11.79 ms |
+| scale | atlas | coded |
+|---|---|---|
+| 1.0 | 3072×546 | 317,542 |
+| 1.25 | 3072×761 | 417,732 |
+| 4/3 | 3072×872 | 450,090 |
+| 1.5 | 3072×1051 | 521,260 |
+| 5/3 | 3072×1255 | 590,049 |
+| 2.0 | 3072×1759 | 727,044 |
+
+That is 19,181,568 raw atlas bytes, coded to 16% of them overall and 13% at
+2.0: a fuller atlas repeats more, so the wider set costs less per glyph than
+its area alone would say. The shelf is 3072 texels wide so that no atlas is
+taller than it is wide — 4096 is the smallest `maxImageDimension2D` a Vulkan
+device may offer — and `mkfont` fails the bake rather than make one past it.
 
 **The decode time is the price, and it is several times what a byte-packed
-codec costs.** Those figures are the decoder alone, standalone on this machine,
-best of five at `gcc -O2`; packing the same matches into whole bytes decodes in
-0.49 ms at 1.0 up to 1.59 ms at 2.0. A range coder pays for every bit it
-produces, and the entropy stage buys about half a megabyte of every binary
-that links the library with it. The trade is taken because the cost is paid
-per atlas and only when the scale changes — one atlas is live at a time — and
-a scale change already rebuilds the image and waits on a queue. With the blob
-in it, the 0.5.0 `libfenestal.so` was 1,200,592 bytes on X11 and 1,267,328 on
-Wayland, and `libfenestal.dll` 1,262,489.
+codec costs.** Measured on the narrower bake, standalone on this machine, best
+of five at `gcc -O2`, the decoder ran at about 19 MB/s at every scale, where
+packing the same matches into whole bytes decoded in 0.49 ms at 1.0 up to
+1.59 ms at 2.0. A range coder pays for every bit it produces, and the entropy
+stage buys about half a megabyte of every binary that links the library with
+it. The trade is taken because the cost is paid per atlas and only when the
+scale changes — one atlas is live at a time — and a scale change already
+rebuilds the image and waits on a queue. At that rate the 2.0 atlas's 727,044
+bytes decode in about 38 ms. With the blob in it, the 0.5.0 `libfenestal.so`
+was 1,200,592 bytes on X11 and 1,267,328 on Wayland, and `libfenestal.dll`
+1,262,489; the wider bake puts the Linux release tree's `libfenestal.so` at
+4,042,544.
 
 It expands into a **scratch block, not into the mapping**, and that is the one
 rule mapped memory has: never read back from it. `find_memory_type()` takes the
@@ -8252,16 +8265,11 @@ reads are single uncached transactions. This codec reads: a match is a copy
 from what has just been written, and a run is a match at offset 1, so most of
 the output comes back through those reads. Decoding in place runs the whole
 expansion at uncached-read speed, and the cost scales with the atlas. Timed
-inside `build_atlas()` on the X11 build, the median of five start-ups at each
-`--scale`, with the decoder pointed at the mapped staging memory for the one
-column and at a zeroed scratch block, then copied, for the other:
-
-| scale | atlas | in the mapping | scratch + `memcpy` |
-|---|---|---|---|
-| 1.0 | 1536×229 | 19.9 ms | 5.5 ms |
-| 1.25 | 1536×342 | 26.0 ms | 8.3 ms |
-| 1.5 | 1536×473 | 33.1 ms | 9.7 ms |
-| 2.0 | 1536×766 | 51.7 ms | 13.6 ms |
+inside `build_atlas()` on the X11 build for the narrower bake, the median of
+five start-ups at each `--scale`, with the decoder pointed at the mapped
+staging memory for the one column and at a zeroed scratch block, then copied,
+for the other, the mapping ran at 4.0 to 5.0 MB/s and the scratch column at
+14 to 17 MB/s.
 
 The scratch column is the standalone decode above with the allocation and the
 copy on top. The mapping costs three and a half to four times that — less of
@@ -8271,7 +8279,8 @@ free, and more milliseconds.
 Not only a startup cost. `text_set_scale()` comes back through `build_atlas()`
 on every scale change — a window dragged between monitors of different
 density — and it runs on the render thread, behind a queue drain, with the
-frame waiting on it: 52 ms of stall on a 2.0 display in place of 14.
+frame waiting on it: at those rates the 2.0 atlas costs about 170 ms of stall
+in place of 44.
 
 Asking `find_memory_type()` for `HOST_CACHED` instead is the other way round and
 the wrong one: the type is not guaranteed to exist, it is the slower side for
@@ -8280,12 +8289,12 @@ buffers, which are written and never read and want exactly the memory this one
 does not.
 
 The cell table goes through the same codec. It is a `GlyphCell` per (scale,
-size, glyph), and most of it is the absent marker, because a size is baked for
-its own set of code points rather than for the whole index space. As a braced
-initialiser it is 399 KB of `.rodata` no compressor ever sees; coded it is 28
-KB. `text_load_cells()` in `src/core/text_measure.c` decodes it once at startup,
-before the window exists — the decoration layout measures the title while
-handling the first configure.
+size, glyph), and its absent marker is only `TEXT_UI`'s Latin set — 7,416 of
+29,178 cells — because the other two sizes bake everything their face carries.
+As a braced initialiser it is 399 KB of `.rodata` no compressor ever sees;
+coded it is 81 KB. `text_load_cells()` in `src/core/text_measure.c` decodes it
+once at startup, before the window exists — the decoration layout measures the
+title while handling the first configure.
 
 ### Three tables decide the cost
 
@@ -8305,24 +8314,26 @@ turned out to be a strict subset of the mono's, so the code point index covers
 both.
 
 `SIZE_RANGES` is what each size is baked **for**, as inclusive code point
-ranges, and it is where the megabytes are. Each size's share below is
-measured the same way: the shipped blob, less the blob `mkfont` bakes with
-that size cut down to U+FFFD alone. The three shares sum to 3% over the whole,
-because a coded stream is not a sum of its parts.
+ranges, and it is where the megabytes are. `TEXT_BODY` and `TEXT_LARGE` carry a
+pair over the whole code space, which says *every code point the face maps*:
+the bake walks face 0's cmap and rasterises each of its 1,621 code points at
+both sizes. `TEXT_UI` is baked for Latin and punctuation and borrows the rest
+from `TEXT_BODY`.
 
-* `TEXT_LARGE` is baked for one string's worth of characters — a space, the
-  digits, and `F`, `P`, `S` — and nothing else. It is 1.5x the cap height and so
-  2.25x the atlas area per glyph: baked for everything `TEXT_BODY` carries, it
-  takes the atlases from 4.17 MB raw to 9.04 and the shipped blob from 926,059
-  bytes to 1,809,589 — 0.88 MB to serve those fourteen. As it is, the size
-  costs 26,192 bytes. A caller drawing anything else at this size has to widen
-  the set, and gets `���` until it does.
+* `TEXT_LARGE` is 1.5x the cap height and so 2.25x the atlas area per glyph,
+  and it carries everything `TEXT_BODY` does. It is not only for the
+  frame-rate readout: the API hands a caller three sizes, a caller may set any
+  string in any of them, and a size baked for the characters the library
+  itself sets in it draws U+FFFD for everyone else's text. Baking the set wide
+  is what makes any size draw any covered string crisp and on its own grid;
+  lending the glyph from another size's cell and scaling it was rejected,
+  because it is soft at 1.5x and puts two grids on one line.
 * `TEXT_BODY` draws strings nothing here authors — an output's name comes from
-  the compositor, a GPU's from the driver — so it carries every script one of
-  those could plausibly be written in. What it leaves out is left out because it
-  cannot appear in an EDID string or a Vulkan device name: Latin Ext-B, Greek
-  Extended, and the decorative symbols. It is 594,757 bytes of the shipped
-  blob, a little under two thirds.
+  the compositor, a GPU's from the driver, a panel's from the caller — so it
+  too carries every code point the faces map: Latin, Greek, Cyrillic and the
+  rest of what Ubuntu Sans Mono holds, Latin Ext-B, polytonic Greek and the
+  box-drawing and braille blocks included. Its 1,621 code points at six scales
+  are most of the 19.18 MB raw.
 * `TEXT_UI` is baked for U+0000–017F, U+2000–218F and U+FFFD only — Latin,
   punctuation and the replacement character — and **borrows the rest**. Beside
   the calibration panel's own English, the one string the library sets in it
@@ -8333,22 +8344,20 @@ because a coded stream is not a sum of its parts.
   so the pen and the measure cannot take different cells. A Cyrillic or Greek
   title therefore comes out in the mono face rather than as a row of
   replacement characters — which is what narrowing the set costs without a
-  fallback. Baking the whole of `TEXT_BODY`'s set a second time in the sans
-  face avoids both and costs 253,315 bytes more of blob; what `TEXT_UI`
-  carries as it is costs 334,445. Borrowing is legitimate only because the two
-  sizes share a cell, a cap height and a line, so the borrowed glyph sits on
-  the borrower's baseline at its height; `verifyfont` checks that, and that a
-  fallback is one step and never a chain.
+  fallback. Borrowing is legitimate only because the two sizes share a cell, a
+  cap height and a line, so the borrowed glyph sits on the borrower's baseline
+  at its height; `verifyfont` checks that, and that a fallback is one step and
+  never a chain.
 
-`U+FFFD` is in every set deliberately. A code point neither a size nor its
-fallback is baked for is marked absent in the cell table and `cell_for()` hands
-back the replacement character's cell, so drawing something new at `TEXT_LARGE`
-without extending the set comes out as a row of `���` — visible at a glance
-rather than silently blank. `verifyfont`
-checks that every absence is exactly where the set says it should be, and that
-**U+FFFD has ink at every size**: Ubuntu Sans carries no U+FFFD at all, so what
-got baked for `TEXT_UI` is FreeType's own missing-glyph box, and in a face where
-that box is blank every substitution would draw nothing.
+`U+FFFD` is in every set deliberately. A code point no bundled face maps at
+all — CJK, an emoji, an arrow — has no glyph index, so `cell_for()` hands back
+the replacement character's cell and it draws as `���`: visible at a glance
+rather than silently blank. `verifyfont` checks that every absence is exactly
+where a set says it should be, that every code point face 0 maps is drawn at
+every size (its own cell or a lent one), and that **U+FFFD has ink at every
+size**: Ubuntu Sans carries no U+FFFD at all, so what got baked for `TEXT_UI`
+is FreeType's own missing-glyph box, and in a face where that box is blank
+every substitution would draw nothing.
 
 ### Measuring
 

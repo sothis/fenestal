@@ -34,6 +34,9 @@
  *  11. a size that borrows another's cells (FONT_SIZE_FALLBACK) borrows from
  *      one with the same cell size, cap height and line, which itself
  *      borrows from no one
+ *  12. every code point face 0 maps is drawn at every size -- its own cell,
+ *      or the one its size's fallback lends -- so nothing the face carries
+ *      comes out as U+FFFD
  */
 #include "font_raster.h"
 
@@ -372,6 +375,46 @@ int main(int argc, char **argv)
 		   "(%ld cells borrowed, %ld in neither)\n",
 		   fb_bad ? "FAIL" : "ok  ", fb_lent, fb_neither);
 	if (fb_bad) fails++;
+
+	/* ---- 12. nothing the face carries draws U+FFFD ----------------------- */
+	/* Check 9 compares each cell with the range table the emitter wrote, so a
+	 * set narrowed in both would agree while every size substituted U+FFFD
+	 * for a glyph the face has. This asks the range table that check 4 holds
+	 * to the face: every code point face 0 maps has a cell at every size,
+	 * its own or the one its size's fallback lends. */
+	long own_glyphs = 0, lent_glyphs = 0, notdef_glyphs = 0;
+	for (int si = 0; si < FONT_SCALE_COUNT; si++)
+		for (int sz = 0; sz < FONT_SIZE_COUNT; sz++) {
+			const GlyphCell *row = cell_table +
+				((size_t)si * FONT_SIZE_COUNT + (size_t)sz) * FONT_GLYPH_COUNT;
+			const int fb = FONT_SIZE_FALLBACK[sz];
+			const GlyphCell *lent =
+				fb >= 0 ? cell_table + ((size_t)si * FONT_SIZE_COUNT +
+										(size_t)fb) * FONT_GLYPH_COUNT
+						: NULL;
+			for (int gi = 0; gi < FONT_GLYPH_COUNT; gi++) {
+				if (cp_of[gi] == NO_CP)
+					continue;
+				if (row[gi].x != FONT_CELL_ABSENT) {
+					own_glyphs++;
+					continue;
+				}
+				if (lent && lent[gi].x != FONT_CELL_ABSENT) {
+					lent_glyphs++;
+					continue;
+				}
+				if (notdef_glyphs++ < 5)
+					fprintf(stderr, "FAIL: U+%04X scale %d size %d: the face "
+									"carries it but no cell has it, so it "
+									"draws U+FFFD\n",
+							cp_of[gi], FONT_SCALE[si], sz);
+			}
+		}
+	printf("%s every code point a face carries is drawn (%ld baked, %ld "
+		   "borrowed, %ld substituted)\n",
+		   notdef_glyphs ? "FAIL" : "ok  ", own_glyphs, lent_glyphs,
+		   notdef_glyphs);
+	if (notdef_glyphs) fails++;
 
 	/* ---- 2, 3, 5, 7, 8, 9, 10: every cell -------------------------------- */
 	/* Each cell of the table ends in exactly one of the first seven, which

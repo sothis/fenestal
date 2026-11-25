@@ -1531,9 +1531,9 @@ FnlResult app_rank_draw(App *a, int w, int h)
 	if (!fnl_atomic_load_bool(&a->calibrating))
 		return FNL_OK;
 	const double now = now_seconds();
-	/* The seconds left in the large size, which is baked for a readout --
-	 * the digits, a space, F, P and S (tools/mkfont.c) -- and every word
-	 * in the proportional one, which has Latin-1 whole. */
+	/* The seconds left in the large size, baked for every code point the
+	 * faces carry as every size is (tools/mkfont.c), and the word beside
+	 * them in the proportional one. */
 	const char *head = CAL_HEAD;
 	const char *unit = CAL_UNIT;
 	char secs[16], entry[RANK_ID_MAX + 64], what[RANK_ID_MAX + 16];

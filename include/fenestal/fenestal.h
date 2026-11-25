@@ -1243,7 +1243,11 @@ typedef struct {
 /* The three baked faces: two monospaced sizes and one proportional. Baked, not
  * scalable -- each is rasterised and grid-fitted at the exact pixel sizes the
  * supported display scales land on -- which is why this is an enum of three
- * rather than a size in points. */
+ * rather than a size in points.
+ *
+ * Every size draws every code point the bundled Ubuntu faces carry, whichever
+ * of the three a string is set at. A code point neither face carries -- CJK,
+ * emoji, arrows, say -- is drawn as U+FFFD, the replacement character. */
 typedef enum {
 	FNL_TEXT_BODY  = 0, /* monospaced; the workhorse */
 	FNL_TEXT_LARGE = 1, /* monospaced; a readout to read across a room */
@@ -1285,12 +1289,14 @@ FNL_API void fnl_text_elide(char *dst, size_t cap, const char *src, int max_w,
 							FnlTextSize sz); /* [any] */
 
 /* Wrap `src` into `dst` (cap bytes, terminator included) at `max_w` points,
- * with '\n' between the lines, and answer how many lines it came to. A break
- * falls at a space where it can and inside a word where the word is longer
- * than the line; the spaces a break swallows are dropped, and a '\n' or '\r'
- * in the source starts a line of its own. Text that does not fit in `dst`
- * stops there, so a buffer too small is a shorter panel rather than a wrap
- * that never ends.
+ * with '\n' between the lines, and answer how many lines it came to. Draw
+ * `dst` one line per call, cut at each '\n': a line break is not a glyph, so
+ * a buffer drawn whole sets U+FFFD between the lines. A break falls at a
+ * space where it can and inside a word where the word is longer than the
+ * line; the spaces a break swallows are dropped, and a '\n' or '\r' in the
+ * source starts a line of its own. Text that does not fit in `dst` stops
+ * there, so a buffer too small is a shorter panel rather than a wrap that
+ * never ends.
  *
  * The sibling of fnl_text_elide(): one line cut to a width, or several lines
  * fitted into it. Both read the same tables and are safe from [any] thread. */

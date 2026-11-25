@@ -189,10 +189,11 @@ const GlyphCell *cell_row(int si, TextSize sz)
  * pen and in the measure or a string gets laid out to a width it does not
  * have -- which is why they are not written twice. A code point the face does
  * not carry draws U+FFFD. One this size is not baked for (FONT_CELL_ABSENT;
- * see SIZE_RANGES in tools/mkfont.c) draws with the cell of the size's
- * fallback, FONT_SIZE_FALLBACK, when that size has it: the same scale's row,
- * so the same atlas, and the same cap height and baseline, so the cell is
- * used as it stands -- its own advance included. Failing that, U+FFFD.
+ * only TEXT_UI's Latin set leaves any, see SIZE_RANGES in tools/mkfont.c)
+ * draws with the cell of the size's fallback, FONT_SIZE_FALLBACK, when that
+ * size has it: the same scale's row, so the same atlas, and the same cap
+ * height and baseline, so the cell is used as it stands -- its own advance
+ * included. Failing that, U+FFFD.
  *
  * The fallback row is found from `row` itself rather than passed in, so no
  * caller can hand the pen one pair and the measure another. */

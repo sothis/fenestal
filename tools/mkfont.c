@@ -47,32 +47,22 @@ static const int   SCALES[] = { 120, 150, 160, 180, 200, 240 };
 #define SCALE_COUNT ((int)(sizeof SCALES / sizeof SCALES[0]))
 
 /* What each size is baked for, as inclusive code point ranges. This is where
- * the megabytes are; DESIGN *Three tables* has the cost of each.
+ * the megabytes are; DESIGN *Three tables* has the cost.
  *
- * TEXT_BODY draws strings nothing here authors -- an output's name, a GPU's
- * -- so it carries every script one of those could be written in.
- * TEXT_LARGE carries what "%d FPS" can contain; a caller drawing anything
- * else at that size must widen it. TEXT_UI is a caller's window title, baked
- * for Latin and punctuation only: anything else TEXT_BODY carries is drawn
- * with TEXT_BODY's cell (FALLBACK).
+ * BODY and LARGE are baked for every code point their face carries, which a
+ * range over the whole code space says: both draw strings nothing here
+ * authors -- an output's name, a GPU's, a caller's own -- at a size the
+ * caller chose, so neither can know in advance which code points are wanted,
+ * and a set narrower than the face hands cell_for() U+FFFD for a glyph the
+ * face has. TEXT_UI is a caller's window title and the calibration panel's
+ * words, baked for Latin and punctuation only: anything else TEXT_BODY
+ * carries is drawn with TEXT_BODY's cell (FALLBACK), which shares the size's
+ * cell, cap height and line.
  *
  * U+FFFD is in every set: cell_for() substitutes it for a code point neither
- * the size nor its fallback carries. */
-static const unsigned BODY_RANGES[] = {
-	0x0000, 0x017f,     /* ASCII, Latin-1, Latin Ext-A                       */
-	0x0250, 0x036f,     /* IPA, spacing modifiers, combining marks           */
-	0x0370, 0x052f,     /* Greek, Cyrillic                                   */
-	0x1e00, 0x1eff,     /* Latin Ext Additional -- Vietnamese                */
-	0x2000, 0x218f,     /* punctuation, sub/superscripts, currency, TM, No   */
-	0xfb00, 0xffff,     /* ligatures, and the specials that hold U+FFFD      */
-};
-static const unsigned LARGE_RANGES[] = {
-	' ',    ' ',
-	'0',    '9',
-	'F',    'F',
-	'P',    'P',
-	'S',    'S',
-	0xfffd, 0xfffd,
+ * the size nor its fallback carries -- one no bundled face maps at all. */
+static const unsigned FULL_RANGES[] = {
+	0x0000, 0x10ffff,   /* the whole code space: whatever the face maps     */
 };
 static const unsigned UI_RANGES[] = {
 	0x0000, 0x017f,     /* ASCII, Latin-1, Latin Ext-A                       */
@@ -81,8 +71,8 @@ static const unsigned UI_RANGES[] = {
 };
 #define RANGE_PAIRS(a) ((int)(sizeof (a) / sizeof (a)[0] / 2))
 static const struct { const unsigned *r; int n; } SIZE_RANGES[SIZE_COUNT] = {
-	{ BODY_RANGES,  RANGE_PAIRS(BODY_RANGES)  },   /* TEXT_BODY  */
-	{ LARGE_RANGES, RANGE_PAIRS(LARGE_RANGES) },   /* TEXT_LARGE */
+	{ FULL_RANGES,  RANGE_PAIRS(FULL_RANGES)  },   /* TEXT_BODY  */
+	{ FULL_RANGES,  RANGE_PAIRS(FULL_RANGES)  },   /* TEXT_LARGE */
 	{ UI_RANGES,    RANGE_PAIRS(UI_RANGES)    },   /* TEXT_UI    */
 };
 /* The size whose cell draws a code point this size is not baked for, or -1.
@@ -102,8 +92,11 @@ _Static_assert(sizeof FACE / sizeof FACE[0] == SIZE_COUNT,
 /* Baseline to baseline, in cells. */
 #define LINE_CELLS  9
 
-/* Shelf width, in texels. Nothing needs a power of two. */
-#define ATLAS_W 1536
+/* Shelf width, in texels. Nothing needs a power of two, but the shelf is wide
+ * so that the atlas is wider than it is tall: 4096 is the smallest
+ * maxImageDimension2D a Vulkan device may offer, and BODY and LARGE baking
+ * every code point their face carries is what makes the height grow. */
+#define ATLAS_W 3072
 
 #define MAX_GLYPHS 8192
 
@@ -398,6 +391,15 @@ int main(int argc, char **argv)
 			if (y + q->h > used) used = y + q->h;
 		}
 		int ah = used ? used : 1;
+		/* Checked here rather than discovered as a failed image at run time:
+		 * 4096 is the Vulkan device floor, and a bake that outgrows it wants a
+		 * wider shelf, not a smaller window. */
+		if (ah > 4096) {
+			fprintf(stderr, "mkfont: scale %d needs %d rows, past the 4096 "
+							"a Vulkan device may offer; raise ATLAS_W\n",
+					SCALES[si], ah);
+			return 1;
+		}
 
 		/* Duplicates take their twin's patch and keep their own left/top:
 		 * the same coverage need not sit at the same offset from the pen. */
@@ -598,7 +600,9 @@ int main(int argc, char **argv)
 	fprintf(h, "/* What each size is baked for: inclusive first/last code\n"
 			   " * point pairs, emitted from SIZE_RANGES in tools/mkfont.c.\n"
 			   " * FONT_SIZE_RANGE_AT[sz] is the first pair for that size and\n"
-			   " * FONT_SIZE_RANGE_N[sz] how many follow. */\n"
+			   " * FONT_SIZE_RANGE_N[sz] how many follow. A pair over\n"
+			   " * the whole code space means every code point the\n"
+			   " * size's face carries. */\n"
 			   "static const unsigned FONT_SIZE_RANGE[] = {\n");
 	int at[SIZE_COUNT], pairs = 0;
 	for (int i = 0; i < SIZE_COUNT; i++) {

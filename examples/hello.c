@@ -26,18 +26,30 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	const FnlColor ink   = { 0.95f, 0.95f, 0.90f, 1.00f };
 
 	/* Wrapped, in logical points: the same layout at every display scale.
-	 * The rectangle is a background, as every filled rectangle must be. */
+	 * The rectangle is a background, as every filled rectangle must be.
+	 * fnl_text_wrap() puts '\n' between the lines and overlay text draws one
+	 * line per call, so each line is drawn on its own. */
 	int w_pt, h_pt;
 	fnl_window_size_pt(app, &w_pt, &h_pt);
 	const int margin = 24;
 	char text[512];
 	const int lines = fnl_text_wrap(text, sizeof text, msg,
 									w_pt - 2 * margin, FNL_TEXT_LARGE);
+	const int line_h = fnl_text_line(FNL_TEXT_LARGE);
 	const int tw = w_pt - 2 * margin;
-	const int th = fnl_text_line(FNL_TEXT_LARGE) * (lines > 0 ? lines : 1);
+	const int th = line_h * (lines > 0 ? lines : 1);
 	const int x = margin, y = (h_pt - th) / 2;
 	fnl_overlay_rect(app, x - 12, y - 8, tw + 24, th + 16, panel);
-	fnl_overlay_text(app, x, y, FNL_TEXT_LARGE, ink, text);
+	char *line = text;
+	for (int i = 0; i < lines; i++) {
+		char *nl = strchr(line, '\n');
+		if (nl)
+			*nl = '\0';
+		fnl_overlay_text(app, x, y + i * line_h, FNL_TEXT_LARGE, ink, line);
+		if (!nl)
+			break;
+		line = nl + 1;
+	}
 }
 
 int main(int argc, char **argv)

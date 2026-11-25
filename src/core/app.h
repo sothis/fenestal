@@ -3105,9 +3105,11 @@ const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp);
 bool text_resampled(const App *a);
 
 /* ---- drawing the text -----------------------------------------------------
- * Coordinates and sizes are in logical points; strings are UTF-8. Each size
- * is baked for a declared set of code points (SIZE_RANGES in
- * tools/mkfont.c), and one outside it draws U+FFFD. See DESIGN *Text*.
+ * Coordinates and sizes are in logical points; strings are UTF-8. BODY and
+ * LARGE are baked for every code point the faces carry; UI is baked for a
+ * declared set and borrows the rest from BODY (SIZE_RANGES in
+ * tools/mkfont.c). A code point no bundled face carries draws U+FFFD. See
+ * DESIGN *Text*.
  *
  * Drawing is deferred: text_draw() appends to the frame's glyph buffer and
  * text_end() issues what was appended since it last did, in one draw: once
