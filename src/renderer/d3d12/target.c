@@ -23,49 +23,57 @@
 
 static const float BLACK[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+/* A heap's first handle, as these two are the one pair whose C spelling the
+ * two header sets disagree on: mingw-w64 inlines functions that return the
+ * handle, and the Windows SDK defines macros that fill an out-parameter.
+ * The vtable call is the shape both have. */
+static D3D12_CPU_DESCRIPTOR_HANDLE heap_cpu(ID3D12DescriptorHeap *heap)
+{
+	D3D12_CPU_DESCRIPTOR_HANDLE h;
+	heap->lpVtbl->GetCPUDescriptorHandleForHeapStart(heap, &h);
+	return h;
+}
+
+static D3D12_GPU_DESCRIPTOR_HANDLE heap_gpu(ID3D12DescriptorHeap *heap)
+{
+	D3D12_GPU_DESCRIPTOR_HANDLE h;
+	heap->lpVtbl->GetGPUDescriptorHandleForHeapStart(heap, &h);
+	return h;
+}
+
 /* ---- descriptors --------------------------------------------------------- */
 
 D3D12_CPU_DESCRIPTOR_HANDLE d3d_rtv(App *a, int slot)
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-			D3D(a)->rtv_heap);
+	D3D12_CPU_DESCRIPTOR_HANDLE h = heap_cpu(D3D(a)->rtv_heap);
 	h.ptr += (SIZE_T)slot * D3D(a)->rtv_inc;
 	return h;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE d3d_dsv(App *a, int slot)
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-			D3D(a)->dsv_heap);
+	D3D12_CPU_DESCRIPTOR_HANDLE h = heap_cpu(D3D(a)->dsv_heap);
 	h.ptr += (SIZE_T)slot * D3D(a)->dsv_inc;
 	return h;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE d3d_srv_cpu(App *a, int slot)
 {
-	D3D12_CPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-			D3D(a)->srv_heap);
+	D3D12_CPU_DESCRIPTOR_HANDLE h = heap_cpu(D3D(a)->srv_heap);
 	h.ptr += (SIZE_T)slot * D3D(a)->srv_inc;
 	return h;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE d3d_srv_gpu(App *a, int slot)
 {
-	D3D12_GPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(
-			D3D(a)->srv_heap);
+	D3D12_GPU_DESCRIPTOR_HANDLE h = heap_gpu(D3D(a)->srv_heap);
 	h.ptr += (UINT64)slot * D3D(a)->srv_inc;
 	return h;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE d3d_smp_gpu(App *a, int slot)
 {
-	D3D12_GPU_DESCRIPTOR_HANDLE h =
-		ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(
-			D3D(a)->smp_heap);
+	D3D12_GPU_DESCRIPTOR_HANDLE h = heap_gpu(D3D(a)->smp_heap);
 	h.ptr += (UINT64)slot * D3D(a)->smp_inc;
 	return h;
 }
@@ -121,9 +129,7 @@ FnlResult d3d_make_heaps(App *a)
 			.MaxLOD         = D3D12_FLOAT32_MAX,
 			.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER,
 		};
-		D3D12_CPU_DESCRIPTOR_HANDLE h =
-			ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-				g->smp_heap);
+		D3D12_CPU_DESCRIPTOR_HANDLE h = heap_cpu(g->smp_heap);
 		h.ptr += (SIZE_T)i * g->smp_inc;
 		ID3D12Device_CreateSampler(g->device, &s, h);
 	}

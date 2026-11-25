@@ -13,7 +13,7 @@
  * unknown or not applicable is null, never 0. The version is additive: a
  * renamed key is a new key and a reader ignores keys it does not know.
  */
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__FreeBSD__)
 #  define _POSIX_C_SOURCE 200809L
 #endif
 

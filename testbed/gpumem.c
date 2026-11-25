@@ -13,7 +13,7 @@
  * xe, amdgpu), its memory summed over this process's clients of it. nouveau
  * keeps none, so Zink on NVK has no figure. Other systems: none here.
  */
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__FreeBSD__)
 #  define _POSIX_C_SOURCE 200809L
 #endif
 

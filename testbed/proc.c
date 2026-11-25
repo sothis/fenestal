@@ -17,7 +17,10 @@
  * system time, the peak resident set, the thread count, and the machine
  * the figures were taken on, each "unknown" where its system will not say.
  */
-#if !defined(_WIN32)
+/* Not on FreeBSD, whose default environment is a superset of POSIX and
+ * whose cdefs hides its BSD-visible names -- _SC_NPROCESSORS_ONLN among
+ * them -- under this pin (src/core/compiler.h says so at length). */
+#if !defined(_WIN32) && !defined(__FreeBSD__)
 #  define _POSIX_C_SOURCE 200809L
 #  if defined(__APPLE__)
 #    define _DARWIN_C_SOURCE 1
