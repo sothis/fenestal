@@ -883,7 +883,10 @@ static void wl_hint_flush(App *a)
 			p->locked, wl_fixed_from_double(p->hint_x),
 			wl_fixed_from_double(p->hint_y));
 		/* Latched only by a commit of the window's surface, which after a
-		 * move is the render thread's flush: owed until then. */
+		 * move is the render thread's flush: owed until then. The count
+		 * first, so a flush that sees the flag set cannot read a count
+		 * from before the request. */
+		fnl_atomic_add_u32(&p->hint_gen, 1);
 		fnl_atomic_store_bool(&p->hint_dirty, true);
 	}
 }
@@ -2345,6 +2348,11 @@ static void surface_frame_request(App *a)
 	present_settle(a);
 	fnl_mutex_lock(&a->lock);
 	feedback_request(a);
+	/* The hint requests marshalled by now ride on the commit this present
+	 * makes; one marshalled after this point may not, and wl_flush()
+	 * commits the window's surface for it when the count moved (hint_gen)
+	 * -- a commit too many is an empty one. */
+	p->hint_present_gen = fnl_atomic_load_u32(&p->hint_gen);
 	if (!p->frame_cb) {
 		p->frame_ready = false;
 		p->frame_cb    = wl_surface_frame(p->present);
@@ -2961,11 +2969,18 @@ static void wl_flush(App *a)
 	if (p->presenting) {
 		p->presenting = false;
 		/* Onto the window's surface itself the present just committed it,
-		 * and another commit would be an empty one a frame. */
+		 * and another commit would be an empty one a frame -- unless a hint
+		 * was marshalled after the count was taken (hint_gen): it may not
+		 * have ridden on the commit, and nothing else latches it. */
 		const bool hint = fnl_atomic_load_bool(&p->hint_dirty);
-		if (hint)
+		uint32_t hint_gen = 0;
+		if (hint) {
+			hint_gen = fnl_atomic_load_u32(&p->hint_gen);
 			fnl_atomic_store_bool(&p->hint_dirty, false);
-		if (p->parent_dirty || (hint && p->present != p->surface)) {
+		}
+		if (p->parent_dirty ||
+			(hint && (p->present != p->surface ||
+					  hint_gen != p->hint_present_gen))) {
 			p->parent_dirty = false;
 			wl_surface_commit(p->surface);
 		}
@@ -3482,7 +3497,9 @@ static void wl_apply_size_bounds(App *a)
 	deco_min_window(a, false, &min_w, &min_h);
 	xdg_toplevel_set_min_size(a->backend_state->xdg_toplevel, min_w, min_h);
 	/* Double-buffered on the window's surface, which after a move only the
-	 * flush commits. */
+	 * flush commits. Counted as wl_hint_flush() counts, for wl_flush()'s
+	 * sake: a size set after a present's commit is committed again. */
+	fnl_atomic_add_u32(&a->backend_state->hint_gen, 1);
 	fnl_atomic_store_bool(&a->backend_state->hint_dirty, true);
 }
 

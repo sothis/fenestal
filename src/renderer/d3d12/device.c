@@ -429,10 +429,12 @@ static FnlResult factory_make(struct RendererState *g)
 	if (FAILED(hr))
 		return d3d_fail(FNL_ERR_NO_DEVICE, "CreateDXGIFactory2", hr);
 	IDXGIFactory5 *f5 = NULL;
+	/* Until the new factory says otherwise: a remake that cannot ask must
+	 * not keep the last factory's answer. */
+	g->tearing = false;
 	if (SUCCEEDED(IDXGIFactory4_QueryInterface(g->factory, &IID_IDXGIFactory5,
 											   (void **)&f5))) {
 		BOOL allow = FALSE;
-		g->tearing = false;
 		if (SUCCEEDED(IDXGIFactory5_CheckFeatureSupport(
 				f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof allow)))
 			g->tearing = allow != FALSE;
@@ -446,8 +448,9 @@ static FnlResult create_device_objects(App *a)
 	struct RendererState *g = D3D(a);
 	/* A factory made before a driver update or a removal lists the adapters
 	 * that were: the rebuild picks from one made now, as d3d_list_gpus()
-	 * lists from one, so the two agree on the order. */
-	if (g->factory && !IDXGIFactory4_IsCurrent(g->factory)) {
+	 * lists from one, so the two agree on the order. Also where a remake
+	 * failed and left none, or the next recovery chooses from NULL. */
+	if (!g->factory || !IDXGIFactory4_IsCurrent(g->factory)) {
 		D3D_RELEASE(g->factory);
 		FNL_TRY(factory_make(g));
 	}
@@ -493,8 +496,8 @@ static FnlResult create_device_objects(App *a)
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		g->slot_value[i] = 0;
 		hr               = ID3D12Device_CreateCommandAllocator(
-            g->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
-            &IID_ID3D12CommandAllocator, (void **)&g->alloc[i]);
+			g->device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+			&IID_ID3D12CommandAllocator, (void **)&g->alloc[i]);
 		if (FAILED(hr))
 			return d3d_fail(FNL_ERR_NO_DEVICE, "CreateCommandAllocator", hr);
 	}
@@ -870,7 +873,7 @@ bool fnl_d3d12_scene_layout(App *a, FnlSceneTarget t, FnlD3D12SceneLayout *out)
 bool fnl_d3d12_scene(App *a, FnlD3D12Scene *out)
 {
 	/* on_record's thread alone, tested first as fnl_vulkan_scene_cmd() is. */
-	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
+	if (!a || !out || !app_renderer_state_ours(a) ||
 		a->renderer != &fnl_renderer_d3d12 || !a->renderer_state ||
 		!D3D(a)->scene_list_now)
 		return false;

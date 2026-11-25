@@ -463,6 +463,36 @@ each wants.
   motion while a capture is suspended, and pays three round trips for the
   default cursor before the opening waits on a scaled desktop.
 
+## After the third 2026-11-25 review
+
+Found by reading, each verified at its site; the fixes are in, and these are
+the two left, with what each wants.
+
+- **Wayland: once a discrete notch has been seen, a hi-res wheel's smooth
+  parts are dropped for the rest of the process.** `ptr_axis()` returns on a
+  smooth WHEEL axis with no discrete once `wheel_discrete_seen` is set -- a
+  host-wide latch never cleared. The guard is there on purpose: a hi-res
+  notch's parts arrive as smooth axis events before the discrete count that
+  repeats them (the state header says so), and counting both would scroll
+  the notch twice. But a smooth-only wheel, or a compositor that stops
+  sending axis_discrete, then scrolls nothing after the first discrete, and
+  a compositor that sends an axis before its coupled discrete would count
+  the first notch twice. Counting in `ptr_frame()` -- the discrete where the
+  frame has one, the smooth travel otherwise -- removes the latch but not
+  the repetition, unless the smooth notches already delivered are subtracted
+  when their discrete arrives. Wants a hi-res wheel on GNOME and on weston,
+  the testbed's `EV scroll` echo counted against the physical notches,
+  before either rule is written down.
+- **An event overflow drops one-shot answers with the rest.**
+  `queue_push()`'s `ev_lost` gate holds every event until the consumer has
+  drained the ring, so a clipboard answer posted while the ring is full is
+  lost, and `FNL_EVENT_LOST` cannot say it was that one. Deliberate --
+  nothing after a gap may overtake `FNL_EVENT_LOST`, or a release would
+  land before the loss that explains it. A LOST marker pushed at the
+  overflow point, with what follows queued after it, keeps the order and
+  the answer; that is a change to the ring's invariant, so it wants a
+  design pass.
+
 ## The output box under a window server
 
 Written by reading (DESIGN *The titlebar controls*); its stress check was

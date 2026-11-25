@@ -272,7 +272,7 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 	d.BlendState.RenderTarget[0] = b;
 	ID3D12PipelineState *p       = NULL;
 	const HRESULT hr             = ID3D12Device_CreateGraphicsPipelineState(
-        dev, &d, &IID_ID3D12PipelineState, (void **)&p);
+		dev, &d, &IID_ID3D12PipelineState, (void **)&p);
 	if (FAILED(hr)) {
 		if (!quiet)
 			fnl_log(FNL_LOG_ERROR,
@@ -303,8 +303,8 @@ bool d3d_draws_on(ID3D12Device *dev)
 	const size_t rect[2] = { offsetof(RectInstance, rect),
 							 offsetof(RectInstance, color) };
 	const PsoDesc d      = {
-        "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
-        BLEND_NONE
+		"rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
+		BLEND_NONE
 	};
 	ID3D12PipelineState *p = pso_make(dev, root, D3D_COLOR_FORMAT, &d, true);
 	const bool ok          = p != NULL;

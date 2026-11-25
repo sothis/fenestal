@@ -6,6 +6,12 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **Overlay images: drawn at the rectangle asked for, and the image calls
+  are the render thread's.** A picture whose rectangle runs past the window
+  is no longer squashed into the visible part; the rasteriser cuts it.
+  `fnl_image_supported()` answers false, and `fnl_image_destroy()` refuses
+  with a line, away from that thread; `fnl_image_create()` already did.
+
 - **Vulkan: `fnl_vulkan_queue_submit()` and `fnl_vulkan_queue_wait_idle()`.**
   The shared queue is one for every window on the host, so a scene's own
   submit races another window's render thread. These take the lock the

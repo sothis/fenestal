@@ -260,7 +260,7 @@ static void record_taau_copy(App *a, VkCommandBuffer cb)
 				   .image               = VK(a)->taau.image,
 				   .subresourceRange    = range,
 				   .srcAccessMask =
-            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
 				   .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
 	};
 	VkImageMemoryBarrier hist = out;

@@ -199,11 +199,17 @@ MACHINE_GAP = re.compile(
     re.I)
 
 
+# The relay's own last line (native_relay.py), which is the harness's and
+# not the program's: on the laptops a machine gap is the line above it.
+RELAY_EXIT = re.compile(r"^the program left with 0x[0-9A-Fa-f]{8}$")
+
+
 def exited_at_start(said):
     """The exception for a program that was gone before it had a window: a
     skip where what it said names a gap of the machine, a failure otherwise
     (an ASan abort or a segfault in fnl_init() is a finding, not an absent
     machine)."""
+    said = [l for l in (said or []) if not RELAY_EXIT.match(l)]
     last = said[-1] if said else "silently"
     text = "the program exited at start: %s" % last
     if said and MACHINE_GAP.search(last):
@@ -949,17 +955,17 @@ class _Portal(Environment):
         return 6.0 if self.slow else 1.5
 
     def _heard(self, mark, what=None):
-        """Whether something answered since `mark`: a key event of `what`'s
+        """Whether something answered since `mark`: a key press of `what`'s
         (any key where it is None), or text, a composition or a close. Not
-        another key's: the last key's release can land after this one's
-        mark, and would pass a key that was lost for delivered."""
+        another key's, nor a release: the last key's release can land after
+        this one's mark, and would pass a key that was lost for delivered."""
         end = time.time() + self._heard_window()
         while time.time() < end:
             if not self.alive():
                 return True         # it closed the window, which is an answer
             if any(e["kind"] in self.HEARD and
                    (e["kind"] != "key" or what is None or
-                    e["parts"][1:2] == [what])
+                    e["parts"][1:3] == [what, "press"])
                    for e in self.since(mark)):
                 return True
             time.sleep(POLL)

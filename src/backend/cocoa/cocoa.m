@@ -1325,10 +1325,11 @@ static void fs_settle(App *a)
 	return first;
 }
 
-/* The Apple event's reason for a quit (AERegistry.h's kAEQuitReason and its
- * values, spelt out: the Carbon headers are not included). A system ending
- * its session asks every application to quit, and cancelling that answer
- * holds the logout or restart up for a window the caller is closing anyway. */
+/* The Apple event's reason for a quit (AERegistry.h's kAEQuitReason and the
+ * values it lists: kAEQuitAll, kAEShutDown, kAERestart and kAEReallyLogOut,
+ * spelt out as the Carbon headers are not included). A system ending its
+ * session asks every application to quit, and cancelling that answer holds
+ * the logout or restart up for a window the caller is closing anyway. */
 static bool session_is_ending(void)
 {
 	NSAppleEventDescriptor *e =
@@ -1337,8 +1338,8 @@ static bool session_is_ending(void)
 		return false;
 	const OSType why =
 		[e attributeDescriptorForKeyword:(AEKeyword)'why?'].typeCodeValue;
-	return why == (OSType)'shut' || why == (OSType)'rlgo' ||
-		   why == (OSType)'logo' || why == (OSType)'rrst';
+	return why == (OSType)'quia' || why == (OSType)'shut' ||
+		   why == (OSType)'rest' || why == (OSType)'rlgo';
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s

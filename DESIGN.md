@@ -113,8 +113,10 @@ trees have not been timed.
 `CMAKE_BUILD_TYPE` defaults to `Release` and the compiler is pinned to gcc
 before `project()`; `CC=clang` overrides, FreeBSD's default is its base
 clang, and Windows is left to CMake's own default, MSVC. LTO is on for
-optimised builds -- clang's MinGW tree excepted, whose archive links with
-binutils' ld (*Cross-compiling for Windows*). So is hardening
+optimised builds with two exceptions: clang's MinGW tree, whose archive
+links with binutils' ld (*Cross-compiling for Windows*), and MSVC, whose
+`/GL` objects link only with the same cl (*Building Windows with MSVC*).
+So is hardening
 (`-DFNL_HARDEN=OFF` to leave it out):
 `-fhardened` where gcc has it, and where it does not -- mingw's gcc 13,
 clang -- each of its parts the compiler takes, checked by a link, and none
@@ -289,11 +291,12 @@ Ninja on `PATH`; CMake is driven with `-DCMAKE_C_COMPILER=cl`. CI builds it
 on every push (`windows-latest`), which is where it is compiled at all -- no
 MSVC runs on the Linux machine this tree is developed on. Its first compile
 there passed on 2026-11-25, library and programs: `/experimental:c11atomics`
-took the testbed's and `fenestal-dev`'s atomics, the `/GL` objects linked
-with `/LTCG` that the linker starts on its own, the DLL's exports are the
-`/DEF:` list, and the archive and import library came out named apart. The
-ABI dump's layout is its set's baseline, as the export list is, Windows'
-`d3d12-vulkan` among them.
+took the testbed's and `fenestal-dev`'s atomics, the DLL's exports are the
+`/DEF:` list, and the archive and import library came out named apart. LTO
+is off there now: the archive is the objects themselves, which another cl
+must link, and `/GL` objects link only with the same one, so the DLL gives
+up LTCG with them. The ABI dump's layout is its set's baseline, as the
+export list is, Windows' `d3d12-vulkan` among them.
 
 Four things differ from every other compiler's tree:
 
@@ -10089,12 +10092,16 @@ all, and a name that would leave the root refused. A cycle is a depth
 that runs out; a file or section not there contributes nothing and is
 one line at open, naming it -- unless it is a layout's own, which is no
 layout: a typo in `XKBLAYOUT` types nothing rather than `pc`'s few keys.
-The modifiers are worked out from the keys held, since nobody reports
-them: AltGr is the right Alt where the keymap's plain level there is
-`ISO_Level3_Shift`, and Alt otherwise, and the two locks are toggles the
-backend keeps and writes to every keyboard's lights. A held key repeats
-by the kernel's own repeat (value 2), which goes through
-`app_key_repeat()` as every backend's does.
+The modifiers are worked out from the keys held and the role the layout
+gives each key's keysyms, group by group -- Shift, Control, Alt, Super,
+Caps Lock, Num Lock and AltGr -- since nobody reports them, and the two
+locks are toggles the backend keeps and writes to every keyboard's
+lights. A key whose plain level the layout leaves empty keeps its usual
+code's role, and a group with nothing on a key takes the first group's,
+as typing does; the group key's level is read from the modifiers held
+before it, so the layout's own Alt under `grp:alts_toggle` does not switch
+at every press. A held key repeats by the kernel's own repeat (value 2),
+which goes through `app_key_repeat()` as every backend's does.
 
 It had been `xkbcli compile-keymap`, run with a five-second bound and its
 text read as a compositor's. That is libxkbcommon's tool, and on

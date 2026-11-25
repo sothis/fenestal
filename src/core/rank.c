@@ -1603,7 +1603,7 @@ static double time_left(const App *a, double now)
 	double each[2];
 	each[0]     = a->cal.dur_k[0] ? a->cal.dur_sum[0] / a->cal.dur_k[0]
 								  : CAL_SETTLE_MIN + CAL_SAMPLE_MIN +
-                                    2.0 * CAL_BIN + CAL_SWITCH;
+									2.0 * CAL_BIN + CAL_SWITCH;
 	each[1]     = a->cal.dur_k[1] ? a->cal.dur_sum[1] / a->cal.dur_k[1]
 								  : each[0] + CAL_MOVE;
 	double left = 0.0;

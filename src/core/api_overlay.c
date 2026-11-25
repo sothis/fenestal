@@ -27,9 +27,9 @@
  * miss is the whole cost of a colour a caller has already used. So the memo is
  * keyed on the colour and sized for a palette.
  *
- * Eight slots are probed from the hash and then the first is overwritten, so a
- * lookup is bounded however the table fills, and a miss costs what an uncached
- * conversion would have less the probe.
+ * Eight slots are probed from the hash and one of them taken -- an empty one
+ * first, else one in turn -- so a lookup is bounded however the table fills,
+ * and a miss costs what an uncached conversion would have less the probe.
  *
  * Keyed on the blend space rather than on the App: a device-loss recovery
  * re-resolves the surface format on the same App.
@@ -275,7 +275,9 @@ bool fnl_image_supported(const FnlApp *app)
 bool fnl_image_valid(const FnlApp *app, const FnlImage *img)
 {
 	App *a = (App *)app;
-	if (!a || !img || !img->pixels)
+	/* Another window's image names another device's objects, and
+	 * fnl_overlay_image() refuses it; this answer must agree. */
+	if (!a || !img || !img->pixels || img->app != a)
 		return false;
 	/* An image is drawable when the renderer drawing now can draw one and a
 	 * device has been handed back since the last loss. App::cb_gpu_created

@@ -2150,7 +2150,7 @@ bool fnl_vulkan_scene_cmd(App *a, VkCommandBuffer *out)
 	 * buffer that may be executing, so a stale one is refused rather than
 	 * handed back. The thread first: from another, the state read may be
 	 * one a move to another renderer is freeing. */
-	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
+	if (!a || !out || !app_renderer_state_ours(a) ||
 		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
 		VK(a)->scene_cb == VK_NULL_HANDLE)
 		return false;
@@ -2163,7 +2163,7 @@ bool fnl_vulkan_scene_rect(App *a, VkRect2D *out)
 	/* Refused where fnl_vulkan_scene_cmd() is, for the same reasons: the
 	 * rectangle is this recording's, and the state it is read from is the
 	 * render thread's. */
-	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
+	if (!a || !out || !app_renderer_state_ours(a) ||
 		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
 		VK(a)->scene_cb == VK_NULL_HANDLE)
 		return false;

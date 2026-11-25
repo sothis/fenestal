@@ -249,9 +249,18 @@ struct BackendState {
 	 * commit of the window's surface, which is where both latch: sent on
 	 * the pump (wl_hint_flush(), wl_apply_size_bounds()), owed until the
 	 * render thread's flush commits it. Where the frames go into the window's
-	 * surface itself the present's commit is that commit, and nothing is
-	 * owed. Atomic because the two sides are those threads. */
+	 * surface itself the present's commit is that commit, and only one sent
+	 * after it is owed another (hint_gen). Atomic because the two sides are
+	 * those threads. */
 	FnlAtomicBool hint_dirty;
+	/* How many such requests have been marshalled, bumped before
+	 * hint_dirty and snapshotted by the render thread just before a
+	 * present: one sent after that point may not have ridden on the
+	 * present's commit, and wl_flush() commits the window's surface for it
+	 * even where the frames are in that surface. The counter is both
+	 * threads'; the snapshot is the render thread's. */
+	FnlAtomicU32 hint_gen;
+	uint32_t hint_present_gen;
 	bool renew_refused;
 	/* The subsurface the frames went into before the last renew, kept
 	 * showing its last frame under the new one until the new one has shown

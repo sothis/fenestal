@@ -2071,10 +2071,6 @@ void app_pointer_motion(App *a, double x_pt, double y_pt)
 	app_event(a, &ev);
 }
 
-/* The pointer arriving at the window, and leaving it. A captured pointer has
- * no position to leave or arrive at, and a calibration holds input back as it
- * does for motion; the hover the bar keeps is dropped on the way out, or a
- * button stays lit over a window the pointer has left. */
 /* See fnl_post(). The queue is a fixed ring under App::lock: a caller's
  * thread pushes, the render thread takes the lot and runs it outside the
  * lock, since a post may lock the App itself. Full is a false rather than a
@@ -2111,6 +2107,10 @@ void app_post_drain(App *a)
 		run[i].fn(run[i].ud);
 }
 
+/* The pointer arriving at the window, and leaving it. A captured pointer has
+ * no position to leave or arrive at, and a calibration holds input back as it
+ * does for motion; the hover the bar keeps is dropped on the way out, or a
+ * button stays lit over a window the pointer has left. */
 void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt)
 {
 	if (a->pointer_captured || app_rank_holds_input(a))
@@ -2123,8 +2123,6 @@ void app_pointer_presence(App *a, bool entered, double x_pt, double y_pt)
 		deco_publish_hover(a, ZONE_CONTENT);
 }
 
-/* Held back by a calibration as a position is: a capture taken before one
- * began goes on through it. */
 /* [render] The present just made did not commit, by the graphics API's
  * word, so the backend's frame request is taken back -- unless the server
  * had answered that present already, which only the backend sees
@@ -2139,6 +2137,8 @@ void app_frame_take_back(App *a)
 	}
 }
 
+/* Held back by a calibration as a position is: a capture taken before one
+ * began goes on through it. */
 void app_pointer_relative(App *a, double dx_pt, double dy_pt)
 {
 	if (app_rank_holds_input(a))

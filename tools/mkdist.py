@@ -62,6 +62,7 @@ NEEDED = (
     "tsan-lavapipe.supp",  # bare_driver.py's, beside tsan.supp there
     "lsan.supp",  # the asan rounds', for NVIDIA's own driver
     "valgrind.supp",
+    "pyrightconfig.json",  # what pyright holds tools/drive to
     "ruff.toml",  # what `ruff check tools` holds tools/ to
     "include/",  # the public headers
     "src/",  # the library

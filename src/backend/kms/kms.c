@@ -718,6 +718,7 @@ static uint8_t role_of_keysym(uint32_t k)
 	case 0xffe1: case 0xffe2:            return ROLE_SHIFT;  /* Shift_L/R */
 	case 0xffe3: case 0xffe4:            return ROLE_CTRL;   /* Control_L/R */
 	case 0xffe5:                         return ROLE_CAPS;   /* Caps_Lock */
+	case 0xffe6:                         return ROLE_CAPS;   /* Shift_Lock */
 	case 0xffe7: case 0xffe8:            /* Meta_L/R */
 	case 0xffe9: case 0xffea:            return ROLE_ALT;    /* Alt_L/R */
 	case 0xffeb: case 0xffec:            return ROLE_SUPER;  /* Super_L/R */
@@ -730,8 +731,10 @@ static uint8_t role_of_keysym(uint32_t k)
 /* The roles of every key in every group, indexed by evdev code (the keymap
  * is by X code, which is that plus 8). Built where the keymap is loaded and
  * not per key: the defaults are the keys' usual codes, for a keymap that
- * names none; a code the keymap gives symbols keeps only what its keysyms
- * say, so Caps Lock under ctrl:nocaps is Control. */
+ * names none; a code the keymap gives a plain symbol keeps only what that
+ * keysym says, so Caps Lock under ctrl:nocaps is Control, where one whose
+ * plain level is NoSymbol keeps its usual code's role (grp:alt_shift_toggle's
+ * <LALT> is [NoSymbol, ISO_Next_Group]). */
 static void keymap_note_roles(struct BackendHostState *hs)
 {
 	static const struct { unsigned code; uint8_t role; } DEFAULT[] = {
@@ -757,12 +760,16 @@ static void keymap_note_roles(struct BackendHostState *hs)
 			continue;
 		for (unsigned g = 0; g < KEYMAP_GROUPS; g++) {
 			/* A group with nothing on the key takes the first group's, as
-			 * typing does (keymap_lookup()). */
+			 * typing does (keymap_lookup()). A level 0 the layout leaves
+			 * NoSymbol says nothing about the key -- grp:alt_shift_toggle's
+			 * <LALT> is [NoSymbol, ISO_Next_Group] -- so the usual role
+			 * stands rather than being replaced by none. */
 			bool empty = true;
 			for (unsigned l = 0; l < KEYMAP_LEVELS; l++)
 				empty = empty && !hs->keymap.sym[x][g][l];
-			hs->role[g][code] =
-				role_of_keysym(hs->keymap.sym[x][empty ? 0 : g][0]);
+			const uint32_t plain = hs->keymap.sym[x][empty ? 0 : g][0];
+			if (plain)
+				hs->role[g][code] = role_of_keysym(plain);
 		}
 	}
 }

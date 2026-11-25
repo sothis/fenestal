@@ -203,7 +203,7 @@ int main(void)
 	fnl_set_log_level(FNL_LOG_WARN);
 	const char *want = getenv("FNL_QUIT_KEY");
 	State s          = {
-        0, 0, 0, 0.0, "", "", fnl_key_from_name(want && want[0] ? want : "q"), 0
+		0, 0, 0, 0.0, "", "", fnl_key_from_name(want && want[0] ? want : "q"), 0
 	};
 	struct Ticker t = { app, &s, 1 };
 #ifdef _WIN32

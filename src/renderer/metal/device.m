@@ -591,7 +591,7 @@ bool fnl_metal_scene_layout(App *a, FnlSceneTarget t,
 bool fnl_metal_scene(App *a, FnlMetalScene *out)
 {
 	/* on_record's thread alone, tested first as fnl_vulkan_scene_cmd() is. */
-	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
+	if (!a || !out || !app_renderer_state_ours(a) ||
 		a->renderer != &fnl_renderer_metal ||
 		!a->renderer_state || !MT(a)->scene_enc_now)
 		return false;

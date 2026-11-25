@@ -1519,9 +1519,12 @@ typedef enum {
 FNL_API bool fnl_image_supported(const FnlApp *app); /* [overlay] */
 
 /* Whether `img` is one the renderer drawing now can draw: true from the
- * moment fnl_image_create() returns it until fnl_image_destroy(), false
- * between the loss of a device and the first frame drawn on the device that
- * replaced it -- the interval on_gpu_lost/on_gpu_created brackets.
+ * moment fnl_image_create() returns it until fnl_image_destroy(), for the
+ * window that made it, false between the loss of a device and the first
+ * frame drawn on the device that replaced it -- the interval
+ * on_gpu_lost/on_gpu_created brackets. An image another window made is
+ * false: it names another device's objects, and fnl_overlay_image() draws
+ * nothing for it.
  *
  * The library keeps an image's pixels and re-uploads them after a loss, a
  * move to another GPU or another renderer (on_gpu_created), so an image

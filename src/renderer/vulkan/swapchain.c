@@ -90,7 +90,7 @@ static VkExtent2D choose_extent(App *a, const VkSurfaceCapabilitiesKHR *caps)
 	const uint32_t max_w = caps->maxImageExtent.width;
 	const uint32_t max_h = caps->maxImageExtent.height;
 	const Extent hi      = {
-        max_w > INT_MAX ? INT_MAX : (int)max_w,
+		max_w > INT_MAX ? INT_MAX : (int)max_w,
 		max_h > INT_MAX ? INT_MAX : (int)max_h,
 	};
 	const Extent e = app_buffer_extent(a, lo, hi);
