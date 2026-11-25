@@ -58,10 +58,19 @@ _Static_assert(sizeof PALETTE / sizeof PALETTE[0] == COL_COUNT,
  * both encodings; see the palette note in app.h for the rest. */
 void app_palette_init(App *a)
 {
+	/* The target's unit for SDR white: 1.0 everywhere but a scRGB
+	 * swapchain, whose own 1.0 is 80 nits, and where the library's chrome
+	 * would otherwise be dim beside the desktop's. Taken under the lock
+	 * because the renderer publishes it around this call. */
+	fnl_mutex_lock(&a->lock);
+	const float scale =
+		a->pub_color.sdr_scale > 0.0f ? a->pub_color.sdr_scale : 1.0f;
+	fnl_mutex_unlock(&a->lock);
 	for (int i = 0; i < COL_COUNT; i++) {
 		for (int c = 0; c < 3; c++)
-			a->pal[i][c] =
-				a->srgb_surface ? srgb_to_linear(PALETTE[i][c]) : PALETTE[i][c];
+			a->pal[i][c] = a->linear_target
+							   ? srgb_to_linear(PALETTE[i][c]) * scale
+							   : PALETTE[i][c];
 		a->pal[i][3] = PALETTE[i][3];
 	}
 }

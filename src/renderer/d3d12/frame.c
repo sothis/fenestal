@@ -163,6 +163,8 @@ static void record_scene(App *a, const FnlDrawState *ds,
 		 * it in its projection, and a frame without it gathers one sample. */
 		.jitter_x = ds->jitter_x,
 		.jitter_y = ds->jitter_y,
+		/* The colour this frame's target holds; see FnlOutputColor. */
+		.color = a->draw_color,
 	};
 	struct RendererState *g = D3D(a);
 	g->scene_list_now = g->list;
@@ -195,12 +197,15 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 	d3d_own_state(a);
 
 	if (ms) {
-		/* Resolved in the _SRGB format, so the samples are averaged in
-		 * linear light, as Vulkan's resolve attachment does. */
+		/* Resolved in the target's own format -- _SRGB, whose writes the
+		 * hardware encodes, or the float one HDR's target is -- so the
+		 * samples are averaged in linear light either way, as Vulkan's
+		 * resolve attachment does. */
 		target_to(a, &g->scene_ms, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
 		target_to(a, &g->scene, D3D12_RESOURCE_STATE_RESOLVE_DEST);
 		ID3D12GraphicsCommandList_ResolveSubresource(
-			g->list, g->scene.color, 0, g->scene_ms.color, 0, D3D_COLOR_FORMAT);
+			g->list, g->scene.color, 0, g->scene_ms.color, 0,
+			g->color_format);
 	}
 	target_to(a, &g->scene, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	if (scene_mlaa(a, ds)) {
@@ -609,6 +614,10 @@ static bool shown_start(App *a)
 static void via11_measure(App *a)
 {
 	struct RendererState *g = D3D(a);
+	/* HDR's swapchain has no 8-bit Direct3D 11 twin to be measured
+	 * against (surface_win32.c's choose). */
+	if (g->hdr)
+		return;
 	if (g->via11_settled && !g->via11_forced && a->size_at != g->via11_at) {
 		g->via11_settled = false;
 		g->via11_seen = g->via11_late = 0;
@@ -676,7 +685,8 @@ static bool via11_remake(App *a)
 		D3D_RELEASE(g->swapchain);
 		if (!g->via11_on)
 			d3d_via11_end(a);
-		if (d3d_bridge_swapchain(a) == FNL_OK && d3d_window_images(a) == FNL_OK)
+		if (d3d_bridge_swapchain(a, false) == FNL_OK &&
+			d3d_window_images(a) == FNL_OK)
 			return true;
 		if (!g->via11_on)
 			break;
@@ -796,6 +806,13 @@ void d3d_shown_stop(App *a)
 static bool snapshot_record(App *a, ID3D12Resource *back)
 {
 	struct RendererState *g = D3D(a);
+	/* The veil is a fade through black instead: the buffer holds 8-bit rows,
+	 * and an HDR back buffer's are half floats -- four bytes a pixel is a
+	 * quarter of it. */
+	if (g->hdr) {
+		app_snapshot_decline(a);
+		return false;
+	}
 	const size_t row = (size_t)a->extent.w * 4u;
 	const size_t pitch      = (row + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
 						 ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);

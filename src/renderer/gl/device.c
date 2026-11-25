@@ -159,7 +159,16 @@ static FnlResult create_device_objects(App *a)
 	gl.ClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
 
 	choose_samples(a);
-	a->srgb_surface = true;      /* every colour image is GL_SRGB8_ALPHA8 */
+	a->linear_target = true; /* every colour image is GL_SRGB8_ALPHA8 */
+	/* OpenGL presents SDR on both systems, and the window is told so: a
+	 * named HDR space is refused rather than silently replaced, as a named
+	 * renderer is. */
+	app_publish_peak(a, 1.0f);
+	app_publish_color(a, FNL_COLOR_SRGB, 1.0f);
+	if (a->color_named && a->want_color != FNL_COLOR_SRGB)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"FNL_COLOR=%s was named, and OpenGL presents SDR",
+						app_color_key(a->want_color));
 	/* The palette is converted for that blend space; until then every entry
 	 * is zero, and the titlebar draws as transparent black. */
 	app_palette_init(a);

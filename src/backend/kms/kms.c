@@ -383,6 +383,12 @@ static uint32_t connector_crtc(int fd, uint32_t connector_id)
 	return 0;
 }
 
+static uint32_t connector_prop(int fd, uint32_t connector_id,
+							   const char *name);
+/* Whether this output can scan out PQ, into KmsOutput::hdr_ok and max_lum
+ * (defined with the other connector reads below). */
+static void output_hdr_probe(int fd, KmsOutput *o);
+
 /* A connector as a slot: its name, its modes and its CRTC, probed afresh.
  * False when it is not connected or offers no mode it can be shown at;
  * `*type` is the connector's type for the open's ranking, and `*read`
@@ -408,8 +414,10 @@ static bool output_read(int fd, uint32_t id, KmsOutput *o, uint32_t *type,
 		ok              = modes_read(o, c.modes, c.info.count_modes);
 	}
 	free(c.modes);
-	if (ok)
+	if (ok) {
 		o->crtc_id = connector_crtc(fd, o->connector_id);
+		output_hdr_probe(fd, o);
+	}
 	return ok;
 }
 
@@ -1789,9 +1797,40 @@ static bool input_read(App *a, KmsInput *d)
 #define FLIP_WAIT_MS 100
 #define FLIP_DRAIN_MS 500
 
-/* A buffer of mode `m`'s size into slot `i` of `s`. */
+/* The kernel's colourimetry enum (drm_connector.h) for BT.2020 RGB, which a
+ * PQ frame is in; DRM_MODE_COLORIMETRY_DEFAULT is 0. */
+#define KMS_COLORIMETRY_BT2020_RGB 8
+/* CTA-861's codes for the metadata infoframe: the EOTF and the descriptor
+ * type. The kernel's drm_mode.h names the structures only. */
+#define KMS_EOTF_SMPTE_ST2084 0x02
+#define KMS_STATIC_METADATA_TYPE1 0x01
+
+/* BT.2020's primaries and D65 in the infoframe's units of 0.00002: what a
+ * frame scanned out in PQ is mastered in. */
+static const uint16_t HDR_PRIMARIES[4][2] = {
+	{ 35400, 14600 }, /* red:   0.708, 0.292  */
+	{ 8500, 39850 },  /* green: 0.170, 0.797  */
+	{ 6550, 2300 },   /* blue:  0.131, 0.046  */
+	{ 15635, 16450 }, /* D65:   0.3127, 0.3290 */
+};
+
+/* What the pair is made of: XRGB2101010 where the colour the renderer
+ * published is PQ -- which is also the format its readback arrives in -- and
+ * XRGB8888 otherwise. */
+static uint32_t scan_fourcc(App *a)
+{
+	FnlOutputColor c;
+	return fnl_output_color(a, &c) && c.space == FNL_COLOR_PQ
+			   ? DRM_FORMAT_XRGB2101010
+			   : DRM_FORMAT_XRGB8888;
+}
+
+/* A buffer of mode `m`'s size into slot `i` of `s`, in `fourcc`. The 8-bit
+ * one goes by the legacy add, which every driver takes; the 10-bit one needs
+ * the fourcc, so it goes by ADDFB2. */
 static bool scan_make(struct BackendState *p, KmsScan *s,
-					  const struct drm_mode_modeinfo *m, int i)
+					  const struct drm_mode_modeinfo *m, int i,
+					  uint32_t fourcc)
 {
 	struct drm_mode_create_dumb cd = {
 		.width  = m->hdisplay,
@@ -1815,7 +1854,20 @@ static bool scan_make(struct BackendState *p, KmsScan *s,
 		return false;
 	s->map[i] = map;
 	memset(map, 0, s->size);
-	/* XRGB8888 by the legacy call, which every driver takes. */
+	s->fourcc = fourcc;
+	if (fourcc == DRM_FORMAT_XRGB2101010) {
+		struct drm_mode_fb_cmd2 fb = {
+			.width        = cd.width,
+			.height       = cd.height,
+			.pixel_format = fourcc,
+			.handles      = { cd.handle },
+			.pitches      = { cd.pitch },
+		};
+		if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_ADDFB2, &fb) < 0)
+			return false;
+		s->fb[i] = fb.fb_id;
+		return true;
+	}
 	struct drm_mode_fb_cmd fb = {
 		.width  = cd.width,
 		.height = cd.height,
@@ -1936,10 +1988,10 @@ static void scan_release(struct BackendState *p, KmsScan *s)
  * one is on the plane -- unless an older pair waits there already, which
  * means nothing was set since and this one was never shown, so it goes. */
 static void scan_retire(struct BackendState *p,
-						const struct drm_mode_modeinfo *m)
+						const struct drm_mode_modeinfo *m, bool force)
 {
 	if (!p->scan.map[0] ||
-		(p->scan.w == m->hdisplay && p->scan.h == m->vdisplay))
+		(!force && p->scan.w == m->hdisplay && p->scan.h == m->vdisplay))
 		return;
 	if (p->scan_old.map[0]) {
 		scan_release(p, &p->scan);
@@ -2047,6 +2099,16 @@ int kms_scan_begin(App *a)
 	struct BackendState *p = a->backend_state;
 	if (p->scan_failed)
 		return -1;
+	/* The pair is of the colour the renderer last published: a device that
+	 * came back onto or off HDR leaves the other format's pair, retired as
+	 * another size's is. The same frame then sets the mode again. */
+	const uint32_t fourcc = scan_fourcc(a);
+	if (p->scan.map[0] && p->scan.fourcc != fourcc) {
+		flip_wait(a, FLIP_WAIT_MS);
+		p->flip_pending = false;
+		scan_retire(p, kms_sel_mode(p, p->scan_sel), true);
+		p->scan_set_owed = true;
+	}
 	/* Another mode, or another output: the last flip waited in, an output
 	 * left goes dark, the buffers kept or retired by the new mode's size
 	 * (scan_retire()), and the first frame sets the mode. */
@@ -2060,14 +2122,14 @@ int kms_scan_begin(App *a)
 		p->scan_sel     = show;
 		if (was >= 0 && KMS_SEL_OUT(was) != KMS_SEL_OUT(show))
 			kms_output_off(a, KMS_SEL_OUT(was), show, true);
-		scan_retire(p, kms_sel_mode(p, show));
+		scan_retire(p, kms_sel_mode(p, show), false);
 		p->scan_set_owed = true;
 	}
 	const struct drm_mode_modeinfo *mode = kms_sel_mode(p, p->scan_sel);
 	if (!p->scan.map[0]) {
 		p->scan_front = -1;
-		if (!scan_make(p, &p->scan, mode, 0) ||
-			!scan_make(p, &p->scan, mode, 1)) {
+		if (!scan_make(p, &p->scan, mode, 0, fourcc) ||
+			!scan_make(p, &p->scan, mode, 1, fourcc)) {
 			scan_free(p, &p->scan);
 			/* A mode switched to whose buffers cannot be had is one that
 			 * will not show; the last that did comes back next frame. */
@@ -2089,6 +2151,110 @@ int kms_scan_begin(App *a)
 	return p->scan_front == 0 ? 1 : 0;
 }
 
+/* The output told what is being shown in it: 10 bits a channel on the link,
+ * BT.2020 RGB, and the static metadata a PQ frame carries. Set with the
+ * mode that first shows a 10-bit pair; `hdr_blob` is ours to destroy.
+ *
+ * The peak in the metadata is the panel's own where its EDID names one, so
+ * a compositor or a TV need not assume the 1000-nit master the renderer's
+ * PQ encode is written against. */
+static void scan_hdr_apply(App *a, uint32_t connector)
+{
+	struct BackendState *p = a->backend_state;
+	struct BackendHostState *hs = p->host;
+	const int fd                 = hs->card_fd;
+	struct drm_mode_obj_set_property prop = {
+		.obj_id   = connector,
+		.obj_type = DRM_MODE_OBJECT_CONNECTOR,
+	};
+	prop.prop_id = connector_prop(fd, connector, "max bpc");
+	prop.value   = 10;
+	if (prop.prop_id)
+		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop);
+	prop.prop_id = connector_prop(fd, connector, "Colorspace");
+	prop.value   = KMS_COLORIMETRY_BT2020_RGB;
+	if (prop.prop_id &&
+		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop) < 0)
+		fnl_log(FNL_LOG_DEBUG, "KMS: Colorspace was refused (%s)",
+				strerror(errno));
+
+	unsigned max_lum = 1000;
+	const int n      = (int)fnl_atomic_load_u32(&hs->output_count);
+	for (int i = 0; i < n; i++)
+		if (hs->outputs[i].connector_id == connector &&
+			hs->outputs[i].max_lum)
+			max_lum = hs->outputs[i].max_lum;
+
+	struct hdr_output_metadata md;
+	memset(&md, 0, sizeof md);
+	md.metadata_type = KMS_STATIC_METADATA_TYPE1;
+	struct hdr_metadata_infoframe *h = &md.hdmi_metadata_type1;
+	h->eotf          = KMS_EOTF_SMPTE_ST2084;
+	h->metadata_type = KMS_STATIC_METADATA_TYPE1;
+	for (int i = 0; i < 3; i++) {
+		h->display_primaries[i].x = HDR_PRIMARIES[i][0];
+		h->display_primaries[i].y = HDR_PRIMARIES[i][1];
+	}
+	h->white_point.x = HDR_PRIMARIES[3][0];
+	h->white_point.y = HDR_PRIMARIES[3][1];
+	h->max_display_mastering_luminance =
+		(uint16_t)(max_lum > 65535u ? 65535u : max_lum);
+	h->min_display_mastering_luminance = 1; /* 0.0001 cd/m² */
+	h->max_cll = h->max_fall = 0;         /* not known from the frame */
+
+	struct drm_mode_create_blob cb = {
+		.data   = (uintptr_t)&md,
+		.length = sizeof md,
+	};
+	if (p->hdr_blob) {
+		struct drm_mode_destroy_blob db = { .blob_id = p->hdr_blob };
+		drm_ioctl(fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
+		p->hdr_blob = 0;
+	}
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_CREATEPROPBLOB, &cb) == 0) {
+		p->hdr_blob  = cb.blob_id;
+		prop.prop_id = connector_prop(fd, connector,
+									  "HDR_OUTPUT_METADATA");
+		prop.value   = p->hdr_blob;
+		if (prop.prop_id &&
+			drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop) < 0)
+			fnl_log(FNL_LOG_WARN,
+					"KMS: the HDR metadata was refused (%s)",
+					strerror(errno));
+	}
+	p->hdr_set = true;
+	fnl_log(FNL_LOG_INFO, "KMS: %s scans out 10-bit PQ, %u cd/m²",
+			kms_name(p, p->scan_sel), max_lum);
+}
+
+/* The output back to no colour statement, which an 8-bit pair wants: the
+ * metadata pulled, the colourimetry default (max bpc is left for the link's
+ * own good). */
+static void scan_hdr_clear(App *a, uint32_t connector)
+{
+	struct BackendState *p      = a->backend_state;
+	struct BackendHostState *hs = p->host;
+	const int fd                = hs->card_fd;
+	struct drm_mode_obj_set_property prop = {
+		.obj_id   = connector,
+		.obj_type = DRM_MODE_OBJECT_CONNECTOR,
+	};
+	prop.prop_id = connector_prop(fd, connector, "Colorspace");
+	prop.value   = 0; /* DRM_MODE_COLORIMETRY_DEFAULT */
+	if (prop.prop_id)
+		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop);
+	prop.prop_id = connector_prop(fd, connector, "HDR_OUTPUT_METADATA");
+	prop.value   = 0;
+	if (prop.prop_id)
+		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop);
+	if (p->hdr_blob) {
+		struct drm_mode_destroy_blob db = { .blob_id = p->hdr_blob };
+		drm_ioctl(fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
+		p->hdr_blob = 0;
+	}
+	p->hdr_set = false;
+}
+
 void kms_scan_show(App *a, int back)
 {
 	struct BackendState *p            = a->backend_state;
@@ -2099,6 +2265,12 @@ void kms_scan_show(App *a, int back)
 	const struct drm_mode_modeinfo *mode = kms_sel_mode(p, p->scan_sel);
 	const KmsOutput *out                 = kms_out(p, p->scan_sel);
 	if (p->scan_front < 0 || p->scan_set_owed) {
+		/* What the frame is, said to the output before it is set: 10-bit
+		 * PQ where the pair is, and back to nothing where it is not. */
+		if (p->scan.fourcc == DRM_FORMAT_XRGB2101010 && !p->hdr_set)
+			scan_hdr_apply(a, out->connector_id);
+		else if (p->scan.fourcc != DRM_FORMAT_XRGB2101010 && p->hdr_set)
+			scan_hdr_clear(a, out->connector_id);
 		const bool good = (int)fnl_atomic_load_u32(&p->sel_good) == p->scan_sel;
 		const bool forced = !good && FNL_FAULT("kms-mode-refused");
 		bool set_ok = false;
@@ -2195,8 +2367,41 @@ void kms_scan_show(App *a, int back)
 		flip_wait(a, FLIP_WAIT_MS);
 }
 
+/* One row of a frame into a scanout buffer, `scan10`'s format. A 10-bit word
+ * is R in bits 9:0, G 19:10 and B 29:20 -- Vulkan's A2B10G10R10 -- and an
+ * 8-bit one X in 31:24, R 23:16, G 15:8 and B 7:0 (XRGB8888). The 10-bit
+ * output's own word is XRGB2101010, whose R sits at 29:20: the two 10-bit
+ * orders are the same bits read the other way round. */
+static void scan_row(unsigned char *dst, const unsigned char *src, int n,
+					 FnlPixelFormat fmt, bool scan10)
+{
+	for (int x = 0; x < n; x++) {
+		const unsigned char *px = src + (size_t)x * 4u;
+		uint32_t r, g, b; /* ten bits each */
+		if (fmt == PIXELS_RGB10) {
+			uint32_t w;
+			memcpy(&w, px, sizeof w);
+			r = w & 0x3ffu;
+			g = (w >> 10) & 0x3ffu;
+			b = (w >> 20) & 0x3ffu;
+		} else if (fmt == PIXELS_BGRA8) {
+			b = (uint32_t)px[0] << 2;
+			g = (uint32_t)px[1] << 2;
+			r = (uint32_t)px[2] << 2;
+		} else {
+			r = (uint32_t)px[0] << 2;
+			g = (uint32_t)px[1] << 2;
+			b = (uint32_t)px[2] << 2;
+		}
+		const uint32_t w =
+			scan10 ? (b << 20) | (g << 10) | r
+				   : ((b >> 2) << 0) | ((g >> 2) << 8) | ((r >> 2) << 16);
+		memcpy(dst + (size_t)x * 4u, &w, sizeof w);
+	}
+}
+
 static void kms_present_pixels(App *a, const void *px, int w, int h,
-							   size_t pitch, bool bgra)
+							   size_t pitch, FnlPixelFormat fmt)
 {
 	struct BackendState *p = a->backend_state;
 	const int back         = kms_scan_begin(a);
@@ -2206,19 +2411,11 @@ static void kms_present_pixels(App *a, const void *px, int w, int h,
 	const int cw             = w < mode->hdisplay ? w : mode->hdisplay;
 	const int ch             = h < mode->vdisplay ? h : mode->vdisplay;
 	const unsigned char *src = px;
+	const bool scan10        = p->scan.fourcc == DRM_FORMAT_XRGB2101010;
 	for (int y = 0; y < ch; y++) {
-		unsigned char *dst = p->scan.map[back] + (size_t)y * p->scan.pitch;
-		const unsigned char *row = src + (size_t)y * pitch;
-		if (bgra) {
-			memcpy(dst, row, (size_t)cw * 4u);
-			continue;
-		}
-		for (int x = 0; x < cw; x++) {
-			dst[4 * x + 0] = row[4 * x + 2];
-			dst[4 * x + 1] = row[4 * x + 1];
-			dst[4 * x + 2] = row[4 * x + 0];
-			dst[4 * x + 3] = 0xff;
-		}
+		unsigned char *dst =
+			p->scan.map[back] + (size_t)y * p->scan.pitch;
+		scan_row(dst, src + (size_t)y * pitch, cw, fmt, scan10);
 	}
 	kms_scan_show(a, back);
 }
@@ -2244,7 +2441,7 @@ int kms_scan_export(App *a, int i, KmsScanBuf *out)
 		.w      = p->scan.w,
 		.h      = p->scan.h,
 		.pitch  = p->scan.pitch,
-		.fourcc = DRM_FORMAT_XRGB8888,
+		.fourcc = p->scan.fourcc,
 		.key    = p->scan.gen[i],
 	};
 	return ph.fd;
@@ -2272,6 +2469,15 @@ uint32_t kms_scan_key(App *a, int i)
 {
 	const struct BackendState *p = a->backend_state;
 	return i >= 0 && i <= 1 ? p->scan.gen[i] : 0u;
+}
+
+bool kms_display_hdr(App *a, unsigned *max_lum)
+{
+	const struct BackendState *p = a->backend_state;
+	const KmsOutput *o           = kms_out(p, kms_sel_to_show(p));
+	if (max_lum)
+		*max_lum = o->max_lum;
+	return o->hdr_ok;
 }
 
 /* ---- the mode and the output -----------------------------------------------
@@ -2327,6 +2533,90 @@ static uint32_t connector_prop(int fd, uint32_t connector_id, const char *name)
 			return ids[i];
 	}
 	return 0;
+}
+
+/* The connector's EDID as its property blob holds it, into `edid`: the
+ * bytes read, or 0. */
+static size_t edid_read(int fd, uint32_t connector, unsigned char *edid,
+						size_t cap)
+{
+	uint32_t ids[64], values[64];
+	struct drm_mode_obj_get_properties gp = {
+		.props_ptr       = (uintptr_t)ids,
+		.prop_values_ptr = (uintptr_t)values,
+		.count_props     = 64,
+		.obj_id          = connector,
+		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
+	};
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) < 0)
+		return 0;
+	const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
+	uint32_t blob    = 0;
+	for (uint32_t i = 0; i < n && !blob; i++) {
+		struct drm_mode_get_property prop = { .prop_id = ids[i] };
+		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &prop) == 0 &&
+			strcmp(prop.name, "EDID") == 0)
+			blob = (uint32_t)values[i];
+	}
+	if (!blob)
+		return 0;
+	struct drm_mode_get_blob gb = {
+		.blob_id = blob,
+		.length  = (uint32_t)cap,
+		.data    = (uintptr_t)edid,
+	};
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPBLOB, &gb) < 0)
+		return 0;
+	return gb.length;
+}
+
+/* The HDR static metadata block of the EDID's CTA-861 extension, where it
+ * has one: whether ST 2084 is among its EOTFs, and its desired-content peak
+ * in cd/m² (0 where it names none). */
+static bool edid_hdr_ok(const unsigned char *e, size_t n, unsigned *max_lum)
+{
+	if (n < 128 || e[0] != 0x00 || e[1] != 0xff || e[2] != 0xff ||
+		e[3] != 0xff || e[4] != 0xff || e[5] != 0xff || e[6] != 0xff ||
+		e[7] != 0x00)
+		return false;
+	const int ext = e[126];
+	for (int b = 1; b <= ext && (size_t)(b + 1) * 128u <= n; b++) {
+		const unsigned char *x = e + (size_t)b * 128u;
+		if (x[0] != 0x02) /* a CTA-861 extension block */
+			continue;
+		const int dtd = x[2] >= 4 ? x[2] : 128;
+		int i         = 4;
+		while (i + 1 < dtd) {
+			const int tag = x[i] >> 5, len = x[i] & 0x1f;
+			const unsigned char *p = x + i + 1;
+			if (i + 1 + len > 127)
+				break;
+			if (tag == 7 && len >= 2 && p[0] == 0x06) {
+				/* Extended tag 6, HDR static metadata: p[1]'s EOTF
+				 * flags carry ST 2084 at bit 2, and p[3], where it is
+				 * given, the desired content's peak in units of
+				 * 50 cd/m². */
+				if (!(p[1] & 0x04))
+					return false;
+				if (len >= 4 && p[3])
+					*max_lum = p[3] * 50u;
+				return true;
+			}
+			i += 1 + len;
+		}
+	}
+	return false;
+}
+
+/* Whether this output can scan out PQ: its EDID says so, and the connector
+ * has the HDR_OUTPUT_METADATA property to say what is shown in it. */
+static void output_hdr_probe(int fd, KmsOutput *o)
+{
+	unsigned char edid[1024];
+	const size_t n = edid_read(fd, o->connector_id, edid, sizeof edid);
+	o->hdr_ok = edid_hdr_ok(edid, n, &o->max_lum) &&
+				connector_prop(fd, o->connector_id,
+							   "HDR_OUTPUT_METADATA") != 0;
 }
 
 /* [render] The CRTC driving an output the window left goes dark, so the
@@ -2395,9 +2685,14 @@ static void scan_fill(struct BackendState *p, int back,
 	const int cw       = a->snap_w < m->hdisplay ? a->snap_w : m->hdisplay;
 	const int ch       = a->snap_h < m->vdisplay ? a->snap_h : m->vdisplay;
 	const size_t pitch = (size_t)a->snap_w * 4u;
+	const bool scan10  = p->scan.fourcc == DRM_FORMAT_XRGB2101010;
 	for (int y = 0; y < ch; y++) {
 		unsigned char *dst = p->scan.map[back] + (size_t)y * p->scan.pitch;
-		memcpy(dst, a->snap_px + (size_t)y * pitch, (size_t)cw * 4u);
+		const unsigned char *row = a->snap_px + (size_t)y * pitch;
+		if (scan10)
+			scan_row(dst, row, cw, PIXELS_BGRA8, true);
+		else
+			memcpy(dst, row, (size_t)cw * 4u);
 	}
 	fnl_mutex_lock(&a->lock);
 	a->snap_shown = true;
@@ -2429,9 +2724,10 @@ void kms_scanout_take(App *a)
 		return;
 	flip_wait(a, FLIP_WAIT_MS);
 	p->flip_pending = false;
-	scan_retire(p, &on.mode);
-	if (!p->scan.map[0] && (!scan_make(p, &p->scan, &on.mode, 0) ||
-							!scan_make(p, &p->scan, &on.mode, 1))) {
+	scan_retire(p, &on.mode, false);
+	const uint32_t fourcc = scan_fourcc(a);
+	if (!p->scan.map[0] && (!scan_make(p, &p->scan, &on.mode, 0, fourcc) ||
+							!scan_make(p, &p->scan, &on.mode, 1, fourcc))) {
 		scan_free(p, &p->scan);
 		fnl_log(FNL_LOG_WARN, "KMS: no buffer to take %s back with (%s)",
 				kms_name(p, sel), strerror(errno));
@@ -3097,6 +3393,13 @@ static FnlResult kms_window_open(App *a)
 	p->disp_out = p->surf_sel = p->scan_sel = -1;
 	mode_adopt(p, sel);
 	cursor_init(p);
+	/* What the output can show, for a scene's tone map: its own peak where
+	 * the EDID names one, in SDR-white units at PQ's 203-nit white. */
+	if (hs->outputs[out].hdr_ok)
+		app_publish_peak(a, (float)(hs->outputs[out].max_lum
+										? hs->outputs[out].max_lum
+										: 1000u) /
+								203.0f);
 
 	/* The window is the output, and nothing will ever say otherwise. */
 	a->is_maximized = true;
@@ -3169,6 +3472,11 @@ static void kms_window_close(App *a)
 		scan_release(p, &p->scan_old);
 		scan_release(p, &p->scan);
 		scan_parked_tidy(p, true);
+		if (p->hdr_blob) {
+			struct drm_mode_destroy_blob db = { .blob_id = p->hdr_blob };
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
+			p->hdr_blob = 0;
+		}
 	}
 	/* A window that never joined the host took the copy path with it: the
 	 * windows that are open get their display path back (surface_kms.c). */

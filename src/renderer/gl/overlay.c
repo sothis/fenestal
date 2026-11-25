@@ -564,7 +564,8 @@ static bool image_upload(App *a, FnlImage *img, GlImageObj **out)
 	 * framebuffer re-encodes on write. */
 	gl_clear_errors();
 	gl.CreateTextures(GL_TEXTURE_2D, 1, &o->tex);
-	gl.TextureStorage2D(o->tex, 1, a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+	gl.TextureStorage2D(o->tex, 1,
+						a->linear_target ? GL_SRGB8_ALPHA8 : GL_RGBA8,
 						img->w, img->h);
 	/* The unpack state is the context's, and on_record may have left any of
 	 * it set. */
@@ -648,8 +649,8 @@ static bool cover_upload(App *a)
 	gl_clear_errors();
 	gl.CreateTextures(GL_TEXTURE_2D, 1, &g->cover_tex);
 	gl.TextureStorage2D(g->cover_tex, 1,
-						a->srgb_surface ? GL_SRGB8_ALPHA8 : GL_RGBA8, a->snap_w,
-						a->snap_h);
+						a->linear_target ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+						a->snap_w, a->snap_h);
 	gl.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 	gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
@@ -736,7 +737,7 @@ FnlResult gl_text_end(App *a)
 	 * is zero -- the grayscale answer -- for a resampled scale. */
 	const GlTextPush push = {
 		.screen  = { (float)a->extent.w, (float)a->extent.h },
-		.srgb    = a->srgb_surface ? 1u : 0u,
+		.srgb    = a->linear_target ? 1u : 0u,
 		.texel_u = text_resampled(a) || a->font_atlas_w <= 0
 					   ? 0.0f
 					   : 1.0f / (float)a->font_atlas_w,

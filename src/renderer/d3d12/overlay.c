@@ -191,7 +191,8 @@ typedef struct {
  * unless `quiet`. */
 static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 									 ID3D12RootSignature *root,
-									 const PsoDesc *s, bool quiet)
+									 DXGI_FORMAT color, const PsoDesc *s,
+									 bool quiet)
 {
 	static const char *const SEMANTIC = "TEXCOORD";
 	/* The most any pipeline here takes: the stroke's five (p0, p2, colour,
@@ -259,7 +260,7 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 		.InputLayout = { s->n_inputs ? in : NULL, (UINT)s->n_inputs },
 		.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 		.NumRenderTargets = 1,
-		.RTVFormats = { D3D_COLOR_FORMAT },
+		.RTVFormats = { color },
 		.DSVFormat = DXGI_FORMAT_UNKNOWN,
 		.SampleDesc = { 1, 0 },
 	};
@@ -280,7 +281,8 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 
 static ID3D12PipelineState *make_pso(App *a, const PsoDesc *s)
 {
-	return pso_make(D3D(a)->device, D3D(a)->root, s, false);
+	return pso_make(D3D(a)->device, D3D(a)->root, D3D(a)->color_format,
+					 s, false);
 }
 
 /* Whether `dev` builds the library's pipeline states from its DXIL: the
@@ -299,7 +301,7 @@ bool d3d_draws_on(ID3D12Device *dev)
         "rectangle", BYTES(rect_vert_dxil), BYTES(rect_frag_dxil), rect, 2,
         BLEND_NONE
 	};
-	ID3D12PipelineState *p = pso_make(dev, root, &d, true);
+	ID3D12PipelineState *p = pso_make(dev, root, D3D_COLOR_FORMAT, &d, true);
 	const bool ok          = p != NULL;
 	D3D_RELEASE(p);
 	D3D_RELEASE(root);
@@ -920,7 +922,7 @@ FnlResult d3d_text_end(App *a)
 	 * is zero -- the grayscale answer -- for a resampled scale. */
 	const D3dTextPush push = {
 		.screen  = { (float)a->extent.w, (float)a->extent.h },
-		.srgb    = a->srgb_surface ? 1u : 0u,
+		.srgb    = a->linear_target ? 1u : 0u,
 		.texel_u = text_resampled(a) || a->font_atlas_w <= 0
 					   ? 0.0f
 					   : 1.0f / (float)a->font_atlas_w,
@@ -998,10 +1000,10 @@ static bool image_upload(App *a, FnlImage *img)
 		return false;
 	}
 
-	/* _SRGB where the window is, as the cover and the atlas: the sampler
-	 * decodes each texel to linear before the blend and the target re-encodes
-	 * on write. Rows on the pitch alignment in the upload buffer. */
-	const DXGI_FORMAT fmt = a->srgb_surface ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+	/* _SRGB, as the cover and the atlas: the sampler decodes each texel to
+	 * linear, which is what the target takes whether it encodes on write or
+	 * is float. Rows on the pitch alignment in the upload buffer. */
+	const DXGI_FORMAT fmt = a->linear_target ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
 											: DXGI_FORMAT_R8G8B8A8_UNORM;
 	const int w = img->w, h = img->h;
 	const size_t row   = (size_t)w * 4u;

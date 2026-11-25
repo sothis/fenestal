@@ -504,12 +504,17 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 	const VkImageLayout result =
 		d->sampled ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 				   : vk_window_layout(a);
+	/* HDR's window pass and every scene pass are the renderer's colour
+	 * format; the encode pass, and every SDR pass, the swapchain's. */
+	const VkFormat colour = d->format != VK_FORMAT_UNDEFINED
+								? d->format
+								: VK(a)->surf_format.format;
 
 	VkAttachmentDescription attachments[3];
 	uint32_t n = 0;
 
 	attachments[n++] = (VkAttachmentDescription){
-		.format = VK(a)->surf_format.format,
+		.format = colour,
 		.samples = d->samples,
 		.loadOp = d->clear ? VK_ATTACHMENT_LOAD_OP_CLEAR
 						   : VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -554,7 +559,7 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 	};
 	if (ms)
 		attachments[n++] = (VkAttachmentDescription){
-			.format = VK(a)->surf_format.format,
+			.format = colour,
 			.samples = VK_SAMPLE_COUNT_1_BIT,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,   /* fully written */
 			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,

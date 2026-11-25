@@ -122,6 +122,10 @@ typedef struct {
 	/* The surfaceless window's images (RendererState::own), null where a
 	 * swapchain's images were. */
 	TargetImage       own[OVERLAY_MAX_IMAGES];
+	/* HDR's per-image window images and encode framebuffers
+	 * (RendererState::present, encode_fb), null in an SDR tree. */
+	TargetImage       present[OVERLAY_MAX_IMAGES];
+	VkFramebuffer     encode_fb[OVERLAY_MAX_IMAGES];
 	uint32_t          image_count;
 	uint32_t          countdown;
 } RetiredSwapchain;
@@ -554,9 +558,29 @@ struct RendererState {
 	VkSemaphore           img_available[MAX_FRAMES_IN_FLIGHT];
 	VkFence               in_flight[MAX_FRAMES_IN_FLIGHT];
 
-	/* The swapchain's format, which every colour target of the renderer
-	 * shares. */
+	/* The swapchain's format, and the format of the colour targets the
+	 * renderer draws into: the same as the swapchain's, or
+	 * R16G16B16A16_SFLOAT under HDR, where the window's pass and the overlay
+	 * write an image of this format (present[]) and a last pass encodes it
+	 * into the 10-bit PQ swapchain. */
 	VkSurfaceFormatKHR    surf_format;
+	VkFormat              color_format;
+	/* The swapchain presents PQ, and nothing blends into it: render_pass is
+	 * the window's pass over present[] (color_format, sampled), and
+	 * encode_pass reads that into the swapchain's own. */
+	bool                  hdr;
+	VkRenderPass          encode_pass;
+	VkPipeline            encode_pipeline;
+	/* Under HDR, per swapchain image: the window's linear image, the
+	 * framebuffers the encode pass draws through, and the descriptor sets it
+	 * reads each image through. */
+	TargetImage           present[OVERLAY_MAX_IMAGES];
+	VkFramebuffer         encode_fb[OVERLAY_MAX_IMAGES];
+	VkDescriptorSet       encode_set[OVERLAY_MAX_IMAGES];
+	/* Whether those sets have been pointed at an image yet: rewriting one a
+	 * command buffer still pending names is what the rebuild's drain is
+	 * for. */
+	bool                  encode_written;
 	/* What the vsync toggle switches to, resolved with the surface. Vsync
 	 * itself is FIFO, which every surface has. */
 	VkPresentModeKHR      mode_tearing;    /* MAILBOX, else IMMEDIATE */

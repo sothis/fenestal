@@ -2828,6 +2828,22 @@ Deliberately **not** derived from the monitor's physical size, which RandR does
 report: a DPI computed from millimetres is right on a laptop panel and absurd on
 a television that reports 160x90 mm.
 
+**Mixed DPI is not expressible on X11.** `Xft.dpi` is one resource for the
+screen, so a window crossing from a 1x monitor to a 2x one keeps the one scale;
+Wayland, Win32 and the Mac each have a per-monitor answer. There is no
+per-monitor figure to read and nothing to negotiate — the limitation is the
+protocol's, not a choice here.
+
+The pointer is the window server's, and its size is part of the scale. X11's
+shapes come from the core cursor font, whose glyphs are fixed-size: each is
+rendered once into a depth-1 pixmap, read back, and scaled by nearest
+neighbour to the scale in force, and cut again when the desktop's scale moves
+(`cursors_rebuild()`). The alternative was libXcursor or libxcb-cursor opened
+at run time, and neither can be told a size without Xlib or a process-wide
+environment variable; scaling the font's own bitmap keeps the backend "core
+xcb and nothing beside it". Wayland's cursors are the compositor's and are
+already the scale's, Win32's and the Mac's are the system's and likewise.
+
 Every scale that arrives from outside — `FnlInitDesc::scale_override120`,
 `Xft.dpi` out of the root's resource database, `wp_fractional_scale`'s
 preference and `wl_output.scale` — is first held to **`SCALE120_MIN` to
@@ -8045,13 +8061,17 @@ hierarchical-Z fast clear is what it should be.
 
 Overlay colours are authored in sRGB, named by an enum in `app.h`, and converted
 once into `App::pal` by `app_palette_init()` as soon as the surface format is
-resolved. When that format is an `_SRGB` one the hardware encodes linear → sRGB
-on write, so the palette is linearised first; on a UNORM surface it passes
-through unchanged. A caller's colours do not come through the palette at all —
-they arrive as `FnlColor` per call and are converted by `api_overlay.c`.
+resolved. When the target holds **linear light** (`linear_target`: an `_SRGB`
+format, whose hardware encodes on write, or a float one, which holds what the
+shader wrote) the palette is linearised first; on a UNORM surface it passes
+through unchanged. Either way it is then multiplied by the target's unit for
+SDR white (`FnlOutputColor::sdr_scale`), which is 1.0 on every output but a
+scRGB one. A caller's colours do not come through the palette at all — they
+arrive as `FnlColor` per call and are converted by `api_overlay.c`, and memoised
+against the blend space and the unit together.
 
 The surface format is chosen by **preference order** rather than by one name.
-Asking only for `B8G8R8A8_SRGB` while the `srgb_surface` test recognises three
+Asking only for `B8G8R8A8_SRGB` while the `linear_target` test recognises three
 different `_SRGB` formats means a surface offering one of the other two, and no
 BGRA, falls back to `formats[0]` and quietly takes the UNORM path — palette
 unlinearised, text shader compensating for a blend space it is not in,
@@ -8060,7 +8080,7 @@ everything a shade off.
 **One path takes it by design: Vulkan through DXGI on Windows** (*Vulkan
 through DXGI*), whose images are Direct3D 11 textures in
 `B8G8R8A8_UNORM` and are drawn in that format (`surfaceless_format()`),
-so `srgb_surface` is false there and the overlay is the UNORM fallback's,
+so `linear_target` is false there and the overlay is the UNORM fallback's,
 while Direct3D 12 draws the same flip-model buffers through `_SRGB`
 views. The caller's scene layout says `B8G8R8A8_UNORM` there, and a scene
 encodes its own output, as `scene.frag` does under `pc.srgb == 0`.
@@ -8090,6 +8110,76 @@ whoever adds the first texture. `blit.frag` and `mlaa.frag` need nothing either
 way — they work in linear on an `_SRGB` surface and in encoded values on a UNORM
 one. `scene.frag`'s output is the only boundary that moves.
 
+#### HDR: three spaces, one linear target
+
+An HDR output is asked for and stepped down. `FnlInitDesc::want_color` names
+one (`FNL_COLOR_EXTENDED_LINEAR` or `FNL_COLOR_PQ`); `FNL_COLOR` in the
+environment names one and it is taken or the window fails; a renderer grants
+the space its output offers, another HDR space where that is the one it has,
+and SDR where it has none. `FnlFrame::color` and `fnl_output_color()` say what
+was granted, and a move to another is `FNL_EVENT_COLOR`.
+
+What every HDR path shares is that **the scene's target holds linear light** —
+`linear_target`, the same flag an `_SRGB` surface sets — so a shader writes
+linear values with no encoding of its own, as under SDR. Two figures come with
+it (`FnlOutputColor`):
+
+- `sdr_scale`, the multiple of SDR white that the target's own 1.0 is. It is
+  1.0 wherever the target's white *is* SDR white — the sRGB path, macOS's
+  extended range, the linear image a PQ output is composited in — and sdr
+  white / 80 on a scRGB swapchain, whose 1.0 is 80 nits by definition. The
+  library multiplies its palette and every `FnlColor` by it, and a scene's
+  shader multiplies its output: it is what makes the API's unit — SDR white,
+  the 1.0 a colour picker gives — mean the same thing on every output.
+- `peak`, how many times SDR white the output can show, 1.0 on SDR. A scene
+  tone-maps to it, or lets what is above clip.
+
+**A target is only blended into where blending there is blending in linear
+light.** sRGB's 8-bit and a float format are; PQ's code values are not, since
+a composite in ST 2084 darkens every edge, so PQ exists only in the last pass,
+which reads a linear image and writes the swapchain. That one rule decides
+each platform's shape:
+
+| output | the window's target | presentation |
+|---|---|---|
+| SDR | the swapchain, `_SRGB` 8-bit | none; the window's pass presents it |
+| scRGB, Direct3D 12 | the swapchain, `R16G16B16A16_FLOAT` | the system's; no pass of ours |
+| extended range, Metal | the drawable, `RGBA16Float` | the layer's EDR; no pass of ours |
+| PQ, Vulkan | `present[]`, `R16G16B16A16_SFLOAT` | `encode.frag`: BT.2020, ST 2084 |
+| PQ, KMS | `present[]`, `R16G16B16A16_SFLOAT` | `encode.frag`, then the copy path's `XRGB2101010` scanout |
+
+So Windows and the Mac draw straight into the swapchain as SDR does, and only
+the formats and the layer's colour space change; Vulkan's window pass writes
+an image per swapchain image and a final pass encodes it. Under PQ the overlay
+is drawn into that linear image with the scene — the same palette, the same
+text shader, the same blends — and `encode.frag` is the one place ST 2084
+exists. `VK_EXT_swapchain_colorspace` must be enabled for a Vulkan surface to
+list PQ at all; the peak a PQ output is tone-mapped against is BT.2408's
+203-nit graphics white into a 1000-nit master where the surface says nothing
+of the panel, and the panel's own where a backend can read it — KMS publishes
+its EDID's figure before the renderer settles, and writes the same one into
+the connector's metadata. In every case the pipelines a caller builds are the
+ones the scene layout reports — an `_SRGB` format where the hardware encodes,
+a float one where it does not — and the shader's rule is the SDR one: write
+linear light, and read `FnlFrame::color` for how far it may go.
+
+Where it is not: X11 has no colour-management protocol, so a compositor
+treats the window as sRGB; OpenGL presents SDR on both systems; a Vulkan
+surface through DXGI is 8-bit and refuses it, as does a surfaceless window no
+backend vouches for. On KMS it is there where the connector's EDID carries
+the HDR static metadata block and the connector has `HDR_OUTPUT_METADATA`:
+`VkBridge::display_hdr` is the backend answering, the renderer takes the copy
+path and the pair it chooses itself, and the backend scans the readback out
+in `XRGB2101010` with the connector told BT.2020, PQ and the peak (*KMS: no
+window server*). Wayland has it only where the compositor's colour management
+reaches Vulkan's WSI (Mesa's). The veil's snapshot is 8-bit and is
+declined under HDR, so a move fades through black. What a display's HDR
+state does mid-run — the user's switch in Windows' settings — is not
+followed until the device is rebuilt. What is owed is in `TODO.md`.
+
+The testbed's ramps show it: the continuous ramp's last quarter climbs above
+SDR white, to the output's peak, on an HDR one and clamps on an SDR one.
+
 ### The test pattern
 
 The scene has to draw *something* or none of the above is visible.
@@ -8101,6 +8191,7 @@ is on screen is what the upscale made of it:
 | one-pixel grid every 32, brighter every 128 | the filter, and the pixel grid itself |
 | 36-wedge star, as geometry | where a resampler fails first, and the only thing FSAA can touch |
 | grey ramp, 16-step ramp, six primaries at two levels | banding, and the transfer function |
+| the continuous ramp's last quarter, on HDR | the output's headroom: it climbs above SDR white to the peak, and clamps on an SDR output |
 | two-pixel border at the scene's edge | the scene's rectangle, so letterboxing is visible as a gap |
 
 It is **still** by default and `F2` sets it moving. Still by default because a
@@ -8128,6 +8219,12 @@ one pixel thick, so what reaches the eye is a handful of coverage values and the
 result depends entirely on grid-fitting the outline before filling it. That is
 only valid for the pixel grid it was computed for — a big atlas filtered down is
 the thing that reads wrong.
+
+The ladder is {120, 150, 160, 180, 200, 210, 240}: mutter's and Windows'
+scales up to 200%, with 210 — 175%, a standard rung on both — the one that
+was missing, since 200 left a 175% window's glyphs a tenth of a point wide
+of the pen steps the layout computes. 160 is the 4:3 some fractional-scale
+desktops ask for.
 
 The cost is a surface on a scale not in the table: the glyphs come from the
 nearest atlas while the pen steps are computed at the real scale, so a line sits
@@ -8162,13 +8259,15 @@ Every cell in the table is accounted for as one of four things — compared,
 blank, absent by design, or failed — and the check fails on a glyph a size is
 baked for that FreeType cannot load or render, on a glyph index no code point
 reaches, and when the four do not add up to the table or nothing was compared
-at all: a check that compared nothing has not passed. On the current bake it
-reads `29178 cells: 21666 compared, 96 blank, 7416 absent by design, 0
-failed`. A check of its own walks the code point index — which another check
+at all: a check that compared nothing has not passed. On the six-rung bake —
+the one before 175% joined the ladder — it reads `29178 cells: 21666
+compared, 96 blank, 7416 absent by design, 0 failed`, and the seventh rung is
+owed a re-read (`TODO.md`). A check of its own walks the code point index —
+which another check
 holds to the face — and fails if a code point face 0 maps has neither a cell
 of its own nor one its size borrows, the substitution these sets exist to
-prevent; it reads `every code point a face carries is drawn (21762 baked,
-7416 borrowed, 0 substituted)`.
+prevent; on the same bake it reads `every code point a face carries is drawn
+(21762 baked, 7416 borrowed, 0 substituted)`.
 
 * **The outline is grid-aligned before it is filled.** The face's own hinting
   fits crossbars to a row but leaves vertical stems wherever the outline falls,
@@ -8225,8 +8324,8 @@ An entropy-coded stage at an equal window is therefore worth about 350 KB and
 a larger window about 200 KB more. The first is taken. The second is not: the
 window is what the offset model and the encoder's working set are sized by.
 
-What ships is 3,023,717 bytes of atlas for the six scales, each 3072 texels
-wide, and 83,183 bytes of cell table beside it:
+What ships is 3,023,717 bytes of atlas for the six scales measured here, each
+3072 texels wide, and 83,183 bytes of cell table beside it:
 
 | scale | atlas | coded |
 |---|---|---|
@@ -8239,7 +8338,10 @@ wide, and 83,183 bytes of cell table beside it:
 
 That is 19,181,568 raw atlas bytes, coded to 16% of them overall and 13% at
 2.0: a fuller atlas repeats more, so the wider set costs less per glyph than
-its area alone would say. The shelf is 3072 texels wide so that no atlas is
+its area alone would say. The ladder has since gained 175% (210), so the bake
+carries a seventh atlas -- between 5/3's and 2.0's in height, and about a
+quarter more raw area for the set -- and the totals here are the six-scale
+bake's; re-measuring them is owed (`TODO.md`). The shelf is 3072 texels wide so that no atlas is
 taller than it is wide — 4096 is the smallest `maxImageDimension2D` a Vulkan
 device may offer — and `mkfont` fails the bake rather than make one past it.
 
@@ -8332,8 +8434,9 @@ from `TEXT_BODY`.
   the compositor, a GPU's from the driver, a panel's from the caller — so it
   too carries every code point the faces map: Latin, Greek, Cyrillic and the
   rest of what Ubuntu Sans Mono holds, Latin Ext-B, polytonic Greek and the
-  box-drawing and braille blocks included. Its 1,621 code points at six scales
-  are most of the 19.18 MB raw.
+  box-drawing and braille blocks included. Its 1,621 code points at every rung
+  of the ladder are most of the raw atlas (19.18 MB with the six rungs this
+  was measured at; the seventh is owed a re-measure, `TODO.md`).
 * `TEXT_UI` is baked for U+0000–017F, U+2000–218F and U+FFFD only — Latin,
   punctuation and the replacement character — and **borrows the rest**. Beside
   the calibration panel's own English, the one string the library sets in it
@@ -8704,7 +8807,9 @@ shows — the arrow, the eight resize edges and the eight more a caller can ask
 for — are cut from the font the server has carried since 1987, so the pointer
 over an edge or a caller's text field is the right shape in the wrong theme.
 That is the one visible difference from the other backends, and it is what
-bounds `FnlCursor`: see *The pointer's shape*.
+bounds `FnlCursor`: see *The pointer's shape*. The font's glyphs are
+fixed-size, so each is rendered, read back and scaled to the size the surface
+scale asks for (*Scale*) rather than staying 16 pixels on a 2x desktop.
 
 **The frame.** `_MOTIF_WM_HINTS` with its decorations field zeroed is the
 borderless-window convention every window manager implements: it predates EWMH,
@@ -9636,6 +9741,38 @@ the other two are tried in turn:
   buffers' reason. The bridge's extensions are optional for this: it asks for
   the display set and the headless one together, and takes whichever way the
   loader and the devices allow, saying which at open.
+
+**PQ is the copy path's, and the output is told what it shows.** An HDR ask
+takes the copy path whatever device would have taken the display: the colour
+statement is the connector's, and a display surface hands the frames to the
+driver, where none of it reaches the kernel. The backend answers whether the
+output can take it — `VkBridge::display_hdr` is `kms_display_hdr()`, which
+`hdr_available()` asks before it lets a surfaceless window present PQ, and
+`surface_kms.c` sets `present_copy` before the display is acquired. The
+answer is yes only where the EDID's CTA-861 extension carries the HDR static
+metadata block with ST 2084 among its EOTFs, and the connector has
+`HDR_OUTPUT_METADATA` (`output_hdr_probe()`, the EDID read from the
+connector's `EDID` property blob). The frames then go into images of the
+renderer's own — a headless surface lists the driver's formats, and none of
+them is a 10-bit PQ pair to encode into — and the readback arrives ten bits
+a channel (`FnlPixelFormat::PIXELS_RGB10`).
+
+The scanout pair follows the colour the renderer published: `XRGB2101010`
+dumb buffers where it is PQ, `XRGB8888` where it is not, made again when the
+answer changes (`scan_fourcc()`; the 10-bit one needs its fourcc, so it goes
+by `ADDFB2`, where the 8-bit one keeps the legacy add). The two 10-bit
+orders are the same bits the other way round — the readback's `A2B10G10R10`
+has R in 9:0 and the scanout's `XRGB2101010` has it in 29:20 — so the copy
+swizzles and never memcpys (`scan_row()`). With the mode that first shows a
+10-bit pair the connector is told what it shows: `max bpc` 10, `Colorspace`
+BT.2020 RGB, and an `HDR_OUTPUT_METADATA` blob of static metadata type 1 —
+EOTF ST 2084, BT.2020's primaries and D65, the peak its EDID names (else a
+1000-nit master) and a 0.0001 cd/m² minimum; an 8-bit pair takes the
+metadata and the colorspace back (`scan_hdr_apply()`, `scan_hdr_clear()`).
+The peak is published with the window, before any renderer settles, so a
+scene tone-maps to the panel rather than to the 1000-nit default. OpenGL
+publishes SDR, so its pair stays 8-bit and its dma-buf import is what it
+was.
 
 **The commits are atomic where the card has them.** `kms_atomic_enable()`
 sets `DRM_CLIENT_CAP_ATOMIC` on the card's descriptor at open and reads each

@@ -60,6 +60,12 @@ typedef struct {
 	char         name[32];          /* the kernel's name, "HDMI-A-1" */
 	struct drm_mode_modeinfo modes[KMS_MAX_MODES];
 	int          mode_count, mode_pref;
+	/* Its EDID's HDR static metadata block says PQ, and the connector has
+	 * the HDR_OUTPUT_METADATA property: what the copy path scans out in
+	 * 10-bit when a program asks for PQ. `max_lum` is the block's desired
+	 * content peak in cd/m², 0 where it names none. */
+	bool         hdr_ok;
+	unsigned     max_lum;
 } KmsOutput;
 
 /* A pair of dumb buffers of one mode's size: the copy path's scanout, the
@@ -72,6 +78,9 @@ typedef struct {
 	unsigned char *map[2];
 	size_t        size;
 	uint32_t      pitch;
+	/* DRM's fourcc of every buffer of the pair: XRGB8888, or XRGB2101010
+	 * where the frame is a 10-bit PQ one (scan_fourcc()). */
+	uint32_t      fourcc;
 	int           w, h;
 } KmsScan;
 
@@ -323,6 +332,11 @@ struct BackendState {
 	KmsScan      scan_parked[KMS_PARKED];
 	int          scan_front;
 	bool         scan_set_owed, flip_pending, scan_failed;
+	/* The HDR_OUTPUT_METADATA blob the 10-bit pair's output was given, 0
+	 * where none was, and whether the connector's HDR properties are set
+	 * for it (scan_hdr_apply(), cleared when an 8-bit pair is shown). */
+	uint32_t     hdr_blob;
+	bool         hdr_set;
 	bool         flip_async;    /* the pending flip tears: no vblank */
 	/* The driver refused an asynchronous flip (EINVAL): vblank flips until
 	 * the next mode set, which asks again. */
@@ -429,5 +443,10 @@ uint32_t kms_scan_key(App *a, int i);
  * the backend's own mapping: whether a GPU's writes reach it. */
 bool kms_scan_peek(App *a, int i, uint32_t *first, uint32_t *last);
 void kms_scan_show(App *a, int back);
+/* Whether the output the copy path will scan out can take HDR, and the light
+ * it says it has: the EDID's HDR static metadata block and the connector's
+ * HDR_OUTPUT_METADATA property, read afresh with the output list. `max_lum`
+ * is cd/m², 0 where the EDID names none. */
+bool kms_display_hdr(App *a, unsigned *max_lum);
 
 #endif /* FNL_KMS_STATE_H */

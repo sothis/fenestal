@@ -1265,6 +1265,11 @@ struct FnlApp {
 
 	/* --scale=, in 120ths, or 0 for the backend's own preference. */
 	int scale_override120;
+	/* FnlInitDesc::want_color, the space asked for, and whether FNL_COLOR
+	 * named it: a named space is taken or the window fails, an unnamed one
+	 * is a preference the renderer may step past (fnl_init()). */
+	FnlColorSpace want_color;
+	bool color_named;
 	/* --gpu=, one-based into the list of devices that can present, or 0 for
 	 * the automatic ranking. */
 	int gpu_index;
@@ -1799,6 +1804,11 @@ struct FnlApp {
 	int ev_last_w_pt, ev_last_h_pt;
 	int ev_last_w_px, ev_last_h_px;
 	int ev_last_scale120;
+	/* The output's colour as last reported, by space and by the target's
+	 * unit: a peak that moves with the display's headroom is not a new
+	 * space, and frames carry it either way. */
+	int ev_last_color_space;
+	float ev_last_sdr_scale;
 	int ev_last_scene_w, ev_last_scene_h;
 	FnlAntialias ev_last_aa;
 	bool ev_last_fullscreen, ev_last_maximized;
@@ -1951,6 +1961,9 @@ struct FnlApp {
 	 * its scale in 120ths. */
 	int draw_w, draw_h;
 	int draw_scale120;
+	/* The colour it latched with them, which the frame reports and the
+	 * overlay's colour conversion reads. Render thread. */
+	FnlOutputColor draw_color;
 	/* The scene resolution this frame's objects were last *asked* for, in
 	 * pixels, or SCENE_NATIVE. The request and not the answer: a device that
 	 * refuses the target leaves scene_extent zero while this stays, which
@@ -2033,9 +2046,12 @@ struct FnlApp {
 	double size_at;
 	bool buffer_settled;
 
-	/* True when the surface encodes linear -> sRGB as fragments are written,
-	 * which is what the palette conversion and the text shader turn on. */
-	bool srgb_surface;
+	/* True when the target holds linear light, which is what the palette's
+	 * conversion, the overlay's push constants and the text shader turn on --
+	 * whether the hardware encodes on write, as it does for an _SRGB target,
+	 * or the values are float and stay as written. False on an 8-bit UNORM
+	 * target, where the shader encodes and the palette passes through. */
+	bool linear_target;
 
 	/* The overlay palette, converted once for that blend space. */
 	float pal[COL_COUNT][4];
@@ -2083,6 +2099,24 @@ struct FnlApp {
 	FnlCond cond;
 	int want_w, want_h;
 	int want_scale120;
+	/* The colour the renderer resolved for this window, and how far above
+	 * SDR white its output can go: written under the lock by the renderer
+	 * when it builds the swapchain (app_publish_color), and its peak again
+	 * by a backend that learns the display's headroom (app_publish_peak,
+	 * Cocoa's screen). The render thread latches it once a frame. */
+	FnlOutputColor pub_color;
+	/* The display's own headroom above SDR white, 1.0 where none is known:
+	 * the capability, published by whoever can ask the system. pub_color's
+	 * peak is this while an HDR space is in force and 1.0 while SDR is. */
+	float display_peak;
+	/* Whether the colour has been said in the log yet: the first publish is
+	 * always a line, since SDR is the zeroed state and "srgb" moving to
+	 * "srgb" is not a move. */
+	bool color_said;
+	/* Whether the headroom above was given by somebody who knows the
+	 * display, rather than defaulted; app_publish_peak_default() fills in
+	 * only when it was not. */
+	bool display_peak_said;
 	bool quit;
 	Zone hovered_button;
 
@@ -2827,6 +2861,21 @@ void app_publish_hidden(App *a);
 /* A surface scale that may have moved, published for the render thread and
  * signalled, so a late-latch wait gives way to it. True if it moved. */
 bool app_publish_scale(App *a, int s120);
+/* The colour the window is presented in: the space the renderer resolved and
+ * the multiple of SDR white the target's 1.0 is. Written when it builds the
+ * swapchain; logs "colour: <key>" once and at each move. The peak comes with
+ * it, from the display's headroom as last published. */
+void app_publish_color(App *a, FnlColorSpace space, float sdr_scale);
+/* How many times SDR white the output can show (1.0 on an SDR one): from a
+ * backend that knows the display, or a renderer that asked the system. */
+void app_publish_peak(App *a, float peak);
+/* The same, only where nobody who knows the display has said: a surface's
+ * colour space describes no panel, and KMS's EDID does. */
+void app_publish_peak_default(App *a, float peak);
+/* FNL_COLOR's spelling of a space -- "srgb", "linear", "pq" -- and whether it
+ * asks for more than SDR. */
+const char *app_color_key(FnlColorSpace space);
+bool app_color_is_hdr(FnlColorSpace space);
 /* Whether the window has the keyboard, for the titlebar's palette. */
 void app_publish_focus(App *a, bool focused);
 /* FNL_EVENT_FOCUS, after the held set has been cleared or seeded; a loss

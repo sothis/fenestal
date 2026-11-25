@@ -133,6 +133,8 @@ static void record_scene_draws(App *a, VkCommandBuffer cb,
 		 * it in its projection, and a frame without it gathers one sample. */
 		.jitter_x = ds->jitter_x,
 		.jitter_y = ds->jitter_y,
+		/* The colour this frame's target holds; see FnlOutputColor. */
+		.color = a->draw_color,
 	};
 
 	VK(a)->scene_cb = cb;
@@ -422,6 +424,29 @@ static void draw_scene(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 	}
 }
 
+/* The window's linear image into the swapchain, under HDR: sRGB's primaries
+ * into BT.2020's and ST 2084 applied once, over the whole window. The one
+ * place PQ exists -- every pass before this one blends in linear light, which
+ * PQ code values are not (DESIGN *Colour*). */
+static void record_encode_pass(App *a, VkCommandBuffer cb, uint32_t img)
+{
+	VkRenderPassBeginInfo rp = {
+		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		.renderPass = VK(a)->encode_pass,
+		.framebuffer = VK(a)->encode_fb[img],
+		.renderArea.extent = win_vk_extent(a),
+	};
+	vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
+	set_full_viewport(cb, win_vk_extent(a));
+	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+					  VK(a)->encode_pipeline);
+	vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+							VK(a)->blit_layout, 0, 1, &VK(a)->encode_set[img],
+							0, NULL);
+	vkCmdDraw(cb, 3, 1, 0, 0);
+	vkCmdEndRenderPass(cb);
+}
+
 /* ---- recording + submit ------------------------------------------------ */
 
 /* The copy path's last step (RendererState::present_copy), and the
@@ -615,6 +640,8 @@ static bool record_command_buffer(App *a, VkCommandBuffer cb, uint32_t img,
 		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, parts,
 							4 * img + 2);
 	vkCmdEndRenderPass(cb);
+	if (VK(a)->hdr)
+		record_encode_pass(a, cb, img);
 	if (parts)
 		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, parts,
 							4 * img + 3);
@@ -654,9 +681,13 @@ static void present_copied(App *a, uint32_t frame, uint32_t img)
 								  VK_TRUE, UINT64_MAX);
 	if (vk_lost(a, wr) || wr != VK_SUCCESS)
 		return;
+	/* An HDR frame is the 10-bit PQ the encode pass wrote; the two 8-bit
+	 * orders are the swapchain's own. */
 	const bool bgra = surface_bgra(a);
+	const FnlPixelFormat fmt =
+		VK(a)->hdr ? PIXELS_RGB10 : bgra ? PIXELS_BGRA8 : PIXELS_RGBA8;
 	BACKEND(a)->present_pixels(a, VK(a)->readback_map[img], a->extent.w,
-							   a->extent.h, (size_t)a->extent.w * 4u, bgra);
+							   a->extent.h, (size_t)a->extent.w * 4u, fmt);
 	if (a->snap_owed)
 		app_snapshot_set(a, VK(a)->readback_map[img], a->extent.w, a->extent.h,
 						 (size_t)a->extent.w * 4u, bgra);
@@ -1385,8 +1416,11 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	 * recording drops it. The copy path's readback already has every
 	 * frame. A surface whose images cannot be copied from gives none. */
 	bool snap = a->snap_owed;
+	/* The swapchain is 10-bit PQ under HDR and the buffer holds 8-bit rows,
+	 * as the copy path's does: the veil is a fade through black. */
 	if (snap &&
-		(!VK(a)->snap_usage || (!VK(a)->present_copy && !ensure_snap_buf(a)))) {
+		(VK(a)->hdr || !VK(a)->snap_usage ||
+		 (!VK(a)->present_copy && !ensure_snap_buf(a)))) {
 		app_snapshot_decline(a);
 		snap = false;
 	}

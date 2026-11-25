@@ -291,7 +291,7 @@ static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 	/* _SRGB where the window is, as the cover: the sampler decodes each texel
 	 * to linear before the blend and the framebuffer re-encodes on write. */
 	const VkFormat fmt =
-		a->srgb_surface ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+		a->linear_target ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
 	const uint32_t w = (uint32_t)img->w, h = (uint32_t)img->h;
 	const VkDeviceSize bytes = (VkDeviceSize)w * (VkDeviceSize)h * 4u;
 

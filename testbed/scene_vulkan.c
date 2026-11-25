@@ -97,9 +97,14 @@ typedef struct {
 	float    time_bias;
 	uint32_t srgb;
 	uint32_t content;
+	/* x: what light authored relative to SDR white is in the target's unit
+	 * (FnlOutputColor::sdr_scale); y: how far above SDR white the output
+	 * goes (its peak); zw unused. A vec4 so the block's size stays a
+	 * multiple of 16 for std140's and HLSL's sake. */
+	float    colour[4];
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
+_Static_assert(sizeof(ScenePush) == 80, "ScenePush must match scene.frag");
 _Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, canvas) == 16, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, origin) == 24, "ScenePush layout drifted");
@@ -109,6 +114,7 @@ _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, colour) == 64, "ScenePush layout drifted");
 
 typedef struct {
 	VkDevice         device;
@@ -171,14 +177,17 @@ static void scene_close(FnlApp *app)
 			g_scenes[i].app = NULL;
 }
 
-/* The three _SRGB formats the library picks a surface from. A write to one is
- * encoded by the hardware, which is why the shader has to know. */
-static bool format_is_srgb(VkFormat f)
+/* Whether the target holds linear light: the three _SRGB formats the library
+ * picks a surface from, whose writes the hardware encodes, and the float one
+ * HDR's target is, which holds it as written. Either way the shader writes
+ * linear values and encodes nothing itself. */
+static bool format_is_linear(VkFormat f)
 {
 	switch (f) {
 	case VK_FORMAT_B8G8R8A8_SRGB:
 	case VK_FORMAT_R8G8B8A8_SRGB:
 	case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
+	case VK_FORMAT_R16G16B16A16_SFLOAT:
 		return true;
 	default:
 		return false;
@@ -338,12 +347,12 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 		FnlVulkanSceneLayout layout;
 		if (!fnl_vulkan_scene_layout(app, (FnlSceneTarget)i, &layout))
 			continue;          /* this window cannot use that target */
-		/* Whether the hardware encodes linear -> sRGB as fragments are
-		 * written, which decides whether the shader must encode on output.
-		 * Read off the format the pipeline needs anyway; there is no
-		 * accessor for it. */
+		/* Whether the target holds linear light -- hardware-encoded _SRGB,
+		 * or a float format that keeps it -- which decides whether the shader
+		 * must encode on output. Read off the format the pipeline needs
+		 * anyway; there is no accessor for it. */
 		if (i == FNL_TARGET_DIRECT)
-			s->srgb = format_is_srgb(layout.color_format);
+			s->srgb = format_is_linear(layout.color_format);
 		s->pattern[i] = make_pipeline(&gpu, &layout, s->layout, sv, sf);
 		s->star[i]    = make_pipeline(&gpu, &layout, s->layout, tv, tf);
 	}
@@ -395,6 +404,7 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time_bias = view.time_bias,
 		.srgb = s->srgb ? 1u : 0u,
 		.content = view.content,
+		.colour = { f->color.sdr_scale, f->color.peak, 0.0f, 0.0f },
 	};
 	vkCmdPushConstants(cb, s->layout,
 					   VK_SHADER_STAGE_VERTEX_BIT |

@@ -470,7 +470,7 @@ FnlResult vk_text_end(App *a)
 	 * is the grayscale answer. */
 	TextPush push = { .screen = { (float)a->extent.w,
 								  (float)a->extent.h },
-					  .srgb = a->srgb_surface ? 1u : 0u,
+					  .srgb = a->linear_target ? 1u : 0u,
 					  /* No glyph is appended without an atlas, but a
 					   * divide by its width should not rest on that. */
 					  .texel_u = text_resampled(a) || a->font_atlas_w <= 0

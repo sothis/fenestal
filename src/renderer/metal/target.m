@@ -119,7 +119,7 @@ bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 	if (want_ms && g->samples > 1 && !g->scene_ms.color &&
 		!g->scene_ms_refused) {
 		if (!FNL_FAULT("scene-ms")) {
-			g->scene_ms.color = make_image(a, MT_COLOR_FORMAT, w, h,
+			g->scene_ms.color = make_image(a, MT(a)->color_format, w, h,
 										   g->samples, false);
 			g->scene_ms.depth = make_image(a, MT_DEPTH_FORMAT, w, h,
 										   g->samples, false);
@@ -136,7 +136,7 @@ bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 	}
 	if (want_mlaa && !g->mlaa && !g->mlaa_refused) {
 		if (!FNL_FAULT("scene-mlaa"))
-			g->mlaa = make_image(a, MT_COLOR_FORMAT, w, h, 1, true);
+			g->mlaa = make_image(a, MT(a)->color_format, w, h, 1, true);
 		if (g->mlaa) {
 			built = true;
 		} else {
@@ -148,9 +148,9 @@ bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 	}
 	if (want_taau && !g->taau && !g->taau_refused) {
 		if (!FNL_FAULT("scene-taau")) {
-			g->taau = make_image(a, MT_COLOR_FORMAT, w, h, 1, true);
+			g->taau = make_image(a, MT(a)->color_format, w, h, 1, true);
 			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-				g->taau_hist[i] = make_image(a, MT_COLOR_FORMAT, w, h, 1,
+				g->taau_hist[i] = make_image(a, MT(a)->color_format, w, h, 1,
 											 true);
 		}
 		bool all = g->taau != nil;
@@ -188,7 +188,7 @@ void mt_scene_set_size(App *a, int w, int h)
 	 * pool of its own between frames. */
 	if (!FNL_FAULT("scene-target")) {
 		@autoreleasepool {
-			g->scene.color = make_image(a, MT_COLOR_FORMAT, w, h, 1, true);
+			g->scene.color = make_image(a, MT(a)->color_format, w, h, 1, true);
 			/* Sampled: FNL_AA_TAAU compares against this image, and only
 			 * MTLTextureUsageShaderRead lets it. The colour stays as it was. */
 			g->scene.depth = make_image(a, MT_DEPTH_FORMAT, w, h, 1, true);

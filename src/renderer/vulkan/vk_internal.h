@@ -143,6 +143,13 @@ typedef struct VkBridge {
 	 * to be had. NULL where the bridge does not know the driver's clock,
 	 * and the extension is then not used. */
 	double (*driver_clock)(App *a, uint64_t ns);
+	/* Whether the output the frames will be scanned onto can take HDR, and
+	 * its own peak in cd/m²: the backend's own scanout, where the frames are
+	 * read back and handed to it -- KMS, whose connector properties carry the
+	 * colour statement a Vulkan surface has no way to make. `max_lum` is 0
+	 * where the display names none. NULL where the frames reach the output
+	 * some other way, and NULL means no HDR. */
+	bool (*display_hdr)(App *a, unsigned *max_lum);
 	/* Whether the window server has said the window is covered, where it
 	 * says so and a present there is one to skip
 	 * (FnlRendererVtbl::occluded): AppKit's occlusion state on a Mac, read
@@ -210,10 +217,14 @@ typedef enum {
 	OVERLAY_BLEND_CONSTANT,  /* the cover: one weight a draw, set dynamic  */
 } OverlayBlend;
 
-/* What tells the renderer's three render passes apart; make_render_pass()
- * holds everything they share. */
+/* What tells the renderer's render passes apart; make_render_pass() holds
+ * everything they share. */
 typedef struct {
 	VkSampleCountFlagBits samples;  /* above one adds a resolve attachment   */
+	/* The colour attachment's format, VK_FORMAT_UNDEFINED for the
+	 * swapchain's own: HDR's window pass and every scene pass are
+	 * RendererState::color_format, and the encode pass is the swapchain's. */
+	VkFormat format;
 	bool depth;                     /* a depth attachment, never stored      */
 	bool clear;                     /* clear the colour, or leave it to be
 									 * overwritten in full                   */

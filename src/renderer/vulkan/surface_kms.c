@@ -305,6 +305,16 @@ static FnlResult create_headless(App *a)
 static FnlResult copy_surface(App *a)
 {
 	VK(a)->surfaceless = false;
+	/* An HDR ask takes the renderer's own images: a headless surface's
+	 * format list is the driver's, and none of them is a 10-bit PQ pair to
+	 * encode into. The readback is four bytes a pixel either way. */
+	if (app_color_is_hdr(a->want_color) && VK(a)->bridge->display_hdr &&
+		VK(a)->bridge->display_hdr(a, NULL)) {
+		fnl_log(FNL_LOG_INFO, "KMS: the scanout is 10-bit PQ; drawing into "
+				"images of the device's own");
+		VK(a)->surfaceless = true;
+		return FNL_OK;
+	}
 	if ((VK(a)->backend_ext_on & EXT_HEADLESS) &&
 		!FNL_FAULT("kms-no-headless")) {
 		FNL_TRY(create_headless(a));
@@ -498,6 +508,19 @@ static FnlResult create_surface(App *a)
 				kms_name(a->backend_state, kms_sel_to_show(a->backend_state)));
 		VK(a)->present_copy = true;
 	}
+	/* HDR's colour statement is the connector's, which only the backend's
+	 * own scanout can make: a display surface hands the frames to the
+	 * driver and none of it reaches the kernel. So an HDR ask takes the
+	 * copy path, as drawing across a move does, and the bridge says
+	 * whether the output can take it at all. */
+	if (!VK(a)->present_copy && app_color_is_hdr(a->want_color) &&
+		VK(a)->bridge->display_hdr && VK(a)->bridge->display_hdr(a, NULL)) {
+		fnl_log(FNL_LOG_INFO, "KMS: HDR's metadata is the connector's, so "
+				"the frames go by the copy path onto %s",
+				kms_name(a->backend_state,
+						 kms_sel_to_show(a->backend_state)));
+		VK(a)->present_copy = true;
+	}
 	/* Decided at the first surface and at a move: a rebuild after a loss
 	 * keeps whichever way the frames reached the output. */
 	if (!VK(a)->present_copy && VK(a)->vk_display == VK_NULL_HANDLE) {
@@ -624,6 +647,13 @@ static bool driver_stamps(App *a)
 	return (VK(a)->backend_ext_on & EXT_CAPS2) && !VK(a)->present_copy;
 }
 
+/* The scanout's own answer: the connector's EDID and its HDR properties,
+ * read by the backend. */
+static bool display_hdr(App *a, unsigned *max_lum)
+{
+	return kms_display_hdr(a, max_lum);
+}
+
 const VkBridge vk_bridge_kms = {
 	.backend            = BACKEND_KMS,
 	.instance_extensions = instance_extensions,
@@ -631,4 +661,5 @@ const VkBridge vk_bridge_kms = {
 	.can_draw            = can_draw,
 	.scanout_take        = scanout_take,
 	.driver_stamps       = driver_stamps,
+	.display_hdr         = display_hdr,
 };

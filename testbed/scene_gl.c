@@ -55,9 +55,14 @@ typedef struct {
 	float    time_bias;
 	uint32_t srgb;
 	uint32_t content;
+	/* x: what light authored relative to SDR white is in the target's unit
+	 * (FnlOutputColor::sdr_scale); y: how far above SDR white the output
+	 * goes (its peak); zw unused. A vec4 so the block's size stays a
+	 * multiple of 16 for std140's and HLSL's sake. */
+	float    colour[4];
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
+_Static_assert(sizeof(ScenePush) == 80, "ScenePush must match scene.frag");
 _Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, canvas) == 16, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, origin) == 24, "ScenePush layout drifted");
@@ -67,6 +72,7 @@ _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, colour) == 64, "ScenePush layout drifted");
 
 /* The entry points this file calls, loaded through fnl_gl_proc() at every
  * on_gpu_created: a loss may land on another driver. */
@@ -286,6 +292,7 @@ void scene_gl_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time_bias = view.time_bias,
 		.srgb = s->srgb ? 1u : 0u,
 		.content = view.content,
+		.colour = { f->color.sdr_scale, f->color.peak, 0.0f, 0.0f },
 	};
 	/* Bound to its point, which binds the generic target too, and then
 	 * written through that. */

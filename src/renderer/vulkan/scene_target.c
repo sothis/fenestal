@@ -19,6 +19,7 @@
 #include "blit.frag.h"
 #include "mlaa.frag.h"
 #include "taau.frag.h"
+#include "encode.frag.h"
 
 /* ---- built once with the device ----------------------------------------- */
 
@@ -29,14 +30,26 @@ FnlResult create_scene_objects(App *a)
 	 * MLAA's: no depth because a filter has no geometry, no clear because it
 	 * writes every pixel. */
 	const VkSampleCountFlagBits ms = scene_samples(a);
-	const PassDesc scene = { .samples = VK_SAMPLE_COUNT_1_BIT, .depth_sampled = true,
-									   .depth   = true,
-									   .clear   = true,
-							.sampled = true };
-	const PassDesc scene_ms        = {
-			   .samples = ms, .depth = true, .clear = true, .sampled = true
+	const PassDesc scene = {
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.format  = VK(a)->color_format,
+		.depth_sampled = true,
+		.depth   = true,
+		.clear   = true,
+		.sampled = true
 	};
-	const PassDesc post = { .samples = VK_SAMPLE_COUNT_1_BIT, .sampled = true };
+	const PassDesc scene_ms = {
+		.samples = ms,
+		.format  = VK(a)->color_format,
+		.depth   = true,
+		.clear   = true,
+		.sampled = true
+	};
+	const PassDesc post = {
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.format  = VK(a)->color_format,
+		.sampled = true
+	};
 	VK(a)->scene_pass = make_render_pass(a, &scene);
 	if (ms != VK_SAMPLE_COUNT_1_BIT)
 		VK(a)->scene_pass_ms = make_render_pass(a, &scene_ms);
@@ -114,12 +127,15 @@ FnlResult create_scene_objects(App *a)
 	 * own input is the second of the fetch's; the third is the cover's, the
 	 * frame read back before a move. Ten descriptors: the resolve's sets
 	 * hold three apiece. */
+	/* HDR adds the encode's one a swapchain image (OVERLAY_MAX_IMAGES at
+	 * most), each a set of one sampler. */
+	const uint32_t extra = VK(a)->hdr ? OVERLAY_MAX_IMAGES : 0;
 	VkDescriptorPoolSize ps        = { .type =
 										   VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-									   .descriptorCount = 10 };
+									   .descriptorCount = 10 + extra };
 	VkDescriptorPoolCreateInfo pci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.maxSets       = 6,
+		.maxSets       = 6 + extra,
 		.poolSizeCount = 1,
 		.pPoolSizes    = &ps,
 	};
@@ -147,6 +163,22 @@ FnlResult create_scene_objects(App *a)
 	VK(a)->blit_set_taau  = sets[3];
 	VK(a)->taau_set[0]    = sets[4];
 	VK(a)->taau_set[1]    = sets[5];
+
+	/* One for each image the encode may read, pointed at it when the
+	 * swapchain's images are made (write_encode_sets). */
+	if (VK(a)->hdr) {
+		VkDescriptorSetLayout el[OVERLAY_MAX_IMAGES];
+		for (int i = 0; i < OVERLAY_MAX_IMAGES; i++)
+			el[i] = VK(a)->blit_set_layout;
+		VkDescriptorSetAllocateInfo eai = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool     = VK(a)->blit_pool,
+			.descriptorSetCount = OVERLAY_MAX_IMAGES,
+			.pSetLayouts        = el,
+		};
+		VK_TRY(vkAllocateDescriptorSets(VK(a)->device, &eai,
+										VK(a)->encode_set));
+	}
 
 	VkPipelineLayoutCreateInfo blci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -179,6 +211,10 @@ FnlResult create_scene_objects(App *a)
 	VkShaderModule blit = make_shader(a, blit_frag_spv, sizeof blit_frag_spv);
 	VkShaderModule mlaa = make_shader(a, mlaa_frag_spv, sizeof mlaa_frag_spv);
 	VkShaderModule taau = make_shader(a, taau_frag_spv, sizeof taau_frag_spv);
+	VkShaderModule enc  = VK(a)->hdr
+							 ? make_shader(a, encode_frag_spv,
+										   sizeof encode_frag_spv)
+							 : VK_NULL_HANDLE;
 
 	/* The fetch, and the filter twice: for the pass that writes its own
 	 * image, and for the window's, where it runs when the scene is already
@@ -204,11 +240,19 @@ FnlResult create_scene_objects(App *a)
 	VK(a)->cover_pipeline = make_overlay_pipeline(
 		a, VK(a)->render_pass, vert, blit, VK(a)->blit_layout, 0, NULL, 0,
 							  OVERLAY_BLEND_CONSTANT);
+	/* Under HDR, the pass that takes the window's linear image into the PQ
+	 * swapchain: the fetch's triangle and one sampler, with BT.2020's
+	 * matrix and ST 2084 constants of the shader. */
+	if (VK(a)->hdr)
+		VK(a)->encode_pipeline = make_overlay_pipeline(
+			a, VK(a)->encode_pass, vert, enc, VK(a)->blit_layout, 0, NULL, 0,
+			OVERLAY_BLEND_NONE);
 
 	vkDestroyShaderModule(VK(a)->device, vert, NULL);
 	vkDestroyShaderModule(VK(a)->device, blit, NULL);
 	vkDestroyShaderModule(VK(a)->device, mlaa, NULL);
 	vkDestroyShaderModule(VK(a)->device, taau, NULL);
+	vkDestroyShaderModule(VK(a)->device, enc, NULL);
 
 	/* make_shader() and make_overlay_pipeline() report failure as
 	 * VK_NULL_HANDLE, so these are tested: the frame gates on the *image*
@@ -217,7 +261,8 @@ FnlResult create_scene_objects(App *a)
 		VK(a)->mlaa_pipeline == VK_NULL_HANDLE ||
 		VK(a)->mlaa_win_pipeline == VK_NULL_HANDLE ||
 		VK(a)->cover_pipeline == VK_NULL_HANDLE ||
-		VK(a)->taau_pipeline == VK_NULL_HANDLE)
+		VK(a)->taau_pipeline == VK_NULL_HANDLE ||
+		(VK(a)->hdr && VK(a)->encode_pipeline == VK_NULL_HANDLE))
 		return fnl_fail(
 			FNL_ERR_SYSTEM,
 			"the scene's fetch, filter and resolve pipelines did not "
@@ -269,7 +314,7 @@ static bool create_scene_ms(App *a)
 	const VkSampleCountFlagBits ms = scene_samples(a);
 
 	if (FNL_FAULT("scene-ms") ||
-		!create_target_image(a, w, h, VK(a)->surf_format.format, ms,
+		!create_target_image(a, w, h, VK(a)->color_format, ms,
 							 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, true,
 							 &VK(a)->scene_ms) ||
 		!create_target_image(a, w, h, VK(a)->depth_format, ms,
@@ -299,7 +344,7 @@ static bool create_scene_mlaa(App *a)
 
 	if (FNL_FAULT("scene-mlaa") ||
 		!create_target_image(
-			a, w, h, VK(a)->surf_format.format, VK_SAMPLE_COUNT_1_BIT,
+			a, w, h, VK(a)->color_format, VK_SAMPLE_COUNT_1_BIT,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			false, &VK(a)->mlaa))
 		return false;
@@ -406,7 +451,7 @@ static bool create_scene_taau(App *a)
 {
 	const uint32_t w   = (uint32_t)a->scene_extent.w;
 	const uint32_t h   = (uint32_t)a->scene_extent.h;
-	const VkFormat fmt = VK(a)->surf_format.format;
+	const VkFormat fmt = VK(a)->color_format;
 
 	if (FNL_FAULT("scene-taau") ||
 		!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
@@ -500,7 +545,7 @@ static bool create_scene_target(App *a, uint32_t w, uint32_t h, bool resident)
 {
 	if (FNL_FAULT("scene-target") ||
 		!create_target_image(
-			a, w, h, VK(a)->surf_format.format, VK_SAMPLE_COUNT_1_BIT,
+			a, w, h, VK(a)->color_format, VK_SAMPLE_COUNT_1_BIT,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			false, &VK(a)->scene) ||
 		/* Resident and sampled only where FNL_AA_TAAU is in force: a
@@ -632,7 +677,7 @@ static bool cover_upload(App *a)
 		destroy_target_image(a, &VK(a)->cover);
 	}
 	const VkFormat fmt =
-		a->srgb_surface ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
+		a->linear_target ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
 	const uint32_t w = (uint32_t)a->snap_w, h = (uint32_t)a->snap_h;
 	if (!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
 							 VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -761,6 +806,11 @@ void destroy_scene_objects(App *a)
 	vkDestroyPipeline(VK(a)->device, VK(a)->taau_pipeline, NULL);
 	vkDestroyPipelineLayout(VK(a)->device, VK(a)->taau_layout, NULL);
 	vkDestroyDescriptorSetLayout(VK(a)->device, VK(a)->taau_set_layout, NULL);
+	vkDestroyPipeline(VK(a)->device, VK(a)->encode_pipeline, NULL);
+	VK(a)->encode_pipeline = VK_NULL_HANDLE;
+	for (int i = 0; i < OVERLAY_MAX_IMAGES; i++)
+		VK(a)->encode_set[i] = VK_NULL_HANDLE; /* freed with the pool */
+	VK(a)->encode_written = false;
 	vkDestroyPipeline(VK(a)->device, VK(a)->mlaa_win_pipeline, NULL);
 	vkDestroyPipeline(VK(a)->device, VK(a)->mlaa_pipeline, NULL);
 	vkDestroyPipeline(VK(a)->device, VK(a)->blit_pipeline, NULL);

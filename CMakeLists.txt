@@ -1288,6 +1288,9 @@ embed_shader(image.frag image_frag_spv)
 # window. See src/renderer/vulkan/frame.c.
 embed_shader(fullscreen.vert fullscreen_vert_spv)
 embed_shader(blit.frag blit_frag_spv)
+# The window's linear image into a PQ swapchain: HDR's last pass on Vulkan,
+# and the one place ST 2084 exists. See shaders/encode.frag.
+embed_shader(encode.frag encode_frag_spv)
 # A post-process over the finished scene. See DESIGN.md's *Antialiasing*.
 embed_shader(mlaa.frag mlaa_frag_spv)
 # The scene onto the window, resolved against the frames before it, at the

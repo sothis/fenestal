@@ -31,6 +31,9 @@ layout(push_constant) uniform Push {
 	float time_bias; /* this window's own phase, for its own scene */
 	uint  srgb;      /* nonzero when the surface blends in linear light */
 	uint  content;   /* 0: the pattern; nonzero: the other scene */
+	/* The scene's two colour figures; the star reads neither, and the block
+	 * is declared whole in every stage that declares it. */
+	vec4  colour;
 } pc;
 
 /* One value for the whole star, so it is converted to the surface's blend
@@ -81,7 +84,9 @@ void main()
 	 * when the surface will not. The tint is flat here, so the whole star is
 	 * one colour -- hence one value, computed once a vertex. */
 	float avg = (pc.tint.r + pc.tint.g + pc.tint.b) / 3.0;
-	float lin = to_linear(0.82) * avg;
+	/* pc.colour.x is the target's unit for SDR white (FnlOutputColor); it is
+	 * 1.0 on every output but a scRGB one. */
+	float lin = to_linear(0.82) * avg * pc.colour.x;
 	v_shade   = pc.srgb != 0u ? lin : to_srgb(lin);
 	/* The temporal accumulation's subpixel offset (FnlFrame::jitter_x): a
 	 * uniform shift of the whole picture, which the resolve's `- jitter`

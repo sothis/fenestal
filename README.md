@@ -340,6 +340,7 @@ Its options, beside the environment variables above:
 | Option | Effect |
 |---|---|
 | `--scale=<n>` | surface scale 1 to 8 instead of the desktop's |
+| `--colour=<space>` | present in `srgb` (the default), `linear` (an extended-range HDR output) or `pq` (BT.2020 and ST 2084) where the output offers it; a request, and `FNL_COLOR` in the environment names one that is taken or fails |
 | `--gpu=<n>` / `--gpu=<name>` | the device by its number in the startup log, or by part of its name (also `FNL_GPU`) |
 | `--layout=<spec>` | KMS: type through this layout instead of the console's, `de(nodeadkeys)`, `de,us` for two groups, XKB options after a space (also `FNL_KMS_LAYOUT`; KMS's alone) |
 | `--gpu-driver=<d>` | KMS: offer a move of an NVIDIA GPU between nouveau and NVIDIA's driver with the window open, an entry in the GPU box for each renderer, `nouveau`/`nvidia` binding it first (also `FNL_GPU_DRIVER`) |

@@ -120,6 +120,7 @@ fnl_output_count
 fnl_output_name_at
 fnl_request_output
 fnl_scale120
+fnl_output_color
 fnl_request_size_pt
 fnl_key_down
 fnl_set_text_input

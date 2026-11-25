@@ -48,9 +48,11 @@
 /* A failed HRESULT as a recorded result, with what failed and the code. */
 FNL_MUST_USE FnlResult d3d_fail(FnlResult code, const char *what, HRESULT hr);
 
-/* The formats every image here is made in. The swapchain's buffers are
- * UNORM, as the flip model requires, and drawn through _SRGB views, so a
- * write is encoded and a blend is linear, as on Vulkan's _SRGB surface. */
+/* The SDR formats: the swapchain's buffers are UNORM, as the flip model
+ * requires, and drawn through _SRGB views, so a write is encoded and a blend
+ * is linear, as on Vulkan's _SRGB surface. HDR pairs
+ * R16G16B16A16_FLOAT with itself instead (RendererState::back_format,
+ * color_format), which holds linear light as written. */
 #define D3D_BACK_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
 #define D3D_COLOR_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
 #define D3D_DEPTH_FORMAT DXGI_FORMAT_D32_FLOAT
@@ -83,8 +85,10 @@ void d3d_drain_messages(App *a);
 
 /* ---- surface_win32.c: the bridge ----------------------------------------- */
 /* The swapchain for the window, flip model, D3D_BUFFERS buffers at
- * App::extent, its frame-latency object set. */
-FNL_MUST_USE FnlResult d3d_bridge_swapchain(App *a);
+ * App::extent, its frame-latency object set. `recolour` resolves the output's
+ * colour again -- the device build's, where the pipelines are built after it;
+ * not the Direct3D 11 remake's, whose pipelines stay as they are. */
+FNL_MUST_USE FnlResult d3d_bridge_swapchain(App *a, bool recolour);
 
 /* ---- present_d3d11.c: through a Direct3D 11 swapchain ------------------- */
 /* FNL_D3D12_DXGI11: 1 always, 0 never, -1 unset, which measures. */

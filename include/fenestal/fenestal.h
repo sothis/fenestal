@@ -203,6 +203,47 @@ typedef enum {
 #define FNL_RENDERER_BIT(g) (1u << (unsigned)(g))
 #define FNL_RENDERERS_ANY 0xffffffffu
 
+/* ---- colour --------------------------------------------------------------
+ *
+ * The colour of the window's pixels: the transfer function and primaries the
+ * output encodes, and how far above SDR white it goes.
+ *
+ * The *scene* writes linear light in every one of the three: an sRGB target
+ * encodes it in hardware as it is written, a floating-point one holds it as
+ * it is, and the library encodes for PQ -- converting sRGB's primaries to
+ * BT.2020's on the way -- in the pass that presents. So a shader that authors
+ * light has only to write linear values; what changes under HDR is how far
+ * above 1.0 they may go (FnlOutputColor::peak). The library's own overlay and
+ * titlebar are SDR content and are drawn at SDR white.
+ *
+ * The values are pinned for FnlKey's reason; append only. */
+typedef enum {
+	FNL_COLOR_SRGB            = 0, /* sRGB primaries and transfer; SDR        */
+	/* Linear light over sRGB primaries, above 1.0 allowed: what a system
+	 * that maps linear light itself takes (scRGB, macOS's extended range). */
+	FNL_COLOR_EXTENDED_LINEAR = 1,
+	/* BT.2020 primaries, ST 2084 (PQ). The library encodes. */
+	FNL_COLOR_PQ              = 2,
+	FNL_COLOR_COUNT                /* a count; grows if a space is added */
+} FnlColorSpace;
+
+/* What a frame's target holds, and how far above SDR white the output can
+ * go. FnlFrame reports it once a frame; fnl_output_color() and
+ * FNL_EVENT_COLOR answer the same thing outside one.
+ *
+ * Light is authored relative to **SDR white**, the 1.0 a colour picker's
+ * sRGB white is. `sdr_scale` is that value in the target's own unit: 1.0
+ * wherever the target's white *is* SDR white, and sdr white / 80 on a scRGB
+ * swapchain, whose 1.0 is 80 nits. Multiply linear light by it before
+ * writing. `peak` is the output's brightest, in the same units of SDR white
+ * -- 1.0 on an SDR output -- so a scene tone-maps to it or lets what is
+ * above clip. */
+typedef struct {
+	FnlColorSpace space;
+	float         sdr_scale;
+	float         peak;
+} FnlOutputColor;
+
 typedef struct FnlApp FnlApp;
 
 typedef struct {
@@ -368,6 +409,16 @@ typedef struct {
 	 * calibration is the testbed's and the harness's. FNL_GPU_RANK in the
 	 * environment still decides where it is set. */
 	bool no_gpu_ranking;
+
+	/* The colour to present in: FNL_COLOR_SRGB (0, the default, SDR) or the
+	 * HDR space asked for. A request and not a setting: a renderer takes the
+	 * space named where its output offers it, another HDR space where that is
+	 * the one the output has, and SDR where it has none of them -- and
+	 * FnlFrame::color says what it got. FNL_COLOR in the environment
+	 * ("srgb", "linear", "pq") names one instead, which is taken or fails,
+	 * as FNL_RENDERER does. A window of a second window's descriptor has
+	 * none: the colour is the host's, one device presenting them all. */
+	FnlColorSpace want_color;
 } FnlInitDesc;
 
 /* Every descriptor's first field is its own sizeof, which is the ABI story
@@ -469,6 +520,12 @@ typedef struct {
 	 * scene is moving; a caller that draws without it loses the accumulation
 	 * and nothing else. */
 	float jitter_x, jitter_y;
+
+	/* The colour of the target this frame draws into: what its values mean,
+	 * and how far above SDR white the output can show. The scene is linear
+	 * light in every space; multiply by color.sdr_scale and tone-map to
+	 * color.peak. See FnlOutputColor. */
+	FnlOutputColor color;
 } FnlFrame;
 
 /* Antialiasing. The values are pinned for FnlKey's reason; what refuses the
@@ -704,6 +761,14 @@ typedef enum {
 	 * the library's to move and the caller's to draw: a focus ring is the
 	 * caller's rectangle, the same as every other it draws. Since 0.9. */
 	FNL_EVENT_CLAIM_FOCUS = 22, /* ev.claim_focus */
+
+	/* A notification, on the same terms: the window's output presents in
+	 * another colour space -- it moved to an output of another kind, or the
+	 * device was rebuilt onto one -- so a scene's tone mapping is for
+	 * another brightness and another reach. Read it with
+	 * fnl_output_color(); the frames' FnlFrame::color is the live answer,
+	 * this the edge. Since 0.9. */
+	FNL_EVENT_COLOR = 23, /* ev.color */
 } FnlEventType;
 
 /* Each event's own fields, one struct a kind, named so that FnlEvent's union
@@ -811,6 +876,11 @@ typedef struct {
 	bool captured;
 } FnlCaptureEvent;
 
+/* The output's colour, as the last frame reported it. */
+typedef struct {
+	FnlOutputColor color;
+} FnlColorEvent;
+
 /* How many events were dropped where this one sits. */
 typedef struct {
 	unsigned count;
@@ -890,6 +960,7 @@ typedef struct {
 		FnlPresenceEvent presence;
 		FnlImageLostEvent image_lost;
 		FnlClaimFocusEvent claim_focus;
+		FnlColorEvent color;
 	};
 } FnlEvent;
 
@@ -2182,6 +2253,12 @@ FNL_API void fnl_request_output(FnlApp *app, const char *name);   /* [any] */
  * because they are exact, and every layout figure is derived from the scale
  * by integer arithmetic. */
 FNL_API int fnl_scale120(const FnlApp *app); /* [any] */
+
+/* The colour the window is presented in, and how far above SDR white the
+ * output can show -- the frames' FnlFrame::color, for a thread that is not
+ * drawing one. False with no window, writing nothing. */
+FNL_API bool fnl_output_color(const FnlApp *app,
+							  FnlOutputColor *out); /* [any] */
 
 /* Ask for a presentable area of this size, in logical points. The window comes
  * out taller by whatever titlebar the library is drawing.

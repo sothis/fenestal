@@ -365,6 +365,15 @@ static void publish_output(App *a, bool force)
 	app_publish_output(a, cur >= 0 ? names[cur] : (name ? name : ""), w_pt,
 					   h_pt);
 
+	/* How far above SDR white the screen can show: the panel's potential
+	 * headroom, which the renderer reads to decide whether to present in it
+	 * (device.m's choose_colour). The potential and not the moment's --
+	 * another window's EDR use moves the current one about, and macOS
+	 * compresses what is above the headroom it grants. */
+	const CGFloat peak =
+		s.maximumPotentialExtendedDynamicRangeColorComponentValue;
+	app_publish_peak(a, peak > 1.0 ? (float)peak : 1.0f);
+
 	/* A screen that names no rate -- some panels -- leaves the spacing on
 	 * the period the loop measures. */
 	const NSInteger fps = s.maximumFramesPerSecond;

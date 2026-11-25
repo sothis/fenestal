@@ -79,6 +79,12 @@ struct RendererState {
 	__strong FnlShownBox *shown_box;
 
 	/* ---- the window ---------------------------------------------------- */
+	/* The colour the layer presents in and every colour image is made in:
+	 * BGRA8Unorm_sRGB, or RGBA16Float with extended linear sRGB under HDR,
+	 * whose 1.0 is SDR white. Chosen once per device (device.m), before any
+	 * pipeline exists. */
+	MTLPixelFormat color_format;
+	bool hdr;
 	/* The window's depth, at App::extent, for a scene drawn straight in. */
 	__strong id<MTLTexture> window_depth;
 	/* Whether the layer presents on the display's refresh: vsync, as the

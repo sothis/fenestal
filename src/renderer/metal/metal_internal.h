@@ -25,16 +25,18 @@
 
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 #include "renderer/metal/metal_state.h"
 
 #include <fenestal/fnl_metal.h>
 
-/* The formats every image here is made in. The layer's drawables are
+/* The SDR format every image here is made in. The layer's drawables are
  * BGRA -- a CAMetalLayer offers no RGBA of eight bits -- and _sRGB, so a
  * write is encoded and a blend is linear, as on Vulkan's _SRGB surface; the
  * scene's images are the same format, so one pipeline state draws into
- * either. */
+ * either. HDR is RGBA16Float with extended linear sRGB instead
+ * (RendererState::color_format), which holds linear light as written. */
 #define MT_COLOR_FORMAT MTLPixelFormatBGRA8Unorm_sRGB
 #define MT_DEPTH_FORMAT MTLPixelFormatDepth32Float
 

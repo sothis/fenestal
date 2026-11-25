@@ -30,8 +30,13 @@ layout(push_constant) uniform Push {
 	vec4  tint;       /* linear-light multiplier: the window's own scene */
 	float time;       /* seconds; frozen at 0 when motion is off */
 	float time_bias;  /* this window's own phase, for its own scene */
-	uint  srgb;       /* nonzero when the surface blends in linear light */
-	uint  content;    /* 0: the pattern; nonzero: the other scene */
+	uint  srgb;      /* nonzero when the surface blends in linear light */
+	uint  content;   /* 0: the pattern; nonzero: the other scene */
+	/* x: what light authored against SDR white is in the target's unit
+	 * (FnlOutputColor::sdr_scale); y: how far above SDR white the output
+	 * goes (its peak); zw unused, and the vec4 keeps the block a multiple
+	 * of 16 for std140. */
+	vec4  colour;
 } pc;
 
 void main()

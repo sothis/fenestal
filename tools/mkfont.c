@@ -41,8 +41,12 @@ static const int   CELL[]   = { 2, 3, 2 };       /* points per cell, per size */
 /* Which face each size is cut from, as an index into the TTFs on the command
  * line: Ubuntu Sans Mono, then Ubuntu Sans. */
 static const int   FACE[]   = { 0, 0, 1 };
-/* Every scale mutter's ladder reaches up to 2.0, in 120ths. */
-static const int   SCALES[] = { 120, 150, 160, 180, 200, 240 };
+/* Every scale mutter's ladder reaches up to 2.0, in 120ths, and the Windows
+ * one up to 175%: 210 is that rung, where 200 left the glyphs a tenth of a
+ * point wide of the pen steps the layout computes. 160 is the 4:3 some
+ * fractional-scale desktops ask for. Past 240 the quad is resampled instead
+ * (DESIGN *Why one atlas per scale*). */
+static const int   SCALES[] = { 120, 150, 160, 180, 200, 210, 240 };
 #define SIZE_COUNT  ((int)(sizeof CELL   / sizeof CELL[0]))
 #define SCALE_COUNT ((int)(sizeof SCALES / sizeof SCALES[0]))
 

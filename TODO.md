@@ -4,6 +4,63 @@ What is owed, as opposed to what is known. `DESIGN.md` is the record of
 what was measured; an item answered there, with its measurement, comes off
 this list.
 
+## HDR
+
+Written on 2026-11-25; every tree of the four targets was built the same
+day -- linux, win64 (release, analyzer and gc), macos (release and gc) and
+macos-arm64 (release and gc) -- warning-clean, their checks passing.
+Direct3D 12 presents scRGB where the display is in an advanced colour
+mode, Metal the screen's extended range, Vulkan 10-bit PQ where the surface
+offers it, and KMS 10-bit PQ through its copy path where the connector's
+EDID names it. DESIGN *HDR: three spaces, one linear target* has the model;
+the testbed's `--colour=` sets it. Nothing has been seen on an HDR panel.
+
+Owed, in this order:
+
+- **A host with an HDR display**: schenker's Mac panel is the one screen
+  here known to have extended range, and no desktop monitor in the lab is.
+- **What the float target costs**, on this desk and on the Pi: under HDR the
+  scene, the resolve and the fetch all move from 8-bit to `RGBA16F`, so
+  `bench.py --sizes` and `pace.py` against an SDR row of the same scene.
+- **The harness**: a colour check (the program's `colour:` line against
+  `FNL_COLOR`), a capture on an HDR output to read the ramp's last quarter
+  against white, and an environment per backend that offers it. A pixel
+  comparison has to know the space it is comparing in.
+- **PQ on Linux**: whether Mesa's Wayland WSI lists `HDR10_ST2084_EXT` where
+  the compositor's colour management is up, and that the SDR fallback holds
+  where it is not.
+- **KMS on HDR hardware**: the EDID probe, the connector's
+  `HDR_OUTPUT_METADATA` and `Colorspace`, and the `XRGB2101010` scanout are
+  written, and no panel in the lab carries the HDR static metadata block, so
+  they have compiled and never been taken. What wants seeing: a connector
+  that refuses `Colorspace` or the metadata, a driver whose dumb buffers will
+  not take 10 bits, and the infoframe as a TV reads it.
+- **Windows mid-run**: the user's HDR switch in Settings is not followed until
+  the device is rebuilt. Whether a flip-model swapchain may change its colour
+  space under a live window, and what `WM_DISPLAYCHANGE` should do, is
+  untested.
+- **MLAA in linear light**: its edge test was tuned on encoded values under
+  SDR and now sees linear ones under HDR; whether its threshold wants the
+  encode before it is unmeasured.
+- **The veil**: declined under HDR, the snapshot being 8-bit, so a move fades
+  through black; an encoded readback or an `RGBA16F` snapshot restores it.
+- **A demo in HDR**: none asks for it -- `want_color` is 0 in every demo, so
+  they present SDR and are unchanged -- and one that did would want its
+  `CubePush` to carry `FnlFrame::color`'s two figures and its shader to
+  multiply by `sdr_scale`. A demo is the program people copy, so this is the
+  one that should show it.
+
+## The 175% rung
+
+Added on 2026-11-25: 210 in the baked ladder, the standard 175% that was
+missing between 200 and the two scales above it. The bake has not been run
+since, so DESIGN *The blob*'s figures are the six-rung bake's.
+
+Owed: one release build, which re-bakes every atlas, to re-measure the blob's
+coded size and the decode time (DESIGN *Three tables decide the cost*), and to
+see `verifyfont` pass with the seventh -- the lender's test every cross tree
+borrows.
+
 ## Temporal upscaling, measured
 
 > **Built on 2026-11-22** (`a42c7d8`), the first compile of any of it: every
@@ -296,7 +353,10 @@ to the title long before it. Owed:
   window (Built-in Display to PL4071UH and back). The fullscreen moves
   want a way in with no bar to click, which the testbed's F7 -- the next
   output -- is. Still owed: a monitor of another scale, where both of
-  schenker's are 125%. Under wine a maximized window on a monitor with no
+  schenker's are 125%; the move must be checked to rebuild at the scale of
+  the output it lands on, which is the one thing a same-scale pair cannot
+  show. The cursor (now the surface scale's size) and the 175% text rung are
+  in. Under wine a maximized window on a monitor with no
   taskbar (DISPLAY2) is drawn without its titlebar, with or without a
   move: wine's maximize and not the library's, so the box could not be
   clicked there and the back was not driven.

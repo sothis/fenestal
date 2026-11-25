@@ -75,6 +75,10 @@ typedef struct {
 	VkRenderPass          render_pass;
 	uint32_t              subpass;
 	VkSampleCountFlagBits samples;
+	/* The colour attachment's format: an _SRGB one where the hardware
+	 * encodes linear light as it is written, and R16G16B16A16_SFLOAT where
+	 * HDR's target holds it as written. Either way a shader writes linear
+	 * values with no encoding of its own; see FnlOutputColor. */
 	VkFormat              color_format;
 	VkFormat              depth_format;
 } FnlVulkanSceneLayout;

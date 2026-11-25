@@ -48,6 +48,18 @@ typedef enum {
 	BACKEND_COCOA
 } BackendId;
 
+/* What a frame's pixels are, for FnlBackendVtbl::present_pixels -- the copy
+ * path's, where the backend scans out what the renderer read back. The two
+ * 8-bit orders are a byte a channel; PIXELS_RGB10 is one 32-bit word a
+ * pixel, R in bits 9:0, G 19:10, B 29:20 and the two above ignored, which is
+ * Vulkan's A2B10G10R10_UNORM_PACK32 and, word for word, DRM's XRGB2101010:
+ * the 10-bit PQ frame an HDR output scans out. */
+typedef enum {
+	PIXELS_BGRA8 = 0,
+	PIXELS_RGBA8 = 1,
+	PIXELS_RGB10 = 2,
+} FnlPixelFormat;
+
 typedef struct FnlBackendVtbl {
 	/* As it goes on screen: "Wayland", "X11", "Win32", "Cocoa", "KMS". */
 	const char *name;
@@ -235,13 +247,14 @@ typedef struct FnlBackendVtbl {
 	 * path, where no device can present to the output and the frame is
 	 * drawn on a headless surface (RendererState::present_copy). Called once
 	 * the device has finished the frame, right after its present; `px` is
-	 * good until this returns. 32-bit pixels, rows `pitch` bytes apart, blue
-	 * first when `bgra` and red first when not, alpha ignored. Under vsync
-	 * this waits until they are on screen, which makes it the throttle the
-	 * swapchain's present is everywhere else. Everywhere else it is
-	 * backend_noop_present_pixels, and never called. */
+	 * good until this returns. 32-bit pixels, rows `pitch` bytes apart, in
+	 * the order `fmt` names -- the 10-bit one only where the backend said it
+	 * could scan out HDR. Under vsync this waits until they are on screen,
+	 * which makes it the throttle the swapchain's present is everywhere
+	 * else. Everywhere else it is backend_noop_present_pixels, and never
+	 * called. */
 	void (*present_pixels)(App *a, const void *px, int w, int h,
-						   size_t pitch, bool bgra);
+						   size_t pitch, FnlPixelFormat fmt);
 
 	/* A native window of its own for the renderer to present into, made
 	 * anew at a move to another GPU (fnl_request_gpu()): called by the
@@ -473,7 +486,7 @@ bool     backend_noop_gpu_driver_held(const App *a, const GpuDriver *g,
 void     backend_noop_set_geometry(App *a, int w, int h, int margin);
 void     backend_noop_ack_configure(App *a, uint32_t serial);
 void     backend_noop_present_pixels(App *a, const void *px, int w, int h,
-									 size_t pitch, bool bgra);
+									 size_t pitch, FnlPixelFormat fmt);
 bool     backend_noop_apply_scale(App *a);
 uint32_t backend_noop_buffer_granularity(const App *a, int s120);
 int      backend_noop_modes(const App *a, FnlMode *out, int max,

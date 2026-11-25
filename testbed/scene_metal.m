@@ -48,9 +48,14 @@ typedef struct {
 	float    time_bias;
 	uint32_t srgb;
 	uint32_t content;
+	/* x: what light authored relative to SDR white is in the target's unit
+	 * (FnlOutputColor::sdr_scale); y: how far above SDR white the output
+	 * goes (its peak); zw unused. A vec4 so the block's size stays a
+	 * multiple of 16 for std140's and HLSL's sake. */
+	float    colour[4];
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
+_Static_assert(sizeof(ScenePush) == 80, "ScenePush must match scene.frag");
 _Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, canvas) == 16, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, origin) == 24, "ScenePush layout drifted");
@@ -60,6 +65,7 @@ _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, colour) == 64, "ScenePush layout drifted");
 
 /* One pair per target. A nil entry is a target this window cannot use --
  * the multisampled one on a device with no sample count worth having --
@@ -136,10 +142,11 @@ void scene_metal_on_gpu_created(void *ud, FnlApp *app)
 		FnlMetalSceneLayout layout;
 		if (!fnl_metal_scene_layout(app, (FnlSceneTarget)t, &layout))
 			continue;          /* this window cannot use that target */
-		/* Whether the target encodes linear -> sRGB as fragments are
-		 * written, which decides whether the shader must. */
+		/* Whether the target holds linear light: hardware-encoded _sRGB, or
+		 * HDR's float format that keeps it as written. */
 		if (t == FNL_TARGET_DIRECT)
-			g_srgb = layout.color_format == MTLPixelFormatBGRA8Unorm_sRGB;
+			g_srgb = layout.color_format == MTLPixelFormatBGRA8Unorm_sRGB ||
+					 layout.color_format == MTLPixelFormatRGBA16Float;
 		g_pattern[t] = make_pso(gpu.device, &layout, sv, sf);
 		g_star[t] = make_pso(gpu.device, &layout, tv, tf);
 	}
@@ -184,6 +191,7 @@ void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time_bias = view.time_bias,
 		.srgb = g_srgb ? 1u : 0u,
 		.content = view.content,
+		.colour = { f->color.sdr_scale, f->color.peak, 0.0f, 0.0f },
 	};
 	id<MTLRenderCommandEncoder> enc = sc.encoder;
 	[enc setDepthStencilState:g_no_depth];

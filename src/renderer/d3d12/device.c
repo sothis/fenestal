@@ -331,7 +331,8 @@ static void choose_samples(App *a)
 	int best = 1;
 	for (int s = 4; s >= 2 && best == 1; s /= 2) {
 		bool both              = true;
-		const DXGI_FORMAT f[2] = { D3D_COLOR_FORMAT, D3D_DEPTH_FORMAT };
+		const DXGI_FORMAT f[2] = { D3D(a)->color_format,
+								   D3D_DEPTH_FORMAT };
 		for (int i = 0; i < 2; i++) {
 			D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS q = {
 				.Format      = f[i],
@@ -449,22 +450,26 @@ static FnlResult create_device_objects(App *a)
 	ID3D12GraphicsCommandList_Close(g->list);
 	g->recording = false;
 
-	choose_samples(a);
-	a->srgb_surface = true; /* every colour view is _SRGB */
-	/* The palette is converted for that blend space; until then every entry
-	 * is zero, and the titlebar draws as transparent black. */
-	app_palette_init(a);
-
 	make_timestamps(a);
 	FNL_TRY(d3d_make_heaps(a));
 	/* The device's own swapchain first, measured at rest (frame.c), unless
-	 * FNL_D3D12_DXGI11 decides it. */
+	 * FNL_D3D12_DXGI11 decides it. Made before the sample count and the
+	 * palette because it resolves the output's colour -- the formats and the
+	 * target's unit both are built for (d3d_bridge_swapchain). */
 	const int forced = d3d_via11_forced();
 	g->via11_on      = forced == 1;
 	g->via11_settled = g->via11_forced = forced >= 0;
 	g->via11_switch                    = false;
 	g->via11_seen = g->via11_late = 0;
-	FNL_TRY(d3d_bridge_swapchain(a));
+	FNL_TRY(d3d_bridge_swapchain(a, true));
+	choose_samples(a);
+	/* Linear light in and out, whether the views encode on write (_SRGB over
+	 * an 8-bit buffer) or the target is float and holds it as written. */
+	a->linear_target = true;
+	/* The palette is converted for that blend space, at the target's unit
+	 * for SDR white; until then every entry is zero, and the titlebar draws
+	 * as transparent black. */
+	app_palette_init(a);
 	/* Vulkan's "framebuffers" has its twin here: a build that fails with
 	 * its swapchain on the window, so a window taking the next renderer's
 	 * after Direct3D 12's flip model failed can be seen. */
@@ -810,7 +815,7 @@ bool fnl_d3d12_scene_layout(App *a, FnlSceneTarget t, FnlD3D12SceneLayout *out)
 	}
 	*out = (FnlD3D12SceneLayout){
 		.samples      = samples,
-		.color_format = D3D_COLOR_FORMAT,
+		.color_format = D3D(a)->color_format,
 		.depth_format = D3D_DEPTH_FORMAT,
 	};
 	return true;

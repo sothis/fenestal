@@ -322,6 +322,15 @@ static void usage(FILE *f, const char *prog)
 		"                     Without wp_viewporter a fraction rounds up, as\n"
 		"                     it must for an integer buffer scale.\n"
 		"\n"
+		"  --colour=<space>   present in <space>: srgb (the default), linear\n"
+		"                     (an extended-linear HDR output, where the\n"
+		"                     system maps linear light itself) or pq (BT.2020\n"
+		"                     and ST 2084, which an HDR monitor shows where\n"
+		"                     the desktop offers it). A request: a window\n"
+		"                     whose output has none of it presents SDR and\n"
+		"                     the status line says so. FNL_COLOR names one\n"
+		"                     as well, and that one is taken or fails.\n"
+		"\n"
 		"  --gpu=<n>          run on device <n> instead of the automatic\n"
 		"                     choice, one-based over the devices that can\n"
 		"                     present to this window in the order the driver\n"
@@ -481,6 +490,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 	const char *prog = (argc > 0 && argv[0]) ? argv[0] : "fenestal-testbed";
 	static const char PIN[]        = "--late-latch=";
 	static const char SCALE[]      = "--scale=";
+	static const char COLOUR[]     = "--colour=";
 	static const char GPU[]        = "--gpu=";
 	static const char DRIVER[]     = "--gpu-driver=";
 	static const char RANK[]       = "--gpu-rank=";
@@ -493,7 +503,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 	 * never reads, refused beside --bench*: the run would not record them,
 	 * and the second kind would be dropped without a word. */
 	static const char *const CLASH[] = {
-		"--no-late-latch", "--late-latch=",     "--scale=",
+		"--no-late-latch", "--late-latch=",     "--scale=", "--colour=",
 		"--gpu=",          "--custom-titlebar", "--text-input",
 		"--frame-times",   "--no-vsync",        "--transition=",
 		"--footprint-log", "--frame-cpu-log",   "--frame-stats-log",
@@ -702,6 +712,23 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			 * nearest, so --scale=1.3 is the 156 nearest it rather than a
 			 * truncation that lands a 120th low. */
 			d->scale_override120 = (int)(s * 120.0 + 0.5);
+			continue;
+		}
+		if (!strncmp(arg, COLOUR, sizeof COLOUR - 1)) {
+			const char *v = arg + sizeof COLOUR - 1;
+			if (!strcmp(v, "srgb") || !strcmp(v, "sdr"))
+				d->want_color = FNL_COLOR_SRGB;
+			else if (!strcmp(v, "linear") || !strcmp(v, "scrgb"))
+				d->want_color = FNL_COLOR_EXTENDED_LINEAR;
+			else if (!strcmp(v, "pq") || !strcmp(v, "hdr10"))
+				d->want_color = FNL_COLOR_PQ;
+			else {
+				fprintf(stderr,
+						"--colour: expected srgb, linear or pq; got \"%s\"\n",
+						v);
+				*status = EXIT_FAILURE;
+				return false;
+			}
 			continue;
 		}
 		if (!strncmp(arg, DRIVER, sizeof DRIVER - 1)) {

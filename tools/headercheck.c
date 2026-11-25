@@ -37,8 +37,13 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	FnlEvent ev;
 	FnlOverlayCounts counts;
+	FnlOutputColor colour;
 	const FnlColor white = { 1.0f, 1.0f, 1.0f, 1.0f };
 	(void)ud;
+	/* The colour the window is presented in, and how far above SDR white it
+	 * goes: what a scene's tone map is built from. */
+	(void)fnl_output_color(app, &colour);
+	(void)colour;
 	while (fnl_poll_event(app, &ev))
 		if (ev.type == FNL_EVENT_KEY && ev.key.pressed) {
 			fnl_overlay_rect(app, 0, 0, frame->area_w_px, 1, white);

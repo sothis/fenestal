@@ -924,6 +924,25 @@ int fnl_scale120(const FnlApp *app)
 	return s;
 }
 
+/* The renderer's, under the lock: the space and the target's unit it last
+ * resolved, and the peak a backend or renderer last knew. */
+bool fnl_output_color(const FnlApp *app, FnlOutputColor *out)
+{
+	App *a = (App *)app;
+	if (!a || !out)
+		return false;
+	fnl_mutex_lock(&a->lock);
+	*out = a->pub_color;
+	fnl_mutex_unlock(&a->lock);
+	/* Seeded at fnl_init() and clamped by the publisher: a copy taken before
+	 * either says 1.0 rather than zero. */
+	if (!(out->sdr_scale > 0.0f))
+		out->sdr_scale = 1.0f;
+	if (!(out->peak >= 1.0f))
+		out->peak = 1.0f;
+	return true;
+}
+
 /* ---- display modes and outputs ---------------------------------------------
  *
  * Read through the seam each time rather than kept here: the lists are the

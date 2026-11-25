@@ -941,9 +941,15 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		.presentId = VK_TRUE,
 	};
 
-	const char *exts[16];
+	const char *exts[20];
 	uint32_t n_exts = 0;
 	exts[n_exts++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+	/* The colour spaces beyond sRGB's, which HDR takes: a surface lists them
+	 * only where this is enabled. Optional; without it the window presents
+	 * SDR. */
+	if (device_has_extension(a, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME) &&
+		n_exts < 20)
+		exts[n_exts++] = VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME;
 	VK(a)->dxgi_exts = false;
 	if (VK(a)->bridge->device_extensions) {
 		uint32_t k = 0;
@@ -1036,7 +1042,7 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		.swapchainMaintenance1 = VK_TRUE,
 	};
 	if (!VK(a)->scale_refused && VK(a)->surface_maint && VK(a)->get_features2 &&
-		n_exts < 16) {
+		n_exts < 20) {
 		const char *scale_name = NULL;
 		if (device_has_extension(a,
 								 VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
@@ -1174,7 +1180,7 @@ static const char *present_mode_name(VkPresentModeKHR m)
 }
 
 /* Every _SRGB surface format this renderer takes, in preference order. One
- * table for the choice and for srgb_surface: a format chosen from one list
+ * table for the choice and for linear_target: a format chosen from one list
  * and not recognised by another would quietly take the UNORM colour path. */
 static const VkFormat SRGB_FORMATS[] = {
 	VK_FORMAT_B8G8R8A8_SRGB,
@@ -1206,13 +1212,85 @@ static void surfaceless_format(App *a)
 	};
 }
 
+/* Whether the surface offers the HDR pair this renderer takes -- 10-bit PQ,
+ * which needs VK_EXT_swapchain_colorspace enabled on the device -- on a
+ * window the library may draw it into: not the copy path, whose readback is
+ * 8-bit; not the renderer's own images; and not Direct3D 11's textures. */
+static bool hdr_available(App *a, const VkSurfaceFormatKHR *formats, uint32_t n,
+						  VkSurfaceFormatKHR *out)
+{
+	if (VK(a)->dxgi)
+		return false;
+	if (!device_has_extension(a, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME))
+		return false;
+	if (VK(a)->bridge->display_hdr) {
+		/* The frames are read back and scanned out by the backend, whose
+		 * connector carries the colour statement -- no surface names one,
+		 * so the pair is the renderer's. Only the renderer's own images can
+		 * take it: a display surface presents through Vulkan, and a
+		 * headless surface lists formats the driver chose (surface_kms.c
+		 * takes the copy path and its own images for an HDR ask). */
+		if (!VK(a)->surfaceless)
+			return false;
+		if (!VK(a)->bridge->display_hdr(a, NULL))
+			return false;
+		*out = (VkSurfaceFormatKHR){
+			VK_FORMAT_A2B10G10R10_UNORM_PACK32,
+			VK_COLOR_SPACE_HDR10_ST2084_EXT,
+		};
+		return true;
+	}
+	for (uint32_t i = 0; i < n; i++)
+		if (formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
+			formats[i].colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) {
+			*out = formats[i];
+			return true;
+		}
+	return false;
+}
+
+/* What a PQ output is tone-mapped against: BT.2408's graphics white, 203
+ * nits, into a 1000-nit master. The surface says nothing of the panel's own,
+ * so the compositor is left to map what is above it. */
+#define PQ_PEAK (1000.0f / 203.0f)
+
+/* The colour the swapchain presents in, published once it is resolved: the
+ * space, the target's unit -- 1.0, PQ being absolute and the encode pass
+ * placing SDR white at 203 nits -- and the peak. A space FNL_COLOR named and
+ * the surface cannot present is a refusal, as a named renderer's is. */
+static FnlResult colour_settle(App *a)
+{
+	const FnlColorSpace got = VK(a)->hdr ? FNL_COLOR_PQ : FNL_COLOR_SRGB;
+	/* The surface says nothing of the panel: 1000 nits against 203 unless a
+	 * backend that knows the display -- KMS, from its EDID -- has said. */
+	if (VK(a)->hdr)
+		app_publish_peak_default(a, PQ_PEAK);
+	app_publish_color(a, got, 1.0f);
+	if (a->color_named && got != a->want_color)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"FNL_COLOR=%s was named, and this surface presents %s",
+						app_color_key(a->want_color), app_color_key(got));
+	return FNL_OK;
+}
+
 static FnlResult query_surface_info(App *a)
 {
 	if (VK(a)->surfaceless) {
 		surfaceless_format(a);
+		VK(a)->hdr = false;
+		VkSurfaceFormatKHR hdr = VK(a)->surf_format;
+		if (app_color_is_hdr(a->want_color) &&
+			hdr_available(a, NULL, 0, &hdr)) {
+			VK(a)->surf_format = hdr;
+			VK(a)->hdr         = true;
+		}
+		VK(a)->color_format = VK(a)->hdr ? VK_FORMAT_R16G16B16A16_SFLOAT
+										 : VK(a)->surf_format.format;
 		FNL_TRY(choose_present_modes(a));
 		vk_set_present_mode(a, VK_PRESENT_MODE_FIFO_KHR);
-		a->srgb_surface = is_srgb_format(VK(a)->surf_format.format);
+		a->linear_target =
+			VK(a)->hdr || is_srgb_format(VK(a)->surf_format.format);
+		FNL_TRY(colour_settle(a));
 		app_palette_init(a);
 		return FNL_OK;
 	}
@@ -1255,13 +1333,29 @@ static FnlResult query_surface_info(App *a)
 				VK(a)->surf_format = formats[i];
 				break;
 			}
+	/* HDR where it was asked for and the surface has it: the pair chosen is
+	 * what the swapchain is made in, and every colour target becomes float
+	 * and linear. */
+	VK(a)->hdr = false;
+	VkSurfaceFormatKHR hdr = VK(a)->surf_format;
+	if (app_color_is_hdr(a->want_color) &&
+		hdr_available(a, formats, fn, &hdr)) {
+		VK(a)->surf_format = hdr;
+		VK(a)->hdr         = true;
+	}
 	free(formats);
 
+	VK(a)->color_format = VK(a)->hdr ? VK_FORMAT_R16G16B16A16_SFLOAT
+									 : VK(a)->surf_format.format;
 	FNL_TRY(choose_present_modes(a));
 	/* Vsynced until create_swapchain() adopts what the caller asked for. */
 	vk_set_present_mode(a, VK_PRESENT_MODE_FIFO_KHR);
-	a->srgb_surface = is_srgb_format(VK(a)->surf_format.format);
-	/* The palette is converted for this surface's blend space. */
+	/* Linear light in and out: an _SRGB target encodes on write, and a float
+	 * one holds what the shader wrote. */
+	a->linear_target = VK(a)->hdr || is_srgb_format(VK(a)->surf_format.format);
+	FNL_TRY(colour_settle(a));
+	/* The palette is converted for this surface's blend space, at its unit
+	 * for SDR white. */
 	app_palette_init(a);
 	return FNL_OK;
 }
@@ -1549,6 +1643,8 @@ static void destroy_device_objects(App *a, bool save_cache)
 	destroy_overlay_pipelines(a);
 	destroy_text_pipeline(a);
 	destroy_scene_objects(a);
+	vkDestroyRenderPass(VK(a)->device, VK(a)->encode_pass, NULL);
+	VK(a)->encode_pass = VK_NULL_HANDLE;
 	vkDestroyRenderPass(VK(a)->device, VK(a)->render_pass, NULL);
 	/* The device is every window's: the last one out destroys it, and the
 	 * ones before leave it to the window still drawing (or rebuilding) on
@@ -1980,7 +2076,7 @@ bool fnl_vulkan_scene_layout(App *a, FnlSceneTarget t,
 		.render_pass  = pass,
 		.subpass      = 0,
 		.samples      = samples,
-		.color_format = VK(a)->surf_format.format,
+		.color_format = VK(a)->color_format,
 		.depth_format = VK(a)->depth_format,
 	};
 	return true;

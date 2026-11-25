@@ -379,12 +379,215 @@ static xcb_cursor_t blank_cursor(struct BackendState *p)
 
 static const char CURSOR_FONT[] = "cursor";
 
-static xcb_cursor_t cursor_load(struct BackendState *p, X11Cursor which)
+/* The font's glyph cell, asked once with the font: the largest glyph's
+ * rightward reach, how far left one may reach (which the pen's zero would
+ * clip), and the ascent that puts the baseline where the cell starts. False
+ * where the server will not answer for the font. */
+static bool cursor_cell(struct BackendState *p)
 {
+	if (p->cell_w > 0)
+		return true;
+	xcb_query_font_cookie_t ck = xcb_query_font(p->conn, p->cursor_font);
+	xcb_generic_error_t *err   = NULL;
+	xcb_query_font_reply_t *r  = xcb_query_font_reply(p->conn, ck, &err);
+	if (!r || err) {
+		free(r);
+		free(err);
+		return false;
+	}
+	const int left = r->min_bounds.left_side_bearing < 0
+						 ? -r->min_bounds.left_side_bearing
+						 : 0;
+	int w = r->max_bounds.right_side_bearing + left;
+	if (w <= 0)
+		w = r->max_bounds.character_width;
+	if (w <= 0)
+		w = 1;
+	int h = r->font_ascent + r->font_descent;
+	if (h <= 0)
+		h = r->max_bounds.ascent + r->max_bounds.descent;
+	if (h <= 0)
+		h = 1;
+	p->cell_left   = left;
+	p->cell_ascent = r->font_ascent > 0 ? r->font_ascent : h;
+	p->cell_w      = w;
+	p->cell_h      = h;
+	free(r);
+	return true;
+}
+
+/* `glyph` drawn into the depth-1 pixmap `pix` and read back: the font's own
+ * bitmap, one byte a row in `*stride`. `bits` is the caller's to free. */
+static bool cursor_glyph_bitmap(struct BackendState *p, xcb_pixmap_t pix,
+								xcb_gcontext_t gc, uint16_t glyph,
+								unsigned char **bits, int *stride)
+{
+	const uint8_t c = (uint8_t)glyph;
+	xcb_generic_error_t *err = xcb_request_check(
+		p->conn, xcb_image_text_8_checked(p->conn, 1, pix, gc,
+										  (int16_t)p->cell_left,
+										  (int16_t)p->cell_ascent,
+										  (const char *)&c));
+	if (err) {
+		free(err);
+		return false;
+	}
+	xcb_get_image_cookie_t gk = xcb_get_image(
+		p->conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pix, 0, 0, (uint16_t)p->cell_w,
+		(uint16_t)p->cell_h, ~0u);
+	xcb_get_image_reply_t *r = xcb_get_image_reply(p->conn, gk, &err);
+	if (!r || err) {
+		free(r);
+		free(err);
+		return false;
+	}
+	/* A depth-1 pixmap's scanline pad is the server's, 32 bits on every
+	 * server measured; the reply's length says whether it was this one. */
+	const int len = xcb_get_image_data_length(r);
+	int row       = p->cell_h > 0 ? len / p->cell_h : 0;
+	if (row * p->cell_h != len || row < (p->cell_w + 7) / 8)
+		row = (p->cell_w + 7) / 8;
+	unsigned char *out = malloc((size_t)row * (size_t)p->cell_h);
+	if (!out) {
+		free(r);
+		return false;
+	}
+	memcpy(out, xcb_get_image_data(r), (size_t)row * (size_t)p->cell_h);
+	free(r);
+	*bits   = out;
+	*stride = row;
+	return true;
+}
+
+/* Nearest-neighbour, so a 2:1 cursor is the font's pixels doubled rather than
+ * a filter's guess at them; `dw` by `dh`, the rows padded for PutImage. */
+static unsigned char *bitmap_scale(const unsigned char *bits, int stride, int w,
+								   int h, int dw, int dh, int *dstride)
+{
+	const int ds       = ((dw + 31) / 32) * 4;
+	unsigned char *out = calloc((size_t)ds * (size_t)dh, 1);
+	if (!out)
+		return NULL;
+	for (int y = 0; y < dh; y++) {
+		const int sy = (int)((long)y * h / dh);
+		const unsigned char *src = bits + (size_t)sy * (size_t)stride;
+		for (int x = 0; x < dw; x++) {
+			const int sx = (int)((long)x * w / dw);
+			if ((src[sx >> 3] >> (sx & 7)) & 1u)
+				out[(size_t)y * (size_t)ds + (size_t)(x >> 3)] |=
+					(unsigned char)(1u << (x & 7));
+		}
+	}
+	*dstride = ds;
+	return out;
+}
+
+/* One shape cut from the font and scaled to `s120`, or XCB_NONE where the
+ * server would not render it. The hotspot stays the cell's own corner, which
+ * is where Xlib's glyph cursors have always put it. */
+static xcb_cursor_t cursor_scaled(struct BackendState *p, X11Cursor which,
+								  int s120)
+{
+	const uint16_t glyph = CURSOR_GLYPH[which];
+	if (!cursor_cell(p))
+		return XCB_NONE;
+
+	const int dw = ((p->cell_w * s120 + 60) / 120) > 0
+					   ? (p->cell_w * s120 + 60) / 120
+					   : 1;
+	const int dh = ((p->cell_h * s120 + 60) / 120) > 0
+					   ? (p->cell_h * s120 + 60) / 120
+					   : 1;
+
+	xcb_pixmap_t sp   = xcb_generate_id(p->conn);
+	xcb_pixmap_t mp   = xcb_generate_id(p->conn);
+	xcb_gcontext_t gc = xcb_generate_id(p->conn);
+	bool ok           = false;
+	unsigned char *sb = NULL, *mb = NULL, *ds = NULL, *dm = NULL;
+	int sstride = 0, mstride = 0, dstride = 0, mds = 0;
+	xcb_cursor_t cur = XCB_NONE;
+
+	xcb_create_pixmap(p->conn, 1, sp, p->root, (uint16_t)p->cell_w,
+					  (uint16_t)p->cell_h);
+	xcb_create_pixmap(p->conn, 1, mp, p->root, (uint16_t)p->cell_w,
+					  (uint16_t)p->cell_h);
+	/* Foreground 1 and background 0 on a depth-1 pixmap: the glyph's coverage
+	 * as bits, everything else clear. The mask glyph is the shape's own plus
+	 * one, the cursor font's layout. */
+	const uint32_t gcvals[3] = { 1, 0, (uint32_t)p->cursor_font };
+	xcb_create_gc(p->conn, gc, sp,
+				  XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_FONT, gcvals);
+
+	if (!cursor_glyph_bitmap(p, sp, gc, glyph, &sb, &sstride) ||
+		!cursor_glyph_bitmap(p, mp, gc, (uint16_t)(glyph + 1), &mb, &mstride))
+		goto out;
+	ds = bitmap_scale(sb, sstride, p->cell_w, p->cell_h, dw, dh, &dstride);
+	dm = bitmap_scale(mb, mstride, p->cell_w, p->cell_h, dw, dh, &mds);
+	if (!ds || !dm)
+		goto out;
+
+	/* The scaled bitmaps into pixmaps, which is what a cursor is made from.
+	 * PutImage's XYBitmap rows are padded to 32 bits, the server's bitmap
+	 * format. Checked rather than queued: a depth the server will not give
+	 * them leaves the cursor one it would refuse to set. */
+	const xcb_pixmap_t dsp = xcb_generate_id(p->conn);
+	const xcb_pixmap_t dmp = xcb_generate_id(p->conn);
+	xcb_create_pixmap(p->conn, 1, dsp, p->root, (uint16_t)dw, (uint16_t)dh);
+	xcb_create_pixmap(p->conn, 1, dmp, p->root, (uint16_t)dw, (uint16_t)dh);
+	xcb_generic_error_t *e1 = xcb_request_check(
+		p->conn, xcb_put_image_checked(p->conn, XCB_IMAGE_FORMAT_XY_BITMAP,
+									   dsp, gc, (uint16_t)dw, (uint16_t)dh, 0,
+									   0, 0, 1, dstride * dh, ds));
+	xcb_generic_error_t *e2 = xcb_request_check(
+		p->conn, xcb_put_image_checked(p->conn, XCB_IMAGE_FORMAT_XY_BITMAP,
+									   dmp, gc, (uint16_t)dw, (uint16_t)dh, 0,
+									   0, 0, 1, mds * dh, dm));
+	if (!e1 && !e2) {
+		cur = xcb_generate_id(p->conn);
+		xcb_generic_error_t *e3 = xcb_request_check(
+			p->conn, xcb_create_cursor_checked(p->conn, cur, dsp, dmp, 0, 0, 0,
+											   0xffff, 0xffff, 0xffff, 0, 0));
+		if (e3) {
+			free(e3);
+			cur = XCB_NONE;
+		}
+	}
+	free(e1);
+	free(e2);
+	xcb_free_pixmap(p->conn, dsp);
+	xcb_free_pixmap(p->conn, dmp);
+	ok = cur != XCB_NONE;
+out:
+	free(sb);
+	free(mb);
+	free(ds);
+	free(dm);
+	xcb_free_gc(p->conn, gc);
+	xcb_free_pixmap(p->conn, sp);
+	xcb_free_pixmap(p->conn, mp);
+	return ok ? cur : XCB_NONE;
+}
+
+/* A shape at the scale in force. The scale changes only when the desktop's
+ * does, and the cached cursors are then the previous size; the one on the
+ * window is freed under it, so cursors_rebuild() reapplies it. */
+static xcb_cursor_t cursor_load(App *a, X11Cursor which, int s120)
+{
+	struct BackendState *p = a->backend_state;
 	if (which < 0 || which >= X11_CURSOR_COUNT)
 		return XCB_NONE;
-	if (p->cursors[which])
+	if (p->cursors[which] && p->cursor_scale120 == s120)
 		return p->cursors[which];
+
+	if (p->cursor_scale120 != s120) {
+		for (int i = 0; i < X11_CURSOR_COUNT; i++) {
+			if (p->cursors[i]) {
+				xcb_free_cursor(p->conn, p->cursors[i]);
+				p->cursors[i] = XCB_NONE;
+			}
+		}
+		p->cursor_scale120 = s120;
+	}
 
 	if (!p->cursor_font) {
 		p->cursor_font = xcb_generate_id(p->conn);
@@ -392,11 +595,16 @@ static xcb_cursor_t cursor_load(struct BackendState *p, X11Cursor which)
 					  (uint16_t)(sizeof CURSOR_FONT - 1), CURSOR_FONT);
 	}
 
-	xcb_cursor_t cur = xcb_generate_id(p->conn);
-	/* The mask glyph is the shape's own plus one: the cursor font's layout. */
-	xcb_create_glyph_cursor(
-		p->conn, cur, p->cursor_font, p->cursor_font, CURSOR_GLYPH[which],
-		(uint16_t)(CURSOR_GLYPH[which] + 1), 0, 0, 0, 0xffff, 0xffff, 0xffff);
+	xcb_cursor_t cur = cursor_scaled(p, which, s120);
+	if (cur == XCB_NONE) {
+		/* The font would not say what it holds: the glyph as the server gives
+		 * it, at its one size. */
+		cur = xcb_generate_id(p->conn);
+		xcb_create_glyph_cursor(p->conn, cur, p->cursor_font, p->cursor_font,
+								CURSOR_GLYPH[which],
+								(uint16_t)(CURSOR_GLYPH[which] + 1), 0, 0, 0,
+								0xffff, 0xffff, 0xffff);
+	}
 	p->cursors[which] = cur;
 	return cur;
 }
@@ -410,9 +618,33 @@ static void set_cursor(App *a, X11Cursor which)
 		return;
 	p->cursor_applied = which;
 
-	const uint32_t cur =
-		which == X11_CURSOR_NONE ? blank_cursor(p) : cursor_load(p, which);
+	const uint32_t cur = which == X11_CURSOR_NONE
+							 ? blank_cursor(p)
+							 : cursor_load(a, which, x11_resolve_scale120(a));
 	xcb_change_window_attributes(p->conn, p->window, XCB_CW_CURSOR, &cur);
+}
+
+/* The desktop's scale moved after a cursor was cut: every cached one is the
+ * old size, and the one the window holds is freed with them, so the shape it
+ * asks for is cut again and put back. Nothing happens before the first cursor
+ * was asked for, which keeps the lazy start. */
+static void cursors_rebuild(App *a, int s120)
+{
+	struct BackendState *p = a->backend_state;
+	if (p->cursor_scale120 == 0 || p->cursor_scale120 == s120)
+		return;
+	for (int i = 0; i < X11_CURSOR_COUNT; i++) {
+		if (p->cursors[i]) {
+			xcb_free_cursor(p->conn, p->cursors[i]);
+			p->cursors[i] = XCB_NONE;
+		}
+	}
+	p->cursor_scale120 = s120;
+	const X11Cursor on = p->cursor_applied;
+	/* "Not known", so the compare cannot skip: the window's cursor is gone
+	 * whether or not the shape asked for changed. */
+	p->cursor_applied = X11_CURSOR_UNKNOWN;
+	set_cursor(a, on);
 }
 
 /* ---- the client titlebar --------------------------------------------------
@@ -2439,6 +2671,12 @@ static void x11_update_scale(App *a)
 		 * flush is not there to rely on. */
 		xcb_flush(p->conn);
 	}
+	/* After the publish, so the shape is cut at the scale the window now
+	 * has; a no-op until a cursor has been asked for. */
+	const int cursors_before = p->cursor_scale120;
+	cursors_rebuild(a, s120);
+	if (p->cursor_scale120 != cursors_before)
+		xcb_flush(p->conn);
 }
 
 /* A manager may decline; the ConfigureNotify that follows a size that changed

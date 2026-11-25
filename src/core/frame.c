@@ -1306,6 +1306,7 @@ typedef struct {
 	bool cfg_pending;
 	int bar_h;
 	bool custom_bar;
+	FnlOutputColor color;
 } Latch;
 
 /* The second look, taken after the wait: the newest input and configure are
@@ -1337,6 +1338,10 @@ static bool latch_take(App *a, Latch *l, bool *urgent, double *cb_at)
 	l->bar_h      = deco_client(l->fs) ? a->deco_h : 0;
 	l->custom_bar = a->deco_custom;
 	l->user_gen   = a->want_user_gen;
+	/* The colour every frame is drawn for, and the display's headroom as
+	 * the backend last knew it: latched with the size and the scale, so a
+	 * frame's FnlFrame::color and the palette it drew with cannot disagree. */
+	l->color = a->pub_color;
 	memcpy(l->outname, a->want_output, sizeof l->outname);
 	memcpy(l->title, a->title, sizeof l->title);
 	*urgent |= a->want_urgent;
@@ -1381,6 +1386,9 @@ static bool swapchain_adopt(App *a, const Latch *l, int m)
 	a->draw_h        = l->h;
 	a->draw_scale120 = l->s;
 	a->draw_margin   = m;
+	/* With the size and the scale: the overlay's colour conversion and the
+	 * frame's own report read it from here. */
+	a->draw_color = l->color;
 	/* Glyphs are rasterised for a pixel size. A failure costs the text, not
 	 * the frame: none is drawn until a later scale change succeeds. */
 	if (RENDERER(a)->scale_changed(a, l->s) < 0)

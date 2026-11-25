@@ -198,6 +198,61 @@ static void choose_samples(App *a)
 	fnl_atomic_store_u32(&a->msaa_samples, (uint32_t)best);
 }
 
+/* ---- the output's colour --------------------------------------------------
+ *
+ * Extended-range where the screen has headroom and the space was asked for:
+ * RGBA16Float drawables in extended linear sRGB, whose own 1.0 is SDR white,
+ * so the library's unit is the target's and sdr_scale is 1. The screen is
+ * AppKit's and the render thread may not touch it, so the backend publishes
+ * the headroom (app_publish_peak, at open and whenever the window's screen
+ * changes) and this reads it back. The layer's colours space and EDR flag are
+ * this file's, since the drawables and every pipeline are.
+ */
+static FnlResult choose_colour(App *a)
+{
+	struct RendererState *g = MT(a);
+	g->color_format = MT_COLOR_FORMAT;
+	g->hdr          = false;
+	g->layer.pixelFormat = g->color_format;
+	g->layer.wantsExtendedDynamicRangeContent = NO;
+	CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+	if (srgb) {
+		g->layer.colorspace = srgb;
+		CGColorSpaceRelease(srgb);
+	}
+
+	float peak = 1.0f;
+	fnl_mutex_lock(&a->lock);
+	peak = a->display_peak;
+	fnl_mutex_unlock(&a->lock);
+	if (app_color_is_hdr(a->want_color) && peak > 1.0f) {
+		g->hdr          = true;
+		g->color_format = MTLPixelFormatRGBA16Float;
+		g->layer.pixelFormat = g->color_format;
+		CGColorSpaceRef ext =
+			CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB);
+		if (ext) {
+			g->layer.colorspace = ext;
+			CGColorSpaceRelease(ext);
+		}
+		/* EDR content is what the layer shows above SDR white; without the
+		 * flag it clamps at 1.0 whatever the format. */
+		g->layer.wantsExtendedDynamicRangeContent = YES;
+	}
+	app_publish_color(a, g->hdr ? FNL_COLOR_EXTENDED_LINEAR : FNL_COLOR_SRGB,
+					  1.0f);
+	/* A named space is taken or refused, as FNL_RENDERER's name is. */
+	if (a->color_named &&
+		(FnlColorSpace)(g->hdr ? FNL_COLOR_EXTENDED_LINEAR : FNL_COLOR_SRGB) !=
+			a->want_color)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"FNL_COLOR=%s was named, and this display presents %s",
+						app_color_key(a->want_color),
+						app_color_key(g->hdr ? FNL_COLOR_EXTENDED_LINEAR
+											 : FNL_COLOR_SRGB));
+	return FNL_OK;
+}
+
 /* ---- building and tearing down ------------------------------------------- */
 
 /* Everything below the layer, in dependency order. As on Vulkan: no
@@ -225,7 +280,10 @@ static FnlResult create_device_objects(App *a)
 		/* The layer is the window's, and every device made for it is
 		 * handed it again: one rebuilt after a loss may be another GPU. */
 		g->layer.device = g->device;
-		g->layer.pixelFormat = MT_COLOR_FORMAT;
+		/* Before anything is built for it: the colour the drawables and
+		 * every colour image are made in, and the layer that presents
+		 * them. */
+		FNL_TRY(choose_colour(a));
 		/* Not framebuffer-only: the snapshot a move takes blits the
 		 * drawable's texture into a buffer (frame.m), which a
 		 * framebuffer-only drawable refuses. */
@@ -238,7 +296,8 @@ static FnlResult create_device_objects(App *a)
 			return fnl_fail(FNL_ERR_SYSTEM, "FNL_FAULT: after the layer");
 
 		choose_samples(a);
-		a->srgb_surface = true;      /* every colour image is _sRGB */
+		a->linear_target = true; /* every colour image is _SRGB or float, and
+									 * holds linear light either way */
 		/* The palette is converted for that blend space; until then every
 		 * entry is zero, and the titlebar draws as transparent black. */
 		app_palette_init(a);
@@ -515,7 +574,7 @@ bool fnl_metal_scene_layout(App *a, FnlSceneTarget t,
 	}
 	*out = (FnlMetalSceneLayout){
 		.samples      = samples,
-		.color_format = (uint32_t)MT_COLOR_FORMAT,
+		.color_format = (uint32_t)MT(a)->color_format,
 		.depth_format = (uint32_t)MT_DEPTH_FORMAT,
 	};
 	return true;

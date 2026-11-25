@@ -150,6 +150,8 @@ static void record_scene(App *a, const FnlDrawState *ds,
 		 * it in its projection, and a frame without it gathers one sample. */
 		.jitter_x = ds->jitter_x,
 		.jitter_y = ds->jitter_y,
+		/* The colour this frame's target holds; see FnlOutputColor. */
+		.color = a->draw_color,
 	};
 	struct RendererState *g = MT(a);
 	g->scene_enc_now = enc;
@@ -556,8 +558,11 @@ bool mt_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		id<MTLBuffer> snap = nil;
 		NSUInteger snap_w = 0, snap_h = 0;
 		if (a->snap_owed) {
-			snap = snapshot_encode(a, cb, drawable.texture, &snap_w,
-								   &snap_h);
+			/* The drawable is half floats under HDR and the buffer holds
+			 * 8-bit rows: the veil is a fade through black instead. */
+			snap = g->hdr ? nil
+						  : snapshot_encode(a, cb, drawable.texture, &snap_w,
+											&snap_h);
 			if (!snap)
 				app_snapshot_decline(a);
 		}

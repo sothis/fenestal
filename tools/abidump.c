@@ -61,6 +61,7 @@ int main(void)
 	F(FnlInitDesc, frame_times);
 	F(FnlInitDesc, echo_events);
 	F(FnlInitDesc, renderers);
+	F(FnlInitDesc, want_color);
 	S(FnlWindowDesc);
 	F(FnlWindowDesc, size);
 	F(FnlWindowDesc, header_version);
@@ -75,6 +76,10 @@ int main(void)
 	F(FnlWindowDesc, no_titlebar_controls);
 	F(FnlWindowDesc, scale_override120);
 	F(FnlWindowDesc, frame_times);
+	S(FnlOutputColor);
+	F(FnlOutputColor, space);
+	F(FnlOutputColor, sdr_scale);
+	F(FnlOutputColor, peak);
 	S(FnlFrame);
 	F(FnlFrame, index);
 	F(FnlFrame, time);
@@ -87,6 +92,7 @@ int main(void)
 	F(FnlFrame, scene_time);
 	F(FnlFrame, jitter_x);
 	F(FnlFrame, jitter_y);
+	F(FnlFrame, color);
 	S(FnlCallbacks);
 	F(FnlCallbacks, size);
 	F(FnlCallbacks, ud);
@@ -190,6 +196,9 @@ int main(void)
 	F(FnlEvent, gpu.renderer);
 	F(FnlEvent, image_lost.lost);
 	F(FnlEvent, claim_focus.claim);
+	F(FnlEvent, color.color.space);
+	F(FnlEvent, color.color.sdr_scale);
+	F(FnlEvent, color.color.peak);
 #ifdef FNL_ABI_VULKAN
 	S(FnlVulkanGpu);
 	F(FnlVulkanGpu, instance);
@@ -244,6 +253,10 @@ int main(void)
 	E(FNL_AA_MSAA);
 	E(FNL_AA_MLAA);
 	E(FNL_AA_TAAU);
+	E(FNL_COLOR_SRGB);
+	E(FNL_COLOR_EXTENDED_LINEAR);
+	E(FNL_COLOR_PQ);
+	E(FNL_COLOR_COUNT);
 	E(FNL_KEY_UNKNOWN);
 	E(FNL_KEY_W);
 	E(FNL_KEY_A);

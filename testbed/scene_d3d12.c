@@ -49,9 +49,14 @@ typedef struct {
 	float    time_bias;
 	uint32_t srgb;
 	uint32_t content;
+	/* x: what light authored relative to SDR white is in the target's unit
+	 * (FnlOutputColor::sdr_scale); y: how far above SDR white the output
+	 * goes (its peak); zw unused. A vec4 so the block's size stays a
+	 * multiple of 16 for std140's and HLSL's sake. */
+	float    colour[4];
 } ScenePush;
 
-_Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
+_Static_assert(sizeof(ScenePush) == 80, "ScenePush must match scene.frag");
 _Static_assert(offsetof(ScenePush, jitter) == 8, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, canvas) == 16, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, origin) == 24, "ScenePush layout drifted");
@@ -61,6 +66,7 @@ _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, colour) == 64, "ScenePush layout drifted");
 
 typedef struct {
 	ID3D12RootSignature *root;
@@ -225,10 +231,11 @@ void scene_d3d12_on_gpu_created(void *ud, FnlApp *app)
 		FnlD3D12SceneLayout layout;
 		if (!fnl_d3d12_scene_layout(app, (FnlSceneTarget)t, &layout))
 			continue; /* this window cannot use that target */
-		/* Whether the target encodes linear -> sRGB as fragments are
-		 * written, which decides whether the shader must. */
+		/* Whether the target holds linear light: hardware-encoded _SRGB, or
+		 * HDR's float format that keeps it as written. */
 		if (t == FNL_TARGET_DIRECT)
-			s->srgb = layout.color_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+			s->srgb = layout.color_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+					  layout.color_format == DXGI_FORMAT_R16G16B16A16_FLOAT;
 		s->pattern[t] = make_pso(gpu.device, s->root, &layout, scene_vert_dxil,
 								 sizeof scene_vert_dxil, scene_frag_dxil,
 								 sizeof scene_frag_dxil);
@@ -317,6 +324,7 @@ void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time_bias = view.time_bias,
 		.srgb = s->srgb ? 1u : 0u,
 		.content = view.content,
+		.colour = { f->color.sdr_scale, f->color.peak, 0.0f, 0.0f },
 	};
 	ID3D12GraphicsCommandList *l = sc.list;
 	ID3D12GraphicsCommandList_SetGraphicsRootSignature(l, s->root);

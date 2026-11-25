@@ -17,6 +17,7 @@ offset FnlInitDesc.gpu_name 80
 offset FnlInitDesc.frame_times 88
 offset FnlInitDesc.echo_events 89
 offset FnlInitDesc.renderers 92
+offset FnlInitDesc.want_color 108
 sizeof FnlWindowDesc 72
 offset FnlWindowDesc.size 0
 offset FnlWindowDesc.header_version 8
@@ -31,7 +32,11 @@ offset FnlWindowDesc.content_is_ui 56
 offset FnlWindowDesc.no_titlebar_controls 60
 offset FnlWindowDesc.scale_override120 64
 offset FnlWindowDesc.frame_times 68
-sizeof FnlFrame 56
+sizeof FnlOutputColor 12
+offset FnlOutputColor.space 0
+offset FnlOutputColor.sdr_scale 4
+offset FnlOutputColor.peak 8
+sizeof FnlFrame 64
 offset FnlFrame.index 0
 offset FnlFrame.time 8
 offset FnlFrame.area_w_px 16
@@ -43,6 +48,7 @@ offset FnlFrame.samples 36
 offset FnlFrame.scene_time 40
 offset FnlFrame.jitter_x 44
 offset FnlFrame.jitter_y 48
+offset FnlFrame.color 52
 sizeof FnlCallbacks 48
 offset FnlCallbacks.size 0
 offset FnlCallbacks.ud 8
@@ -146,6 +152,9 @@ offset FnlEvent.gpu.index 16
 offset FnlEvent.gpu.renderer 20
 offset FnlEvent.image_lost.lost 16
 offset FnlEvent.claim_focus.claim 16
+offset FnlEvent.color.color.space 16
+offset FnlEvent.color.color.sdr_scale 20
+offset FnlEvent.color.color.peak 24
 sizeof FnlGlSceneLayout 12
 offset FnlGlSceneLayout.samples 0
 offset FnlGlSceneLayout.color_format 4
@@ -183,6 +192,10 @@ enum FNL_AA_NONE 0
 enum FNL_AA_MSAA 1
 enum FNL_AA_MLAA 2
 enum FNL_AA_TAAU 3
+enum FNL_COLOR_SRGB 0
+enum FNL_COLOR_EXTENDED_LINEAR 1
+enum FNL_COLOR_PQ 2
+enum FNL_COLOR_COUNT 3
 enum FNL_KEY_UNKNOWN 0
 enum FNL_KEY_W 1
 enum FNL_KEY_A 2

@@ -54,6 +54,7 @@
 	X(xcb_configure_window)                     \
 	X(xcb_convert_selection)                    \
 	X(xcb_create_cursor)                        \
+	X(xcb_create_cursor_checked)                \
 	X(xcb_create_gc)                            \
 	X(xcb_create_glyph_cursor)                  \
 	X(xcb_create_pixmap)                        \
@@ -70,6 +71,10 @@
 	X(xcb_get_atom_name_reply)                  \
 	X(xcb_get_geometry)                         \
 	X(xcb_get_geometry_reply)                   \
+	X(xcb_get_image)                            \
+	X(xcb_get_image_data)                       \
+	X(xcb_get_image_data_length)                \
+	X(xcb_get_image_reply)                      \
 	X(xcb_get_keyboard_mapping)                 \
 	X(xcb_get_keyboard_mapping_keysyms)         \
 	X(xcb_get_keyboard_mapping_keysyms_length)  \
@@ -86,15 +91,22 @@
 	X(xcb_get_selection_owner_reply)            \
 	X(xcb_grab_pointer)                         \
 	X(xcb_grab_pointer_reply)                   \
+	X(xcb_image_text_8)                         \
+	X(xcb_image_text_8_checked)                 \
 	X(xcb_intern_atom)                          \
 	X(xcb_intern_atom_reply)                    \
 	X(xcb_map_window)                           \
 	X(xcb_open_font)                            \
 	X(xcb_poly_fill_rectangle)                  \
+	X(xcb_put_image)                            \
+	X(xcb_put_image_checked)                    \
+	X(xcb_query_font)                           \
+	X(xcb_query_font_reply)                     \
 	X(xcb_query_keymap)                         \
 	X(xcb_query_keymap_reply)                   \
 	X(xcb_query_pointer)                        \
 	X(xcb_query_pointer_reply)                  \
+	X(xcb_request_check)                        \
 	X(xcb_screen_allowed_depths_iterator)       \
 	X(xcb_screen_next)                          \
 	X(xcb_send_event)                           \
@@ -138,6 +150,8 @@ X11_XCB_FUNCS(X11_XCB_DECLARE)
 #define xcb_configure_window                     (*fnl_xcb_configure_window)
 #define xcb_convert_selection                    (*fnl_xcb_convert_selection)
 #define xcb_create_cursor                        (*fnl_xcb_create_cursor)
+#define xcb_create_cursor_checked \
+	(*fnl_xcb_create_cursor_checked)
 #define xcb_create_gc                            (*fnl_xcb_create_gc)
 #define xcb_create_glyph_cursor                  (*fnl_xcb_create_glyph_cursor)
 #define xcb_create_pixmap                        (*fnl_xcb_create_pixmap)
@@ -156,6 +170,11 @@ X11_XCB_FUNCS(X11_XCB_DECLARE)
 #define xcb_get_atom_name_reply                  (*fnl_xcb_get_atom_name_reply)
 #define xcb_get_geometry                         (*fnl_xcb_get_geometry)
 #define xcb_get_geometry_reply                   (*fnl_xcb_get_geometry_reply)
+#define xcb_get_image                            (*fnl_xcb_get_image)
+#define xcb_get_image_data                       (*fnl_xcb_get_image_data)
+#define xcb_get_image_data_length \
+	(*fnl_xcb_get_image_data_length)
+#define xcb_get_image_reply                      (*fnl_xcb_get_image_reply)
 #define xcb_get_keyboard_mapping \
 	(*fnl_xcb_get_keyboard_mapping)
 #define xcb_get_keyboard_mapping_keysyms \
@@ -182,15 +201,24 @@ X11_XCB_FUNCS(X11_XCB_DECLARE)
 	(*fnl_xcb_get_selection_owner_reply)
 #define xcb_grab_pointer                         (*fnl_xcb_grab_pointer)
 #define xcb_grab_pointer_reply                   (*fnl_xcb_grab_pointer_reply)
+#define xcb_image_text_8                         (*fnl_xcb_image_text_8)
+#define xcb_image_text_8_checked \
+	(*fnl_xcb_image_text_8_checked)
 #define xcb_intern_atom                          (*fnl_xcb_intern_atom)
 #define xcb_intern_atom_reply                    (*fnl_xcb_intern_atom_reply)
 #define xcb_map_window                           (*fnl_xcb_map_window)
 #define xcb_open_font                            (*fnl_xcb_open_font)
 #define xcb_poly_fill_rectangle                  (*fnl_xcb_poly_fill_rectangle)
+#define xcb_put_image                            (*fnl_xcb_put_image)
+#define xcb_put_image_checked \
+	(*fnl_xcb_put_image_checked)
+#define xcb_query_font                           (*fnl_xcb_query_font)
+#define xcb_query_font_reply                     (*fnl_xcb_query_font_reply)
 #define xcb_query_keymap                         (*fnl_xcb_query_keymap)
 #define xcb_query_keymap_reply                   (*fnl_xcb_query_keymap_reply)
 #define xcb_query_pointer                        (*fnl_xcb_query_pointer)
 #define xcb_query_pointer_reply                  (*fnl_xcb_query_pointer_reply)
+#define xcb_request_check                        (*fnl_xcb_request_check)
 #define xcb_screen_allowed_depths_iterator \
 	(*fnl_xcb_screen_allowed_depths_iterator)
 #define xcb_screen_next                          (*fnl_xcb_screen_next)

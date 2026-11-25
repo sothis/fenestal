@@ -197,7 +197,7 @@ static void depth_view(App *a, ID3D12Resource *r, int slot, int samples)
 static void color_view(App *a, ID3D12Resource *r, int slot, int samples)
 {
 	const D3D12_RENDER_TARGET_VIEW_DESC v = {
-		.Format        = D3D_COLOR_FORMAT,
+		.Format        = D3D(a)->color_format,
 		.ViewDimension = samples > 1 ? D3D12_RTV_DIMENSION_TEXTURE2DMS
 									 : D3D12_RTV_DIMENSION_TEXTURE2D,
 	};
@@ -208,7 +208,7 @@ static void color_view(App *a, ID3D12Resource *r, int slot, int samples)
 static void sampled_view(App *a, ID3D12Resource *r, int slot)
 {
 	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
-		.Format                  = D3D_COLOR_FORMAT,
+		.Format                  = D3D(a)->color_format,
 		.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D,
 		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 		.Texture2D               = { .MipLevels = 1 },
@@ -274,7 +274,7 @@ FnlResult d3d_window_images(App *a)
 		d3d_release_window_images(a);
 		d3d_shown_idle(a);
 		const HRESULT hr = IDXGISwapChain3_ResizeBuffers(
-			g->swapchain, D3D_BUFFERS, (UINT)b.w, (UINT)b.h, D3D_BACK_FORMAT,
+			g->swapchain, D3D_BUFFERS, (UINT)b.w, (UINT)b.h, g->back_format,
 			g->sc_flags);
 		if (FAILED(hr)) {
 			if (d3d_hr_lost(a, hr))
@@ -362,7 +362,8 @@ static bool make_target(App *a, D3dTarget *t, int w, int h, int samples,
 	t->state = (rtv >= 0 && srv < 0)
 		? D3D12_RESOURCE_STATE_RESOLVE_SOURCE
 		: D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-	t->color = make_image(a, D3D_COLOR_FORMAT, w, h, samples, false, t->state);
+	t->color = make_image(a, D3D(a)->color_format, w, h, samples, false,
+						  t->state);
 	if (!t->color)
 		return false;
 	if (rtv >= 0)

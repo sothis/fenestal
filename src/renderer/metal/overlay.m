@@ -144,7 +144,7 @@ static id<MTLRenderPipelineState> make_pso(App *a, const PsoDesc *s)
 	}
 
 	MTLRenderPipelineColorAttachmentDescriptor *c = d.colorAttachments[0];
-	c.pixelFormat = MT_COLOR_FORMAT;
+	c.pixelFormat = MT(a)->color_format;
 	c.blendingEnabled = s->blend != BLEND_NONE;
 	c.rgbBlendOperation = MTLBlendOperationAdd;
 	c.alphaBlendOperation = MTLBlendOperationAdd;
@@ -568,7 +568,7 @@ FnlResult mt_text_end(App *a)
 	 * read the block. */
 	const MtTextPush push = {
 		.screen  = { (float)a->extent.w, (float)a->extent.h },
-		.srgb    = a->srgb_surface ? 1u : 0u,
+		.srgb    = a->linear_target ? 1u : 0u,
 		.texel_u = text_resampled(a) || a->font_atlas_w <= 0
 					   ? 0.0f
 					   : 1.0f / (float)a->font_atlas_w,
@@ -610,7 +610,7 @@ static bool image_upload(App *a, FnlImage *img)
 	 * re-encodes on write. */
 	MTLTextureDescriptor *d = [MTLTextureDescriptor
 		texture2DDescriptorWithPixelFormat:
-			a->srgb_surface ? MTLPixelFormatRGBA8Unorm_sRGB
+			a->linear_target ? MTLPixelFormatRGBA8Unorm_sRGB
 							: MTLPixelFormatRGBA8Unorm
 									 width:(NSUInteger)img->w
 									height:(NSUInteger)img->h

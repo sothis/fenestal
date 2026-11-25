@@ -109,6 +109,22 @@ struct RendererState {
 	/* WARP or another software adapter: its present waits for the frame. */
 	bool software;
 
+	/* ---- the output's colour --------------------------------------------
+	 * The formats every image is made in: the swapchain's buffers, and the
+	 * colour views and targets over them. SDR is R8G8B8A8_UNORM drawn
+	 * through _SRGB views; HDR is R16G16B16A16_FLOAT, which holds linear
+	 * light as it is written, presented as scRGB. Chosen once per device
+	 * (d3d_bridge_swapchain()), before any target or pipeline exists. */
+	DXGI_FORMAT back_format, color_format;
+	/* The output presents linear light above SDR white: the space was asked
+	 * for, the display is in an advanced colour mode, and the swapchain
+	 * takes scRGB. False through the Direct3D 11 swapchain, whose shared
+	 * textures are 8-bit. */
+	bool hdr;
+	/* The value that is SDR white in the scRGB target's unit (sdr white
+	 * nits / 80), and the output's peak in those units. */
+	float sdr_scale, peak;
+
 	/* ---- the device ---------------------------------------------------- */
 	ID3D12Device *device;
 	ID3D12CommandQueue *queue;

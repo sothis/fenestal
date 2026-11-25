@@ -559,6 +559,76 @@ bool app_publish_scale(App *a, int s120)
 	return moved;
 }
 
+/* "srgb", "linear", "pq": the environment's spelling, which the log and the
+ * harness share. */
+const char *app_color_key(FnlColorSpace space)
+{
+	switch (space) {
+	case FNL_COLOR_EXTENDED_LINEAR: return "linear";
+	case FNL_COLOR_PQ:              return "pq";
+	default:                        return "srgb";
+	}
+}
+
+bool app_color_is_hdr(FnlColorSpace space)
+{
+	return space == FNL_COLOR_EXTENDED_LINEAR || space == FNL_COLOR_PQ;
+}
+
+/* The space and the target's unit, under the lock. The peak is the display's
+ * while an HDR space is in force and 1.0 while SDR is, so a caller tone-maps
+ * for what the output will show. Said once per move, which is what the
+ * harness reads to know what a program got. */
+void app_publish_color(App *a, FnlColorSpace space, float sdr_scale)
+{
+	if (!(sdr_scale > 0.0f))
+		sdr_scale = 1.0f;
+	fnl_mutex_lock(&a->lock);
+	const bool say         = !a->color_said || a->pub_color.space != space;
+	a->color_said          = true;
+	a->pub_color.space     = space;
+	a->pub_color.sdr_scale = sdr_scale;
+	a->pub_color.peak      = space == FNL_COLOR_SRGB ? 1.0f
+													 : a->display_peak;
+	if (!(a->pub_color.peak >= 1.0f))
+		a->pub_color.peak = 1.0f;
+	fnl_mutex_unlock(&a->lock);
+	if (say)
+		fnl_log(FNL_LOG_INFO, "colour: %s", app_color_key(space));
+}
+
+/* The display's headroom, which is the output's peak only while an HDR space
+ * is in force: a screen that can show more than SDR white still shows an SDR
+ * window at 1.0. */
+void app_publish_peak(App *a, float peak)
+{
+	if (!(peak >= 1.0f))
+		peak = 1.0f;
+	fnl_mutex_lock(&a->lock);
+	a->display_peak     = peak;
+	a->display_peak_said = true;
+	if (a->pub_color.space != FNL_COLOR_SRGB)
+		a->pub_color.peak = peak;
+	fnl_mutex_unlock(&a->lock);
+}
+
+/* A figure for when nobody who knows the display has given one: a Vulkan
+ * surface's PQ swapchain says nothing of the panel, so 1000 nits against
+ * BT.2408's 203 is assumed unless the backend -- KMS -- has already said
+ * what the output is. */
+void app_publish_peak_default(App *a, float peak)
+{
+	if (!(peak >= 1.0f))
+		peak = 1.0f;
+	fnl_mutex_lock(&a->lock);
+	if (!a->display_peak_said) {
+		a->display_peak = peak;
+		if (a->pub_color.space != FNL_COLOR_SRGB)
+			a->pub_color.peak = peak;
+	}
+	fnl_mutex_unlock(&a->lock);
+}
+
 void app_publish_size(App *a, int w_pt, int h_pt, int s120)
 {
 	publish_size(a, w_pt, h_pt, s120, false, 0);
@@ -1815,14 +1885,14 @@ void backend_noop_ack_configure(App *a, uint32_t serial)
 }
 
 void backend_noop_present_pixels(App *a, const void *px, int w, int h,
-								 size_t pitch, bool bgra)
+								 size_t pitch, FnlPixelFormat fmt)
 {
 	(void)a;
 	(void)px;
 	(void)w;
 	(void)h;
 	(void)pitch;
-	(void)bgra;
+	(void)fmt;
 }
 
 bool backend_noop_apply_scale(App *a)
@@ -2985,6 +3055,37 @@ static void gpu_choice(App *a, const FnlInitDesc *d)
 		snprintf(a->gpu_want, sizeof a->gpu_want, "%s", v);
 }
 
+/* The output's colour a program asks for: FnlInitDesc::want_color, then
+ * FNL_COLOR in the environment, which names one and is held to it -- the way
+ * FNL_RENDERER names a renderer. A space does not fail here: the renderer
+ * resolves what its output offers and steps the request down, and only a
+ * *named* space that cannot be had is a refusal (its own). */
+static FnlResult color_request(App *a, const FnlInitDesc *d)
+{
+	a->want_color  = d->want_color;
+	a->color_named = false;
+	if ((int)a->want_color < 0 || a->want_color >= FNL_COLOR_COUNT)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"want_color is %d; FNL_COLOR_* names one of %d",
+						(int)a->want_color, (int)FNL_COLOR_COUNT);
+	const char *v = getenv("FNL_COLOR");
+	if (!v || !v[0])
+		return FNL_OK;
+	FnlColorSpace s;
+	if (!strcmp(v, "srgb") || !strcmp(v, "sdr"))
+		s = FNL_COLOR_SRGB;
+	else if (!strcmp(v, "linear") || !strcmp(v, "scrgb"))
+		s = FNL_COLOR_EXTENDED_LINEAR;
+	else if (!strcmp(v, "pq") || !strcmp(v, "hdr10"))
+		s = FNL_COLOR_PQ;
+	else
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"FNL_COLOR=%s is not srgb, linear or pq", v);
+	a->want_color  = s;
+	a->color_named = true;
+	return FNL_OK;
+}
+
 FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 {
 	FnlResult rc;
@@ -3078,6 +3179,9 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	a->wall_mark                                     = -1.0;
 	a->focus_claim                                   = -1;
 	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;
+	a->pub_color.sdr_scale                                   = 1.0f;
+	a->pub_color.peak                                        = 1.0f;
+	a->display_peak                                          = 1.0f;
 
 	/* The library's own bar until a caller replaces it. Zero would be a
 	 * window with no titlebar band at all, a state this library does not
@@ -3103,6 +3207,8 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 		a->scale_override120 = s;
 	}
 	gpu_choice(a, &d);
+	if ((rc = color_request(a, &d)) < 0)
+		goto fail;
 	a->content_is_ui        = d.content_is_ui;
 	a->rank_no_measure      = d.no_gpu_ranking;
 	a->no_titlebar_controls = d.no_titlebar_controls;
@@ -3381,6 +3487,13 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	a->wall_mark                                     = -1.0;
 	a->focus_claim                                   = -1;
 	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;
+	a->pub_color.sdr_scale                                   = 1.0f;
+	a->pub_color.peak                                        = 1.0f;
+	a->display_peak                                          = 1.0f;
+	/* The colour is the host's first window's: one device presents them all,
+	 * and FnlWindowDesc has no field for it. */
+	a->want_color  = h->windows ? h->windows->want_color : FNL_COLOR_SRGB;
+	a->color_named = h->windows ? h->windows->color_named : false;
 	a->deco_h        = DECO_TITLEBAR_H;
 	a->late_latch    = true;
 	a->late_fixed    = false;
@@ -3474,6 +3587,10 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 					  "on; fnl_init() opens the first");
 		goto fail;
 	}
+	/* Before the build: the scale, the output and -- where a backend knows
+	 * it -- the display's headroom, which is what the renderer resolves the
+	 * output's colour from. */
+	BACKEND(a)->update_scale(a);
 	/* The host's ranking, read and opened on (rank.c's app_rank_start():
 	 * rank_read_only makes it RANK_KEEP). Before the build, which takes the
 	 * GPU from what open_on() named. */

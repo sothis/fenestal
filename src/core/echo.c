@@ -316,6 +316,11 @@ void echo_event(const App *app, const FnlEvent *ev)
 	case FNL_EVENT_CLAIM_FOCUS:
 		echo(app, "claim-focus %d", ev->claim_focus.claim);
 		break;
+	case FNL_EVENT_COLOR:
+		echo(app, "colour %s %.3f %.3f",
+			 app_color_key(ev->color.color.space),
+			 (double)ev->color.color.sdr_scale, (double)ev->color.color.peak);
+		break;
 	case FNL_EVENT_COMPOSE: {
 		char buf[128];
 		fnl_compose_text(app, buf, sizeof buf);

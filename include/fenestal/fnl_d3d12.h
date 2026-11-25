@@ -67,7 +67,10 @@ FNL_API bool fnl_d3d12_gpu(FnlApp *app, FnlD3D12Gpu *out);
  * a device that offers no sample count worth having, for instance. */
 typedef struct {
 	int      samples;
-	uint32_t color_format;     /* DXGI_FORMAT_R8G8B8A8_UNORM_SRGB */
+	/* DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, or R16G16B16A16_FLOAT where HDR's
+	 * target holds linear light as it is written. Either way the shader
+	 * writes linear values and encodes nothing itself; see FnlOutputColor. */
+	uint32_t color_format;
 	uint32_t depth_format;     /* DXGI_FORMAT_D32_FLOAT */
 } FnlD3D12SceneLayout;
 

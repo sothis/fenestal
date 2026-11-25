@@ -44,12 +44,29 @@ FnlResult create_render_pass(App *a)
 		return fnl_fail(FNL_ERR_NO_DEVICE, "no depth format supports being an "
 										   "attachment on this device");
 
-	const PassDesc d   = { .samples = VK_SAMPLE_COUNT_1_BIT,
-						   .depth   = true,
-						   .clear   = true };
+	/* The window's pass, over the colour targets the renderer draws into:
+	 * the swapchain's own under SDR, and a linear image under HDR, which
+	 * the encode pass then reads. */
+	const PassDesc d = { .samples = VK_SAMPLE_COUNT_1_BIT,
+						 .format  = VK(a)->color_format,
+						 .depth   = true,
+						 .clear   = true,
+						 .sampled = VK(a)->hdr };
 	VK(a)->render_pass = make_render_pass(a, &d);
 	/* The call that failed is already recorded. */
-	return VK(a)->render_pass != VK_NULL_HANDLE ? FNL_OK : FNL_ERR_SYSTEM;
+	if (VK(a)->render_pass == VK_NULL_HANDLE)
+		return FNL_ERR_SYSTEM;
+	if (VK(a)->hdr) {
+		/* The one pass that writes the swapchain: a covering triangle
+		 * reading the window's image, into the 10-bit PQ attachment. */
+		const PassDesc enc = { .samples = VK_SAMPLE_COUNT_1_BIT,
+							   .format  = VK(a)->surf_format.format,
+							   .clear   = true };
+		VK(a)->encode_pass = make_render_pass(a, &enc);
+		if (VK(a)->encode_pass == VK_NULL_HANDLE)
+			return FNL_ERR_SYSTEM;
+	}
+	return FNL_OK;
 }
 
 /* ---- building one -------------------------------------------------------- */
@@ -138,6 +155,15 @@ static FnlResult image_cmds_make(App *a)
  * on. */
 static FnlResult create_image_objects(App *a)
 {
+	/* A rebuild points the encode's sets at new images, and the API forbids
+	 * rewriting a set a pending command buffer names: idle first. HDR only,
+	 * and the first build has nothing to wait for. */
+	if (VK(a)->hdr && VK(a)->encode_written) {
+		const VkResult wr = vk_queue_wait_idle(a);
+		if (vk_lost(a, wr))
+			return FNL_ERR_DEVICE_LOST;
+		VK_TRY(wr);
+	}
 	image_frames_reset(a);
 
 	uint32_t n = 0;
@@ -173,6 +199,24 @@ static FnlResult create_image_objects(App *a)
 								   VK_IMAGE_ASPECT_COLOR_BIT,
 								   &VK(a)->views[i]));
 
+	/* Under HDR the window's pass has an image of its own, at the buffer's
+	 * size: the swapchain's is 10-bit PQ, which nothing may blend into.
+	 * Per image, so the fence that proves a swapchain image idle proves
+	 * this one idle too. */
+	if (VK(a)->hdr)
+		for (uint32_t i = 0; i < n; i++)
+			if (!create_target_image(a, VK(a)->sc_extent.width,
+									 VK(a)->sc_extent.height,
+									 VK(a)->color_format,
+									 VK_SAMPLE_COUNT_1_BIT,
+									 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+										 VK_IMAGE_USAGE_SAMPLED_BIT,
+									 false, &VK(a)->present[i]))
+				return fnl_fail(FNL_ERR_SYSTEM,
+								"the window's %ux%u image",
+								VK(a)->sc_extent.width,
+								VK(a)->sc_extent.height);
+
 	/* One render-finished semaphore per *image*, not per frame in flight: the
 	 * present waits on it and we cannot know which frame slot last drew it. */
 	VkSemaphoreCreateInfo sem = { .sType =
@@ -183,16 +227,53 @@ static FnlResult create_image_objects(App *a)
 	return image_cmds_make(a);
 }
 
-/* One framebuffer per image, every one of them over the same depth view. */
-static FnlResult create_framebuffers(App *a)
+/* One framebuffer per image, every one of them over the same depth view;
+ * and under HDR the encode's over the swapchain's view, and the sets it
+ * reads the window's images through. */
+static void write_encode_sets(App *a)
+{
+	for (uint32_t i = 0; i < VK(a)->image_count; i++) {
+		const VkDescriptorImageInfo ii = {
+			.sampler     = VK(a)->scene_sampler,
+			.imageView   = VK(a)->present[i].view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+		const VkWriteDescriptorSet w = {
+			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet          = VK(a)->encode_set[i],
+			.dstBinding      = 0,
+			.descriptorCount = 1,
+			.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.pImageInfo      = &ii,
+		};
+		vkUpdateDescriptorSets(VK(a)->device, 1, &w, 0, NULL);
+	}
+}
+
+static FnlResult create_framebuffers(App *a, bool images_new)
 {
 	if (FNL_FAULT("framebuffers"))
 		return fnl_fail(FNL_ERR_SYSTEM, "FNL_FAULT: create_framebuffers");
 	for (uint32_t i = 0; i < VK(a)->image_count; i++) {
-		VkImageView attachments[2] = { VK(a)->views[i], VK(a)->depth.view };
+		VkImageView attachments[2] = {
+			VK(a)->hdr ? VK(a)->present[i].view : VK(a)->views[i],
+			VK(a)->depth.view
+		};
 		VK_TRY(make_framebuffer(a, VK(a)->render_pass, 2, attachments,
 								(uint32_t)a->extent.w, (uint32_t)a->extent.h,
 								&VK(a)->framebuffers[i]));
+		if (VK(a)->hdr)
+			VK_TRY(make_framebuffer(a, VK(a)->encode_pass, 1,
+									&VK(a)->views[i], (uint32_t)a->extent.w,
+									(uint32_t)a->extent.h,
+									&VK(a)->encode_fb[i]));
+	}
+	/* Only a new swapchain's images need the sets re-pointed: a resize in
+	 * place keeps them, and rewriting a set a pending command buffer names
+	 * is what the rebuild's drain is for (create_image_objects). */
+	if (VK(a)->hdr && images_new) {
+		write_encode_sets(a);
+		VK(a)->encode_written = true;
 	}
 	return FNL_OK;
 }
@@ -749,7 +830,7 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	FNL_TRY(ensure_readback(a));
 
 	FNL_TRY(depth_ensure(a, e, &caps));
-	return create_framebuffers(a);
+	return create_framebuffers(a, true);
 }
 
 /* ---- retiring and destroying -------------------------------------------- */
@@ -771,6 +852,8 @@ static void swapchain_hand_over(App *a, RetiredSwapchain *r)
 	memcpy(r->img_cmd, VK(a)->img_cmd, sizeof r->img_cmd);
 	memset(&r->depth, 0, sizeof r->depth);
 	memcpy(r->own, VK(a)->own, sizeof r->own);
+	memcpy(r->present, VK(a)->present, sizeof r->present);
+	memcpy(r->encode_fb, VK(a)->encode_fb, sizeof r->encode_fb);
 	r->image_count = VK(a)->image_count;
 	r->countdown   = MAX_FRAMES_IN_FLIGHT;
 
@@ -781,6 +864,8 @@ static void swapchain_hand_over(App *a, RetiredSwapchain *r)
 	memset(VK(a)->render_done, 0, sizeof VK(a)->render_done);
 	memset(VK(a)->img_cmd, 0, sizeof VK(a)->img_cmd);
 	memset(VK(a)->own, 0, sizeof VK(a)->own);
+	memset(VK(a)->present, 0, sizeof VK(a)->present);
+	memset(VK(a)->encode_fb, 0, sizeof VK(a)->encode_fb);
 	VK(a)->image_count = 0;
 }
 
@@ -897,9 +982,13 @@ static void retired_destroy(App *a, RetiredSwapchain *r, bool may_defer)
 {
 	for (uint32_t i = 0; i < r->image_count; i++) {
 		vkDestroyFramebuffer(VK(a)->device, r->framebuffers[i], NULL);
+		vkDestroyFramebuffer(VK(a)->device, r->encode_fb[i], NULL);
 		vkDestroyImageView(VK(a)->device, r->views[i], NULL);
 		vkDestroySemaphore(VK(a)->device, r->render_done[i], NULL);
 	}
+	/* After the framebuffers that name their views. */
+	for (uint32_t i = 0; i < OVERLAY_MAX_IMAGES; i++)
+		destroy_target_image(a, &r->present[i]);
 	destroy_target_image(a, &r->depth);
 	/* After their views, above. */
 	for (uint32_t i = 0; i < OVERLAY_MAX_IMAGES; i++)
@@ -994,16 +1083,18 @@ static int resize_in_place(App *a)
 	RetiredSwapchain *r = &VK(a)->retired[VK(a)->retired_count++];
 	memset(r, 0, sizeof *r);
 	memcpy(r->framebuffers, VK(a)->framebuffers, sizeof r->framebuffers);
+	memcpy(r->encode_fb, VK(a)->encode_fb, sizeof r->encode_fb);
 	memcpy(r->img_cmd, VK(a)->img_cmd, sizeof r->img_cmd);
 	r->image_count = VK(a)->image_count;
 	r->countdown   = MAX_FRAMES_IN_FLIGHT;
 	memset(VK(a)->framebuffers, 0, sizeof VK(a)->framebuffers);
+	memset(VK(a)->encode_fb, 0, sizeof VK(a)->encode_fb);
 	memset(VK(a)->img_cmd, 0, sizeof VK(a)->img_cmd);
 
 	a->extent = (Extent){ (int)e.width, (int)e.height };
 	image_frames_reset(a);
 	if (image_cmds_make(a) < 0 || depth_ensure(a, e, &caps) < 0 ||
-		create_framebuffers(a) < 0)
+		create_framebuffers(a, false) < 0)
 		return -1;
 	return 1;
 }

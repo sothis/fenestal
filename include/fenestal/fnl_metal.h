@@ -85,7 +85,11 @@ FNL_API bool fnl_metal_gpu(FnlApp *app, FnlMetalGpu *out);
  * a device that offers no sample count worth having, for instance. */
 typedef struct {
 	int      samples;
-	uint32_t color_format;     /* MTLPixelFormatBGRA8Unorm_sRGB */
+	/* MTLPixelFormatBGRA8Unorm_sRGB, or MTLPixelFormatRGBA16Float where
+	 * HDR's target holds linear light as it is written. Either way the
+	 * shader writes linear values and encodes nothing itself; see
+	 * FnlOutputColor. */
+	uint32_t color_format;
 	uint32_t depth_format;     /* MTLPixelFormatDepth32Float */
 } FnlMetalSceneLayout;
 

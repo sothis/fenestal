@@ -6,6 +6,32 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **HDR, and the colour of the window in the API.** `FnlInitDesc::want_color`
+  asks for an extended-linear or PQ output, `FNL_COLOR` in the environment
+  names one that is taken or fails, and `FnlFrame::color` /
+  `fnl_output_color()` / `FNL_EVENT_COLOR` say what the output is: the space,
+  the target's unit for SDR white (`sdr_scale`, 1.0 everywhere but a scRGB
+  swapchain) and how far above it the output goes (`peak`). A scene writes
+  linear light as it always did and multiplies by `sdr_scale`; the pipelines
+  it builds are the formats `fnl_*_scene_layout()` reports, which are float on
+  an HDR output. Direct3D 12 presents scRGB where the display is in an
+  advanced colour mode, Metal the layer's extended range, Vulkan 10-bit PQ
+  where the surface offers it, and KMS 10-bit PQ through its copy path where
+  the connector's EDID carries the HDR metadata block, encoding in a last
+  pass (`encode.frag`) so that nothing blends in PQ code values, and telling
+  a KMS connector in `HDR_OUTPUT_METADATA` and `Colorspace` what it shows.
+  X11, OpenGL and Vulkan through DXGI present SDR.
+  The testbed's `--colour=<srgb|linear|pq>` sets it, and its
+  grey ramp climbs above SDR white on an HDR output.
+
+- The baked text ladder gains **175%** (210 in 120ths): the one standard rung
+  between 100% and 200% that was missing, where a 200% atlas left the glyphs a
+  tenth of a point wide of the pen steps the layout computes.
+
+- **X11's pointer is the surface scale's size**: the core cursor font's glyphs
+  are rendered and scaled to the scale in force, where they stayed 16 pixels
+  on a 2x desktop.
+
 - Every text size now draws every code point the bundled Ubuntu faces carry.
   `FNL_TEXT_LARGE` was baked for space, the digits and `F`, `P` and `S`
   alone, so a string set in it -- `fnl_overlay_text()` at that size, which the

@@ -55,27 +55,35 @@ static unsigned color_hash(FnlColor c)
 static void to_surface(const App *a, FnlColor c, float out[4])
 {
 	static FNL_THREAD_LOCAL struct {
-		bool srgb;
+		bool linear;
+		float scale;
 		FnlColor in;
 		float out[4];
 	} memo[COLOR_MEMO];
 	const unsigned start = color_hash(c) % COLOR_MEMO;
+	/* The target's unit for SDR white, latched for the frame being drawn
+	 * (the render thread's, like App::draw_scale120). */
+	const float scale = a->draw_color.sdr_scale > 0.0f
+							? a->draw_color.sdr_scale
+							: 1.0f;
 
-	/* The tag is the whole colour, so a collision is a miss and the probe goes
-	 * on; a slot holding another colour is never returned. */
+	/* The tag is the whole colour and the blend space it was converted for,
+	 * so a collision is a miss and the probe goes on; a slot holding
+	 * another colour is never returned. */
 	for (unsigned n = 0; n < COLOR_PROBE; n++) {
 		const unsigned i = (start + n) % COLOR_MEMO;
-		if (a->srgb_surface == memo[i].srgb && c.r == memo[i].in.r &&
-			c.g == memo[i].in.g && c.b == memo[i].in.b && c.a == memo[i].in.a) {
+		if (a->linear_target == memo[i].linear && memo[i].scale == scale &&
+			c.r == memo[i].in.r && c.g == memo[i].in.g &&
+			c.b == memo[i].in.b && c.a == memo[i].in.a) {
 			memcpy(out, memo[i].out, sizeof memo[i].out);
 			return;
 		}
 	}
 
 	const float rgb[3] = { c.r, c.g, c.b };
-	if (a->srgb_surface) {
+	if (a->linear_target) {
 		for (int i = 0; i < 3; i++)
-			out[i] = srgb_to_linear(rgb[i]);
+			out[i] = srgb_to_linear(rgb[i]) * scale;
 	} else {
 		for (int i = 0; i < 3; i++)
 			out[i] = rgb[i];
@@ -85,8 +93,9 @@ static void to_surface(const App *a, FnlColor c, float out[4])
 	/* The first slot, which the probe has not moved: a table that fills is a
 	 * caller with more colours than slots, and the oldest answer is the cheapest
 	 * one to lose. */
-	memo[start].srgb = a->srgb_surface;
-	memo[start].in   = c;
+	memo[start].linear = a->linear_target;
+	memo[start].scale  = scale;
+	memo[start].in     = c;
 	memcpy(memo[start].out, out, sizeof memo[start].out);
 }
 

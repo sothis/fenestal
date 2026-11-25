@@ -245,6 +245,10 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 							  ? a->gpu_list[gpu_cur].renderer
 							  : FNL_RENDERER_DEFAULT;
 	const int gpu_n = a->gpu_list_n;
+	/* The output's colour, under the same lock: the renderer writes the
+	 * space and the unit when it builds the swapchain, and a backend or
+	 * renderer the peak as it learns it. */
+	const FnlOutputColor color = a->pub_color;
 	fnl_mutex_unlock(&a->lock);
 
 	/* Seeded rather than compared on the first frame, or an application
@@ -268,6 +272,8 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 		a->ev_last_gpu_renderer = gpu_rnd;
 		a->ev_last_gpu_n = gpu_n;
 		a->ev_last_gpu_cur = gpu_cur;
+		a->ev_last_color_space = (int)color.space;
+		a->ev_last_sdr_scale   = color.sdr_scale;
 		return;
 	}
 
@@ -303,8 +309,12 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 							gpu_n != a->ev_last_gpu_n ||
 							gpu_cur != a->ev_last_gpu_cur) &&
 						   a->veil_phase == VEIL_NONE;
+	/* By the space and the target's unit: a peak that moved with the
+	 * display's headroom is the same space, and the frames carry it. */
+	const bool d_color   = (int)color.space != a->ev_last_color_space ||
+						   color.sdr_scale != a->ev_last_sdr_scale;
 	if (!d_size && !d_scale && !d_window && !d_aa && !d_scene && !d_capture &&
-		!d_output && !d_gpu)
+		!d_output && !d_gpu && !d_color)
 		return;
 
 	FnlEvent ev;
@@ -378,6 +388,14 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 		ev = (FnlEvent){ .type = FNL_EVENT_GPU, .time = t };
 		ev.gpu.index = gpu_cur;
 		ev.gpu.renderer = fnl_renderer(a);
+		queue_push(a, &ev, &(EvBorn){ 0 });
+	}
+
+	if (d_color) {
+		a->ev_last_color_space = (int)color.space;
+		a->ev_last_sdr_scale   = color.sdr_scale;
+		ev = (FnlEvent){ .type = FNL_EVENT_COLOR, .time = t };
+		ev.color.color = color;
 		queue_push(a, &ev, &(EvBorn){ 0 });
 	}
 

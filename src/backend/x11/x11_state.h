@@ -187,10 +187,17 @@ struct BackendState {
 	xcb_atom_t atom_cm;
 
 	/* The cursor font and what has been cut from it so far: each is a
-	 * server-side object that costs a request, so none is made unasked. */
+	 * server-side object that costs a request, so none is made unasked. The
+	 * font's glyphs are fixed-size, so each is rendered once and scaled to
+	 * the scale in force (DESIGN *Scale*): `cursor_scale120` is the scale the
+	 * cached cursors were made at, 0 before any was. `cell_w`, `cell_h`,
+	 * `cell_ascent` and `cell_left` are the font's largest glyph, asked with
+	 * the font and kept. */
 	xcb_font_t cursor_font;
 	xcb_cursor_t cursors[X11_CURSOR_COUNT];
 	xcb_cursor_t blank_cursor;
+	int cursor_scale120;
+	int cell_w, cell_h, cell_ascent, cell_left;
 	/* What is on the window now, so that a motion event that does not change
 	 * the answer costs no request. */
 	X11Cursor cursor_applied;

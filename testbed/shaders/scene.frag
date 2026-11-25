@@ -46,6 +46,11 @@ layout(push_constant) uniform Push {
 	float time_bias; /* this window's own phase, for its own scene */
 	uint  srgb;      /* nonzero when the surface blends in linear light */
 	uint  content;   /* 0: the pattern; nonzero: the other scene */
+	/* x: what light authored against SDR white is in the target's unit
+	 * (FnlOutputColor::sdr_scale); y: how far above SDR white the output
+	 * goes (its peak); zw unused, and the vec4 keeps the block a multiple
+	 * of 16 for std140. */
+	vec4  colour;
 } pc;
 
 layout(location = 0) in  vec2 v_uv;
@@ -163,7 +168,8 @@ void main()
 	 * arrangement. The jitter still moves it, applied in the vertex stage,
 	 * as it moves anything else. */
 	if (pc.content != 0u) {
-		vec3 c = other_scene(v_uv * pc.size, pc.size, pc.time);
+		const vec3 c = other_scene(v_uv * pc.size, pc.size, pc.time) *
+					   pc.colour.x;
 		out_color = vec4(pc.srgb != 0u ? c : enc(c), 1.0);
 		return;
 	}
@@ -223,6 +229,12 @@ void main()
 		float t = clamp(p.x / max(pc.canvas.x - 1.0, 1.0), 0.0, 1.0);
 		if (p.y < base + band) {
 			c = vec3(to_linear(t));                       /* continuous */
+			/* An HDR output's ramp climbs over SDR white for its last
+			 * quarter, to as far as the output goes: the one patch on the
+			 * pattern that an SDR one cannot show, and so what tells the
+			 * two apart in a capture. */
+			if (pc.srgb != 0u && pc.colour.y > 1.0)
+				c *= 1.0 + (pc.colour.y - 1.0) * smoothstep(0.75, 1.0, t);
 		} else if (p.y < base + 2.0 * band) {
 			c = vec3(to_linear(floor(t * 16.0) / 15.0));  /* 16 steps    */
 		} else {
@@ -268,6 +280,10 @@ void main()
 	 * picture shares the canvas and differs in origin, and an own scene
 	 * differs in all three. */
 	c *= pc.tint.rgb;
+
+	/* Into the target's unit for SDR white, which is 1.0 on every output
+	 * but a scRGB one (FnlOutputColor::sdr_scale). */
+	c *= pc.colour.x;
 
 	/* Linearised unconditionally, above, then encoded on the way out unless
 	 * the hardware is going to. The conditional is on the *output*, not the

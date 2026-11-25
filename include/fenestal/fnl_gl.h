@@ -77,7 +77,9 @@ FNL_API int fnl_gl_version(FnlApp *app);                        /* [any] */
  * a device that offers no sample count worth having, for instance. */
 typedef struct {
 	int      samples;
-	uint32_t color_format;     /* GL_SRGB8_ALPHA8 */
+	/* GL_SRGB8_ALPHA8: the renderer presents SDR only, and the hardware
+	 * encodes linear light as it is written (FnlOutputColor). */
+	uint32_t color_format;
 	uint32_t depth_format;     /* GL_DEPTH_COMPONENT32F */
 } FnlGlSceneLayout;
 
