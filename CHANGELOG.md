@@ -6,6 +6,26 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **Vulkan: `fnl_vulkan_queue_submit()` and `fnl_vulkan_queue_wait_idle()`.**
+  The shared queue is one for every window on the host, so a scene's own
+  submit races another window's render thread. These take the lock the
+  library takes for its own submits and presents; `fnl_vulkan_gpu()`'s
+  thread rules apply. The export baselines in `tools/abi/` gain the two
+  names.
+
+- **The keyboard and the modifiers, on a bare KMS output.** Shift, Control,
+  Alt, Super, Caps Lock, Num Lock and AltGr are read from the layout's
+  keysyms, per group, so `ctrl:nocaps` makes Caps Lock a Control and
+  `grp:alts_toggle` no longer switches group on every Alt press.
+
+- **Demos: the light is scaled to SDR white.** The cube demos multiply their
+  light by `FnlFrame::color.sdr_scale`, so they are no longer too dark on
+  an scRGB output.
+
+- **Windows builds without LTO.** The static archive is made of the objects
+  themselves, and MSVC's `/GL` objects link only with the same `cl`; the DLL
+  is slower for it.
+
 - **The ABI check covers the Metal and Direct3D 12 interop structs.**
   `tools/abidump` now dumps `FnlMetalGpu`, `FnlMetalSceneLayout`,
   `FnlMetalScene`, `FnlD3D12Gpu`, `FnlD3D12SceneLayout` and `FnlD3D12Scene`,

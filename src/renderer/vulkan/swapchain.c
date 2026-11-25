@@ -283,7 +283,10 @@ static FnlResult create_framebuffers(App *a, bool images_new)
 }
 
 /* The copy path's buffers, one per image, large enough for this extent:
- * made the first time, and made again only for a larger one. Again after a
+ * made the first time, and made again only for a larger one, or for more
+ * images -- not OVERLAY_MAX_IMAGES of them, which at 4K is a quarter of a
+ * gigabyte of host memory for the two or three the swapchain has. Again
+ * after a
  * drain, since a retired swapchain's command buffers may still be copying
  * into the old ones; the window on a bare display keeps its size, so that is
  * a rebuild nobody sees twice. */
@@ -291,7 +294,9 @@ static FnlResult ensure_readback(App *a)
 {
 	const VkDeviceSize need =
 		(VkDeviceSize)a->extent.w * 4u * (VkDeviceSize)a->extent.h;
-	if (!VK(a)->present_copy || need <= VK(a)->readback_bytes)
+	const uint32_t n = VK(a)->image_count;
+	if (!VK(a)->present_copy ||
+		(need <= VK(a)->readback_bytes && n <= VK(a)->readback_n))
 		return FNL_OK;
 	if (VK(a)->readback_bytes) {
 		const VkResult wr = vk_device_wait_idle(a);
@@ -301,12 +306,14 @@ static FnlResult ensure_readback(App *a)
 		destroy_instance_buffers(a, OVERLAY_MAX_IMAGES, VK(a)->readback,
 								 &VK(a)->readback_mem, VK(a)->readback_map);
 		VK(a)->readback_bytes = 0;
+		VK(a)->readback_n     = 0;
 	}
 	FNL_TRY(create_instance_buffers(a, need, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-									VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
-									OVERLAY_MAX_IMAGES, VK(a)->readback,
-									&VK(a)->readback_mem, VK(a)->readback_map));
+									VK_MEMORY_PROPERTY_HOST_CACHED_BIT, n,
+									VK(a)->readback, &VK(a)->readback_mem,
+									VK(a)->readback_map));
 	VK(a)->readback_bytes = need;
+	VK(a)->readback_n     = n;
 	return FNL_OK;
 }
 
@@ -472,6 +479,7 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 	VK(a)->snap_usage =
 		VK(a)->present_copy ||
 		(caps->supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+	VK(a)->sc_alpha = choose_composite_alpha(a, caps);
 	VkSwapchainCreateInfoKHR ci = {
 		.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.surface          = VK(a)->vk_surface,
@@ -485,7 +493,7 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 			(VK(a)->snap_usage ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0u),
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		.preTransform     = caps->currentTransform,
-		.compositeAlpha   = choose_composite_alpha(a, caps),
+		.compositeAlpha   = VK(a)->sc_alpha,
 		.presentMode      = mode,
 		.clipped          = VK_TRUE,
 		.oldSwapchain     = old_swapchain,
@@ -1099,6 +1107,12 @@ static int resize_in_place(App *a)
 		surfaceless_caps(a, &caps);
 	else if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
 				 VK(a)->phys, VK(a)->vk_surface, &caps) != VK_SUCCESS)
+		return 0;
+	/* A ring that came or went changes the alpha the swapchain was made
+	 * with (choose_composite_alpha()): the ring drawn into an opaque one
+	 * shows black. */
+	if (VK(a)->swapchain != VK_NULL_HANDLE &&
+		choose_composite_alpha(a, &caps) != VK(a)->sc_alpha)
 		return 0;
 	const VkExtent2D e = choose_extent(a, &caps);
 	const VkExtent2D b = VK(a)->sc_extent;

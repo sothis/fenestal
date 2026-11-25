@@ -131,6 +131,8 @@ fnl_clipboard_set
 fnl_clipboard_request
 fnl_clipboard_text
 fnl_vulkan_gpu
+fnl_vulkan_queue_submit
+fnl_vulkan_queue_wait_idle
 fnl_vulkan_scene_layout
 fnl_vulkan_scene_cmd
 fnl_vulkan_scene_rect

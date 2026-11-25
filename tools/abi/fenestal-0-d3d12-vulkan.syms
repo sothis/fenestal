@@ -134,6 +134,8 @@ fnl_d3d12_gpu
 fnl_d3d12_scene_layout
 fnl_d3d12_scene
 fnl_vulkan_gpu
+fnl_vulkan_queue_submit
+fnl_vulkan_queue_wait_idle
 fnl_vulkan_scene_layout
 fnl_vulkan_scene_cmd
 fnl_vulkan_scene_rect

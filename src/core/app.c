@@ -389,10 +389,6 @@ void app_drain_requests(App *a)
 		a->titlebar_armed         = false;
 		a->last_titlebar_click_ms = 0;
 	}
-	if (r.move)
-		BACKEND(a)->begin_move(a);
-	if (r.resize)
-		BACKEND(a)->begin_resize(a, r.resize_edge);
 	if (r.cursor) {
 		a->cursor = r.cursor_val;
 		BACKEND(a)->cursor_changed(a);
@@ -412,6 +408,13 @@ void app_drain_requests(App *a)
 	}
 	if (r.clip_get)
 		BACKEND(a)->clipboard_request(a);
+	/* Last: on Cocoa and Win32 either may run a modal loop, which drains
+	 * the requests made meanwhile; anything applied after it from this
+	 * turn's copy would put an older title, cursor or clipboard back. */
+	if (r.move)
+		BACKEND(a)->begin_move(a);
+	if (r.resize)
+		BACKEND(a)->begin_resize(a, r.resize_edge);
 }
 
 /* ---- the held set ---------------------------------------------------------
@@ -692,25 +695,24 @@ void app_publish_output(App *a, const char *name, int w_pt, int h_pt)
 	if (a->want_out_w_pt == w_pt && a->want_out_h_pt == h_pt &&
 		(!name || !strcmp(a->want_output, name)))
 		return;
-	display_gen_bump(a); /* what output the window is on */
-
 	fnl_mutex_lock(&a->lock);
 	a->want_out_w_pt = w_pt;
 	a->want_out_h_pt = h_pt;
 	if (name)
 		snprintf(a->want_output, sizeof a->want_output, "%s", name);
+	display_gen_bump(a); /* what output the window is on */
 	fnl_cond_signal(&a->cond); /* for a loop at rest */
 	fnl_mutex_unlock(&a->lock);
 }
 
 void app_publish_output_mode(App *a, const char *name, int mode_w, int mode_h)
 {
-	display_gen_bump(a); /* the output's own mode */
 	fnl_mutex_lock(&a->lock);
 	a->want_out_mode_w = mode_w;
 	a->want_out_mode_h = mode_h;
 	if (name)
 		snprintf(a->want_output, sizeof a->want_output, "%s", name);
+	display_gen_bump(a); /* the output's own mode */
 	fnl_cond_signal(&a->cond); /* for a loop at rest */
 	fnl_mutex_unlock(&a->lock);
 }
@@ -719,8 +721,8 @@ void app_publish_output_mode(App *a, const char *name, int mode_w, int mode_h)
  * the period it measures. */
 void app_publish_refresh(App *a, unsigned int mhz)
 {
-	display_gen_bump(a); /* the refresh rate, which the name carries */
 	fnl_atomic_store_u32(&a->out_refresh_mhz, mhz);
+	display_gen_bump(a); /* the refresh rate, which the name carries */
 }
 
 /* A change is a frame owed as well: the output box reads this list, and
@@ -1875,6 +1877,7 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 			 * second window is built on this one (see above). */
 			fnl_atomic_store_ptr(&a->host->renderer, (void *)cand[0]);
 			a->host->renderer_scenes = scenes;
+			a->host->gpu_spans       = a->gpu_spans;
 		}
 		return rc;
 	}
@@ -1890,6 +1893,7 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 			/* The host's renderer, for the windows that follow this one. */
 			fnl_atomic_store_ptr(&a->host->renderer, (void *)g);
 			a->host->renderer_scenes = scenes;
+			a->host->gpu_spans       = a->gpu_spans;
 			return FNL_OK;
 		}
 		if (rc == FNL_OK)
@@ -2756,8 +2760,11 @@ static void inventory_say(App *a, int k)
 	fnl_mutex_lock(&a->lock);
 	for (int i = 0; i < n; i++) {
 		number[i] = gpu_number(a, k, i);
-		memcpy(via[i], i < a->gpu_part_n[k] ? a->gpu_part[k][i].via : "",
-			   sizeof via[i]);
+		/* Copied from the entry, never from a literal shorter than it. */
+		if (i < a->gpu_part_n[k])
+			memcpy(via[i], a->gpu_part[k][i].via, sizeof via[i]);
+		else
+			via[i][0] = '\0';
 	}
 	const bool spans = a->gpu_spans;
 	fnl_mutex_unlock(&a->lock);
@@ -3572,7 +3579,11 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	 * turns the flag into the mode that does exactly that. */
 	a->rank_read_only = true;
 	parts_open(a);
+	/* FnlInitDesc::echo_events is the program's ask, and FnlWindowDesc has
+	 * no flag of its own: a window after the first echoes as the others do. */
 	a->echo_events = echo_wanted_by_env();
+	for (const App *w = a->host->windows; w && !a->echo_events; w = w->next)
+		a->echo_events = w != a && w->echo_events;
 
 	/* The window's own GPU: FnlWindowDesc's, then FNL_GPU as fnl_init() reads
 	 * it, an index into the host renderer's ranked list or a name. A window
@@ -3790,6 +3801,11 @@ static FnlResult window_start(App *a)
 	 * context to hand or take. */
 	if (a->renderer && a->renderer_ready)
 		RENDERER(a)->thread_leave(a);
+	/* An earlier run's fnl_stop() left the flag set; this run's thread
+	 * would end on its first turn. */
+	fnl_mutex_lock(&a->lock);
+	a->quit = false;
+	fnl_mutex_unlock(&a->lock);
 	if (!fnl_thread_start(&a->render_thread, render_loop, a)) {
 		if (a->renderer && a->renderer_ready)
 			RENDERER(a)->thread_enter(a);

@@ -148,6 +148,10 @@ static bool    g_draw   = false;  /* every frame asked for, no sizes         */
 static bool    g_no_vsync = false;
 /* --draw --no-vsync: each frame asks for the next, once the settle is over. */
 static atomic_bool g_asking;
+/* fnl_run() has returned -- the window closed before the drive was done:
+ * the drive stops at once, touching the window no more, and the join does
+ * not wait out the rest of it. */
+static atomic_bool g_stop;
 
 static void ask_again(void *ud, FnlApp *app, const FnlFrame *frame)
 {
@@ -174,19 +178,26 @@ static int            g_drawn_n, g_shown_n;
 
 /* Both lists drained, the rows kept where `keep` and dropped otherwise --
  * the settle's, which the drive's figures are not about. */
+static uint64_t g_lost; /* rows the library dropped before a drain */
+
 static void drain(bool keep)
 {
 	FnlFrameSample fs[128];
 	FnlFrameShown  sh[128];
 	int n;
+	uint64_t lost = 0;
 	do {
-		n = fnl_frame_samples(g_app, fs, 128, sizeof fs[0], NULL);
+		n = fnl_frame_samples(g_app, fs, 128, sizeof fs[0], &lost);
+		if (keep)
+			g_lost += lost;
 		for (int i = 0; keep && i < n && g_drawn_n < SHOWN_KEEP; i++)
 			if (fs[i].presented)
 				g_drawn[g_drawn_n++] = fs[i];
 	} while (n == 128);
 	do {
-		n = fnl_frame_shown(g_app, sh, 128, sizeof sh[0], NULL);
+		n = fnl_frame_shown(g_app, sh, 128, sizeof sh[0], &lost);
+		if (keep)
+			g_lost += lost;
 		for (int i = 0; keep && i < n && g_shown_n < SHOWN_KEEP; i++)
 			g_shown[g_shown_n++] = sh[i];
 	} while (n == 128);
@@ -245,6 +256,25 @@ static void shown_report(void)
  * frames cost one re-record. */
 #define DRAW_HZ 1000.0
 
+/* How often the drive drains: the library keeps 1024 rows of each, which a
+ * 144 Hz display fills in seven seconds and an unthrottled one in less. */
+#define DRAIN_S 0.25
+
+/* A nap in pieces, draining between them (the rows kept where `keep`),
+ * and cut short by g_stop. */
+static void nap_draining(double seconds, bool keep)
+{
+	const double until = now_seconds() + seconds;
+	for (;;) {
+		const double left = until - now_seconds();
+		if (left <= 0.0 || atomic_load(&g_stop))
+			return;
+		nap(left < DRAIN_S ? left : DRAIN_S);
+		if (!atomic_load(&g_stop))
+			drain(keep);
+	}
+}
+
 /* Sizes at a fixed rate, then shut the window.
  *
  * The settle is not politeness: both late-latch controllers and the display
@@ -258,8 +288,11 @@ static void shown_report(void)
 static void drive(void)
 {
 	fnl_set_frame_stats(g_app, true);
-	nap(g_settle);
+	nap_draining(g_settle, false);
+	if (atomic_load(&g_stop))
+		return;
 	drain(false);
+	g_lost = 0;
 
 	FnlFrameStats s0, s1;
 	memset(&s0, 0, sizeof s0);
@@ -272,32 +305,45 @@ static void drive(void)
 	if (g_draw && g_no_vsync) {
 		atomic_store(&g_asking, true);
 		fnl_invalidate(g_app);      /* the first; each frame asks after it */
-		nap(g_run);
+		nap_draining(g_run, true);
 		atomic_store(&g_asking, false);
 	} else if (g_draw) {
 		const double period = 1.0 / DRAW_HZ;
-		double due = t0;
-		while (now_seconds() - t0 < g_run) {
+		double due = t0, drained = t0;
+		while (now_seconds() - t0 < g_run && !atomic_load(&g_stop)) {
 			fnl_invalidate(g_app);
 			due += period;
 			nap(due - now_seconds());
+			if (now_seconds() - drained >= DRAIN_S) {
+				drain(true);
+				drained = now_seconds();
+			}
 		}
 	} else if (g_rate > 0.0) {
 		const double period = 1.0 / g_rate;
-		double due = t0;
-		while (now_seconds() - t0 < g_run) {
+		double due = t0, drained = t0;
+		while (now_seconds() - t0 < g_run && !atomic_load(&g_stop)) {
 			fnl_request_size_pt(g_app,
 								PACE_MIN_W + (int)(n % PACE_SPAN), PACE_REQ_H);
 			n++;
-			/* The library keeps 1024 of each; drained well before. */
-			if (n % 16 == 0)
-				drain(true);
 			due += period;
-			nap(due - now_seconds());
+			/* Drained by the clock, not by the count: at a low rate a
+			 * count of requests is longer than the library's rows last. */
+			const double left = due - now_seconds();
+			if (left > DRAIN_S)
+				nap_draining(left, true);
+			else
+				nap(left);
+			if (now_seconds() - drained >= DRAIN_S) {
+				drain(true);
+				drained = now_seconds();
+			}
 		}
 	} else {
-		nap(g_run);
+		nap_draining(g_run, true);
 	}
+	if (atomic_load(&g_stop))
+		return;
 
 	const double dt = now_seconds() - t0;
 	(void)fnl_frame_stats(g_app, &s1);
@@ -319,6 +365,10 @@ static void drive(void)
 			n, dt, dt > 0.0 ? (double)n / dt : 0.0,
 			g_draw ? ", every frame asked for" : "",
 			fnl_present_mode(g_app));
+	if (g_lost)
+		fprintf(stderr, "pace: %llu rows dropped by the library before they "
+				"were read; the figures below miss them\n",
+				(unsigned long long)g_lost);
 	shown_report();
 	fflush(stderr);
 
@@ -507,10 +557,12 @@ int pace_main(int argc, char **argv)
 	cb.size = sizeof cb;
 	cb.on_overlay = ask_again;
 	rc = fnl_run(g_app, g_draw && g_no_vsync ? &cb : NULL);
+	atomic_store(&g_stop, true);
 
 	/* Joined before the shutdown, so the thread cannot still be inside
 	 * fnl_request_size_pt() on an App that has been torn down. Its last act is
-	 * the fnl_quit() that ended fnl_run(), so the join does not wait. */
+	 * the fnl_quit() that ended fnl_run(), or, where the window closed first,
+	 * g_stop ends it within a nap, so the join does not wait long. */
 #if defined(_WIN32)
 	WaitForSingleObject(thread, INFINITE);
 	CloseHandle(thread);

@@ -191,9 +191,9 @@ static FnlResult dxgi_open(App *a, VkExtent2D e)
 	if (FAILED(CreateDXGIFactory1(&IID_IDXGIFactory2, (void **)&f)))
 		return fnl_fail(FNL_ERR_NO_DEVICE, "DXGI present: no factory");
 	IDXGIAdapter1 *ad = NULL;
-	for (UINT i = 0;
-		 IDXGIFactory2_EnumAdapters1(f, i, &ad) != DXGI_ERROR_NOT_FOUND;
-		 i++) {
+	/* Until the first failure, not only NOT_FOUND: any other leaves `ad`
+	 * NULL, as device.c's list says. */
+	for (UINT i = 0; SUCCEEDED(IDXGIFactory2_EnumAdapters1(f, i, &ad)); i++) {
 		DXGI_ADAPTER_DESC1 desc;
 		if (SUCCEEDED(IDXGIAdapter1_GetDesc1(ad, &desc)) &&
 			!memcmp(&desc.AdapterLuid, id.deviceLUID, sizeof desc.AdapterLuid))
@@ -486,7 +486,7 @@ static void shown_stamp(App *a, VkDxgi *d, double at)
 	app_present_number_shown(a, st.PresentCount,
 							 (double)st.SyncQPCTime.QuadPart /
 								 (double)freq.QuadPart,
-							 !(d->tear && fnl_atomic_load_bool(&a->vsync)));
+							 !(d->tear && !fnl_atomic_load_bool(&a->vsync)));
 }
 
 /* The frame's image, once its submit has given it back at key 1: the

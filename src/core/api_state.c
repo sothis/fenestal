@@ -765,8 +765,10 @@ void fnl_set_text_rect_pt(FnlApp *app, int x, int y, int w, int h)
 	App *a = (App *)app;
 	if (!a || !a->host->backend)
 		return;
-	const uint32_t v[4] = { (uint32_t)x, (uint32_t)y, (uint32_t)w,
-							(uint32_t)h };
+	/* Bounded like every point figure (clamp_pt): the backends add a margin
+	 * and multiply by the scale in int. */
+	const uint32_t v[4] = { (uint32_t)clamp_pt(x), (uint32_t)clamp_pt(y),
+							(uint32_t)clamp_pt(w), (uint32_t)clamp_pt(h) };
 	/* A caret is drawn every frame and this is the natural place to say
 	 * where, so the unchanged case has to cost nothing -- no request, no
 	 * wakeup of a pump that would find the same rectangle.

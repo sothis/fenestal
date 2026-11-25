@@ -72,8 +72,6 @@
 	X(vkGetImageMemoryRequirements)                                           \
 	X(vkGetPhysicalDeviceMemoryProperties)                                    \
 	X(vkMapMemory)                                                            \
-	X(vkQueueSubmit)                                                          \
-	X(vkQueueWaitIdle)                                                        \
 	X(vkUnmapMemory)                                                          \
 	X(vkUpdateDescriptorSets)
 
@@ -204,14 +202,13 @@ static void transition(VkCommandBuffer cb, VkImage img, VkImageLayout from,
 /* The texture, uploaded the way a real one is: into a staging buffer, then
  * copied by the device into an image of its own.
  *
- * The copy is submitted on the library's queue, and that is safe here and
- * only here: on_gpu_created runs either before the render thread exists or
- * on it, so nothing else is submitting. From any other thread the queue is
- * shared and wants a lock of the caller's own (fnl_vulkan.h).
+ * The copy goes through the library's locked submit (fnl_vulkan.h): with
+ * several windows open, another window's render thread may be submitting on
+ * the same queue, and a raw vkQueueSubmit would race it.
  *
  * _SRGB, because the bytes are colours as a picker gives them: sampling
  * then returns linear values, which is what the shader lights. */
-static bool make_texture(const FnlVulkanGpu *gpu)
+static bool make_texture(FnlApp *app, const FnlVulkanGpu *gpu)
 {
 	static unsigned char px[TEX_SIZE * TEX_SIZE * 4];
 	texture_pixels(px);
@@ -305,8 +302,8 @@ static bool make_texture(const FnlVulkanGpu *gpu)
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1, .pCommandBuffers = &cb };
 	/* Waited out, so the staging buffer can go as soon as this returns. */
-	if (vkQueueSubmit(gpu->queue, 1, &si, VK_NULL_HANDLE) != VK_SUCCESS ||
-		vkQueueWaitIdle(gpu->queue) != VK_SUCCESS)
+	if (fnl_vulkan_queue_submit(app, 1, &si, VK_NULL_HANDLE) != VK_SUCCESS ||
+		fnl_vulkan_queue_wait_idle(app) != VK_SUCCESS)
 		goto done;
 
 	VkImageViewCreateInfo vci = {
@@ -546,7 +543,7 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 	}
 	g_dev.device = gpu.device;
 
-	if (!make_texture(&gpu) || !make_descriptors(&gpu)) {
+	if (!make_texture(app, &gpu) || !make_descriptors(&gpu)) {
 		fprintf(stderr, "could not build the scene's texture\n");
 		scene_vulkan_on_gpu_lost(ud, app);
 		return;

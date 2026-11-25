@@ -97,6 +97,13 @@ struct BackendHostState {
 	App *kb_window;
 	App *ptr_window;
 	struct wl_pointer *pointer;
+	/* The pointer frame's axis source (wl_pointer.axis_source), -1 where
+	 * the frame named none, and whether a wheel has ever come with
+	 * axis_discrete: a hi-res wheel at seat v5 sends a smooth axis for each
+	 * part of a notch and the discrete count once the notch is whole, and
+	 * the parts must not be counted beside it. Pump thread. */
+	int axis_source;
+	bool wheel_discrete_seen;
 	/* A cursor may only be set with the serial of an enter still in force:
 	 * `pointer_serial`, while `pointer_inside`. */
 	bool pointer_inside;
@@ -168,7 +175,7 @@ struct BackendHostState {
 	bool ti_enabled;
 	App *ti_enabled_for;
 	bool ti_has_commit;
-	char ti_commit[1024];
+	char ti_commit[4096]; /* the wire's largest string */
 	char ti_preedit[256];
 
 	/* The clipboard's manager and the one data device made from it: the
@@ -238,10 +245,12 @@ struct BackendState {
 	struct wl_buffer *backing;
 	bool parent_dirty;
 	bool presenting;
-	/* A cursor-position hint went out since the last commit of the window's
-	 * surface, which is where a locked pointer's hint latches: sent on the
-	 * pump (wl_hint_flush()), owed until the render thread's flush commits
-	 * it. Atomic because the two sides are those threads. */
+	/* A cursor-position hint, or a minimum size, went out since the last
+	 * commit of the window's surface, which is where both latch: sent on
+	 * the pump (wl_hint_flush(), wl_apply_size_bounds()), owed until the
+	 * render thread's flush commits it. Where the frames go into the window's
+	 * surface itself the present's commit is that commit, and nothing is
+	 * owed. Atomic because the two sides are those threads. */
 	FnlAtomicBool hint_dirty;
 	bool renew_refused;
 	/* The subsurface the frames went into before the last renew, kept

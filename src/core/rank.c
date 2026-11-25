@@ -970,9 +970,13 @@ static void finish(App *a)
 	a->cal.state = CAL_OFF;
 	fnl_atomic_store_bool(&a->calibrating, false);
 	/* Ended before an entry was measured -- the window gone to another
-	 * display at once: nothing to keep, say or rank. */
-	if (a->cal.n == 0)
+	 * display at once, a second window opened, nothing drawn: nothing to
+	 * keep, say or rank. But the first entry may already have been asked
+	 * for, so the GPU it left is still gone back to. */
+	if (a->cal.n == 0) {
+		aim(a, a->cal.back);
 		return;
+	}
 	for (int i = 0; i < a->cal.n; i++)
 		keep(a, a->cal.display, a->cal.ids[i], a->cal.fps[i]);
 	fnl_log(FNL_LOG_INFO, "GPU rank: %d entries calibrated on %s in %.0f s",

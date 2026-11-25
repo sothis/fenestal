@@ -251,7 +251,7 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 	uint32_t n_backend = 0, required = 0;
 	const char *const *backend =
 		g->bridge->instance_extensions(&n_backend, &required);
-	const char *exts[VK_BACKEND_EXTENSIONS_MAX + 4];
+	const char *exts[VK_BACKEND_EXTENSIONS_MAX + 5];
 	uint32_t n = 0;
 	exts[n++] = VK_KHR_SURFACE_EXTENSION_NAME;
 	/* Across a move, of the drivers that open nothing of the GPU moved
@@ -296,6 +296,13 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 		instance_has(&offered, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 	if (portability)
 		exts[n++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+	/* The colour spaces beyond sRGB's, which HDR takes: a surface lists them
+	 * only where this is enabled. Optional; without it the window presents
+	 * SDR. An instance extension, which no device lists. */
+	g->colorspace =
+		instance_has(&offered, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+	if (g->colorspace)
+		exts[n++] = VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME;
 	FNL_ASSERT(n_backend <= VK_BACKEND_EXTENSIONS_MAX);
 	if (n_backend > VK_BACKEND_EXTENSIONS_MAX)
 		n_backend = VK_BACKEND_EXTENSIONS_MAX;
@@ -946,12 +953,6 @@ static FnlResult create_device(App *a, VkDevice borrow)
 	const char *exts[20];
 	uint32_t n_exts = 0;
 	exts[n_exts++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-	/* The colour spaces beyond sRGB's, which HDR takes: a surface lists them
-	 * only where this is enabled. Optional; without it the window presents
-	 * SDR. */
-	if (device_has_extension(a, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME) &&
-		n_exts < 20)
-		exts[n_exts++] = VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME;
 	VK(a)->dxgi_exts = false;
 	if (VK(a)->bridge->device_extensions) {
 		uint32_t k = 0;
@@ -1082,7 +1083,7 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		 * window borrowing a device another made without the maintenance
 		 * extension must not chain a scaled swapchain on it, and one
 		 * borrowing a device that has it may. */
-		VK(a)->present_scale = VKH(a)->present_scale;
+		VK(a)->present_scale = VKH(a)->present_scale && !VK(a)->scale_refused;
 	} else {
 		/* The handle a driver leaves on failure is undefined, and
 		 * destroy_device_objects() reads VK_NULL_HANDLE as "nothing to
@@ -1228,15 +1229,14 @@ static void surfaceless_format(App *a)
 }
 
 /* Whether the surface offers the HDR pair this renderer takes -- 10-bit PQ,
- * which needs VK_EXT_swapchain_colorspace enabled on the device -- on a
+ * which a surface lists only with VK_EXT_swapchain_colorspace on the
+ * instance -- on a
  * window the library may draw it into: not the copy path, whose readback is
  * 8-bit; not the renderer's own images; and not Direct3D 11's textures. */
 static bool hdr_available(App *a, const VkSurfaceFormatKHR *formats, uint32_t n,
 						  VkSurfaceFormatKHR *out)
 {
 	if (VK(a)->dxgi)
-		return false;
-	if (!device_has_extension(a, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME))
 		return false;
 	if (VK(a)->bridge->display_hdr) {
 		/* The frames are read back and scanned out by the backend, whose
@@ -1256,6 +1256,8 @@ static bool hdr_available(App *a, const VkSurfaceFormatKHR *formats, uint32_t n,
 		*out = hdr;
 		return true;
 	}
+	if (!VKH(a)->colorspace)
+		return false;
 	for (uint32_t i = 0; i < n; i++)
 		if (formats[i].format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
 			formats[i].colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) {
@@ -1652,6 +1654,7 @@ static void destroy_device_objects(App *a, bool save_cache)
 	destroy_instance_buffers(a, OVERLAY_MAX_IMAGES, VK(a)->readback,
 							 &VK(a)->readback_mem, VK(a)->readback_map);
 	VK(a)->readback_bytes = 0;
+	VK(a)->readback_n     = 0;
 	destroy_instance_buffers(a, 1, VK(a)->snap_buf, &VK(a)->snap_mem,
 							 VK(a)->snap_map);
 	VK(a)->snap_bytes = 0;
@@ -2079,6 +2082,29 @@ bool fnl_vulkan_gpu(App *a, FnlVulkanGpu *out)
 	};
 	*out = gpu;
 	return true;
+}
+
+/* The guard is fnl_vulkan_gpu()'s: the window's own render thread, with its
+ * renderer state, so that the device behind the queue is this window's. The
+ * queue is then taken under the host's lock, as every submit of the library
+ * is, which is what another window's thread on the same queue needs. */
+VkResult fnl_vulkan_queue_submit(App *a, uint32_t count,
+								 const VkSubmitInfo *submits, VkFence fence)
+{
+	if (!a || !app_renderer_state_ours(a) ||
+		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
+		!VK(a)->device)
+		return VK_ERROR_INITIALIZATION_FAILED;
+	return vk_queue_submit(a, count, submits, fence);
+}
+
+VkResult fnl_vulkan_queue_wait_idle(App *a)
+{
+	if (!a || !app_renderer_state_ours(a) ||
+		renderer_any(a) != &fnl_renderer_vulkan || !a->renderer_state ||
+		!VK(a)->device)
+		return VK_ERROR_INITIALIZATION_FAILED;
+	return vk_queue_wait_idle(a);
 }
 
 bool fnl_vulkan_scene_layout(App *a, FnlSceneTarget t,

@@ -873,6 +873,11 @@ static void size_give(struct BackendState *p, uint16_t mask, int x, int y,
 	p->held_h = h;
 	p->held   = true;
 	fnl_atomic_store_bool(&p->held_wake, true);
+	/* Asked again after the flag: a frame shown between the test above and
+	 * the store found the flag clear and woke nobody, and the pump may be
+	 * about to wait the whole hold. */
+	if (size_shown(p))
+		size_apply(p, p->held_mask, p->held_x, p->held_y, p->held_w, p->held_h);
 }
 
 /* From each pump turn: the size held goes out once its turn has come. */
@@ -2308,8 +2313,14 @@ static void x11_pump(App *a, int timeout_ms)
 		/* A publish owed is made by publish_flush() at the turn's end:
 		 * nothing else wakes this turn, and a sync request whose
 		 * deadline has passed stops bounding the wait below -- the
-		 * serial would never be published on a quiet window. */
-		if (p->publish_pending)
+		 * serial would never be published on a quiet window.
+		 * Not while a sync request's configure is still awaited: that
+		 * publish is owed by the deadline, which bounds the wait below,
+		 * and skipping the wait would spin the pump without reading the
+		 * socket the configure is in. */
+		const bool sync_owed = p->sync_asked && !p->sync_configured &&
+							   now_seconds() < p->sync_deadline;
+		if (p->publish_pending && !sync_owed)
 			publish_owed = true;
 	}
 	/* Not with the refresh rates owed: they are read on the turn after the
@@ -2387,11 +2398,10 @@ static FnlResult x11_check_error(App *a)
 		struct BackendState *p = w->backend_state;
 		if (!p)
 			continue;
-		err = xcb_connection_has_error(p->conn);
-		if (!err && p->gfx) {
-			err   = xcb_connection_has_error(p->gfx);
+		err   = xcb_connection_has_error(p->conn);
+		which = "window";
+		if (!err && p->gfx && (err = xcb_connection_has_error(p->gfx)))
 			which = "graphics";
-		}
 	}
 	if (!err)
 		return FNL_OK;
@@ -2896,6 +2906,10 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	deco_default_window_pt(a, s120, &w_pt, &h_pt);
 	p->win_w = scale_pt(w_pt, s120);
 	p->win_h = scale_pt(h_pt, s120);
+	/* Where it is made, too: with no window manager no ConfigureNotify
+	 * says so, and fit_opening(), a drag and the output publish read it. */
+	p->win_x = scale_pt(a->init_x_pt, s120);
+	p->win_y = scale_pt(a->init_y_pt, s120);
 
 	p->window = xcb_generate_id(p->conn);
 
@@ -2917,8 +2931,7 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	 * open -- and a caller's points would land at 100% on a 2x desktop. */
 	xcb_create_window(
 		p->conn, XCB_COPY_FROM_PARENT, p->window, p->root,
-		(int16_t)scale_pt(a->init_x_pt, s120),
-		(int16_t)scale_pt(a->init_y_pt, s120),
+		(int16_t)p->win_x, (int16_t)p->win_y,
 		(uint16_t)p->win_w, (uint16_t)p->win_h, 0,
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, p->screen->root_visual,
 		XCB_CW_BACK_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_EVENT_MASK, values);

@@ -90,13 +90,23 @@ static void to_surface(const App *a, FnlColor c, float out[4])
 	}
 	out[3] = c.a;
 
-	/* The first slot, which the probe has not moved: a table that fills is a
-	 * caller with more colours than slots, and the oldest answer is the cheapest
-	 * one to lose. */
-	memo[start].linear = a->linear_target;
-	memo[start].scale  = scale;
-	memo[start].in     = c;
-	memcpy(memo[start].out, out, sizeof memo[start].out);
+	/* An empty slot in the probe's window (scale is never 0 once written),
+	 * else one taken in turn: always the first would leave the rest of the
+	 * window unreachable, and two colours sharing a start would evict each
+	 * other on every call. */
+	static FNL_THREAD_LOCAL unsigned turn;
+	unsigned slot = (start + turn++ % COLOR_PROBE) % COLOR_MEMO;
+	for (unsigned n = 0; n < COLOR_PROBE; n++) {
+		const unsigned i = (start + n) % COLOR_MEMO;
+		if (memo[i].scale == 0.0f) {
+			slot = i;
+			break;
+		}
+	}
+	memo[slot].linear = a->linear_target;
+	memo[slot].scale  = scale;
+	memo[slot].in     = c;
+	memcpy(memo[slot].out, out, sizeof memo[slot].out);
 }
 
 /* Bounds-check the size as well as the pointer: a caller reading a size out of
@@ -115,7 +125,10 @@ static bool size_ok(FnlTextSize sz)
  * outside the callback nothing is drawn. */
 static bool overlay_here(const App *a)
 {
-	return a && app_thread() == APP_THREAD_RENDER && a->overlay_open;
+	/* This window's render thread, not any: a host runs one per window, and
+	 * another window's on_overlay passing this App would append into arenas
+	 * its own thread is writing. */
+	return a && app_render_window() == a && a->overlay_open;
 }
 
 /* ---- metrics -------------------------------------------------------------
@@ -248,8 +261,12 @@ bool fnl_image_supported(const FnlApp *app)
 	/* [overlay]: this window's render thread, where no move to another
 	 * renderer is in flight -- that swap is the same thread's -- so the
 	 * drawing renderer's state below is this thread's to read. The
-	 * published table rather than App::renderer, as renderer.h asks. */
-	const FnlRendererVtbl *r = a ? renderer_any(a) : NULL;
+	 * published table rather than App::renderer, as renderer.h asks.
+	 * Checked, since image_supported() reads App::renderer_state, which a
+	 * swap on the render thread frees under any other caller. */
+	if (!a || !app_renderer_state_ours(a))
+		return false;
+	const FnlRendererVtbl *r = renderer_any(a);
 	if (!r || !r->image_supported)
 		return false;
 	return r->image_supported(a);
@@ -331,6 +348,14 @@ void fnl_image_destroy(FnlImage *img)
 	App *a = img->app;
 	if (!a)
 		return;
+	/* The list and the renderer's object are the render thread's, which may
+	 * be walking or drawing them now. */
+	if (!app_renderer_state_ours(a)) {
+		fnl_log(FNL_LOG_ERROR,
+				"fnl_image_destroy() is this window's render thread's: call "
+				"it in on_overlay, on_gpu_created, or a fnl_post()");
+		return;
+	}
 	for (FnlImage **pp = &a->images; *pp; pp = &(*pp)->next)
 		if (*pp == img) {
 			*pp = img->next;
@@ -364,7 +389,9 @@ void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
 					   const FnlImage *img)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a) || !img || !RENDERER(a)->overlay_image)
+	/* Another window's image names another device's objects. */
+	if (!overlay_here(a) || !img || img->app != a ||
+		!RENDERER(a)->overlay_image)
 		return;
 	/* The rectangle in the framebuffer's pixels, as a rectangle's own is
 	 * (overlay_rect), so a picture and a rectangle at the same coordinates
@@ -375,6 +402,17 @@ void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
 	if (!overlay_clip(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
 					  &r))
 		return;
+	/* Drawn at the rectangle as asked and cut by the rasteriser, not at the
+	 * clipped one: the shader spreads the whole picture over whatever it is
+	 * given, so a clipped rectangle would squash an image half off the edge.
+	 * The clip above only refuses one wholly outside. */
+	const int s120 = scale120(a);
+	const int x0 = surf_pt(a, clamp_pt(x), s120);
+	const int y0 = surf_pt(a, clamp_pt(y), s120);
+	r.x = x0;
+	r.y = y0;
+	r.w = surf_pt(a, clamp_pt(x) + clamp_pt(w), s120) - x0;
+	r.h = surf_pt(a, clamp_pt(y) + clamp_pt(h), s120) - y0;
 	/* What was appended before it is behind it, as it was drawn before it:
 	 * both streams go out first, so the order is the call order. Not text,
 	 * which is one draw for the frame and goes last (see the note on
@@ -417,15 +455,16 @@ void fnl_overlay_rect_round(FnlApp *app, int x, int y, int w, int h,
 	/* A corner past half the shorter side folds the box in on itself, so it
 	 * is held to the disc the box can carry -- the same clamp the shader's
 	 * coverage assumes. */
+	w                    = clamp_pt(w);
+	h                    = clamp_pt(h);
 	const int short_side = w < h ? w : h;
 	if (radius > (float)short_side * 0.5f)
 		radius = (float)short_side * 0.5f;
-	if (radius < 0.0f)
-		radius = 0.0f;
+	if (!(radius > 0.0f))
+		radius = 0.0f; /* negative, and NaN, which no comparison above caught */
 	float col[4];
 	to_surface(a, c, col);
-	overlay_rect_round(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
-					   radius, col);
+	overlay_rect_round(a, clamp_pt(x), clamp_pt(y), w, h, radius, col);
 }
 
 void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r, FnlColor c)
@@ -615,14 +654,17 @@ bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y, int *w,
 	/* No titlebar of ours, nothing to reserve in. Fullscreen is folded into
 	 * pub_csd; a bar the caller replaced has no button strip to lay a run out
 	 * from, and fnl_titlebar_claim() is what that caller wants instead. */
-	if (!csd || custom)
+	int rx = 0, ry = 0, rw = 0, rh = 0;
+	bool vis = false;
+	if (csd && !custom)
+		deco_reserved_rect(a, win_w, want_w, &rx, &ry, &rw, &rh, &vis);
+	if (!vis) {
+		/* A refusal takes back what an earlier, smaller ask was given: the
+		 * strip is the caller's only while it is told so. */
+		if (fnl_atomic_load_u32(&a->titlebar_reserved) != 0)
+			fnl_atomic_store_u32(&a->titlebar_reserved, 0);
 		return false;
-
-	int rx, ry, rw, rh;
-	bool vis;
-	deco_reserved_rect(a, win_w, want_w, &rx, &ry, &rw, &rh, &vis);
-	if (!vis)
-		return false;
+	}
 
 	/* Recorded only where it is given: a reservation the library had no
 	 * room for -- before the first frame, in fullscreen, beside a custom

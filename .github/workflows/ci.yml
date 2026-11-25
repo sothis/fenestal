@@ -502,6 +502,7 @@ jobs:
                           vulkan-headers glslang spirv-cross freetype2 \
                           xkeyboard-config llvm
                   run: |
+                      set -e
                       ./build.sh freebsd release
                       .github/stage.sh common
                       GITHUB_OUTPUT= .github/stage.sh freebsd

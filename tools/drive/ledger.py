@@ -156,8 +156,15 @@ def record(instrument, env, variant, **what):
     line.update(what)
     try:
         os.makedirs(os.path.dirname(PATH) or ".", exist_ok=True)
-        with open(PATH, "a") as f:
-            f.write(json.dumps(line, sort_keys=True) + "\n")
+        with open(PATH, "ab") as f:
+            # A line a killed run left half written would swallow this one:
+            # ended first, so only the torn line is lost.
+            if f.tell() > 0:
+                with open(PATH, "rb") as r:
+                    r.seek(-1, os.SEEK_END)
+                    if r.read(1) != b"\n":
+                        f.write(b"\n")
+            f.write((json.dumps(line, sort_keys=True) + "\n").encode())
     except OSError as e:
         print("(not written to the ledger: %s)" % e, flush=True)
 

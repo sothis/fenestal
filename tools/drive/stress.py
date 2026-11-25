@@ -97,6 +97,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -2209,7 +2210,9 @@ def run(r):
 
     if r.can("wm-props"):
         ext = b.frame_extents()
-        check("no frame extents are published", not any(ext), str(ext))
+        check("no frame extents are published",
+              ext is not None and not any(ext),
+              str(ext) if ext is not None else "the property was not read")
         drew, why = b.reparented()
         check("the manager drew no frame", not drew, why)
         cls = b.wm_class()
@@ -4153,6 +4156,11 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
     `program` names what to drive when it is not the testbed, and
     `program_args` are what it is started with. `pictures` adds --capture,
     for a round that has checks to spend one on."""
+    # A kill or a closed terminal runs no `finally` and no atexit by
+    # default: the desk would stay on the dead-key layout and the remap,
+    # and the program up. Made an exit, so the restores run.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda n, _f: sys.exit(128 + n))
     ap = argparse.ArgumentParser(description=description)
     ap.add_argument(
         "targets",

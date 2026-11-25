@@ -10,7 +10,8 @@
  * asserts pin the three together. */
 layout(push_constant) uniform Push {
 	mat4 mvp;
-	vec4 light;     /* xyz: towards the light, in the cube's own space */
+	vec4 light;     /* xyz: towards the light, in the cube's own space;
+	                   w: the target's SDR white, sdr_scale */
 	uint srgb;      /* nonzero when the target holds linear light as written */
 } pc;
 
@@ -47,5 +48,5 @@ void main()
 
 	/* A face is flat, so its light is one figure for all of it: ambient
 	 * and diffuse, in linear, where cube.frag multiplies it in. */
-	v_shade = 0.18 + 0.82 * max(dot(n, pc.light.xyz), 0.0);
+	v_shade = (0.18 + 0.82 * max(dot(n, pc.light.xyz), 0.0)) * pc.light.w;
 }

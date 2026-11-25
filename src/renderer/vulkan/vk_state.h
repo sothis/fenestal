@@ -55,6 +55,9 @@ struct VkHost {
 	const struct VkBridge *bridge;
 	uint32_t    backend_ext_on;
 	bool        surface_maint;
+	/* VK_EXT_swapchain_colorspace, an instance extension: the colour
+	 * spaces beyond sRGB's, which a surface lists only where it is on. */
+	bool        colorspace;
 	PFN_vkGetPhysicalDeviceFeatures2KHR get_features2;
 	PFN_vkGetPhysicalDeviceMemoryProperties2KHR get_memory2;
 	PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
@@ -179,10 +182,14 @@ struct RendererState {
 	/* The live swapchain's images: App::extent, or larger where the
 	 * window shows part of them (App::buffer, resize_in_place()). */
 	VkExtent2D            sc_extent;
+	/* The swapchain's composite alpha, which follows the grab ring: a resize
+	 * in place that would change it is a rebuild (resize_in_place()). */
+	VkCompositeAlphaFlagBitsKHR sc_alpha;
 	VkBuffer              readback[OVERLAY_MAX_IMAGES];
 	VkDeviceMemory        readback_mem;
 	void                 *readback_map[OVERLAY_MAX_IMAGES];
 	VkDeviceSize          readback_bytes;
+	uint32_t              readback_n; /* buffers made, one per image */
 	VkPhysicalDevice      phys;
 	/* The device's generation (VkHost::generation) that this window's objects
 	 * were built on: a window still on the generation a loss was reported at

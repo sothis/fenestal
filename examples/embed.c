@@ -56,6 +56,11 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	State *s = ud;
 	(void)frame;
+	/* Drained even with nothing to act on: a waiting event is a reason to
+	 * draw again, and a window at rest must not have one left standing. */
+	FnlEvent ev;
+	while (fnl_poll_event(app, &ev))
+		;
 	const FnlColor ink = { 0.95f, 0.95f, 0.90f, 1.0f };
 	char line[128];
 	int cx, cy, cw, ch;

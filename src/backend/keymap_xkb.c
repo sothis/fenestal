@@ -147,6 +147,12 @@ typedef struct {
 	const char *s;          /* IDENT, KEYNAME and STRING: not terminated */
 	size_t      n;
 	char        c;          /* PUNCT */
+	/* The last '<' that found no '>', and where it stopped looking: no '<'
+	 * between the two can find one either, and a line of them must not be
+	 * scanned once per '<' (quadratic in a hostile keymap). A range, not a
+	 * bound, since a copy of the lexer is rewound (find_section()). NULL
+	 * before any. */
+	const char *no_gt_from, *no_gt;
 } Lex;
 
 static bool ident_char(char c)
@@ -182,7 +188,8 @@ static void lex_next(Lex *l)
 		l->n = (size_t)(l->p - l->s);
 		return;
 	}
-	if (c == '<') {
+	if (c == '<' &&
+		!(l->no_gt && l->p >= l->no_gt_from && l->p < l->no_gt)) {
 		const char *q = l->p + 1;
 		while (q < l->end && *q != '>' && *q != '\n')
 			q++;
@@ -193,6 +200,8 @@ static void lex_next(Lex *l)
 			l->p = q + 1;
 			return;
 		}
+		l->no_gt_from = l->p;
+		l->no_gt      = q;
 	}
 	if (c == '"') {
 		const char *q = l->p + 1;
@@ -228,7 +237,7 @@ static bool tok_word(const Lex *l, const char *w)
  * closing bracket of another kind is stepped over. */
 static void lex_skip(Lex *l, char stop)
 {
-	int depth = 0;
+	size_t depth = 0;
 	while (l->kind != TOK_END) {
 		if (l->kind == TOK_PUNCT) {
 			const char c = l->c;
@@ -1006,5 +1015,9 @@ bool keymap_parse_xkb_from(Keymap *km, const char *text, size_t len,
 
 bool keymap_parse_xkb(Keymap *km, const char *text, size_t len)
 {
+	/* The compositor's size, held to what the files' path may read: a
+	 * compiled keymap is tens of kilobytes. */
+	if (len > XKB_BYTES_MAX)
+		return false;
 	return keymap_parse_xkb_from(km, text, len, NULL);
 }

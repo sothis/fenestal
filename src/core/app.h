@@ -1492,6 +1492,14 @@ struct FnlApp {
 	double late_period;
 	double late_ceiling;
 	double late_prev_disp;
+	/* The invitation this turn read, and the one standing when the loop
+	 * last woke from rest: the invitations of a rest and of the frames it
+	 * draws for the figures are no gap of the pacing's, so after a wake the
+	 * first invitation newer than the floor is a baseline for the probe and
+	 * for inst_sample(), and not a sample. 0 when there is no floor.
+	 * Render thread. */
+	double late_cb_turn;
+	double late_cb_floor;
 	int late_cooldown;
 	int late_short;
 	int late_recent;
@@ -2592,16 +2600,17 @@ static inline int clamp_scale120(int s120)
  * because the two sides are on different threads -- see App::display_gen. */
 static inline void display_gen_bump(App *a)
 {
-	fnl_atomic_store_u32(&a->display_gen,
-						 fnl_atomic_load_u32(&a->display_gen) + 1u);
+	/* After the facts are written, never before: a tick that sees the stamp
+	 * move and reads the old facts records them as the new display's. An
+	 * add, since a backend's thread and the pump both publish. */
+	fnl_atomic_add_u32(&a->display_gen, 1u);
 }
 
 /* The GPU list changed: an entry joined or left, or the list was ordered
  * again, with no display fact to say so. app_rank_tick()'s other gate. */
 static inline void gpu_list_gen_bump(App *a)
 {
-	fnl_atomic_store_u32(&a->gpu_list_gen,
-						 fnl_atomic_load_u32(&a->gpu_list_gen) + 1u);
+	fnl_atomic_add_u32(&a->gpu_list_gen, 1u);
 }
 
 /* The window a presentable area of this many pixels needs, in logical points.

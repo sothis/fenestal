@@ -28,8 +28,9 @@ extern "C" {
 
 /* Everything needed to allocate, upload and submit alongside Fenestal. The
  * queue is shared, not handed over: submissions on it are ordered against the
- * frame's own, and submitting from another thread without external
- * synchronisation is the same race it would be anywhere.
+ * frame's own. Submitting on `queue` directly is safe only while no other
+ * window's render thread can submit; fnl_vulkan_queue_submit() takes the lock
+ * the library's own submits take, and is the call to make otherwise.
  *
  * Valid for one device generation -- that is, from an on_gpu_created to the
  * next on_gpu_lost. Every handle here changes across a loss.
@@ -61,6 +62,18 @@ typedef struct {
  * free what it reads, so anywhere else it returns false and writes
  * nothing. False too where Vulkan does not draw this window. */
 FNL_API bool fnl_vulkan_gpu(FnlApp *app, FnlVulkanGpu *out);
+
+/* Submit on the shared queue, and wait for it to go idle, under the lock the
+ * library takes for its own submits and presents. The queue is one for every
+ * window on the host, so with two windows open another window's render thread
+ * may be submitting while a scene's own does: a submit on the raw queue then
+ * races it, and these do not. Called as fnl_vulkan_gpu() is -- on_gpu_created,
+ * on_record or on_overlay of the window whose queue it is -- and VK_ERROR_
+ * INITIALIZATION_FAILED where the window is not drawn by Vulkan now. */
+FNL_API VkResult fnl_vulkan_queue_submit(FnlApp *app, uint32_t count,
+										 const VkSubmitInfo *submits,
+										 VkFence fence);
+FNL_API VkResult fnl_vulkan_queue_wait_idle(FnlApp *app);
 
 /* What a scene pipeline must be built compatible with.
  *

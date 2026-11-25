@@ -944,8 +944,12 @@ bool gl_bridge_interval(App *a, int n)
 		return true;
 	if (eglSwapInterval(GLS(a)->bridge_display, n))
 		return true;
-	fnl_log(FNL_LOG_WARN, "eglSwapInterval(%d) failed: %s", n,
-			egl_error_name(eglGetError()));
+	/* Once until it is taken: the caller asks again every frame
+	 * (gl_choose_interval(), interval_said). */
+	const EGLint err = eglGetError();
+	if (!GLS(a)->interval_said)
+		fnl_log(FNL_LOG_WARN, "eglSwapInterval(%d) failed: %s", n,
+				egl_error_name(err));
 	return false;
 }
 

@@ -21,7 +21,8 @@
  * asserts are what stop the two drifting apart. */
 typedef struct {
 	float    mvp[16];
-	float    light[4];       /* towards the light, in the cube's own space */
+	float    light[4];       /* xyz: towards the light, in the cube's own space;
+	                          w: the target's SDR white (sdr_scale) */
 	uint32_t srgb;           /* the scene fills it in: it knows the target */
 } CubePush;
 

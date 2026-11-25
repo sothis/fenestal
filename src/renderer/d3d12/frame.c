@@ -519,8 +519,12 @@ static ShownSaid wait_shown(App *a, UINT want, IDXGIOutput *out)
 		if (now_seconds() >= end ||
 			(!g->blank_estimated && blanks == ACK_SHOWN_VBLANKS))
 			break;
-		blanks++;
-		if (!out || FAILED(IDXGIOutput_WaitForVBlank(out)))
+		/* A blank is counted only where one was waited for: a 1 ms sleep
+		 * in its place would let the count run out in 3 ms, with the
+		 * frame still queued; that case is bounded by `end` alone. */
+		if (out && SUCCEEDED(IDXGIOutput_WaitForVBlank(out)))
+			blanks++;
+		else
 			Sleep(1);
 	}
 	return seen ? SHOWN_SEEN : SHOWN_UNSEEN;

@@ -402,13 +402,15 @@ bool kms_atomic_flip(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
 	const uint32_t counts[1] = { 2 };
 	const uint32_t props[2]  = { c->p_crtc_id, c->p_fb_id };
 	const uint64_t vals[2]   = { crtc, fb };
-	/* A vsynced flip blocks until the plane is programmed, which the kernel
-	 * serialises with the other window's commit; a tearing flip must not
-	 * wait the vblank, so it is non-blocking (which atomic requires the
-	 * event flag for). */
-	uint32_t flags = DRM_MODE_PAGE_FLIP_EVENT;
+	/* Every flip is non-blocking. A blocking commit holds at->lock until the
+	 * plane is programmed -- up to a refresh under vsync -- and every other
+	 * commit of the card, the cursor's on the pump thread included, waits on
+	 * that lock behind it. The caller waits for the completion event itself
+	 * (flip_wait()), and a flip still pending on the CRTC is EBUSY, which the
+	 * caller takes as a frame dropped. */
+	uint32_t flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
 	if (async)
-		flags |= DRM_MODE_PAGE_FLIP_ASYNC | DRM_MODE_ATOMIC_NONBLOCK;
+		flags |= DRM_MODE_PAGE_FLIP_ASYNC;
 	return at_commit(at, flags, stamp, objs, counts, props, vals, 1);
 }
 

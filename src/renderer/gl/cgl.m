@@ -442,6 +442,16 @@ bool gl_bridge_scan_begin(App *a, unsigned fbo, int w, int h)
 			b->layer.device = b->device;
 			b->layer.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
 			b->layer.framebufferOnly = NO;
+			/* And its colour, which a Metal renderer before this one may
+			 * have left extended-linear with EDR on: GL's bytes are
+			 * encoded sRGB. */
+			b->layer.wantsExtendedDynamicRangeContent = NO;
+			CGColorSpaceRef srgb =
+				CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+			if (srgb) {
+				b->layer.colorspace = srgb;
+				CGColorSpaceRelease(srgb);
+			}
 			[CATransaction commit];
 		}
 		const int i = b->next;
@@ -489,8 +499,9 @@ bool gl_bridge_scan_show(App *a)
 	if (b->written) {
 		const double until = now_seconds() + CGL_WAIT_S;
 		GLbitfield flags = GL_SYNC_FLUSH_COMMANDS_BIT;
+		GLenum r;
 		for (;;) {
-			const GLenum r = gl.ClientWaitSync(b->written, flags, 0);
+			r = gl.ClientWaitSync(b->written, flags, 0);
 			if (r != GL_TIMEOUT_EXPIRED || now_seconds() > until)
 				break;
 			flags = 0;
@@ -498,6 +509,10 @@ bool gl_bridge_scan_show(App *a)
 		}
 		gl.DeleteSync(b->written);
 		b->written = NULL;
+		/* Given up, as CGL_WAIT_S says: a copy now would show a surface GL
+		 * is still writing. */
+		if (r != GL_ALREADY_SIGNALED && r != GL_CONDITION_SATISFIED)
+			return false;
 	}
 	@autoreleasepool {
 		const int i = b->slot;

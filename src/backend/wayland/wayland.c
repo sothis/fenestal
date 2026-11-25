@@ -707,7 +707,9 @@ static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate,
 	struct BackendHostState *hs = hs_of(d);
 	if (!hs)
 		return;
-	hs->repeat_rate  = rate;
+	/* The compositor's figures, bounded: a rate past a thousand a second
+	 * would have the pump fire a repeat every turn and never wait. */
+	hs->repeat_rate  = rate > 1000 ? 1000 : rate;
 	hs->repeat_delay = delay;
 	if (rate <= 0)
 		key_repeat_stop(hs);
@@ -925,7 +927,11 @@ static void capture_pointer(App *a)
 	zwp_locked_pointer_v1_add_listener(p->locked, &locked_listener, a);
 
 	a->pointer_captured = true;
-	set_cursor_shape(a, WL_CURSOR_HIDDEN);
+	/* Only where the pointer is over this window: the enter serial in force
+	 * is otherwise another window's, which would hide the cursor there.
+	 * ptr_enter() hides it when the pointer arrives. */
+	if (p->host->pointer_inside && p->host->ptr_window == a)
+		set_cursor_shape(a, WL_CURSOR_HIDDEN);
 	app_reticle_publish(a);
 }
 
@@ -1111,6 +1117,9 @@ static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t ax,
 	struct BackendState *w      = a->backend_state;
 	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
 	loop_input_ms(a, t);
+	if (!w->axis_discrete[i] && hs->wheel_discrete_seen &&
+		hs->axis_source == WL_POINTER_AXIS_SOURCE_WHEEL)
+		return; /* a part of a notch whose discrete count is still to come */
 	const double notches = w->axis_discrete[i]
 							   ? (double)w->axis_discrete[i]
 							   : wl_fixed_to_double(v) / WL_AXIS_PER_NOTCH;
@@ -1121,14 +1130,17 @@ static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t ax,
 }
 static void ptr_frame(void *d, struct wl_pointer *p)
 {
-	(void)d;
 	(void)p;
+	struct BackendHostState *hs = hs_of(d);
+	if (hs)
+		hs->axis_source = -1;
 }
 static void ptr_axis_source(void *d, struct wl_pointer *p, uint32_t s)
 {
-	(void)d;
 	(void)p;
-	(void)s;
+	struct BackendHostState *hs = hs_of(d);
+	if (hs)
+		hs->axis_source = (int)s;
 }
 static void ptr_axis_stop(void *d, struct wl_pointer *p, uint32_t t, uint32_t a)
 {
@@ -1147,6 +1159,7 @@ static void ptr_axis_discrete(void *d, struct wl_pointer *p, uint32_t ax,
 		return;
 	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
 	a->backend_state->axis_discrete[i] = v;
+	hs->wheel_discrete_seen            = true;
 }
 static const struct wl_pointer_listener pointer_listener = {
 	.enter         = ptr_enter,
@@ -1210,10 +1223,17 @@ static void ti_drop(struct BackendHostState *hs)
 /* Cut on a character boundary if it must be. NULL is the protocol's none. */
 static void ti_keep(char *dst, size_t size, const char *text)
 {
-	const size_t n = text ? utf8_fit(text, strlen(text), size) : 0;
+	const size_t len = text ? strlen(text) : 0;
+	const size_t n   = text ? utf8_fit(text, len, size) : 0;
 	if (n)
 		memcpy(dst, text, n);
 	dst[n] = '\0';
+	/* Fixed buffers, for -fanalyzer's sake (CLAUDE.md), but not a silent
+	 * cut: text-input-v3 sets no bound on the strings. */
+	if (n < len)
+		fnl_log(FNL_LOG_WARN,
+				"the input method's text is %zu bytes; %zu were kept", len,
+				n);
 }
 
 /* One text input, made from the seat: enabled while the window with the
@@ -2773,6 +2793,7 @@ static FnlResult wl_host_open(App *a)
 	hs->wake.fd = hs->wake.wfd = -1;
 	hs->uevent_fd = -1;
 	hs->clip_fd   = -1;
+	hs->axis_source = -1; /* not the calloc's zero, which is WHEEL */
 	snprintf(hs->clip_marker, sizeof hs->clip_marker,
 			 "application/x-fenestal-owner-%ld", (long)getpid());
 	hs->repeat_rate  = REPEAT_RATE_DEFAULT;
@@ -2939,11 +2960,13 @@ static void wl_flush(App *a)
 	struct BackendState *p = a->backend_state;
 	if (p->presenting) {
 		p->presenting = false;
+		/* Onto the window's surface itself the present just committed it,
+		 * and another commit would be an empty one a frame. */
 		const bool hint = fnl_atomic_load_bool(&p->hint_dirty);
-		if (p->parent_dirty || hint) {
+		if (hint)
+			fnl_atomic_store_bool(&p->hint_dirty, false);
+		if (p->parent_dirty || (hint && p->present != p->surface)) {
 			p->parent_dirty = false;
-			if (hint)
-				fnl_atomic_store_bool(&p->hint_dirty, false);
 			wl_surface_commit(p->surface);
 		}
 	}
@@ -3157,7 +3180,8 @@ static bool wl_apply_scale(App *a)
 	 * flush is what makes (wl_flush()): the answer must say "changed"
 	 * although nothing of the surface's did. */
 	const bool owed = p->parent_dirty ||
-					  fnl_atomic_load_bool(&p->hint_dirty);
+					  (p->present != p->surface &&
+					   fnl_atomic_load_bool(&p->hint_dirty));
 	if (p->viewport) {
 		bool changed = crop_apply(a);
 		/* Onto the *surface*: the window plus the grab ring. */
@@ -3457,6 +3481,9 @@ static void wl_apply_size_bounds(App *a)
 	int min_w, min_h;
 	deco_min_window(a, false, &min_w, &min_h);
 	xdg_toplevel_set_min_size(a->backend_state->xdg_toplevel, min_w, min_h);
+	/* Double-buffered on the window's surface, which after a move only the
+	 * flush commits. */
+	fnl_atomic_store_bool(&a->backend_state->hint_dirty, true);
 }
 
 /* A session with neither variable is not taken for a Wayland one, although

@@ -395,8 +395,11 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 	 * holds nothing yet. */
 	while (n > 0 && ((unsigned char)src[n] & 0xc0) == 0x80)
 		n--;
-	dst[n] = '\0';
-	if (text_width(dst, sz) <= max_w)
+	/* Cut short by the buffer rather than ended by the line: that is a cut
+	 * however narrow what is left, and says so with the dots. */
+	const bool cut = src[n] && src[n] != '\n' && src[n] != '\r';
+	dst[n]         = '\0';
+	if (!cut && text_width(dst, sz) <= max_w)
 		return;
 	if (dots_n == 0)
 		return; /* truncated, and no room to say it was cut */
@@ -413,10 +416,16 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 	size_t lo = 0, hi = n;
 	while (lo < hi) {
 		size_t mid = lo + (hi - lo + 1) / 2;
-		while (mid > 0 && ((unsigned char)dst[mid] & 0xc0) == 0x80)
+		while (mid > lo && ((unsigned char)dst[mid] & 0xc0) == 0x80)
 			mid--;
-		if (mid == lo)
-			break; /* no whole code point left between */
+		if (mid == lo) {
+			/* None in the lower half: the next boundary above, if any. */
+			mid = lo + 1;
+			while (mid <= hi && ((unsigned char)dst[mid] & 0xc0) == 0x80)
+				mid++;
+			if (mid > hi)
+				break; /* no whole code point left between */
+		}
 		char tail[4];
 		memcpy(tail, dst + mid, sizeof tail);
 		memcpy(dst + mid, "...", 4);

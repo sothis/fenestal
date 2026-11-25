@@ -20,6 +20,11 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 {
 	(void)ud;
 	(void)frame;
+	/* Drained even with nothing to act on: a waiting event is a reason to
+	 * draw again, so one never taken redraws every frame for good. */
+	FnlEvent ev;
+	while (fnl_poll_event(app, &ev))
+		;
 	const char *msg = "Hello from Fenestal, wrapped into the window it is "
 					  "drawn in however narrow that is";
 	const FnlColor panel = { 0.10f, 0.10f, 0.12f, 1.00f };

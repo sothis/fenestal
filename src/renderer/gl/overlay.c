@@ -477,6 +477,9 @@ void gl_own_state(App *a)
 		gl.Disable((GLenum)(GL_CLIP_DISTANCE0 + i));
 	gl.Enable(GL_SCISSOR_TEST);
 	gl.Enable(GL_FRAMEBUFFER_SRGB);
+	/* Set at the build too (device.c), but a scene that set y-down for
+	 * itself would turn every pass after it upside down. */
+	gl.ClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
 	gl.PolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	gl.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	gl.DepthMask(GL_TRUE);

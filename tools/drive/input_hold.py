@@ -174,8 +174,16 @@ def serve(limit):
                 continue
             try:
                 data = os.read(fd, EVENT.size * 64)
+            except BlockingIOError:
+                continue                # select said ready, and it was not
             except OSError:
-                del held[fd]            # unplugged
+                # Unplugged: closed as well, or the grab would stay on a
+                # keyboard whose Ctrl+Alt+Escape nobody reads any more.
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                del held[fd]
                 continue
             for off in range(0, len(data) - EVENT.size + 1, EVENT.size):
                 _, _, typ, code, value = EVENT.unpack_from(data, off)
@@ -203,7 +211,7 @@ class Hold:
         self.where = where
         self.by_hand = False
 
-    def begin(self):
+    def begin(self) -> bool:
         return False
 
     def end(self):
@@ -228,15 +236,24 @@ class SshHold(Hold):
         self.proc = None
 
     def begin(self):
-        with open(os.path.abspath(__file__)) as f:
-            code = f.read()
+        try:
+            with open(os.path.abspath(__file__)) as f:
+                code = f.read()
+        except OSError as e:
+            print("  input not held on %s: this file cannot be read (%s)"
+                  % (self.where, e), flush=True)
+            return False
         self.proc = subprocess.Popen(
             self.ssh + ["python3 -c %s serve %d" % (shlex.quote(code),
                                                     LIMIT)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True)
-        ready, _, _ = select.select([self.proc.stdout], [], [], 15)
-        line = self.proc.stdout.readline().strip() if ready else ""
+        out = self.proc.stdout
+        if out is None:
+            self.end()
+            return False
+        ready, _, _ = select.select([out], [], [], 15)
+        line = out.readline().strip() if ready else ""
         # "held 0:" is nothing grabbed -- no keyboard or mouse the account
         # may open -- which is not the hold this round means to take.
         held = 0
@@ -259,7 +276,8 @@ class SshHold(Hold):
         if not self.proc:
             return
         try:
-            self.proc.stdin.close()
+            if self.proc.stdin is not None:
+                self.proc.stdin.close()
         except OSError:
             pass
         try:

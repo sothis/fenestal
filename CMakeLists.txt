@@ -1111,6 +1111,11 @@ else()
     fnl_host_tool(mkfont
                   tools/mkfont.c tools/font_charset.h tools/font_codec.h
                   tools/font_raster.h)
+    # The stack note mkfont writes into its stub, which a Windows assembler
+    # refuses: the same host test that empties FNL_GNU_STACK above.
+    if(WIN32)
+        target_compile_definitions(mkfont PRIVATE FNL_NO_GNU_STACK)
+    endif()
     if(MSVC)
         target_link_libraries(mkfont PRIVATE Freetype::Freetype)
     else()
@@ -1388,6 +1393,34 @@ list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/headers_checked.stamp)
 # -d3d12 and -metal for one each, and -<set> for a system's several
 # (vulkan-gl, d3d12-vulkan, metal-vulkan-gl). The portable part is in each,
 # and a change to it updates each.
+# The export list is compared in every tree, cross trees included: it is
+# written at configure from the headers, and needs no host tool. The layout
+# dump is the native trees' alone, as above.
+set(_abi_dir ${CMAKE_CURRENT_SOURCE_DIR}/tools/abi)
+# The layout baseline is keyed by what the dump holds: Metal's structs
+# are in every one, Vulkan's where the set has it, Direct3D 12's where
+# it has that. The exports are one list per set, as below.
+if(d3d12 IN_LIST FNL_RENDERERS)
+    if(vulkan IN_LIST FNL_RENDERERS)
+        set(_abi_layout fenestal-0-d3d12-vulkan)
+    else()
+        set(_abi_layout fenestal-0-d3d12)
+    endif()
+elseif(vulkan IN_LIST FNL_RENDERERS)
+    set(_abi_layout fenestal-0)
+else()
+    set(_abi_layout fenestal-0-gl)
+endif()
+if(FNL_RENDERER_COUNT GREATER 1)
+    # Named for the set, in the order fnl_init() tries them: Linux and
+    # FreeBSD's vulkan-gl, Windows' d3d12-vulkan, macOS' metal-vulkan-gl.
+    string(JOIN "-" _fnl_abi_set ${FNL_RENDERERS})
+    set(_abi_syms fenestal-0-${_fnl_abi_set})
+elseif(FNL_RENDERER STREQUAL vulkan)
+    set(_abi_syms fenestal-0)
+else()
+    set(_abi_syms fenestal-0-${FNL_RENDERER})
+endif()
 if(NOT FNL_GENERATED_DIR)
     fnl_host_tool(abidump tools/abidump.c)
     target_include_directories(abidump PRIVATE
@@ -1400,32 +1433,6 @@ if(NOT FNL_GENERATED_DIR)
     if(d3d12 IN_LIST FNL_RENDERERS)
         target_compile_definitions(abidump PRIVATE FNL_ABI_D3D12)
     endif()
-    # The layout baseline is keyed by what the dump holds: Metal's structs
-    # are in every one, Vulkan's where the set has it, Direct3D 12's where
-    # it has that. The exports are one list per set, as below.
-    if(d3d12 IN_LIST FNL_RENDERERS)
-        if(vulkan IN_LIST FNL_RENDERERS)
-            set(_abi_layout fenestal-0-d3d12-vulkan)
-        else()
-            set(_abi_layout fenestal-0-d3d12)
-        endif()
-    elseif(vulkan IN_LIST FNL_RENDERERS)
-        set(_abi_layout fenestal-0)
-    else()
-        set(_abi_layout fenestal-0-gl)
-    endif()
-    if(FNL_RENDERER_COUNT GREATER 1)
-        # Named for the set, in the order fnl_init() tries them: Linux and
-        # FreeBSD's vulkan-gl, Windows' d3d12-vulkan, macOS'
-        # metal-vulkan-gl.
-        string(JOIN "-" _fnl_abi_set ${FNL_RENDERERS})
-        set(_abi_syms fenestal-0-${_fnl_abi_set})
-    elseif(FNL_RENDERER STREQUAL vulkan)
-        set(_abi_syms fenestal-0)
-    else()
-        set(_abi_syms fenestal-0-${FNL_RENDERER})
-    endif()
-    set(_abi_dir ${CMAKE_CURRENT_SOURCE_DIR}/tools/abi)
     add_custom_command(
         OUTPUT ${FNL_GEN_DIR}/abi_checked.stamp
         BYPRODUCTS ${FNL_GEN_DIR}/fenestal.abi
@@ -1442,6 +1449,19 @@ if(NOT FNL_GENERATED_DIR)
         COMMENT "Checking the public ABI against tools/abi"
         VERBATIM)
     list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/abi_checked.stamp)
+else()
+    add_custom_command(
+        OUTPUT ${FNL_GEN_DIR}/syms_checked.stamp
+        COMMAND ${CMAKE_COMMAND}
+                -DSYMS=${FNL_GEN_DIR}/fenestal.syms
+                -DBASE_SYMS=${_abi_dir}/${_abi_syms}.syms
+                -P ${_abi_dir}/check.cmake
+        COMMAND ${CMAKE_COMMAND} -E touch ${FNL_GEN_DIR}/syms_checked.stamp
+        DEPENDS ${FNL_GEN_DIR}/fenestal.syms ${_abi_dir}/${_abi_syms}.syms
+                ${_abi_dir}/check.cmake
+        COMMENT "Checking the export list against tools/abi"
+        VERBATIM)
+    list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/syms_checked.stamp)
 endif()
 
 # ---- Fuzz harnesses ---------------------------------------------------------
@@ -2397,7 +2417,14 @@ endif()
 # where "not Debug" cannot be decided at configure time. Not on macOS, whose
 # objects are bitcode in every configuration (*The archive*): CMake's thin
 # LTO would contradict the full LTO the merge is made from.
-if(FNL_IPO_OK AND NOT APPLE)
+# Not under MSVC. Its /GL objects hold intermediate language, not machine code,
+# and the static archive is these objects as they are: a consumer's link with
+# another cl, clang-cl or lld-link cannot finish them. The DLL would keep LTCG
+# only from these same objects, so it goes too -- the cost is the DLL's speed.
+if(MSVC)
+    message(STATUS "Link-time optimisation off: the static archive is made of "
+                   "the objects, and /GL objects link only with the same cl")
+elseif(FNL_IPO_OK AND NOT APPLE)
     foreach(_cfg RELEASE RELWITHDEBINFO MINSIZEREL)
         set_target_properties(fenestal_objects PROPERTIES
                               INTERPROCEDURAL_OPTIMIZATION_${_cfg} TRUE)
@@ -2407,15 +2434,10 @@ if(FNL_IPO_OK AND NOT APPLE)
     # own. Another compiler's partial link takes the machine code and drops
     # the IR, so there the objects carry both: fat. A compile option so that
     # it lands after CMake's own -fno-fat-lto-objects and wins.
-    # MSVC's /GL objects already carry machine code beside the IR, and cl
-    # ignores an unknown option with a warning a flag probe counts as
-    # success; its probes are not asked.
-    if(NOT MSVC)
-        check_c_compiler_flag("-ffat-lto-objects" _has_fat_lto)
-        if(_has_fat_lto AND NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
-            target_compile_options(fenestal_objects PRIVATE
-                                   $<$<COMPILE_LANGUAGE:C>:-ffat-lto-objects>)
-        endif()
+    check_c_compiler_flag("-ffat-lto-objects" _has_fat_lto)
+    if(_has_fat_lto AND NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(fenestal_objects PRIVATE
+                               $<$<COMPILE_LANGUAGE:C>:-ffat-lto-objects>)
     endif()
 else()
     message(STATUS "Link-time optimisation unavailable: ${FNL_IPO_MSG}")

@@ -242,6 +242,9 @@ static void on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		push.light[k] = rot.m[k * 4 + 0] * LIGHT[0] +
 						rot.m[k * 4 + 1] * LIGHT[1] +
 						rot.m[k * 4 + 2] * LIGHT[2];
+	/* Light is authored against SDR white, which the target may measure
+	 * in more than 1.0 (scRGB's 80 nits); the shader multiplies it in. */
+	push.light[3] = f->color.sdr_scale;
 	if (g_scene)
 		g_scene->draw(app, f, &push);
 }

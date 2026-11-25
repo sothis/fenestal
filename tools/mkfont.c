@@ -492,10 +492,14 @@ int main(int argc, char **argv)
 			   "    .globl font_cells_blob\n"
 			   "    .balign 4\n"
 			   "font_cells_blob:\n"
-			   "    .incbin \"%s/font_cells.bin\"\n"
-			   /* Non-executable stack, so the linker does not mark the whole
-				* program's stack executable for the sake of one data file. */
-			   "    .section .note.GNU-stack,\"\",%%progbits\n", dir, dir);
+			   "    .incbin \"%s/font_cells.bin\"\n", dir, dir);
+#if !defined(FNL_NO_GNU_STACK)
+	/* Non-executable stack, so the linker does not mark the whole program's
+	 * stack executable for the sake of one data file. CMake defines
+	 * FNL_NO_GNU_STACK where the host is Windows, whose PE assembler refuses
+	 * the line; the same decision CMake makes for its own stubs. */
+	fputs("    .section .note.GNU-stack,\"\",%progbits\n", s);
+#endif
 	if (close_out(s, "the .incbin stub"))
 		return 1;
 

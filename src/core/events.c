@@ -75,7 +75,7 @@ static float input_age(double time, const EvBorn *in)
 }
 
 /* `in` is the inputs in `ev`, none for a notification (app_event()). */
-static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
+static bool queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	FNL_REQUIRES(a->ev_lock)
 {
 	FNL_ASSERT(a->ev_head >= 0 && a->ev_head < EVENT_QUEUE_MAX);
@@ -85,6 +85,16 @@ static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	 * of now. Its inputs are each counted, so the latency is every motion's
 	 * and not the newest's alone, which would read short by however long
 	 * the queue held the rest. */
+	/* Nothing after a gap goes in until the gap is reported: a slot the
+	 * consumer frees meanwhile would otherwise take the release of a press
+	 * that was dropped, ahead of FNL_EVENT_LOST, and a motion would merge
+	 * into one from before it. fnl_poll_event() clears the count only from
+	 * an empty ring. */
+	if (a->ev_lost) {
+		a->ev_lost++;
+		return false;
+	}
+
 	FnlEvent *back = queue_back(a);
 	if (back && back->type == ev->type) {
 		EvBorn *b = &a->ev_born[(a->ev_head + EVENT_QUEUE_MAX - 1) %
@@ -94,7 +104,7 @@ static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 			back->time   = ev->time;
 			born_add(b, in);
 			back->input_age = input_age(back->time, b);
-			return;
+			return true;
 		}
 		if (ev->type == FNL_EVENT_RELATIVE) {
 			back->relative.dx += ev->relative.dx;
@@ -102,7 +112,7 @@ static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 			back->time = ev->time;
 			born_add(b, in);
 			back->input_age = input_age(back->time, b);
-			return;
+			return true;
 		}
 	}
 
@@ -110,7 +120,7 @@ static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	 * empty rather than ambiguous. */
 	if (queue_count(a) >= EVENT_QUEUE_MAX - 1) {
 		a->ev_lost++;
-		return;
+		return false;
 	}
 
 	a->ev_ring[a->ev_head] = *ev;
@@ -118,6 +128,7 @@ static void queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	born_add(&a->ev_born[a->ev_head], in);
 	a->ev_ring[a->ev_head].input_age = input_age(ev->time, in);
 	a->ev_head = (a->ev_head + 1) % EVENT_QUEUE_MAX;
+	return true;
 }
 
 /* ---- what the backends call ---------------------------------------------- */
@@ -344,89 +355,98 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 	fnl_mutex_lock(&a->ev_lock);
 
 	if (d_size) {
-		a->ev_last_w_pt = area_w_pt;   a->ev_last_h_pt = area_h_pt;
-		a->ev_last_w_px = area_w_px;   a->ev_last_h_px = area_h_px;
 		const FnlEvent e = { .type = FNL_EVENT_RESIZE, .time = t };
 		ev = e;
 		ev.resize.w_pt = area_w_pt;    ev.resize.h_pt = area_h_pt;
 		ev.resize.w_px = area_w_px;    ev.resize.h_px = area_h_px;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_w_pt = area_w_pt;   a->ev_last_h_pt = area_h_pt;
+			a->ev_last_w_px = area_w_px;   a->ev_last_h_px = area_h_px;
+		}
 	}
 
 	if (d_scale) {
-		a->ev_last_scale120 = s120;
 		const FnlEvent e = { .type = FNL_EVENT_SCALE, .time = t };
 		ev = e;
 		ev.scale.scale120 = s120;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_scale120 = s120;
+		}
 	}
 
 	if (d_window) {
-		a->ev_last_fullscreen = ds->is_fullscreen;
-		a->ev_last_maximized  = ds->is_maximized;
 		const FnlEvent e = { .type = FNL_EVENT_WINDOW, .time = t };
 		ev = e;
 		ev.window.fullscreen = ds->is_fullscreen;
 		ev.window.maximized  = ds->is_maximized;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_fullscreen = ds->is_fullscreen;
+			a->ev_last_maximized  = ds->is_maximized;
+		}
 	}
 
 	if (d_aa) {
-		a->ev_last_aa = ds->aa;
 		const FnlEvent e = { .type = FNL_EVENT_ANTIALIAS, .time = t };
 		ev = e;
 		ev.antialias.aa = ds->aa;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_aa = ds->aa;
+		}
 	}
 
 	if (d_scene) {
-		a->ev_last_scene_w = ds->scene_w;
-		a->ev_last_scene_h = ds->scene_h;
 		const FnlEvent e = { .type = FNL_EVENT_SCENE_SIZE, .time = t };
 		ev = e;
 		ev.scene.w_px = ds->scene_w;
 		ev.scene.h_px = ds->scene_h;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_scene_w = ds->scene_w;
+			a->ev_last_scene_h = ds->scene_h;
+		}
 	}
 
 	if (d_capture) {
-		a->ev_last_captured = ds->pointer_captured;
 		const FnlEvent e = { .type = FNL_EVENT_CAPTURE, .time = t };
 		ev = e;
 		ev.capture.captured = ds->pointer_captured;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_captured = ds->pointer_captured;
+		}
 	}
 
 	if (d_output) {
-		memcpy(a->ev_last_output, ds->output, sizeof a->ev_last_output);
-		a->ev_last_out_w_pt = ds->out_w_pt;
-		a->ev_last_out_h_pt = ds->out_h_pt;
 		const FnlEvent e = { .type = FNL_EVENT_OUTPUT, .time = t };
 		ev = e;
 		ev.output.w_pt = ds->out_w_pt;
 		ev.output.h_pt = ds->out_h_pt;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			memcpy(a->ev_last_output, ds->output, sizeof a->ev_last_output);
+			a->ev_last_out_w_pt = ds->out_w_pt;
+			a->ev_last_out_h_pt = ds->out_h_pt;
+		}
 	}
 
 	if (d_gpu) {
-		memcpy(a->ev_last_gpu, gpu_now, sizeof a->ev_last_gpu);
-		a->ev_last_gpu_renderer = gpu_rnd;
-		a->ev_last_gpu_n = gpu_n;
-		a->ev_last_gpu_cur = gpu_cur;
 		const FnlEvent e = { .type = FNL_EVENT_GPU, .time = t };
 		ev = e;
 		ev.gpu.index = gpu_cur;
 		ev.gpu.renderer = fnl_renderer(a);
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			memcpy(a->ev_last_gpu, gpu_now, sizeof a->ev_last_gpu);
+			a->ev_last_gpu_renderer = gpu_rnd;
+			a->ev_last_gpu_n = gpu_n;
+			a->ev_last_gpu_cur = gpu_cur;
+		}
 	}
 
 	if (d_color) {
-		a->ev_last_color_space = (int)color.space;
-		a->ev_last_sdr_scale   = color.sdr_scale;
 		const FnlEvent e = { .type = FNL_EVENT_COLOR, .time = t };
 		ev = e;
 		ev.color.color = color;
-		queue_push(a, &ev, &born0);
+		if (queue_push(a, &ev, &born0)) {
+			a->ev_last_color_space = (int)color.space;
+			a->ev_last_sdr_scale   = color.sdr_scale;
+		}
 	}
 
 	fnl_mutex_unlock(&a->ev_lock);

@@ -59,6 +59,16 @@ class Desk:
     tap() -- so wayland_driver.Driver steers this as it steers that."""
 
     sock = None
+    # What every machine's Desk supplies: its pointer and its keys, and the
+    # set of keys it has down (kept by _keys_up()). Declared here so the
+    # shared code below reads them from one place.
+    keys: set
+
+    def warp(self, x, y):
+        raise NotImplementedError
+
+    def keycode(self, code, pressed=True):
+        raise NotImplementedError
 
     def _greet(self, sock):
         """Take the connection the agent made, and ask it the first thing."""
@@ -92,9 +102,20 @@ class Desk:
 
     def ask(self, *words):
         """One question, one answer: the reply's words after its "ok"."""
-        self.sock.sendall((" ".join(str(w) for w in words) + "\n")
-                          .encode("utf-8"))
-        line = self.rfile.readline()
+        rfile = getattr(self, "rfile", None)
+        if not self.sock or rfile is None:
+            raise RuntimeError("the agent on the Windows desktop was hung "
+                               "up on after a question went unanswered")
+        try:
+            self.sock.sendall((" ".join(str(w) for w in words) + "\n")
+                              .encode("utf-8"))
+            line = rfile.readline()
+        except OSError as e:
+            # A reply that came late would answer the next question: hung
+            # up on, so no later ask reads this one's answer as its own.
+            self._hang_up()
+            raise RuntimeError("the agent on the Windows desktop did not "
+                               "answer %r: %s" % (words[0], e)) from e
         if not line:
             raise RuntimeError("the agent on the Windows desktop has gone")
         parts = line.rstrip("\n").split(" ")

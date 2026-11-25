@@ -134,6 +134,8 @@ fnl_metal_gpu
 fnl_metal_scene_layout
 fnl_metal_scene
 fnl_vulkan_gpu
+fnl_vulkan_queue_submit
+fnl_vulkan_queue_wait_idle
 fnl_vulkan_scene_layout
 fnl_vulkan_scene_cmd
 fnl_vulkan_scene_rect

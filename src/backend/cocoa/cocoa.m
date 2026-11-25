@@ -1325,12 +1325,40 @@ static void fs_settle(App *a)
 	return first;
 }
 
+/* The Apple event's reason for a quit (AERegistry.h's kAEQuitReason and its
+ * values, spelt out: the Carbon headers are not included). A system ending
+ * its session asks every application to quit, and cancelling that answer
+ * holds the logout or restart up for a window the caller is closing anyway. */
+static bool session_is_ending(void)
+{
+	NSAppleEventDescriptor *e =
+		NSAppleEventManager.sharedAppleEventManager.currentAppleEvent;
+	if (!e || e.eventID != (OSType)'quit')
+		return false;
+	const OSType why =
+		[e attributeDescriptorForKeyword:(AEKeyword)'why?'].typeCodeValue;
+	return why == (OSType)'shut' || why == (OSType)'rlgo' ||
+		   why == (OSType)'logo' || why == (OSType)'rrst';
+}
+
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)s
 {
 	(void)s;
 	App *a = [self front];
-	if (a)
-		app_close_requested(a);
+	if (!a)
+		return NSTerminateCancel;
+	if (session_is_ending()) {
+		/* Every window is asked to close, and the reply is given when the
+		 * last one is gone (cocoa_host_close): the caller's own teardown
+		 * runs first, as it does for any close. */
+		struct BackendHostState *hs = app_backend_host(a);
+		if (hs)
+			hs->quit_later = true;
+		for (App *w = a->host->windows; w; w = w->next)
+			app_close_requested(w);
+		return NSTerminateLater;
+	}
+	app_close_requested(a);
 	return NSTerminateCancel;
 }
 
@@ -1599,6 +1627,10 @@ static void cocoa_host_close(App *a)
 	struct BackendHostState *hs = app_backend_host(a);
 	if (!hs)
 		return;
+	/* The last window is gone, and a system quit is waiting for it: the
+	 * answer that lets the session end (applicationShouldTerminate:). */
+	const bool answer = hs->quit_later;
+	hs->quit_later    = false;
 	@autoreleasepool {
 		if (hs->app_delegate) {
 			FnlCocoaAppDelegate *ad = CFBridgingRelease(hs->app_delegate);
@@ -1611,6 +1643,8 @@ static void cocoa_host_close(App *a)
 				NSApp.delegate = nil;
 		}
 		wake_close(a);
+		if (answer)
+			[NSApp replyToApplicationShouldTerminate:YES];
 	}
 	free(hs);
 	a->host->backend_host = NULL;

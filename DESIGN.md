@@ -1582,7 +1582,11 @@ two frames in flight, where one would have made every other refresh; the
 latch to screen at 60 fps on a light frame: the hold is waiting, not
 work. The period sample counts the wait
 (`App::display_block`), or the period would read short with the acquire
-no longer blocking; the parts line prints it as a part of its own. Not while rebuilds keep arriving (`PACE_HOLDOVER`): a
+no longer blocking; the parts line prints it as a part of its own.  The slack the
+controller measures counts that wait too (`late_latch_slack()` is given
+`display_block + present_block`): with the acquire no longer blocking, the
+present's block alone read near zero, the hold never started, and the
+X11 figure stayed at `hold 0.00`. Not while rebuilds keep arriving (`PACE_HOLDOVER`): a
 drag is held to the size handshake already, and the frame between two
 sizes waiting for the one before cost this desk's XWayland its border
 row, 44 fps where the shown waiter had made it 59; skipped there, 60 --

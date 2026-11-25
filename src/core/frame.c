@@ -110,8 +110,9 @@
 /* The --frame-times line's, a clock of its own: pace.py's border row
  * counts the lines a drag of so many seconds yields. Seconds. */
 #define FRAME_TIMES_WINDOW 0.5
-/* Idle retry while the window has no usable size. Seconds. */
-#define NO_SIZE_RETRY 0.010
+/* The longest wait while the window has no usable size; a size published
+ * ends it at once. Seconds. */
+#define NO_SIZE_WAIT_S 0.1
 /* How long after a state change a missing invitation is read as the
  * compositor being busy rather than the window being off screen. Seconds. */
 #define TRANSITION_GRACE 0.3
@@ -1246,10 +1247,11 @@ static void display_hold(App *a)
 		a->display_ahead  = DISPLAY_AHEAD;
 		a->display_misses = 0;
 	}
-	const uint32_t mhz  = fnl_atomic_load_u32(&a->out_refresh_mhz);
-	const double period = a->disp_period > 0.0 ? a->disp_period
-						  : mhz                ? 1000.0 / mhz
-											   : 0.0;
+	/* pace_period()'s, floored at the refresh: an estimate taken while the
+	 * swapchain did not throttle (Mesa GL's first half second, vblank_mode=0)
+	 * would cap each wait at a millisecond and read every frame as missed. */
+	bool every;
+	const double period = pace_period(a, &every);
 	const bool waited   = display_wait(a, a->display_ahead, period);
 	const double t1     = now_seconds();
 	a->display_block    = t1 - t0;
@@ -1789,8 +1791,13 @@ static void slack_learn(App *a, bool rebuilt, bool vsync, bool spaced)
 									  a->present_block, a->late_cost };
 			parts_period(a, parts, taken);
 
+			/* The display hold's wait is the block too: with it, the acquire
+			 * and the present no longer wait for the display, and the spare
+			 * time is spent there (display_hold()). Left out, the slack
+			 * reads near zero and the hold never starts. */
 			if (a->late_latch && a->late_fixed <= 0.0 && a->late_held >= 0.0)
-				late_latch_slack(a, a->late_held, a->present_block);
+				late_latch_slack(a, a->late_held,
+								 a->display_block + a->present_block);
 		}
 	}
 }
@@ -1849,8 +1856,9 @@ static bool rest_owed(App *a, bool changed, bool figures, double latched,
 		return true;
 	if (changed || a->rest_settle > 0 || a->presents <= REST_AFTER_PRESENTS) {
 		if (a->resting) {
-			a->resting     = false;
-			a->late_settle = LATE_SLACK_SETTLE;
+			a->resting       = false;
+			a->late_settle   = LATE_SLACK_SETTLE;
+			a->late_cb_floor = a->late_cb_turn;
 			a->pace_at     = latched;
 			if (!sampling) {
 				a->fps_last_t = a->fc_last_t = latched;
@@ -1983,8 +1991,10 @@ void *render_loop(void *arg)
 	fnl_mutex_unlock(&a->lock);
 	a->gpu_late_n = 0;
 	/* fnl_run() left the device before starting this thread, and enters it
-	 * again after the join. */
-	RENDERER(a)->thread_enter(a);
+	 * again after the join. A window still owed a renderer (a swap that
+	 * failed both ways in an earlier run) has none to enter. */
+	if (a->renderer)
+		RENDERER(a)->thread_enter(a);
 
 	for (;;) {
 		if (a->resting)
@@ -2064,7 +2074,14 @@ void *render_loop(void *arg)
 				app_mark_urgent(a);
 			/* Minimized, on Win32 and Cocoa: no lift is seen. */
 			veil_unseen(a);
-			fnl_sleep_seconds(NO_SIZE_RETRY);
+			/* On the condition, not a sleep: the size a restore publishes
+			 * signals it (and Win32's size_await() is waiting on that
+			 * frame), where a sleep would turn the loop a hundred times a
+			 * second through a minimize for nothing. */
+			fnl_mutex_lock(&a->lock);
+			if (!a->quit && (a->want_w == 0 || a->want_h == 0))
+				fnl_cond_wait_for(&a->cond, &a->lock, NO_SIZE_WAIT_S);
+			fnl_mutex_unlock(&a->lock);
 			continue;
 		}
 
@@ -2235,8 +2252,11 @@ void *render_loop(void *arg)
 			a->draw_scene_h = scene_h;
 		}
 
-		if (rebuild && !swapchain_adopt(a, &l, m))
+		if (rebuild && !swapchain_adopt(a, &l, m)) {
+			if (urgent) /* no frame drawn, so still owed; see above */
+				app_mark_urgent(a);
 			continue;
+		}
 		/* Not where the latch brought a size after all: that one has not
 		 * stood, and its own rest asks again. */
 		if (settle && app_buffer_at_rest(a))
@@ -2270,7 +2290,17 @@ void *render_loop(void *arg)
 		/* The instrument runs under --no-late-latch and a pinned delay too.
 		 * Only where frames are invited, so it reads 0/0 on every backend
 		 * but Wayland. */
-		if (a->timing && BACKEND(a)->invites && cb_at > 0.0 &&
+		/* Not at rest, and after a wake the first new invitation only
+		 * rebases the two (App::late_cb_floor): the gap across a rest is no
+		 * missed frame. */
+		a->late_cb_turn = cb_at;
+		const bool inv_live = !a->resting && a->late_cb_floor <= 0.0;
+		if (!a->resting && a->late_cb_floor > 0.0 &&
+			cb_at > a->late_cb_floor) {
+			a->late_prev_disp = a->inst_prev = cb_at;
+			a->late_cb_floor  = 0.0;
+		}
+		if (inv_live && a->timing && BACKEND(a)->invites && cb_at > 0.0 &&
 			cb_at != a->inst_prev && a->presents > LATE_SETTLE_PRESENTS)
 			inst_sample(a, cb_at);
 
@@ -2278,8 +2308,9 @@ void *render_loop(void *arg)
 		 * only one backend writes is a permanent zero on the others, which
 		 * reads as "no signal" rather than "no invitations". cb_at keeps it
 		 * off the frames before the first callback. */
-		if (a->late_latch && a->late_fixed <= 0.0 && BACKEND(a)->invites &&
-			cb_at > 0.0 && cb_at != a->late_prev_disp &&
+		if (inv_live && a->late_latch && a->late_fixed <= 0.0 &&
+			BACKEND(a)->invites && cb_at > 0.0 &&
+			cb_at != a->late_prev_disp &&
 			a->presents > LATE_SETTLE_PRESENTS)
 			late_latch_feedback(a, cb_at);
 

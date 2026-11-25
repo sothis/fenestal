@@ -54,9 +54,20 @@ THREAD = re.compile(r'\[(main|any|overlay)\]|\bon_record\b')
 LICENCE_LINE = re.compile(r'SPDX-[\w-]+:|Copyright \(c\)|Written in \d{4} by')
 
 
+def must(match, what):
+    """The group of a regex match, or a line that says what was not found:
+    a header that breaks the pattern is a build error to read, not a crash."""
+    if match is None:
+        sys.exit('mkapidoc: could not read %s' % what)
+    return match
+
+
 def read(path):
-    with open(os.path.join(ROOT, path), encoding='utf-8') as fh:
-        return fh.read()
+    try:
+        with open(os.path.join(ROOT, path), encoding='utf-8') as fh:
+            return fh.read()
+    except OSError as e:
+        sys.exit('mkapidoc: %s' % e)
 
 
 def comments(text):
@@ -80,7 +91,8 @@ def declarations(blank):
         start = m.start()
         if blank.startswith('FNL_API', start):
             end = blank.index(';', start) + 1
-            name = re.search(r'(fnl_\w+)\s*\(', blank[start:end]).group(1)
+            name = must(re.search(r'(fnl_\w+)\s*\(', blank[start:end]),
+                        'the function at %d' % start).group(1)
             out.append((start, end, name, 'function'))
             continue
         brace, semi = blank.find('{', start), blank.find(';', start)
@@ -92,12 +104,14 @@ def declarations(blank):
                     break
                 j += 1
             end = blank.index(';', j) + 1
-            name = re.search(r'\}\s*(\w+)\s*;$', blank[start:end]).group(1)
+            name = must(re.search(r'\}\s*(\w+)\s*;$', blank[start:end]),
+                        'the typedef at %d' % start).group(1)
         else:
             end = semi + 1
             fp = re.search(r'\(\s*\*\s*(\w+)\s*\)', blank[start:end])
-            name = fp.group(1) if fp else \
-                re.search(r'(\w+)\s*;$', blank[start:end]).group(1)
+            name = fp.group(1) if fp else must(
+                re.search(r'(\w+)\s*;$', blank[start:end]),
+                'the declaration at %d' % start).group(1)
         out.append((start, end, name, 'type'))
     return out
 
@@ -120,6 +134,8 @@ def parse(path):
 
     events = [(a, 'comment', (a, b, body)) for a, b, body in cms] + \
              [(d[0], 'decl', d) for d in declarations(blank)]
+    # (start, end, name, kind) for a declaration, (start, end, body) for a
+    # comment: told apart by `kind` below, so each is unpacked as its own.
     events.sort(key=lambda e: e[0])
 
     sections = [{'title': os.path.basename(path), 'prose': '', 'items': []}]
@@ -132,7 +148,7 @@ def parse(path):
                 sections.append({'title': m.group(1), 'prose': m.group(2),
                                  'items': []})
             continue
-        start, end, name, k = e
+        start, end, name, k = e  # a declaration: see `events`
         doc = ''
         for a, b, body in cms:
             # Directly above: nothing but whitespace between, and not a
@@ -158,7 +174,9 @@ def parse(path):
                 continue
             if it['doc']:
                 last_doc = it['doc']
-            else:
+            elif last_doc:
+                # Described by the comment of the one before it; the first
+                # of a section with none has no comment, and check() says so.
                 it['shared'] = True
             m = THREAD.search(it['tail']) or THREAD.search(it['doc'] or
                                                            last_doc)
@@ -171,13 +189,19 @@ def snippets():
     d = os.path.join(ROOT, SNIPPETS)
     if not os.path.isdir(d):
         return out
-    for f in sorted(os.listdir(d)):
+    try:
+        names = sorted(os.listdir(d))
+    except OSError as e:
+        sys.exit('mkapidoc: %s' % e)
+    for f in names:
         if not f.endswith(SOURCES):
             continue
         src = read(os.path.join(SNIPPETS, f))
         # The list wraps over lines of its own, so it runs to a blank
         # comment line or the comment's end, not to the first newline.
         m = re.search(r'Shows:(.*?)(?:\n[ \t]*\*?[ \t]*\n|\*/)', src, re.S)
+        if m is None and 'Shows' in src:
+            sys.exit('mkapidoc: %s: the Shows: list is not read' % f)
         # The title is the first comment's first line after the licence
         # lines every file opens with.
         cms = comments(src)
@@ -199,8 +223,11 @@ CODE_SKIP = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\''
 @functools.cache
 def code_of(path):
     """A source's text with its comments blanked."""
-    with open(path, encoding='utf-8') as fh:
-        text = fh.read()
+    try:
+        with open(path, encoding='utf-8') as fh:
+            text = fh.read()
+    except OSError as e:
+        sys.exit('mkapidoc: %s' % e)
     return CODE_SKIP.sub(
         lambda m: m.group(0) if m.group(0)[0] in '"\'' else ' ', text)
 
@@ -377,12 +404,16 @@ def main():
         return 0
 
     h = read(HEADERS[0])
-    version = '.'.join(re.search(r'FNL_VERSION_%s (\d+)' % k, h).group(1)
+    version = '.'.join(must(re.search(r'FNL_VERSION_%s (\d+)' % k, h),
+                            'FNL_VERSION_%s' % k).group(1)
                        for k in ('MAJOR', 'MINOR', 'PATCH'))
-    os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, 'index.html')
-    with open(path, 'w', encoding='utf-8') as fh:
-        fh.write(render(all_sections, snippets(), version))
+    try:
+        os.makedirs(args.out, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(render(all_sections, snippets(), version))
+    except OSError as e:
+        sys.exit('mkapidoc: %s' % e)
     if not args.quiet:
         print(path)
     elif not problems:

@@ -1410,6 +1410,9 @@ static void on_focus(App *a, bool in)
 	 * is dropped; and the keys already down are seeded before the caller
 	 * hears about the focus, so fnl_key_down() already answers by then. */
 	app_keys_clear(a);
+	/* Nor does the low half of a pair cut by the move: a later lone one
+	 * must not be joined to this high one. */
+	a->backend_state->char_high = 0;
 	if (in)
 		seed_held_keys(a);
 	/* The confinement goes with the focus and the capture does not.

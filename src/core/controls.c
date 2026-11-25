@@ -496,8 +496,12 @@ static int ctl_gpu_gap(const App *a)
  * only where the window is the output. */
 int ctl_run_w(const App *a)
 {
-	return ctl_checks_w(a) + (BACKEND(a)->is_output ? ctl_output_room() : 0) +
-		   ctl_gpu_w(a) + ctl_gpu_gap(a) + ctl_combo_w(a);
+	/* Only where the box is wanted: ctl_output_w() draws none otherwise,
+	 * and an empty stretch in the run would answer presses as the size
+	 * box's. */
+	const bool out = BACKEND(a)->is_output && ctl_wanted(a, FNL_TITLEBAR_OUTPUT);
+	return ctl_checks_w(a) + (out ? ctl_output_room() : 0) + ctl_gpu_w(a) +
+		   ctl_gpu_gap(a) + ctl_combo_w(a);
 }
 
 /* Whether the output box is in the run of a window w wide. Where the window
@@ -851,6 +855,10 @@ static bool ctl_list(const App *a, int win_w, CtlList *l)
 		}
 		ctl_list_hang(l, ctl_gpu_x(a, win_w, rx), ctl_gpu_w(a), widest);
 	} else {
+		/* No box, no list: one of no width would still hold every press
+		 * (ctl_modal()) where nothing is seen. */
+		if (ctl_combo_w(a) <= 0)
+			return false;
 		l->x = ctl_size_x(a, win_w, rx);
 		l->w = ctl_combo_w(a);
 		l->n = ctl_options(a, l->size, CTL_MAX_ITEMS, &l->now);

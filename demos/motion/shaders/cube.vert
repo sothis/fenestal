@@ -10,7 +10,8 @@
  * together. */
 layout(push_constant) uniform Push {
 	mat4 mvp;
-	vec4 light;     /* xyz: towards the light, in the cube's own space */
+	vec4 light;     /* xyz: towards the light, in the cube's own space;
+	                   w: the target's SDR white, sdr_scale */
 	uint srgb;      /* nonzero when the target holds linear light as written */
 } pc;
 
@@ -61,7 +62,10 @@ void main()
 	/* Lit here, once a vertex: a face is flat, so every vertex of it gets
 	 * the same answer. In linear, the only space lighting is right in. */
 	const float diffuse = max(dot(n, pc.light.xyz), 0.0);
-	const vec3 lit = srgb_decode(COLOR[face]) * (0.18 + 0.82 * diffuse);
+	/* Times the target's SDR white (light.w): light is authored against it, and
+	 * on scRGB that is 2.5 of the target's 1.0. */
+	const vec3 lit = srgb_decode(COLOR[face]) * (0.18 + 0.82 * diffuse) *
+					 pc.light.w;
 
 	/* An _SRGB target encodes what is written to it, and HDR's float
 	 * one holds it as written; any other target must be encoded here

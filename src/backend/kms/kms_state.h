@@ -285,9 +285,11 @@ struct BackendHostState {
 	KeyCompose   compose;
 	uint8_t      down[0x300 / 8];
 	bool         caps_on, num_on, leds_known;
-	/* Whether the key right of the space bar is AltGr in this layout, or Alt;
-	 * read from the keymap. */
-	bool         ralt_is_level3;
+	/* The modifier role of each key (kms.c's ROLE_*), by evdev code, in each
+	 * group: the layout's keysyms say which key is Shift, Caps Lock, AltGr
+	 * and so on, group by group ("us,de" puts ISO_Level3_Shift in the
+	 * second alone). Built with the keymap. */
+	uint8_t      role[KEYMAP_GROUPS][KEYMAP_CODES];
 	/* The group typed in, of the groups the layout fills, kept here as the
 	 * locks are: a layout of "de,us" is two, switched by its group keys
 	 * (keymap_group_key()). And each group's layout as the log names it. */

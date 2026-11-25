@@ -280,16 +280,23 @@ static FnlResult create_device_objects(App *a)
 
 		/* The layer is the window's, and every device made for it is
 		 * handed it again: one rebuilt after a loss may be another GPU. */
+		/* In a transaction of their own, committed here: a rebuild runs on
+		 * the render thread, which has no run loop to commit the implicit
+		 * one, and every later transaction there would nest in it. */
+		[CATransaction begin];
+		[CATransaction setDisableActions:YES];
 		g->layer.device = g->device;
 		/* Before anything is built for it: the colour the drawables and
 		 * every colour image are made in, and the layer that presents
 		 * them. */
-		FNL_TRY(choose_colour(a));
+		const FnlResult colour = choose_colour(a);
 		/* Not framebuffer-only: the snapshot a move takes blits the
 		 * drawable's texture into a buffer (frame.m), which a
 		 * framebuffer-only drawable refuses. */
 		g->layer.framebufferOnly = NO;
 		g->layer.maximumDrawableCount = MT_DRAWABLES;
+		[CATransaction commit];
+		FNL_TRY(colour);
 		/* A build that fails with the layer given this device: what the
 		 * next renderer in the list then draws on is a layer Metal had
 		 * (DESIGN *One build per operating system*). */

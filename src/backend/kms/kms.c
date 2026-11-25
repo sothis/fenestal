@@ -439,6 +439,33 @@ static uint32_t connector_crtc(int fd, KmsOutput *o)
 	return 0;
 }
 
+/* The CRTCs, by index into GETRESOURCES' list, that one of the connector's
+ * encoders can be driven by; 0 where the kernel would not say. */
+static uint32_t connector_possible_crtcs(int fd, const KmsOutput *o)
+{
+	struct drm_mode_modeinfo one;
+	uint32_t enc[KMS_MAX_ENCODERS];
+	struct drm_mode_get_connector c = {
+		.connector_id   = o->connector_id,
+		.count_modes    = 1,
+		.modes_ptr      = (uintptr_t)&one,
+		.count_encoders = KMS_MAX_ENCODERS,
+		.encoders_ptr   = (uintptr_t)enc,
+	};
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c) < 0)
+		return 0;
+	const uint32_t nenc = c.count_encoders < KMS_MAX_ENCODERS
+							  ? c.count_encoders
+							  : KMS_MAX_ENCODERS;
+	uint32_t mask = 0;
+	for (uint32_t i = 0; i < nenc; i++) {
+		struct drm_mode_get_encoder e = { .encoder_id = enc[i] };
+		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETENCODER, &e) == 0)
+			mask |= e.possible_crtcs;
+	}
+	return mask;
+}
+
 /* Whether this output can scan out PQ, into KmsOutput::hdr_ok and max_lum
  * (defined with the other connector reads below). */
 static void output_hdr_probe(int fd, KmsOutput *o);
@@ -670,15 +697,81 @@ static FnlResult open_output(struct BackendHostState *hs)
  * place, for this backend alone: under a window server the layout is the
  * session's, and core answers the variable with one line there. */
 
+/* What a key does to the modifier state, by the keysym on its first level:
+ * this backend keeps the state itself (on a bare output nobody reports it),
+ * so it reads the roles from the layout and not from the key's place. */
+enum {
+	ROLE_SHIFT  = 1 << 0,
+	ROLE_CTRL   = 1 << 1,
+	ROLE_ALT    = 1 << 2,
+	ROLE_SUPER  = 1 << 3,
+	ROLE_CAPS   = 1 << 4,
+	ROLE_NUM    = 1 << 5,
+	ROLE_LEVEL3 = 1 << 6,
+};
+
 #define KEYSYM_ISO_LEVEL3_SHIFT 0xfe03u
 
-/* Which keys are AltGr in this layout: the ones whose plain level is
- * ISO_Level3_Shift. Every other modifier is a key this backend knows by its
- * code. */
-static void keymap_note_level3(struct BackendHostState *hs)
+static uint8_t role_of_keysym(uint32_t k)
 {
-	hs->ralt_is_level3 =
-		hs->keymap.sym[KEY_RIGHTALT + 8][0][0] == KEYSYM_ISO_LEVEL3_SHIFT;
+	switch (k) {
+	case 0xffe1: case 0xffe2:            return ROLE_SHIFT;  /* Shift_L/R */
+	case 0xffe3: case 0xffe4:            return ROLE_CTRL;   /* Control_L/R */
+	case 0xffe5:                         return ROLE_CAPS;   /* Caps_Lock */
+	case 0xffe7: case 0xffe8:            /* Meta_L/R */
+	case 0xffe9: case 0xffea:            return ROLE_ALT;    /* Alt_L/R */
+	case 0xffeb: case 0xffec:            return ROLE_SUPER;  /* Super_L/R */
+	case 0xff7f:                         return ROLE_NUM;    /* Num_Lock */
+	case KEYSYM_ISO_LEVEL3_SHIFT:        return ROLE_LEVEL3;
+	default:                             return 0;
+	}
+}
+
+/* The roles of every key in every group, indexed by evdev code (the keymap
+ * is by X code, which is that plus 8). Built where the keymap is loaded and
+ * not per key: the defaults are the keys' usual codes, for a keymap that
+ * names none; a code the keymap gives symbols keeps only what its keysyms
+ * say, so Caps Lock under ctrl:nocaps is Control. */
+static void keymap_note_roles(struct BackendHostState *hs)
+{
+	static const struct { unsigned code; uint8_t role; } DEFAULT[] = {
+		{ KEY_LEFTSHIFT, ROLE_SHIFT },  { KEY_RIGHTSHIFT, ROLE_SHIFT },
+		{ KEY_LEFTCTRL, ROLE_CTRL },    { KEY_RIGHTCTRL, ROLE_CTRL },
+		{ KEY_LEFTALT, ROLE_ALT },      { KEY_RIGHTALT, ROLE_ALT },
+		{ KEY_LEFTMETA, ROLE_SUPER },   { KEY_RIGHTMETA, ROLE_SUPER },
+		{ KEY_CAPSLOCK, ROLE_CAPS },    { KEY_NUMLOCK, ROLE_NUM },
+	};
+	for (unsigned g = 0; g < KEYMAP_GROUPS; g++)
+		for (unsigned c = 0; c < KEYMAP_CODES; c++)
+			hs->role[g][c] = 0;
+	for (size_t i = 0; i < sizeof DEFAULT / sizeof DEFAULT[0]; i++)
+		for (unsigned g = 0; g < KEYMAP_GROUPS; g++)
+			hs->role[g][DEFAULT[i].code] = DEFAULT[i].role;
+	for (unsigned code = 0; code + 8u < KEYMAP_CODES; code++) {
+		const unsigned x = code + 8u;
+		bool any = false;
+		for (unsigned g = 0; g < KEYMAP_GROUPS; g++)
+			for (unsigned l = 0; l < KEYMAP_LEVELS; l++)
+				any = any || hs->keymap.sym[x][g][l];
+		if (!any)
+			continue;
+		for (unsigned g = 0; g < KEYMAP_GROUPS; g++) {
+			/* A group with nothing on the key takes the first group's, as
+			 * typing does (keymap_lookup()). */
+			bool empty = true;
+			for (unsigned l = 0; l < KEYMAP_LEVELS; l++)
+				empty = empty && !hs->keymap.sym[x][g][l];
+			hs->role[g][code] =
+				role_of_keysym(hs->keymap.sym[x][empty ? 0 : g][0]);
+		}
+	}
+}
+
+/* The role of an evdev code in the group typed in; 0 out of the table. */
+static uint8_t key_role(const struct BackendHostState *hs, unsigned code)
+{
+	return code < KEYMAP_CODES ? hs->role[hs->group % KEYMAP_GROUPS][code]
+							   : 0;
 }
 
 /* "de(nodeadkeys),us caps:none": the names as FNL_KMS_LAYOUT spells them,
@@ -756,7 +849,7 @@ static void keymap_load(struct BackendHostState *hs)
 		fnl_log(FNL_LOG_INFO, "KMS: layout %s, %s%s%s", shown, from,
 				detail[0] ? "; left out: " : "", detail);
 	}
-	keymap_note_level3(hs);
+	keymap_note_roles(hs);
 	keymap_group_names(hs, &names);
 	hs->group  = 0;
 	hs->groups = keymap_groups(&hs->keymap);
@@ -1214,13 +1307,6 @@ static void publish_mode(App *a)
 
 /* ---- the keyboard -------------------------------------------------------- */
 
-static bool held(const struct BackendState *p, unsigned code)
-{
-	const struct BackendHostState *hs = p->host;
-	return code < 8u * sizeof hs->down &&
-		   (hs->down[code / 8] >> (code % 8)) & 1u;
-}
-
 static void held_set(struct BackendState *p, unsigned code, bool on)
 {
 	if (code >= 8u * sizeof p->host->down)
@@ -1240,20 +1326,32 @@ static App *kms_focus(App *a)
 	return f ? f : a;
 }
 
-/* The modifiers, worked out from the keys held: on a bare output nobody
- * reports them, and the locks are this backend's own toggles. */
+/* The modifiers, worked out from the keys held and their roles in the group
+ * typed in: on a bare output nobody reports them, and the locks are this
+ * backend's own toggles. */
 static KeyMods kb_mods(const struct BackendState *p)
 {
 	struct BackendHostState *hs = p->host;
-	const bool ralt  = held(p, KEY_RIGHTALT);
-	const bool alt   = held(p, KEY_LEFTALT) || (ralt && !hs->ralt_is_level3);
-	const bool ctrl  = held(p, KEY_LEFTCTRL) || held(p, KEY_RIGHTCTRL);
-	const bool super = held(p, KEY_LEFTMETA) || held(p, KEY_RIGHTMETA);
+	bool shift = false, ctrl = false, alt = false, super = false, l3 = false;
+	for (unsigned i = 0; i < sizeof hs->down; i++) {
+		if (!hs->down[i])
+			continue;
+		for (unsigned b = 0; b < 8; b++) {
+			if (!((hs->down[i] >> b) & 1u))
+				continue;
+			const uint8_t r = key_role(hs, i * 8u + b);
+			shift = shift || (r & ROLE_SHIFT);
+			ctrl  = ctrl || (r & ROLE_CTRL);
+			alt   = alt || (r & ROLE_ALT);
+			super = super || (r & ROLE_SUPER);
+			l3    = l3 || (r & ROLE_LEVEL3);
+		}
+	}
 	return (KeyMods){
-		.shift   = held(p, KEY_LEFTSHIFT) || held(p, KEY_RIGHTSHIFT),
+		.shift   = shift,
 		.lock    = hs->caps_on,
 		.num     = hs->num_on,
-		.level3  = ralt && hs->ralt_is_level3,
+		.level3  = l3,
 		.command = alt || ctrl || super,
 		.group   = hs->group,
 		.alt     = alt,
@@ -1348,10 +1446,16 @@ static void on_key(App *a, unsigned code, int value)
 		return;
 	}
 	const bool pressed = value != 0;
-	held_set(p, code, pressed);
+	/* The group key's level from the modifiers held before it, as XKB
+	 * takes it: counted with its own, Left Alt under grp:alts_toggle (or
+	 * Shift under shifts_toggle) would switch the group at every press. */
 	const bool grouped = pressed && group_switch(p, code);
-	if (pressed && !grouped && (code == KEY_CAPSLOCK || code == KEY_NUMLOCK)) {
-		if (code == KEY_CAPSLOCK)
+	held_set(p, code, pressed);
+	/* By the layout's keysym, as the modifiers are: under ctrl:nocaps the
+	 * Caps Lock key is Control and toggles nothing. */
+	const uint8_t role = key_role(hs, code);
+	if (pressed && !grouped && (role & (ROLE_CAPS | ROLE_NUM))) {
+		if (role & ROLE_CAPS)
 			hs->caps_on = !hs->caps_on;
 		else
 			hs->num_on = !hs->num_on;
@@ -2175,6 +2279,10 @@ static bool flip_wait(App *a, int ms)
 {
 	struct BackendState *p      = a->backend_state;
 	struct BackendHostState *hs = p->host;
+	/* One deadline for the whole wait: another window's completions wake the
+	 * poll, and a timeout restarted at each would never run out while that
+	 * window flips faster than `ms`. */
+	const double deadline = now_seconds() + ms / 1000.0;
 	for (;;) {
 		fnl_mutex_lock(&hs->flip_lock);
 		const bool pending = p->flip_pending;
@@ -2193,7 +2301,10 @@ static bool flip_wait(App *a, int ms)
 			fnl_mutex_unlock(&hs->ev_lock);
 			return true;
 		}
-		const int r = poll(&pf, 1, ms);
+		const double left = deadline - now_seconds();
+		/* Past it, still one look that does not wait: a completion already
+		 * queued is read, which is all a wait of 0 ms asks. */
+		const int r = poll(&pf, 1, left > 0.0 ? (int)(left * 1000.0) + 1 : 0);
 		if (r < 0 && errno == EINTR) {
 			fnl_mutex_unlock(&hs->ev_lock);
 			continue;
@@ -2324,9 +2435,17 @@ int kms_scan_begin(App *a)
 		const bool anew       = show != p->scan_sel ||
 						  resets != p->scan_resets_seen ||
 						  now_seconds() - p->scan_failed_at >= KMS_SCAN_RETRY_S;
-		if (!anew)
+		if (!anew) {
+			/* The flip is this path's only throttle: without it a refused
+			 * output has the renderer drawing flat out for nothing. About a
+			 * refresh, so a new selection is still taken at once. */
+			fnl_sleep_seconds(0.016);
 			return -1;
+		}
 		p->scan_failed = false;
+		/* A flip refused on a CRTC that has since been unbound would be
+		 * refused again: the retry sets the mode. */
+		p->scan_set_owed = true;
 	}
 	/* The pair is of the colour the renderer last published: a device that
 	 * came back onto or off HDR leaves the other format's pair, retired as
@@ -2529,8 +2648,11 @@ static uint32_t scan_crtc_pick(const struct BackendState *p,
 			if (crtcs[j] == c)
 				busy |= 1u << j;
 	}
+	/* Only a CRTC one of the connector's encoders reaches: where the routing
+	 * is fixed (vc4, older i915) any other is a set refused for good. */
+	const uint32_t reach = connector_possible_crtcs(hs->card_fd, out);
 	for (uint32_t j = 0; j < n; j++) {
-		if (busy & (1u << j))
+		if ((busy & (1u << j)) || (reach && !(reach & (1u << j))))
 			continue;
 		struct drm_mode_crtc c = { .crtc_id = crtcs[j] };
 		if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETCRTC, &c) == 0 &&
@@ -2839,8 +2961,14 @@ static void kms_present_pixels(App *a, const void *px, int w, int h,
 	if (back < 0)
 		return;
 	const struct drm_mode_modeinfo *mode = kms_sel_mode(p, p->scan_sel);
-	const int cw             = w < mode->hdisplay ? w : mode->hdisplay;
-	const int ch             = h < mode->vdisplay ? h : mode->vdisplay;
+	/* The pair's own size as well as the mode's: a pair taken over from
+	 * the CRTC's mode (kms_scanout_take()) need not be the selection's. */
+	int cw = w < mode->hdisplay ? w : mode->hdisplay;
+	int ch = h < mode->vdisplay ? h : mode->vdisplay;
+	if (cw > (int)p->scan.w)
+		cw = (int)p->scan.w;
+	if (ch > (int)p->scan.h)
+		ch = (int)p->scan.h;
 	const unsigned char *src = px;
 	const bool scan10        = p->scan.fourcc == DRM_FORMAT_XRGB2101010;
 	for (int y = 0; y < ch; y++) {
@@ -2971,14 +3099,19 @@ static size_t edid_read(int fd, const KmsOutput *o, unsigned char *edid,
 			blob = (uint32_t)values[i];
 	if (!blob)
 		return 0;
-	struct drm_mode_get_blob gb = {
-		.blob_id = blob,
-		.length  = (uint32_t)cap,
-		.data    = (uintptr_t)edid,
-	};
-	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPBLOB, &gb) < 0)
+	/* Asked twice: the kernel copies the blob only when the length given is
+	 * exactly the blob's, and writes the real length back either way, so a
+	 * buffer's capacity in its place copies nothing and leaves `edid` as it
+	 * was. One longer than the buffer is not read at all. */
+	struct drm_mode_get_blob gb = { .blob_id = blob };
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPBLOB, &gb) < 0 || gb.length == 0 ||
+		gb.length > cap)
 		return 0;
-	return gb.length;
+	const uint32_t len = gb.length;
+	gb.data            = (uintptr_t)edid;
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPBLOB, &gb) < 0 || gb.length != len)
+		return 0;
+	return len;
 }
 
 /* The HDR static metadata block of the EDID's CTA-861 extension, where it
@@ -3044,6 +3177,27 @@ static void output_hdr_probe(int fd, KmsOutput *o)
  * it cached whatever CRTC it now has (26.2.4, and main), and a connector
  * left unbound got the first free CRTC beside the old one's plane, which
  * the kernel refuses ("Invalid CRTC for plane"), every swapchain after. */
+/* Whether `crtc` scans out nothing or one of this window's pairs. The pump
+ * gives an output up as soon as the window leaves it, and the render thread
+ * darkens it a frame later; a CRTC another window has set its mode on in
+ * between shows that window's framebuffer, and is not ours to unbind. The
+ * caller holds crtc_lock. */
+static bool scan_shows_ours(const struct BackendState *p, uint32_t crtc)
+{
+	struct drm_mode_crtc c = { .crtc_id = crtc };
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETCRTC, &c) < 0)
+		return false;
+	if (!c.fb_id)
+		return true;
+	const KmsScan *pairs[2 + KMS_PARKED] = { &p->scan, &p->scan_old };
+	for (int i = 0; i < KMS_PARKED; i++)
+		pairs[2 + i] = &p->scan_parked[i];
+	for (int i = 0; i < 2 + KMS_PARKED; i++)
+		if (c.fb_id == pairs[i]->fb[0] || c.fb_id == pairs[i]->fb[1])
+			return true;
+	return false;
+}
+
 void kms_output_off(App *a, int out, int shown, bool unbind)
 {
 	struct BackendState *p   = a->backend_state;
@@ -3053,7 +3207,7 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 	const uint32_t crtc = connector_live_crtc(hs->card_fd, &hs->outputs[out]);
 	const uint32_t keep =
 		connector_live_crtc(hs->card_fd, kms_out(p, shown));
-	if (!crtc || crtc == keep) {
+	if (!crtc || crtc == keep || (unbind && !scan_shows_ours(p, crtc))) {
 		fnl_mutex_unlock(&hs->crtc_lock);
 		return;
 	}
@@ -3755,6 +3909,9 @@ static FnlResult kms_host_open(App *a)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 						"out of memory for the KMS host state");
 	a->host->backend_host = hs;
+	/* The modifier roles of the usual keys, before any layout is read: a
+	 * keymap that fails to load keeps Shift, Ctrl, Alt and the locks. */
+	keymap_note_roles(hs);
 	loop_init(&hs->loop);
 	hs->wake.fd = hs->wake.wfd = -1;
 	hs->card_fd = hs->inotify_fd = hs->uevent_fd = -1;

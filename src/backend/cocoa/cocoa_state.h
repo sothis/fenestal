@@ -30,6 +30,9 @@
  * view, layer and delegates -- is in BackendState. See DESIGN *A second
  * window*. */
 struct BackendHostState {
+	/* A system quit (logout, restart, shutdown) was answered "later": the
+	 * reply is given when the host's last window has closed. Main thread. */
+	bool quit_later;
 	/* The wakeup: a pipe whose read end is a run-loop source, so a write --
 	 * the one thing a signal handler may do -- wakes the pump in every
 	 * run-loop mode, the tracking loops of a drag and a resize included.

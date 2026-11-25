@@ -405,9 +405,52 @@ static void make_timestamps(App *a)
 /* Everything below the factory, in dependency order. As on Vulkan: no
  * unwinding on failure, since destroy_device_objects() is safe on any
  * prefix -- every pointer is null until the call that made it succeeded. */
+/* The factory, the debug layer before any device, and whether the factory
+ * will present with tearing. */
+static FnlResult factory_make(struct RendererState *g)
+{
+	UINT flags = 0;
+#ifndef NDEBUG
+	/* Before the device, or it is not layered. Absent where Windows' Graphics
+	 * Tools are not installed, which is said once and is not a failure. */
+	ID3D12Debug *dbg = NULL;
+	if (SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&dbg))) {
+		ID3D12Debug_EnableDebugLayer(dbg);
+		ID3D12Debug_Release(dbg);
+		flags = DXGI_CREATE_FACTORY_DEBUG;
+	} else {
+		fnl_log(FNL_LOG_WARN, "the Direct3D 12 debug layer is not installed");
+	}
+#endif
+	HRESULT hr =
+		CreateDXGIFactory2(flags, &IID_IDXGIFactory4, (void **)&g->factory);
+	if (FAILED(hr) && flags)
+		hr = CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&g->factory);
+	if (FAILED(hr))
+		return d3d_fail(FNL_ERR_NO_DEVICE, "CreateDXGIFactory2", hr);
+	IDXGIFactory5 *f5 = NULL;
+	if (SUCCEEDED(IDXGIFactory4_QueryInterface(g->factory, &IID_IDXGIFactory5,
+											   (void **)&f5))) {
+		BOOL allow = FALSE;
+		g->tearing = false;
+		if (SUCCEEDED(IDXGIFactory5_CheckFeatureSupport(
+				f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof allow)))
+			g->tearing = allow != FALSE;
+		IDXGIFactory5_Release(f5);
+	}
+	return FNL_OK;
+}
+
 static FnlResult create_device_objects(App *a)
 {
 	struct RendererState *g = D3D(a);
+	/* A factory made before a driver update or a removal lists the adapters
+	 * that were: the rebuild picks from one made now, as d3d_list_gpus()
+	 * lists from one, so the two agree on the order. */
+	if (g->factory && !IDXGIFactory4_IsCurrent(g->factory)) {
+		D3D_RELEASE(g->factory);
+		FNL_TRY(factory_make(g));
+	}
 	FNL_TRY(choose_adapter(a));
 	HRESULT hr =
 		D3D12CreateDevice((IUnknown *)g->adapter, D3D_FEATURE_LEVEL_11_0,
@@ -591,37 +634,11 @@ static FnlResult d3d_create_instance(App *a)
 	if (!a->renderer_state)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory allocating the "
 											   "Direct3D 12 renderer's state");
-	struct RendererState *g = D3D(a);
-	UINT flags              = 0;
-#ifndef NDEBUG
-	/* Before the device, or it is not layered. Absent where Windows' Graphics
-	 * Tools are not installed, which is said once and is not a failure. */
-	ID3D12Debug *dbg = NULL;
-	if (SUCCEEDED(D3D12GetDebugInterface(&IID_ID3D12Debug, (void **)&dbg))) {
-		ID3D12Debug_EnableDebugLayer(dbg);
-		ID3D12Debug_Release(dbg);
-		flags = DXGI_CREATE_FACTORY_DEBUG;
-	} else {
-		fnl_log(FNL_LOG_WARN, "the Direct3D 12 debug layer is not installed");
-	}
-#endif
-	HRESULT hr =
-		CreateDXGIFactory2(flags, &IID_IDXGIFactory4, (void **)&g->factory);
-	if (FAILED(hr) && flags)
-		hr = CreateDXGIFactory2(0, &IID_IDXGIFactory4, (void **)&g->factory);
-	if (FAILED(hr)) {
+	FnlResult rc = factory_make(D3D(a));
+	if (rc < 0) {
 		free(a->renderer_state);
 		a->renderer_state = NULL;
-		return d3d_fail(FNL_ERR_NO_DEVICE, "CreateDXGIFactory2", hr);
-	}
-	IDXGIFactory5 *f5 = NULL;
-	if (SUCCEEDED(IDXGIFactory4_QueryInterface(g->factory, &IID_IDXGIFactory5,
-											   (void **)&f5))) {
-		BOOL allow = FALSE;
-		if (SUCCEEDED(IDXGIFactory5_CheckFeatureSupport(
-				f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof allow)))
-			g->tearing = allow != FALSE;
-		IDXGIFactory5_Release(f5);
+		return rc;
 	}
 	return FNL_OK;
 }
@@ -702,7 +719,13 @@ static bool d3d_occluded(App *a)
 		return false;
 	/* Not while the shown waiter is inside the swapchain's own figures:
 	 * the frame path skips Present there for the same reason. */
-	if (g->shown_busy)
+	bool busy = false;
+	if (g->shown_ready) {
+		fnl_mutex_lock(&g->shown_lock);
+		busy = g->shown_busy;
+		fnl_mutex_unlock(&g->shown_lock);
+	}
+	if (busy)
 		return g->occluded;
 	const HRESULT hr =
 		IDXGISwapChain3_Present(g->swapchain, 0, DXGI_PRESENT_TEST);

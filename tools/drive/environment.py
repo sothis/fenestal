@@ -188,6 +188,29 @@ class Unavailable(RuntimeError):
     it never started."""
 
 
+# What a program says of a machine that cannot run it at all: no display, no
+# driver, no device. Only these make a program that exited at its start a
+# skipped round; any other exit is the program failing, and the round fails
+# with what it said.
+MACHINE_GAP = re.compile(
+    r"no (display|X display|backend|Vulkan|Metal|OpenGL|device|Metal device|"
+    r"Vulkan physical devices)|no Vulkan driver would load|"
+    r"no OpenGL framework|DISPLAY is|WAYLAND_DISPLAY|cannot connect",
+    re.I)
+
+
+def exited_at_start(said):
+    """The exception for a program that was gone before it had a window: a
+    skip where what it said names a gap of the machine, a failure otherwise
+    (an ASan abort or a segfault in fnl_init() is a finding, not an absent
+    machine)."""
+    last = said[-1] if said else "silently"
+    text = "the program exited at start: %s" % last
+    if said and MACHINE_GAP.search(last):
+        return Unavailable(text)
+    return RuntimeError(text)
+
+
 class Window:
     """One toplevel of the program under test, as a round sees it with more
     than one open: the title it is found by, where it is in physical pixels,
@@ -925,12 +948,19 @@ class _Portal(Environment):
     def _heard_window(self):
         return 6.0 if self.slow else 1.5
 
-    def _heard(self, mark):
+    def _heard(self, mark, what=None):
+        """Whether something answered since `mark`: a key event of `what`'s
+        (any key where it is None), or text, a composition or a close. Not
+        another key's: the last key's release can land after this one's
+        mark, and would pass a key that was lost for delivered."""
         end = time.time() + self._heard_window()
         while time.time() < end:
             if not self.alive():
                 return True         # it closed the window, which is an answer
-            if any(e["kind"] in self.HEARD for e in self.since(mark)):
+            if any(e["kind"] in self.HEARD and
+                   (e["kind"] != "key" or what is None or
+                    e["parts"][1:2] == [what])
+                   for e in self.since(mark)):
                 return True
             time.sleep(POLL)
         return False
@@ -964,7 +994,7 @@ class _Portal(Environment):
         self._guard()
         m = self.mark()
         again()
-        if not self._heard(m):
+        if not self._heard(m, what):
             print("  (%s's third press was not delivered)" % what,
                   flush=True)
 
@@ -977,7 +1007,7 @@ class _Portal(Environment):
             self._guard()
             m = self.mark()
             send()
-            if self._heard(m):
+            if self._heard(m, what):
                 if attempt:
                     self._twice(what, first, again)
                 return True
@@ -1121,7 +1151,20 @@ class _Portal(Environment):
         put = ["gsettings", "set"] + self._DESK_KEY[2:]
 
         def undo():
-            subprocess.run(put + [was], timeout=10)
+            # Kept registered until it took: a refused write is said, and
+            # exit tries again.
+            try:
+                r = subprocess.run(put + [was], capture_output=True,
+                                   text=True, timeout=10)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                print("  THE DESK'S LAYOUTS WERE NOT PUT BACK (%s); they "
+                      "were %s" % (e, was), flush=True)
+                return
+            if r.returncode != 0:
+                print("  THE DESK'S LAYOUTS WERE NOT PUT BACK (%s); they "
+                      "were %s" % (r.stderr.strip() or "refused", was),
+                      flush=True)
+                return
             atexit.unregister(undo)
 
         atexit.register(undo)
@@ -1477,7 +1520,9 @@ class _XEnvironment(_Placed, _Portal):
                 self.X.d.intern_atom("_NET_FRAME_EXTENTS"), _X.AnyPropertyType)
             return tuple(p.value) if p else (0, 0, 0, 0)
         except Exception:
-            return (0, 0, 0, 0)
+            # Not read is not "none published": the check would pass on a
+            # BadWindow. None, which the caller fails on.
+            return None
 
     def reparented(self):
         """Whether a manager put a frame round it, and what it did instead.
@@ -2427,7 +2472,7 @@ class Win32VM(_Placed, _Portal):
         try:
             self.portal.run_begin()
             self._meet(W)
-        except Exception:
+        except Exception as e:
             # Gone before it had a window, as on the Linux machines
             # (WaylandBare.start()): what it said last is why this machine
             # cannot run it -- one with no Vulkan runtime, say.
@@ -2438,8 +2483,7 @@ class Win32VM(_Placed, _Portal):
             self.stop()
             self.close()
             if gone:
-                raise Unavailable("the program exited at start: %s"
-                                  % (said[-1] if said else "silently"))
+                raise exited_at_start(said) from e
             raise
         return self
 
@@ -3664,8 +3708,7 @@ class X11Bare(_OnBare, X11):
             self.stop()
             self.close()
             if gone:
-                raise Unavailable("the program exited at start: %s"
-                                  % (said[-1] if said else "silently"))
+                raise exited_at_start(said) from e
             if isinstance(e, D.Unreachable):
                 raise Unavailable(str(e))
             raise
@@ -3981,8 +4024,7 @@ class WaylandBare(_OnBare, Wayland):
                 # Gone before it had a window: what it said last is the
                 # reason this machine cannot run it, and no sweep finds it.
                 said = self.dump(3)
-                raise D.Unreachable("the program exited at start: %s"
-                                    % (said[-1] if said else "silently"))
+                raise exited_at_start(said)
             self.drv = W.Driver(self.portal, self.testbed, slow=self.slow,
                                 monitors=self.monitors)
             self.drv.find_window()

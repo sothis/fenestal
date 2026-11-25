@@ -69,6 +69,9 @@ static struct {
 	nvml_handle_fn   handle;
 	nvml_procs_fn    procs;
 } g_nvml;
+/* Process-wide like g_nvml, which each GL window's render thread reaches:
+ * one window's release must not shut NVML down under another's sample. */
+static FnlMutex g_nvml_lock = FNL_MUTEX_STATIC;
 
 /* One symbol into its typed pointer: fnl_lib_sym() hands back a generic
  * function pointer, and the copy names no cast between pointer kinds. */
@@ -206,11 +209,13 @@ static bool fdinfo_mib(const char *driver, double *mib)
 void gl_memory_release(void)
 {
 #if defined(__linux__)
+	fnl_mutex_lock(&g_nvml_lock);
 	if (g_nvml.ready)
 		(void)g_nvml.shutdown();
 	g_nvml.ready = false;
 	if (g_nvml.lib)
 		g_nvml.tried = false;
+	fnl_mutex_unlock(&g_nvml_lock);
 #endif
 }
 
@@ -220,8 +225,13 @@ bool gl_gpu_memory(App *a, double *mib)
 	/* By the name the context gives the GPU: NVIDIA's own driver names it
 	 * plainly, Mesa's put their own in front ("Mesa Intel(R)", "zink"). */
 	const char *gpu = RENDERER(a)->device_name(a);
-	if (strstr(gpu, "NVIDIA") && !strstr(gpu, "zink") && !strstr(gpu, "NVK"))
-		return nvml_mib(mib);
+	if (strstr(gpu, "NVIDIA") && !strstr(gpu, "zink") &&
+		!strstr(gpu, "NVK")) {
+		fnl_mutex_lock(&g_nvml_lock);
+		const bool got = nvml_mib(mib);
+		fnl_mutex_unlock(&g_nvml_lock);
+		return got;
+	}
 	if (strstr(gpu, "Intel"))
 		return fdinfo_mib("i915", mib) || fdinfo_mib("xe", mib);
 	if (strstr(gpu, "AMD") || strstr(gpu, "Radeon"))
