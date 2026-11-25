@@ -2044,7 +2044,14 @@ if(WIN32)
         string(APPEND _def "    ${_sym}\n")
     endforeach()
     file(GENERATE OUTPUT ${FNL_GEN_DIR}/fenestal.def CONTENT "${_def}")
-    target_link_options(fenestal_shared PRIVATE ${FNL_GEN_DIR}/fenestal.def)
+    # link.exe wants a module-definition file named by /DEF: and refuses it
+    # as a bare input (LNK1107); mingw's ld takes it as the input it is.
+    if(MSVC)
+        target_link_options(fenestal_shared PRIVATE
+                            "/DEF:${FNL_GEN_DIR}/fenestal.def")
+    else()
+        target_link_options(fenestal_shared PRIVATE ${FNL_GEN_DIR}/fenestal.def)
+    endif()
     set_property(TARGET fenestal_shared APPEND PROPERTY
                  LINK_DEPENDS ${FNL_GEN_DIR}/fenestal.def)
     # mingw's gcc links a -shared image against libgcc_s_seh-1.dll, which
