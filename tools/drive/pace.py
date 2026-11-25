@@ -432,6 +432,13 @@ def measure_bare(b, variant, rate, seconds, settle, window, extra):
         if proc and proc.poll() is None:
             proc.kill()
             proc.wait()
+        # The program there outlives its local ssh when it is hung: the
+        # machine's own clean lets go of the display, the node and the GPU
+        # now rather than at the next round's start.
+        try:
+            box.kill_stale()
+        except Exception:
+            pass
         box.close()
         b.box = None
     if wine:

@@ -188,6 +188,10 @@ static FnlResult dxgi_open(App *a, VkExtent2D e)
 		? (PFN_D3D11_CREATE_DEVICE)(void (*)(void))GetProcAddress(
 			  d->d3d11, "D3D11CreateDevice")
 		: NULL;
+	/* Undefined on failure, which dxgi_partial_drop() would then release:
+	 * nulled before the call. */
+	d->dev = NULL;
+	d->ctx = NULL;
 	HRESULT hr = make ? make((IDXGIAdapter *)ad, D3D_DRIVER_TYPE_UNKNOWN,
 							 NULL, D3D11_CREATE_DEVICE_BGRA_SUPPORT, NULL, 0,
 							 D3D11_SDK_VERSION, &d->dev, NULL, &d->ctx)
@@ -195,6 +199,9 @@ static FnlResult dxgi_open(App *a, VkExtent2D e)
 	IDXGIAdapter1_Release(ad);
 	if (FAILED(hr)) {
 		IDXGIFactory2_Release(f);
+		/* The d3d11.dll this loaded goes too: a next try loads it again,
+		 * and the reference left would be a module a retry never frees. */
+		dxgi_partial_drop(d);
 		return fnl_fail(FNL_ERR_NO_DEVICE, "DXGI present: D3D11CreateDevice "
 						"0x%08lx", (unsigned long)hr);
 	}

@@ -1796,8 +1796,12 @@ struct FnlApp {
 	int inst_frames;
 
 	/* Bumped whenever the frame must be recorded again, and the draw state
-	 * the last recording was made from. */
+	 * the last recording was made from. records_stale asks for that bump
+	 * after the frame it happened in: a caller image destroyed inside a
+	 * recording cannot bump it any earlier, or the recording that still
+	 * names the image would be stamped with the new generation. */
 	uint32_t record_gen;
+	bool records_stale;
 	FnlDrawState last_draw;
 	/* The loop at rest (rest_owed() in src/core/frame.c): whether the last
 	 * turn drew nothing, record_gen as the last submitted frame left it, and
@@ -2127,6 +2131,12 @@ struct FnlApp {
 	 * only when it was not. */
 	bool display_peak_said;
 	bool quit;
+	/* An event has been posted since the render thread last came to rest:
+	 * set under the lock with the wake-up, cleared by rest_wait(), which
+	 * then draws rather than waits -- so a post between the turn's event
+	 * check and the wait is not a wake lost for a display period. It also
+	 * bounds the wake-ups to one a batch rather than one an event. */
+	bool ev_wake;
 	Zone hovered_button;
 
 	/* The newest configure the compositor has sent, and whether it is still

@@ -44,7 +44,12 @@ APIS = {
     'x11':     r'\b(?:xcb_\w+|XCB_[A-Z]\w*)\b',
     'win32':   r'\b(?:HWND|HINSTANCE|WNDCLASS\w*|LRESULT|WPARAM|LPARAM|MSG|'
                r'WS_\w+|CreateWindowEx\w*|DefWindowProc\w*|'
-               r'GetMessage\w*|DispatchMessage\w*|MapVirtualKey\w*)\b',
+               r'GetMessage\w*|DispatchMessage\w*|MapVirtualKey\w*|'
+               r'ShowWindow|SetWindowPos|SetCapture|ReleaseCapture|'
+               r'GetClientRect|SetCursor|LoadCursor\w*|BeginPaint|EndPaint|'
+               r'SetForegroundWindow|RegisterClassEx\w*|GetDpiForWindow|'
+               r'GetWindowRect|AdjustWindowRect\w*|PostMessage\w*|'
+               r'SendMessage\w*|SetWindowLongPtr\w*|GetWindowLongPtr\w*)\b',
     'vulkan':  r'\b(?:Vk[A-Z]\w*|vk[A-Z]\w*)\b',
     # OpenGL and its bridge, EGL. GL_ and EGL_ are spelled by nothing else
     # in the tree.

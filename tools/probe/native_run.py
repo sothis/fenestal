@@ -56,7 +56,10 @@ def main():
         except subprocess.TimeoutExpired:
             image = os.path.splitext(os.path.basename(exe))[0]
             try:
-                if desk.find(image, timeout=1.0) and desk.close_window():
+                # The probe's own window, not the library's default
+                # filter: these programs are not the testbed.
+                if desk.find(image, title=image, timeout=1.0) and \
+                        desk.close_window():
                     proc.wait(timeout=10)
             except (RuntimeError, subprocess.TimeoutExpired):
                 pass

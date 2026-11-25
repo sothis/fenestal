@@ -138,8 +138,9 @@ endforeach()
 # freebsd on that system), the one to open chosen from the session's
 # environment. A single name builds that one alone, for a consumer that
 # wants the smaller library and the shorter link line. Windows and macOS
-# have one each and force it, so that a -DFNL_BACKEND=x11 there is refused
-# here and not at the first #include.
+# have one each: the cache is forced to that one, so a -DFNL_BACKEND=x11
+# there builds the system's own and every reader of the cache agrees with
+# what was built.
 #
 # FNL_BACKENDS is the list the rest of this file reads. Its order is not
 # the order they are tried in, which is backend.h's (FNL_BACKENDS(X)).
@@ -155,9 +156,13 @@ set(FNL_BACKEND "${_fnl_backend_default}" CACHE STRING
 set_property(CACHE FNL_BACKEND PROPERTY STRINGS linux freebsd wayland x11 kms
              win32 cocoa)
 if(WIN32)
-    set(FNL_BACKEND win32)
+    # Forced in the cache as well as here: a normal variable alone would
+    # leave the cache saying 'linux' (the default every target starts with)
+    # while the build made win32, and a consumer reading the cache would see
+    # a backend this tree does not have.
+    set(FNL_BACKEND win32 CACHE STRING "Backend: win32" FORCE)
 elseif(APPLE)
-    set(FNL_BACKEND cocoa)
+    set(FNL_BACKEND cocoa CACHE STRING "Backend: cocoa" FORCE)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
     if(NOT FNL_BACKEND MATCHES "^(freebsd|wayland|x11|kms)$")
         message(FATAL_ERROR
@@ -303,9 +308,13 @@ include(CheckCCompilerFlag)
 # a debugger still finds the sources without being told where they are. MSVC
 # ignores an unknown option with a warning, which a flag probe counts as
 # success, so its probes are not asked.
-set(FNL_HAS_MACRO_PREFIX_MAP FALSE)
+# Probed only where a probe means something: a normal variable set before a
+# check_* call shadows what the probe caches, so the feature would read FALSE
+# whatever the compiler took.
 if(NOT MSVC)
     check_c_compiler_flag("-fmacro-prefix-map=/a=/b" FNL_HAS_MACRO_PREFIX_MAP)
+else()
+    set(FNL_HAS_MACRO_PREFIX_MAP FALSE)
 endif()
 set(FNL_PREFIX_MAP)
 if(FNL_HAS_MACRO_PREFIX_MAP)
@@ -941,9 +950,10 @@ endif()
 #
 # Not host tools in CMake's sense: a cross build would compile them for the
 # target, which is why a cross tree runs none of them.
-set(FNL_HAS_NO_SANITIZE FALSE)
 if(NOT MSVC)
     check_c_compiler_flag("-fno-sanitize=all" FNL_HAS_NO_SANITIZE)
+else()
+    set(FNL_HAS_NO_SANITIZE FALSE)
 endif()
 function(fnl_host_tool name)
     set(_srcs ${ARGN})
@@ -1112,7 +1122,10 @@ else()
         ${CMAKE_CURRENT_SOURCE_DIR}/fonts/ubuntu/UbuntuSans-Regular.ttf)
     set(FNL_FONT_BINS ${FNL_GEN_DIR}/font_atlas.bin
                       ${FNL_GEN_DIR}/font_cells.bin)
-    if(MSVC)
+    # cl has no assembler for the .incbin stub, and a macOS archive is made
+    # from the library's objects as bitcode, which an assembler object is
+    # not: both take the arrays bin2c makes from the blobs.
+    if(MSVC OR APPLE)
         set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_atlas.c)
     else()
         set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_atlas.S)
@@ -1121,10 +1134,10 @@ else()
     # as the shader rule does and for its reason. Those names are not
     # BYPRODUCTS: missing is normal for them, and Ninja would rerun the bake
     # on every build (the shader rule says it at length).
-    if(MSVC)
-        # mkfont still writes its assembler stub, which cl cannot assemble:
-        # the arrays are made from the blobs in the same rule. The stub
-        # itself survives and is listed.
+    if(MSVC OR APPLE)
+        # mkfont still writes its assembler stub, which neither an MSVC
+        # build nor a macOS archive can take: the arrays are made from the
+        # blobs in the same rule. The stub itself survives and is listed.
         add_custom_command(
             OUTPUT ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS}
             BYPRODUCTS ${FNL_GEN_DIR}/font_atlas.S
@@ -2494,10 +2507,11 @@ endif()
 # negative count or a NaN, and so is loud. Not in a consumer's Debug build,
 # where it would change behaviour nobody asked about: the top-level build
 # only.
-set(FNL_HAS_INIT_PATTERN FALSE)
 if(NOT MSVC)
     check_c_compiler_flag("-ftrivial-auto-var-init=pattern"
                           FNL_HAS_INIT_PATTERN)
+else()
+    set(FNL_HAS_INIT_PATTERN FALSE)
 endif()
 set(FNL_INIT_PATTERN)
 if(FNL_HAS_INIT_PATTERN AND FNL_IS_TOP_LEVEL)

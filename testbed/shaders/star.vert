@@ -89,7 +89,7 @@ void main()
 	float lin = to_linear(0.82) * avg * pc.colour.x;
 	v_shade   = pc.srgb != 0u ? lin : to_srgb(lin);
 	/* The temporal accumulation's subpixel offset (FnlFrame::jitter_x): a
-	 * uniform shift of the whole picture, which the resolve's `- jitter`
+	 * uniform shift of the whole picture, which the resolve's `+ jitter`
 	 * undoes. NDC is 2 * pixels / size, and the scene is orthographic, so
 	 * adding it to the clip-space xy is exactly the pixel shift. */
 	vec2 j = 2.0 * pc.jitter / pc.size;

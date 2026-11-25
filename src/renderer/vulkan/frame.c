@@ -433,11 +433,17 @@ static void draw_scene(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
  * PQ code values are not (DESIGN *Colour*). */
 static void record_encode_pass(App *a, VkCommandBuffer cb, uint32_t img)
 {
+	/* The pass loads with CLEAR: a clear value is required for the one
+	 * attachment, and the colours the value holds are overwritten by the
+	 * covering triangle anyway. */
+	const VkClearValue clear = { .color = { { 0.0f, 0.0f, 0.0f, 1.0f } } };
 	VkRenderPassBeginInfo rp = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass = VK(a)->encode_pass,
 		.framebuffer = VK(a)->encode_fb[img],
 		.renderArea.extent = win_vk_extent(a),
+		.clearValueCount = 1,
+		.pClearValues    = &clear,
 	};
 	vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
 	set_full_viewport(cb, win_vk_extent(a));

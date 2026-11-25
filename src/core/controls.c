@@ -487,7 +487,9 @@ static int ctl_gpu_w(const App *a)
 
 static int ctl_gpu_gap(const App *a)
 {
-	return ctl_gpu_count(a) > 0 ? CTL_CHECK_PAD : 0;
+	return ctl_wanted(a, FNL_TITLEBAR_GPU) && ctl_gpu_count(a) > 0
+			   ? CTL_CHECK_PAD
+			   : 0;
 }
 
 /* The run as the floor holds it (deco_min_window()): the output box in it

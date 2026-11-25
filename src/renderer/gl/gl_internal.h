@@ -203,6 +203,10 @@ void gl_overlay_flush_rects(App *a);
 bool gl_image_supported(const App *a);
 void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
 void gl_image_free(App *a, FnlImage *img);
+/* The caller's images' objects let go with the context that made them, no
+ * GL delete possible or needed: the context's destroy freed every name.
+ * Each image uploads again on the next device (forget_objects()). */
+void gl_images_forget(App *a);
 void gl_overlay_flush_shapes(App *a);
 void gl_overlay_scissor(App *a, const FnlRect *r);
 FNL_MUST_USE FnlResult gl_text_end(App *a);

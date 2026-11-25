@@ -36,7 +36,13 @@ def main():
     decoded = 0
     while time.monotonic() - t0 < seconds:
         t = time.monotonic() - t0
-        r = subprocess.run(grab, capture_output=True)
+        try:
+            r = subprocess.run(grab, capture_output=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            # A grab blocked in the driver is no sample: said, and the next
+            # one tried, rather than the tool sitting past its seconds.
+            print('%6.3f  (no capture: the grab timed out)' % t, flush=True)
+            continue
         if r.returncode != 0 or not r.stdout.startswith(b'P6'):
             print('%6.3f  (no capture: %s)'
                   % (t, r.stderr.decode(errors='replace').strip()[-60:]),

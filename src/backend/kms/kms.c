@@ -91,6 +91,12 @@ static const char *const CONNECTOR_NAMES[] = {
  * thread, which is why it is not a tighter loop. */
 #define KMS_RESCAN_S 2.0
 
+/* How long a refused selection is left alone before it is tried again: a
+ * link still training or a CRTC busy a moment ago comes right, while a
+ * refusal that is real costs one attempt a second rather than a blank
+ * window for the window's life. */
+#define KMS_SCAN_RETRY_S 1.0
+
 /* Cards looked at, card0 upwards. */
 #define KMS_MAX_CARDS 8
 /* Connectors on one card; a card with more has the rest ignored. */
@@ -135,8 +141,10 @@ static bool connector_read(int fd, uint32_t id, Connector *c)
 	for (int tries = 0; tries < 3; tries++) {
 		memset(&c->info, 0, sizeof c->info);
 		c->info.connector_id = id;
+		/* A probe that fails on a retry breaks to the free below: a
+		 * return here would leave the last allocation to nobody. */
 		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c->info) < 0)
-			return false;
+			break;
 		const uint32_t n = c->info.count_modes;
 		free(c->modes);
 		c->modes = n ? calloc(n, sizeof *c->modes) : NULL;
@@ -775,11 +783,15 @@ _Static_assert(sizeof CALLER_GLYPHS / sizeof CALLER_GLYPHS[0] ==
 				   FNL_CURSOR_WAIT + 1,
 			   "a FnlCursor was appended without a glyph for it here");
 
-static void cursor_warn(struct BackendState *p, const char *what)
+/* Said once per output: a move to another CRTC asks afresh, since one
+ * refusal at a move is the render thread's mode set having just switched
+ * this one off. */
+static void cursor_warn(struct BackendState *p, uint32_t crtc, const char *what)
 {
-	if (p->cursor_warned)
+	if (p->cursor_warned && p->cursor_warned_crtc == crtc)
 		return;
-	p->cursor_warned = true;
+	p->cursor_warned      = true;
+	p->cursor_warned_crtc = crtc;
 	fnl_log(FNL_LOG_WARN, "KMS: %s (%s), so the pointer is not shown", what,
 			strerror(errno));
 }
@@ -914,8 +926,6 @@ static bool crtc_lit(int fd, uint32_t crtc)
 static void cursor_show(App *a, KmsGlyph g)
 {
 	struct BackendState *p = a->backend_state;
-	if (p->cursor_warned)
-		return; /* refused once: not asked per motion */
 	/* One seat, one pointer: only the window the pointer is over shows one,
 	 * and the pump now rechecks every window (its output may come back) rather
 	 * than the one fnl_pump() was handed -- so a recheck for a window that is
@@ -933,14 +943,25 @@ static void cursor_show(App *a, KmsGlyph g)
 	/* The CRTC driving the output now, asked of the kernel until there is
 	 * one: after a switch the render thread sets the mode, and the display
 	 * path's driver chooses the CRTC itself. Until then the open's guess,
-	 * and a shape set afresh once the answer is another CRTC. */
-	if (!p->cursor_crtc)
-		p->cursor_crtc = connector_live_crtc(
-			p->host->card_fd, p->host->outputs[p->out_cur].connector_id);
+	 * and a shape set afresh once the answer is another CRTC. The walk is a
+	 * property query per connector on the thread that reads input, so a
+	 * motion report makes it no more often than the recheck does. */
+	if (!p->cursor_crtc) {
+		const double now = now_seconds();
+		if (now - p->cursor_probe_at >= (double)CURSOR_RECHECK_MS * 1e-3) {
+			p->cursor_probe_at = now;
+			p->cursor_crtc     = connector_live_crtc(
+				p->host->card_fd, p->host->outputs[p->out_cur].connector_id);
+		}
+	}
 	const uint32_t crtc =
 		p->cursor_crtc ? p->cursor_crtc : p->host->outputs[p->out_cur].crtc_id;
 	if (!crtc)
 		return; /* nothing can drive the output */
+	/* Refused on this output: not asked again per motion; another CRTC is
+	 * another plane's to answer. */
+	if (p->cursor_warned && p->cursor_warned_crtc == crtc)
+		return;
 	/* The CRTC's lit state, read once per CRTC and not per motion: a GETCRTC
 	 * on every mouse move is a kernel ioctl that would block the pump behind
 	 * the render thread's mode set. Re-checked when the CRTC is first known
@@ -966,14 +987,16 @@ static void cursor_show(App *a, KmsGlyph g)
 	 * lit state is cached per CRTC change (cursor_lit), so this is a flag
 	 * test on the hot path, not a GETCRTC per motion. */
 	if (!p->cursor_lit) {
-		if (!p->cursor_recheck)
-			p->cursor_recheck = CURSOR_RECHECKS;
+		if (!p->cursor_recheck) {
+			p->cursor_recheck    = CURSOR_RECHECKS;
+			p->cursor_recheck_at = now_seconds();
+		}
 		return;
 	}
 
 	/* The glyph's buffer, made once per shape and shared by both paths. */
 	if (g != KMS_GLYPH_NONE && !p->glyph_handle[g] && !glyph_make(p, g)) {
-		cursor_warn(p, "no buffer for the cursor plane");
+		cursor_warn(p, crtc, "no buffer for the cursor plane");
 		p->glyph_shown = g;
 		return;
 	}
@@ -1011,7 +1034,7 @@ static void cursor_show(App *a, KmsGlyph g)
 		c.y = cy;
 	}
 	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CURSOR, &c) < 0) {
-		cursor_warn(p, "the output took no cursor");
+		cursor_warn(p, crtc, "the output took no cursor");
 		p->glyph_shown = g;
 		return;
 	}
@@ -1059,20 +1082,33 @@ static void cursor_moved(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	cursor_hide(p, fnl_atomic_load_ptr(&p->host->display_owner) == a);
-	p->cursor_crtc    = 0;
-	p->cursor_on      = 0;
-	p->glyph_shown    = KMS_GLYPH_UNSET;
-	p->cursor_recheck = CURSOR_RECHECKS;
-	p->cursor_lit_for = 0;
+	p->cursor_crtc      = 0;
+	p->cursor_on        = 0;
+	p->glyph_shown      = KMS_GLYPH_UNSET;
+	p->cursor_recheck    = CURSOR_RECHECKS;
+	p->cursor_recheck_at = now_seconds();
+	p->cursor_probe_at  = 0.0; /* the next motion asks at once */
+	p->cursor_lit_for   = 0;
+	/* Another output's plane answers for itself: a refusal here is asked
+	 * afresh. */
+	p->cursor_warned = false;
 }
 
 /* After a switch, a pump turn that nothing woke: until the kernel names
  * the CRTC driving the new output, the cursor waits on the open's guess --
- * and a pointer nobody moves would leave it there. */
+ * and a pointer nobody moves would leave it there. Asked on the recheck's
+ * 50 ms clock, not on pump turns: a caller pumping faster than that would
+ * spend the budget before the render thread's mode set. */
 static void cursor_recheck(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	struct BackendHostState *hs = p->host;
+	if (p->cursor_recheck <= 0)
+		return;
+	const double now = now_seconds();
+	if (now - p->cursor_recheck_at < (double)CURSOR_RECHECK_MS * 1e-3)
+		return;
+	p->cursor_recheck_at = now;
 	p->cursor_recheck--;
 	const uint32_t live =
 		connector_live_crtc(hs->card_fd, hs->outputs[p->out_cur].connector_id);
@@ -1383,11 +1419,18 @@ static void focus_set(App *a, App *win)
 		return;
 	if (hs->focus) {
 		cursor_show(hs->focus, KMS_GLYPH_NONE);
+		/* What it holds is the host's, not either window's: the window
+		 * that takes the focus is seeded below, so a key held across the
+		 * move is released there and not left held here for good. */
+		app_keys_clear(hs->focus);
 		app_publish_focus(hs->focus, false);
 		app_post_focus(hs->focus, false);
 	}
 	hs->focus = win;
 	if (win) {
+		for (unsigned code = 0; code < 8u * sizeof hs->down; code++)
+			if ((hs->down[code / 8] >> (code % 8)) & 1u)
+				app_key_seed(win, key_from_evdev(code));
 		app_publish_focus(win, true);
 		app_post_focus(win, true);
 	}
@@ -2029,6 +2072,26 @@ static void scan_retire(struct BackendState *p,
 	p->scan_front = -1;
 }
 
+/* A page-flip completion, given to the window whose flip it is: the event's
+ * user_data was that window's address when the flip was made
+ * (kms_scan_show()), so a wait reading another window's event clears the
+ * right pending flip and counts the right frame. A stamp naming no window
+ * of this host is nobody's now -- the window has closed -- and is dropped. */
+static void flip_complete(App *a, const struct drm_event_vblank *v)
+{
+	const double mono = (double)v->tv_sec + (double)v->tv_usec * 1e-6;
+	for (App *w = a->host->windows; w; w = w->next) {
+		struct BackendState *q = w->backend_state;
+		if (!q || (uintptr_t)w != (uintptr_t)v->user_data)
+			continue;
+		if (!q->flip_pending)
+			return; /* a flip given up on, its event late: nobody's */
+		q->flip_pending = false;
+		app_frame_shown(w, q->flip_index, mono, !q->flip_async);
+		return;
+	}
+}
+
 /* Wait up to `ms` for the pending flip's completion event; whether it came.
  * The node's events are this thread's alone only while no driver holds a
  * copy of the descriptor: one open file is one event queue, and Mesa's
@@ -2052,20 +2115,15 @@ static bool flip_wait(App *a, int ms)
 		for (ssize_t off = 0; off + (ssize_t)sizeof(struct drm_event) <= n;) {
 			const struct drm_event *e =
 				(const struct drm_event *)(const void *)(buf + off);
-			if (e->type == DRM_EVENT_FLIP_COMPLETE) {
-				p->flip_pending = false;
+			if (e->type == DRM_EVENT_FLIP_COMPLETE &&
+				e->length >= sizeof(struct drm_event_vblank)) {
 				/* When it reached the screen, by the kernel's stamp on
 				 * CLOCK_MONOTONIC -- the frame clock's -- and which frame
-				 * it was, from the flip's user_data (kms_scan_show()). A
-				 * mode set's first frame has no flip and no stamp. */
-				if (e->length >= sizeof(struct drm_event_vblank)) {
-					const struct drm_event_vblank *v =
-						(const struct drm_event_vblank *)(const void *)e;
-					app_frame_shown(a, v->user_data,
-									(double)v->tv_sec +
-										(double)v->tv_usec * 1e-6,
-									!p->flip_async);
-				}
+				 * it was (flip_complete()). A mode set's first frame has
+				 * no flip and no stamp. */
+				const struct drm_event_vblank *v =
+					(const struct drm_event_vblank *)(const void *)e;
+				flip_complete(a, v);
 			}
 			if (e->length == 0)
 				break;
@@ -2085,27 +2143,46 @@ static bool flip_wait(App *a, int ms)
  * in flight when the display was released and it stopped reading, would
  * otherwise count as the first of ours, and the next flip find the CRTC
  * busy and stay refused for good. */
-static void events_drain(struct BackendState *p)
+static void events_drain(App *a)
 {
+	const int fd = a->backend_state->host->card_fd;
 	for (;;) {
-		struct pollfd pf = { .fd = p->host->card_fd, .events = POLLIN };
+		struct pollfd pf = { .fd = fd, .events = POLLIN };
 		const int r      = poll(&pf, 1, 0);
 		if (r < 0 && errno == EINTR)
 			continue;
 		if (r <= 0)
 			return;
-		char buf[1024];
-		if (read(p->host->card_fd, buf, sizeof buf) <= 0)
+		_Alignas(struct drm_event) char buf[1024];
+		const ssize_t n = read(fd, buf, sizeof buf);
+		if (n <= 0)
 			return;
+		/* A completion is still a window's, and is routed rather than
+		 * dropped: another window's mode set would otherwise leave its
+		 * pending flip waiting out its bound (flip_complete()). */
+		for (ssize_t off = 0; off + (ssize_t)sizeof(struct drm_event) <= n;) {
+			const struct drm_event *e =
+				(const struct drm_event *)(const void *)(buf + off);
+			if (e->type == DRM_EVENT_FLIP_COMPLETE &&
+				e->length >= sizeof(struct drm_event_vblank))
+				flip_complete(
+					a, (const struct drm_event_vblank *)(const void *)e);
+			if (e->length == 0)
+				break;
+			off += (ssize_t)e->length;
+		}
 	}
 }
 
 static void scan_refuse(struct BackendState *p, const char *what)
 {
-	if (!p->scan_failed)
+	if (!p->scan_said) {
 		fnl_log(FNL_LOG_WARN, "KMS: %s (%s), so no frame reaches %s", what,
 				strerror(errno), kms_name(p, p->scan_sel));
-	p->scan_failed = true;
+		p->scan_said = true;
+	}
+	p->scan_failed    = true;
+	p->scan_failed_at = now_seconds();
 }
 
 /* Under vsync, a flip this frame waits out, as a FIFO present would. Without
@@ -2126,14 +2203,18 @@ int kms_scan_begin(App *a)
 	struct BackendState *p = a->backend_state;
 	if (p->scan_failed) {
 		/* A refusal -- the pair's, or a flip that found the CRTC busy --
-		 * is not the window's for good. A mode asked for anew is tried:
-		 * the reset that comes with another selection or a returned output
-		 * clears it, and so does the next mode set a caller's move asks
-		 * for. Without this a transient EBUSY ends every frame for the
-		 * window's life. */
+		 * is not the window's for good. A mode asked for anew is tried,
+		 * and so is one refused a while back: a link not yet trained or a
+		 * CRTC busy a moment ago comes right, where latching the refusal
+		 * leaves a black window no titlebar can be reached from. The
+		 * reset that comes with another selection or a returned output
+		 * tries it at once. */
 		const int show        = kms_sel_to_show(p);
 		const uint32_t resets = fnl_atomic_load_u32(&p->scan_resets);
-		if (show == p->scan_sel && resets == p->scan_resets_seen)
+		const bool anew       = show != p->scan_sel ||
+						  resets != p->scan_resets_seen ||
+						  now_seconds() - p->scan_failed_at >= KMS_SCAN_RETRY_S;
+		if (!anew)
 			return -1;
 		p->scan_failed = false;
 	}
@@ -2349,7 +2430,7 @@ void kms_scan_show(App *a, int back)
 			scan_refuse(p, "the mode would not set");
 			return;
 		}
-		events_drain(p);
+		events_drain(a);
 		/* Off this plane now that this pair is on, and on no other's
 		 * unless an output gone dark still shows it (scan_release()). */
 		scan_release(p, &p->scan_old);
@@ -2362,9 +2443,10 @@ void kms_scan_show(App *a, int back)
 	const bool async = !vsync && !p->flip_async_off;
 	bool async_now    = async;
 	bool flipped      = false;
+	int atomic_err    = 0;
 	if (hs->atomic) {
 		flipped = kms_atomic_flip(hs->atomic, out->crtc_id, p->scan.fb[back],
-								  async_now, a->presents);
+								  async_now, (uint64_t)(uintptr_t)a);
 		if (!flipped && async_now && errno == EINVAL) {
 			p->flip_async_off = true;
 			fnl_log(FNL_LOG_INFO,
@@ -2373,21 +2455,27 @@ void kms_scan_show(App *a, int back)
 					kms_name(p, p->scan_sel));
 			async_now = false;
 			flipped = kms_atomic_flip(hs->atomic, out->crtc_id,
-									  p->scan.fb[back], false, a->presents);
+									  p->scan.fb[back], false,
+									  (uint64_t)(uintptr_t)a);
 		}
+		/* Kept: the legacy fallback below overwrites errno, and a CRTC
+		 * busy a moment ago is the one answer this frame must not turn
+		 * into a refusal. */
+		if (!flipped)
+			atomic_err = errno;
 	}
 	if (!flipped) {
 		/* The legacy flip: a card with no atomic, and a CRTC the atomic table
 		 * does not name (a driver whose CRTC has no primary plane to set a
 		 * mode through), which the mode set above already fell back for. The
-		 * frame's index rides on it and comes back in its event
-		 * (flip_wait()). */
+		 * window rides on it and comes back in its event (flip_complete());
+		 * the frame index is the window's own, kept until then. */
 		struct drm_mode_crtc_page_flip flip = {
 			.crtc_id = out->crtc_id,
 			.fb_id   = p->scan.fb[back],
 			.flags   = DRM_MODE_PAGE_FLIP_EVENT |
 					 (async_now ? DRM_MODE_PAGE_FLIP_ASYNC : 0u),
-			.user_data = a->presents,
+			.user_data = (uint64_t)(uintptr_t)a,
 		};
 		flipped =
 			drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip) == 0;
@@ -2405,6 +2493,8 @@ void kms_scan_show(App *a, int back)
 	}
 	p->flip_async = async_now;
 	if (!flipped) {
+		if (atomic_err)
+			errno = atomic_err;
 		/* A CRTC still busy -- the flip before it not yet complete, or a
 		 * mode set in flight -- is not a refusal: this frame is dropped and
 		 * the next one tries again. Told apart from a real refusal, a
@@ -2415,7 +2505,10 @@ void kms_scan_show(App *a, int back)
 		return;
 	}
 	p->flip_pending = true;
+	p->flip_index   = a->presents;
 	p->scan_front   = back;
+	/* A frame reached the output: a refusal from here on is a new one. */
+	p->scan_said = false;
 	if (vsync)
 		flip_wait(a, FLIP_WAIT_MS);
 }
@@ -2810,7 +2903,7 @@ void kms_scanout_take(App *a)
 				kms_name(p, sel), strerror(errno));
 		return;
 	}
-	events_drain(p);
+	events_drain(a);
 	scan_release(p, &p->scan_old);
 	p->scan_front    = back;
 	p->scan_sel      = sel;
@@ -3636,7 +3729,7 @@ static void kms_present_window_renew(App *a)
 				"a driver lent the node may read it",
 				FLIP_DRAIN_MS);
 	p->flip_pending = false;
-	events_drain(p);
+	events_drain(a);
 }
 
 static void kms_pump(App *a, int timeout_ms)

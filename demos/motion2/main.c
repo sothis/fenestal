@@ -289,7 +289,7 @@ static void on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		FOV_Y, (float)f->scene_w_px / (float)f->scene_h_px, Z_NEAR, Z_FAR);
 	/* The temporal accumulation's subpixel offset, which only the caller can
 	 * put in its projection (FnlFrame::jitter_x): a uniform shift of the
-	 * picture by that many scene pixels, which the shader's `- jitter` undoes
+	 * picture by that many scene pixels, which the shader's `+ jitter` undoes
 	 * exactly. A pixel-space shift in NDC is 2*jx/scene_w on x, applied to
 	 * every vertex alike -- so it rides in column 2, which multiplies z, by
 	 * the -z that clip.w is: clip.x += delta*w = delta*(-z). A constant added

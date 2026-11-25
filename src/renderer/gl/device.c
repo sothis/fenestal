@@ -196,6 +196,9 @@ static void forget_objects(App *a)
 	free(g->text_block);
 	free(g->ovl_block);
 	gl_bridge_scan_forget(a);
+	/* The caller's images were made in this context too: their objects go
+	 * without a delete, and each uploads again on the next device. */
+	gl_images_forget(a);
 	const struct RendererState keep = *g;
 	memset(g, 0, sizeof *g);
 	g->bridge_display = keep.bridge_display;
@@ -596,8 +599,10 @@ bool fnl_gl_scene_framebuffer(App *a, uint32_t *out)
 {
 	/* 0 outside on_record, and 0 is also the window's own framebuffer, which
 	 * nothing of the caller's is drawn into: refused rather than handed
-	 * back. The thread first, as fnl_vulkan_scene_cmd() tests it. */
-	if (!a || !out || app_thread() != APP_THREAD_RENDER ||
+	 * back. The window's own render thread, as fnl_vulkan_scene_cmd() tests
+	 * it -- the main thread only while that thread does not exist yet,
+	 * which app_renderer_state_ours() reads. */
+	if (!a || !out || !app_renderer_state_ours(a) ||
 		a->renderer != &fnl_renderer_gl || !a->renderer_state ||
 		GLS(a)->scene_fbo_now == 0)
 		return false;

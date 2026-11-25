@@ -88,6 +88,13 @@ def main():
     if kms and weston:
         box.close()
         sys.exit("--kms and --weston are two servers' ways; one of them")
+    if driver and not kms:
+        # The move needs the servers stopped and the bare display: under
+        # weston or Xorg the boot entry chooses the driver (DESIGN
+        # *Another kernel driver, with the window open*).
+        box.close()
+        sys.exit("--driver moves the kernel driver with the servers stopped: "
+                 "give --kms")
     for name, value in D.machine_env(D.hosts()[0]).items():
         env.setdefault(name, value)
     if not exe.endswith(".exe"):

@@ -64,13 +64,23 @@ void main()
 	const vec3 r   = texture(u_scene, uv + vec2(t.x, 0.0)).rgb;
 	const vec3 d   = texture(u_scene, uv - vec2(0.0, t.y)).rgb;
 	const vec3 u   = texture(u_scene, uv + vec2(0.0, t.y)).rgb;
+	/* The corners too: the box is the 3x3 neighbourhood this pass documents,
+	 * and a diagonal edge is exactly what the four neighbours alone cannot
+	 * bound -- its history would be dropped where the accumulation is meant
+	 * to smooth it. */
+	const vec3 dl  = texture(u_scene, uv + vec2(-t.x, -t.y)).rgb;
+	const vec3 dr  = texture(u_scene, uv + vec2(t.x, -t.y)).rgb;
+	const vec3 ul  = texture(u_scene, uv + vec2(-t.x, t.y)).rgb;
+	const vec3 ur  = texture(u_scene, uv + vec2(t.x, t.y)).rgb;
 
 	/* What this frame can hold where the pixel is, which is what the history
 	 * is clamped into -- not where the history was read: the box is a
 	 * statement about this frame, and the reprojected sample has to land
 	 * inside it or the picture has moved more than the clamp allows. */
-	const vec3 lo = min(now, min(min(l, r), min(d, u)));
-	const vec3 hi = max(now, max(max(l, r), max(d, u)));
+	const vec3 lo = min(now, min(min(min(l, r), min(d, u)),
+								 min(min(dl, dr), min(ul, ur))));
+	const vec3 hi = max(now, max(max(max(l, r), max(d, u)),
+								 max(max(dl, dr), max(ul, ur))));
 
 	/* The depth at this pixel, which the resolve carries out in its alpha:
 	 * the history copy takes the whole image, and alpha is the one channel
@@ -78,12 +88,14 @@ void main()
 	 * frame is the depth it wrote. The fetch reads .rgb and ignores it. */
 	const float dep = textureLod(u_depth, uv, 0.0).r;
 	const vec4 prev = texture(u_history, huv);
-	/* Eye depth, which a depth buffer's reciprocal is proportional to, so a
-	 * fixed step in it is a fixed step in metres where one in the buffer's
-	 * own value is not. A history sample further than the threshold behind
-	 * this frame is the picture having moved across a discontinuity, and is
-	 * dropped rather than smeared; at nought the compare is off, which is
-	 * every renderer that has no depth to compare. */
+	/* The depth's reciprocal, a relative step in which is the test: on a
+	 * reverse-Z buffer it is proportional to eye distance, and on the
+	 * standard [0,1] depth the tree's own scenes use it rises with it and
+	 * saturates far away -- a step there is coarser than a step in metres.
+	 * A history sample further than the threshold behind this frame is the
+	 * picture having moved across a discontinuity, and is dropped rather
+	 * than smeared; at nought the compare is off, which is every renderer
+	 * that has no depth to compare. */
 	const float ec = 1.0 / max(dep, 1e-5);
 	const float eh = 1.0 / max(prev.w, 1e-5);
 	const bool moved_on =

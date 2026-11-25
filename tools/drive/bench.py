@@ -310,6 +310,13 @@ def run_bare(b, variant, args, log_path, with_hands=False):
             proc.wait()
         if hands is not None:
             hands.close()
+        # The program there outlives its local ssh when it is hung: the
+        # machine's own clean lets go of the display, the node and the GPU
+        # now rather than at the next run's start.
+        try:
+            box.kill_stale()
+        except Exception:
+            pass
         box.close()
         b.box = None
     return None

@@ -1614,6 +1614,14 @@ bool app_taau_follows(const App *a, uint64_t last, bool written)
 
 static bool draw_state_update(App *a, const Latch *l)
 {
+	/* A caller image was destroyed inside the frame that recorded it (see
+	 * fnl_image_destroy()): that recording named it and was submitted, and
+	 * the renderers have let its device object go since. Every image
+	 * records afresh from this turn, so no later frame resubmits it. */
+	if (a->records_stale) {
+		a->records_stale = false;
+		a->record_gen++;
+	}
 	/* Frozen at 0 while motion is off, so the draw state stops changing and
 	 * an idle window presents the command buffer it has. A calibration
 	 * runs it whatever the caller set (rank.c's begin()), read here and
@@ -1859,6 +1867,14 @@ static void rest_wait(App *a)
 	if (t <= 0.0)
 		t = REST_POLL;
 	fnl_mutex_lock(&a->lock);
+	/* An event posted before this point is in the queue for the turn about
+	 * to be drawn -- not a wake-up to wait for -- so the flag is cleared
+	 * and the turn runs without waiting. Cleared under the lock the
+	 * posters set it under, so a post between the turn's own event check
+	 * and this wait either sees the flag set here and clears it (the turn
+	 * runs) or sets it after and signals the wait: neither is lost. */
+	const bool missed = a->ev_wake;
+	a->ev_wake        = false;
 	/* Not past a time fnl_invalidate_in() asked for: the next frame is that
 	 * one, and a wait of a whole period would draw it late. */
 	if (a->want_draw_at > 0.0) {
@@ -1866,7 +1882,7 @@ static void rest_wait(App *a)
 		if (left < t)
 			t = left;
 	}
-	if (!a->quit && !a->want_urgent && t > 0.0)
+	if (!a->quit && !a->want_urgent && !missed && t > 0.0)
 		fnl_cond_wait_for(&a->cond, &a->lock, t);
 	fnl_mutex_unlock(&a->lock);
 }

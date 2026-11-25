@@ -100,7 +100,7 @@ def main():
                  "installed; nothing to compare against")
 
     todo = named or pairs(os.path.join(root, "rules", "evdev.lst"))
-    differ = 0
+    differ = compared = 0
     for layout, variant in todo:
         label = "%s(%s)" % (layout, variant) if variant else layout
         ours = subprocess.run([dump, layout, variant], env=env,
@@ -120,6 +120,14 @@ def main():
             differ += 1
             continue
         a, b = table(ours.stdout), table(theirs.stdout)
+        if not a and not b:
+            # Both readings name no character at all: a projection that
+            # returns nothing -- the library's keysym_to_ucs() is one side of
+            # both -- compares clean against itself, so this is a finding.
+            differ += 1
+            print("%s: neither reading names a character" % label)
+            continue
+        compared += 1
         keys = sorted(k for k in set(a) | set(b)
                       if a.get(k, (0,))[0] != b.get(k, (0,))[0])
         if keys:
@@ -130,7 +138,9 @@ def main():
                     print("  %3d g%d l%d  files 0x%x  tool 0x%x" % (
                         k[0], k[1] + 1, k[2] + 1, a.get(k, (0, 0))[1],
                         b.get(k, (0, 0))[1]))
-    print("%d pairs, %d differ" % (len(todo), differ))
+    if not compared:
+        sys.exit("xkbdiff: no pair was compared")
+    print("%d pairs, %d differ" % (compared, differ))
     sys.exit(1 if differ else 0)
 
 

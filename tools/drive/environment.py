@@ -2368,6 +2368,11 @@ class Win32VM(_Placed, _Portal):
         return V.Guest()
 
     def start(self, variant="release", args=(), env=None):
+        # each()'s fallback, for a skip line where no machine is named: the
+        # driver would take its module's default guest and drive one the
+        # round never asked for.
+        if not getattr(self, "machine", None):
+            raise Unavailable("no Windows guest is named: FNL_DRIVE_VM")
         exe = os.path.join(ROOT, "build", self.TREE, variant,
                            self.program + self.SUFFIX)
         if not os.path.exists(exe):

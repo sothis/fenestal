@@ -624,6 +624,14 @@ void gl_image_free(App *a, FnlImage *img)
 	/* The thread is the image's window's from here: fnl_image_destroy() may
 	 * run on the main thread, at a teardown that has already destroyed
 	 * another window's renderer and so unbound the thread. */
+	if (!GLS(a)->loaded) {
+		/* No context's entry points to delete through, and every name a
+		 * destroyed context had is free anyway: the object goes, and the
+		 * image is left to upload again. */
+		free(img->gpu);
+		img->gpu = NULL;
+		return;
+	}
 	gl_bind(a);
 	GlImageObj *o = img->gpu;
 	if (!o)
@@ -631,6 +639,20 @@ void gl_image_free(App *a, FnlImage *img)
 	img->gpu = NULL;
 	gl.DeleteTextures(1, &o->tex);
 	free(o);
+}
+
+/* Every caller image's object, with the context that made it gone and none
+ * makeable: no delete is run -- the context's destroy freed every name --
+ * and each image keeps its pixels, uploading them again on the next device.
+ * Without this a later success would bind names out of the dead context and
+ * a destroy would delete a live texture of the new one. */
+void gl_images_forget(App *a)
+{
+	for (FnlImage *img = a->images; img; img = img->next)
+		if (img->gpu) {
+			free(img->gpu);
+			img->gpu = NULL;
+		}
 }
 
 /* ---- the cover ----------------------------------------------------------- */

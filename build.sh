@@ -312,7 +312,11 @@ dist() {
     if [ "${FNL_NO_DIST:-}" = 1 ]; then
         return 0
     fi
-    if [ "$(git rev-parse --show-toplevel 2>/dev/null)" != "$(pwd -P)" ]; then
+    # Not by comparing paths: MSYS2 spells the same directory C:/... from git
+    # and /c/... from pwd. The prefix is empty exactly at the top of a
+    # checkout.
+    if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" != true ] ||
+       [ -n "$(git rev-parse --show-prefix 2>/dev/null)" ]; then
         return 0
     fi
     if ! command -v python3 >/dev/null 2>&1; then
@@ -596,6 +600,17 @@ gc)
            "-DCMAKE_SHARED_LINKER_FLAGS=$GC_LINK" \
            "$@" ;;
 esac
+
+# A -DFNL_MINGW_PREFIX= given as an argument is what the configure will take,
+# so the UCRT pre-checks read it as they read the environment's.
+for _a in "$@"; do
+    case $_a in
+    -DFNL_MINGW_PREFIX=*)
+        FNL_MINGW_PREFIX=${_a#*=}
+        export FNL_MINGW_PREFIX
+        ;;
+    esac
+done
 
 # ---- the target flags ------------------------------------------------------
 # The backend and the renderer are always named, so no tree depends on

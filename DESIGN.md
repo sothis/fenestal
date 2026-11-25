@@ -1369,9 +1369,12 @@ period.
 
 **When a frame reached the screen** is the display's own stamp, where the
 backend hears one (`fnl_frame_shown()`, a ring like the frames'): KMS's
-page-flip event, which carries the frame's index out as the flip's
-`user_data` and back with the kernel's timestamp, for the flips the library
-makes -- the copy path and OpenGL's bridge; and Wayland's `wp_presentation`, a
+page-flip event, which carries the window out as the flip's `user_data` --
+the frame's index is that window's `flip_index`, since a host with two
+windows has one event queue on the node and either thread may read the
+completion -- and back with the kernel's timestamp, for the flips the
+library makes -- the copy path and OpenGL's bridge; and Wayland's
+`wp_presentation`, a
 feedback asked for just before each present so it rides on that commit,
 answered on the main thread, sixteen slots in the backend's state and no
 allocation, and a present that never committed voiding its slot, since its

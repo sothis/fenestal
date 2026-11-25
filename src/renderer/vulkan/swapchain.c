@@ -147,6 +147,9 @@ static FnlResult image_cmds_make(App *a)
 		.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
 		.commandBufferCount = VK(a)->image_count,
 	};
+	/* Null first: a failed allocate leaves the array undefined, and the
+	 * teardown frees the handles that are not null. */
+	memset(VK(a)->img_cmd, 0, sizeof VK(a)->img_cmd);
 	VK_TRY(vkAllocateCommandBuffers(VK(a)->device, &cai, VK(a)->img_cmd));
 	return FNL_OK;
 }
@@ -515,7 +518,12 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 	VkResult cr       = create_swapchain_serialised(a, &ci, &sc);
 	if (VK(a)->swapchain_refusal_lost && cr == VK_SUCCESS &&
 		FNL_FAULT("kms-swapchain-refused")) {
+		/* Under the serial as every other destroy is: another window's
+		 * create may be in flight on its own thread, and that pair is the
+		 * one the serial keeps apart (see *the reaper*). */
+		fnl_mutex_lock(&g_swapchain_serial);
 		vkDestroySwapchainKHR(VK(a)->device, sc, NULL);
+		fnl_mutex_unlock(&g_swapchain_serial);
 		sc = VK_NULL_HANDLE;
 		cr = VK_ERROR_INITIALIZATION_FAILED;
 	}
@@ -1015,7 +1023,9 @@ static void retired_destroy(App *a, RetiredSwapchain *r, bool may_defer)
 	if (may_defer && r->swapchain != VK_NULL_HANDLE && reap_hand_over(a, r))
 		return;
 	const double t0 = now_seconds();
+	fnl_mutex_lock(&g_swapchain_serial);
 	vkDestroySwapchainKHR(VK(a)->device, r->swapchain, NULL);
+	fnl_mutex_unlock(&g_swapchain_serial);
 	/* Asked of the one retired mid-run alone: at teardown nobody is waiting
 	 * for the frame this would have held up. */
 	if (may_defer && r->swapchain != VK_NULL_HANDLE &&
@@ -1140,7 +1150,10 @@ bool recreate_swapchain(App *a)
 	 * better. Dated from the last *rebuild* and not from the swapchain's
 	 * age: the one a window opens with is as new as any, and a window
 	 * moved to a monitor of another scale as it opened stopped all the
-	 * same. */
+	 * same. Windows alone: nothing else measured a driver that needs it,
+	 * and the drain and the refresh are 20 ms on a frame already
+	 * answering a configure. */
+#if defined(_WIN32)
 	const double t_now = now_seconds();
 	if (VK(a)->swapchain != VK_NULL_HANDLE &&
 		t_now - VK(a)->swap_rebuilt_at > SWAP_REST_AFTER) {
@@ -1148,6 +1161,7 @@ bool recreate_swapchain(App *a)
 		fnl_sleep_seconds(SWAP_REST);
 	}
 	VK(a)->swap_rebuilt_at = now_seconds();
+#endif
 
 	RetiredSwapchain *r = &VK(a)->retired[VK(a)->retired_count++];
 	swapchain_hand_over(a, r);
@@ -1161,6 +1175,19 @@ bool vk_present_mode_matches(const App *a, bool vsync)
 	return vk_present_mode(a) == vk_wanted_present_mode(a, vsync);
 }
 
+/* Whether a retired entry holds synchronisation -- a swapchain or the
+ * semaphores a present waits -- whose destroy wants the queue drained. An
+ * entry from resize_in_place() holds neither. */
+static bool retired_owns_sync(const RetiredSwapchain *r)
+{
+	if (r->swapchain != VK_NULL_HANDLE)
+		return true;
+	for (uint32_t i = 0; i < r->image_count; i++)
+		if (r->render_done[i] != VK_NULL_HANDLE)
+			return true;
+	return false;
+}
+
 /* Each retired swapchain is freed once MAX_FRAMES_IN_FLIGHT further frames
  * have been submitted: every submit is queue-ordered after the retired
  * swapchain's last present and waits the frame's fence, so its command buffers
@@ -1168,11 +1195,16 @@ bool vk_present_mode_matches(const App *a, bool vsync)
  * instance buffers* has the measurement. */
 void vk_retire_tick(App *a)
 {
-	bool drained = false; /* one drain covers every entry, as in
-							 * free_all_retired -- not one apiece */
+	bool drained = false; /* one drain covers every entry that wants one */
 	for (int i = VK(a)->retired_count - 1; i >= 0; i--)
 		if (--VK(a)->retired[i].countdown == 0) {
-			if (!drained) {
+			/* The drain is for destroying the semaphores and, through the
+			 * reaper, the swapchain an entry holds. An in-place entry
+			 * holds neither -- framebuffers and command buffers alone,
+			 * which the countdown proves idle -- so a steady drag does
+			 * not wait the queue out on every frame, with the frame it
+			 * has just submitted still on it. */
+			if (!drained && retired_owns_sync(&VK(a)->retired[i])) {
 				vk_queue_wait_idle(a);
 				drained = true;
 			}

@@ -3403,20 +3403,21 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	if (!desc)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"fnl_window_create(): desc is NULL");
-	/* The same three tests fnl_init() makes of FnlInitDesc, for the same
-	 * reasons: a size from the future, a size too small to carry the fields
-	 * this build reads, and a size that is not a multiple of the struct's
-	 * alignment. The first is what keeps the copy below inside `d`: a
-	 * descriptor larger than this build's struct is one from a newer
-	 * library, refused rather than overrun. */
+	/* The same tests fnl_init() makes of FnlInitDesc, for the same reasons: a
+	 * size from the future is refused rather than read to the end of what
+	 * this build knows, and a smaller one is an older caller, whose fields
+	 * past its end take the default (the zeroed copy below). */
 	if (desc->size > sizeof(FnlWindowDesc))
 		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
 						"FnlWindowDesc is %zu bytes; this build knows %zu",
 						desc->size, sizeof(FnlWindowDesc));
-	if (desc->size < sizeof(FnlWindowDesc))
-		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
-						"FnlWindowDesc is %zu bytes; this build reads %zu",
-						desc->size, sizeof(FnlWindowDesc));
+	/* Too small to carry the header every version of this struct has had,
+	 * so there is nothing to read and nothing to default from. */
+	if (desc->size < offsetof(FnlWindowDesc, title))
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"FnlWindowDesc::size is %zu; pass sizeof "
+						"(FnlWindowDesc)",
+						desc->size);
 	if (desc->size % FNL_ALIGNOF(FnlWindowDesc) != 0)
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"FnlWindowDesc's size is not a multiple of its "
@@ -3472,8 +3473,8 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	}
 
 	/* Copied into a zeroed one of this build's size before any field is
-	 * read, as fnl_init() copies FnlInitDesc. The size tests above leave
-	 * exactly this build's size, so the copy is the whole descriptor. */
+	 * read, as fnl_init() copies FnlInitDesc. A smaller descriptor copies
+	 * the part it carries; the rest keeps the zeroed default. */
 	FnlWindowDesc d;
 	memset(&d, 0, sizeof d);
 	memcpy(&d, desc, desc->size);

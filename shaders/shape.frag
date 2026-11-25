@@ -73,16 +73,19 @@ void main()
 		float a = radians(half_w);
 		vec2  dir = vec2(cos(a), sin(a));
 		vec2  lo = v_p0p1.xy, hi = v_p0p1.zw;
-		/* The span is signed, since an angle past 90 degrees runs the axis
-		 * backwards: the ramp starts at the corner the axis enters by and
-		 * runs the span's size, so 180 degrees starts where 0's ramp ends
-		 * and not where it starts. A box with no extent along the axis has
-		 * no ramp to run, and its answer is the first colour rather than a
-		 * divide by a fudge factor, which put a hard edge down the box. */
-		float span = dot(hi - lo, dir);
-		vec2  from = span < 0.0 ? hi : lo;
-		float t    = abs(span) > 1e-6
-					 ? dot(v_px - from, dir) / abs(span) : 0.0;
+		/* The rectangle's extent along the axis, and the corner the axis
+		 * enters by: the low corner on each axis the direction runs
+		 * forward on and the high one where it runs back. The extent is
+		 * not the diagonal's projection -- that is right only where the
+		 * two components share a sign, and is zero on a square at 45
+		 * degrees and its reverse, which would paint it flat. A box with
+		 * no extent along the axis has no ramp to run, and its answer is
+		 * the first colour. */
+		const vec2  size = abs(hi - lo);
+		const float ext  = size.x * abs(dir.x) + size.y * abs(dir.y);
+		vec2 from = vec2(dir.x >= 0.0 ? lo.x : hi.x,
+						 dir.y >= 0.0 ? lo.y : hi.y);
+		float t = ext > 1e-6 ? dot(v_px - from, dir) / ext : 0.0;
 		out_color = mix(v_color, v_color2, clamp(t, 0.0, 1.0));
 		return;
 	}

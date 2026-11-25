@@ -5,8 +5,10 @@
 # request, and ruff over tools/. A push of a v* tag is a release: the same
 # trees, and a job that attaches what they made to a GitHub Release. The
 # weekly run, and one asked for by hand, builds the checker trees too --
-# clang, asan, tsan, analyzer and gc, on every target that takes them --
-# which a push does not; they are compiled there and never run. The run's
+# clang, asan, tsan, analyzer and gc -- on Linux, ARM Linux, Windows and the
+# Macs, though not every variant each of them takes (win64-msvc's gc and
+# FreeBSD's checkers are not among them), which a push does not; they are
+# compiled there and never run. The run's
 # artifacts are the commented source zip and an archive of what each
 # target made (.github/stage.sh). A
 # build that succeeds has run verifyfont, verifykeymap, the fuzz replay,
@@ -43,8 +45,11 @@ permissions:
     contents: read
 
 env:
-    # The cache entry the Linux job hands the macOS job, this run's alone.
-    MACOS_INPUTS: macos-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+    # The cache entry the Linux job hands the macOS job, this run's alone
+    # and not this attempt's: a runner-shortage retry re-runs only the jobs
+    # that lost their runner, so a key with the attempt in it could never
+    # restore what the Linux job saved in the attempt before.
+    MACOS_INPUTS: macos-inputs-${{ github.run_id }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}

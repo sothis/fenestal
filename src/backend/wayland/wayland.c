@@ -1688,11 +1688,13 @@ static const struct wl_data_device_listener data_device_listener = {
 };
 
 /* The per-seat objects that need a seat and a manager both. Globals arrive in
- * no promised order, so this is asked after each. */
-static void seat_extras(App *a)
+ * no promised order, so this is asked after each -- from registry_global()
+ * as the managers arrive, and from wl_window_open() once the seat's
+ * capabilities have been read. */
+static void seat_extras(struct Host *h)
 {
-	struct BackendHostState *hs = app_backend_host(a);
-	if (!hs->seat)
+	struct BackendHostState *hs = h ? h->backend_host : NULL;
+	if (!hs || !hs->seat)
 		return;
 	/* A proxy the compositor would not make is left NULL: the next call --
 	 * each global's arrival asks again -- tries once more, and there is
@@ -1700,15 +1702,13 @@ static void seat_extras(App *a)
 	if (hs->ddm && !hs->dd) {
 		hs->dd = wl_data_device_manager_get_data_device(hs->ddm, hs->seat);
 		if (hs->dd)
-			wl_data_device_add_listener(hs->dd, &data_device_listener,
-										a->host);
+			wl_data_device_add_listener(hs->dd, &data_device_listener, h);
 	}
 	if (hs->ti_manager && !hs->ti) {
 		hs->ti =
 			zwp_text_input_manager_v3_get_text_input(hs->ti_manager, hs->seat);
 		if (hs->ti)
-			zwp_text_input_v3_add_listener(hs->ti, &text_input_listener,
-										   a->host);
+			zwp_text_input_v3_add_listener(hs->ti, &text_input_listener, h);
 	}
 }
 
@@ -1749,7 +1749,19 @@ static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
 	} else if (!has_ptr && hs->pointer) {
 		/* The lock and the relative pointer were made from this pointer, and
 		 * must go before it does -- every window's, since one pointer served
-		 * them all. */
+		 * them all. The window the pointer was in is told it left, as
+		 * ptr_leave() tells it: the compositor need not send a leave for a
+		 * device it takes away, and a hover, a held bar or a drag would
+		 * otherwise stay for the window's life. */
+		App *in = hs->ptr_window;
+		if (in) {
+			hs->current_shape            = 0;
+			in->backend_state->left_held = false;
+			deco_release(in);
+			app_reticle_publish(in);
+			app_pointer_presence(in, false, win_pt(in, in->ptr_x),
+								 win_pt(in, in->ptr_y));
+		}
 		WL_FOR_EACH_WINDOW(hs, w) release_pointer_capture(w);
 		if (hs->cursor_device) {
 			wp_cursor_shape_device_v1_destroy(hs->cursor_device);
@@ -1937,9 +1949,10 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 			   !ti_refused()) {
 		hs->ti_manager = BIND(zwp_text_input_manager_v3, 1);
 	}
-	/* The data device and the text input are made later, in wl_window_open():
-	 * a compositor's data-device and text-input requests want a seat that has
-	 * said it exists, and the seat is here. */
+	/* A manager that arrives after the first window opened makes its seat
+	 * object here: wl_window_open() is never asked again, and without this
+	 * the clipboard or the input method stays dead for the program's life. */
+	seat_extras(data);
 }
 
 #undef IS
@@ -2711,7 +2724,7 @@ static FnlResult wl_window_open(App *a)
 	/* The data device and the text input, once, when the first window asks:
 	 * they are the seat's and their events are routed by the host
 	 * (seat_extras()). */
-	seat_extras(a);
+	seat_extras(a->host);
 
 	FnlResult rc = create_window(a);
 	if (rc < 0) {
@@ -3113,9 +3126,18 @@ static void wl_window_close(App *a)
 	if (hs->ptr_window == a)
 		hs->ptr_window = NULL;
 	/* The selection is this program's, but the string is this window's: the
-	 * source goes, and the selection ends with it. */
+	 * source goes, and the selection ends with it. The offer that was our
+	 * selection is the compositor's to destroy as it clears the selection,
+	 * and the selection(NULL) that says so may still be unread: the offer
+	 * kept here is dropped, so a paste asked now answers empty instead of
+	 * calling into an object that is gone. */
 	if (hs->clip_owner == a) {
 		hs->clip_owner = NULL;
+		if (hs->offer_sel_ours) {
+			hs->offer_sel      = NULL;
+			hs->offer_sel_kind = 0;
+			hs->offer_sel_ours = false;
+		}
 		if (hs->clip_source) {
 			wl_data_source_destroy(hs->clip_source);
 			hs->clip_source = NULL;

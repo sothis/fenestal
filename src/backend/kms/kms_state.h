@@ -297,12 +297,22 @@ struct BackendState {
 	uint32_t     glyph_fb[KMS_GLYPH_COUNT];
 	KmsGlyph     glyph_shown;
 	/* The CRTC driving the output now, as the kernel says, 0 until it says
-	 * one; the CRTC the cursor was last set on; and how many more pump turns
-	 * look for the first, after a switch (cursor_recheck()). */
+	 * one; the CRTC the cursor was last set on; and how many more times to
+	 * look for the first, after a switch (cursor_recheck()). The recheck
+	 * counts on CURSOR_RECHECK_MS's clock rather than on pump turns, so a
+	 * caller pumping fast does not spend the budget before the mode set;
+	 * cursor_probe_at is the same bound on the lookup a motion report
+	 * makes while no CRTC is known. */
 	uint32_t     cursor_crtc, cursor_on;
 	int          cursor_recheck;
+	double       cursor_recheck_at, cursor_probe_at;
 	int          cursor_at_x, cursor_at_y;
+	/* Whether the cursor was refused, and the CRTC it was refused on: the
+	 * refusal is that output's -- a move to another asks it afresh -- and
+	 * one at a move is the render thread's mode set having just switched
+	 * this one off, not the output's last word. */
 	bool         cursor_warned;
+	uint32_t     cursor_warned_crtc;
 	/* Whether the CRTC the cursor drives is lit (a mode and a framebuffer on
 	 * its plane). Checked once when the CRTC is known or rechecked, not per
 	 * motion: a GETCRTC on every mouse move is a kernel ioctl that would
@@ -341,6 +351,11 @@ struct BackendState {
 	KmsScan      scan_parked[KMS_PARKED];
 	int          scan_front;
 	bool         scan_set_owed, flip_pending, scan_failed;
+	/* When scan_failed last gave up, and whether the refusal was already
+	 * said: a retry after KMS_SCAN_RETRY is made silently, and the line is
+	 * said again only once a frame has reached the output since. */
+	double       scan_failed_at;
+	bool         scan_said;
 	/* The HDR_OUTPUT_METADATA blob the 10-bit pair's output was given, 0
 	 * where none was, and whether the connector's HDR properties are set
 	 * for it (scan_hdr_apply(), cleared when an 8-bit pair is shown). */
@@ -351,6 +366,11 @@ struct BackendState {
 	uint32_t     hdr_connector;
 	bool         hdr_set;
 	bool         flip_async;    /* the pending flip tears: no vblank */
+	/* The frame the pending flip carries, counted when its completion is
+	 * read: the event's user_data names the window (kms_scan_show()), so
+	 * whichever thread reads it clears the right window's flip_pending and
+	 * counts the right frame (flip_complete()). */
+	uint64_t     flip_index;
 	/* The driver refused an asynchronous flip (EINVAL): vblank flips until
 	 * the next mode set, which asks again. */
 	bool         flip_async_off;

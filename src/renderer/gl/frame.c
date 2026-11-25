@@ -444,6 +444,21 @@ static GlSwap gl_present_pixels(App *a)
 {
 	if (GLS(a)->scan_direct)
 		return gl_bridge_scan_show(a) ? GL_SWAP_OK : GL_SWAP_FAILED;
+	/* A surfaceless frame with nowhere to go: the copy path a backend can
+	 * flip is KMS's (kms_present_pixels, never the noop), and a window
+	 * server's frames go by its own swap. Reached only when the bridge's
+	 * own scan could not start -- an IOSurface or Metal failure on a Mac --
+	 * and counted as shown it would freeze the window silently while
+	 * paying a readback a frame. Failed, and said once. */
+	if (BACKEND(a)->present_pixels == backend_noop_present_pixels) {
+		if (!GLS(a)->scan_said) {
+			GLS(a)->scan_said = true;
+			fnl_log(FNL_LOG_WARN,
+					"OpenGL: the frame has neither a window to swap nor a "
+					"scan path to copy it onto");
+		}
+		return GL_SWAP_FAILED;
+	}
 	if (GLS(a)->pack_pending) {
 		GLS(a)->pack_pending = false;
 		const int w = GLS(a)->pack_w, h = GLS(a)->pack_h;
@@ -452,7 +467,9 @@ static GlSwap gl_present_pixels(App *a)
 													(GLsizeiptr)(pitch * (size_t)h),
 												GL_MAP_READ_BIT);
 		if (px) {
-			BACKEND(a)->present_pixels(a, px, w, h, pitch, true);
+			/* GL_BGRA bytes, as PIXELS_BGRA8 says: the KMS copy path
+			 * reads them in that order (scan_row()). */
+			BACKEND(a)->present_pixels(a, px, w, h, pitch, PIXELS_BGRA8);
 			gl.UnmapNamedBuffer(GLS(a)->pack_buf);
 			return GL_SWAP_OK;
 		}
@@ -463,7 +480,7 @@ static GlSwap gl_present_pixels(App *a)
 	if (r != GL_SWAP_OK)
 		return r;
 	BACKEND(a)->present_pixels(a, GLS(a)->readback, a->extent.w, a->extent.h,
-							   (size_t)a->extent.w * 4u, true);
+							   (size_t)a->extent.w * 4u, PIXELS_BGRA8);
 	return GL_SWAP_OK;
 }
 
@@ -601,9 +618,12 @@ bool gl_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	gl.Disable(GL_FRAMEBUFFER_SRGB);
 	if (surfaceless) {
 		/* Onto the output's own buffer where the bridge has one, read back
-		 * where not: either way the copy is in the span. */
+		 * where not: either way the copy is in the span. A window server's
+		 * backend has nowhere to put the readback (gl_present_pixels()
+		 * fails it), so the read is not made for it. */
 		if (!gl_bridge_scan_begin(a, GLS(a)->window.fbo, a->extent.w,
-								  a->extent.h))
+								  a->extent.h) &&
+			BACKEND(a)->present_pixels != backend_noop_present_pixels)
 			(void)pack_start(a);
 	} else {
 		/* The native window may be taller than the extent (App::buffer):

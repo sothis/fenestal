@@ -1175,7 +1175,12 @@ static FnlResult run(FnlApp *app, const FnlCallbacks *cb)
 		}
 		if (g_second && fnl_is_closing(app))
 			fnl_quit(g_second);
-		rc = fnl_pump(app, -1);
+		/* A bounded wait, not -1: F12 may be taken by the second window's
+		 * render thread after this pump returned, and on Win32 and Cocoa
+		 * nothing the render thread writes wakes a pump blocked for ever.
+		 * The tenth of a second is the longest the other window's picture
+		 * waits for this loop to catch up with it. */
+		rc = fnl_pump(app, 100);
 		/* F12's view caught up with, both windows, before anything here
 		 * may free one of them: the key was taken by a render thread. */
 		const unsigned gen = atomic_load(&g_view_gen);

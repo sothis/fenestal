@@ -266,12 +266,15 @@ bool x11_present_event(App *a, const xcb_generic_event_t *ev)
 	memcpy(&serial, b + 20, sizeof serial);
 	memcpy(&ust, b + 24, sizeof ust);
 	/* The body sits past the 32-byte generic header, and its length is the
-	 * event's own (4-byte units): one too short for the whole completion
-	 * -- a broken or spoofed server on a remote DISPLAY -- has no msc to
-	 * read, and reading it would be past the allocation libxcb made. */
+	 * event's own (4-byte units). A completion is 40 bytes
+	 * (presentproto.h's xPresentCompleteNotify): msc alone is past the
+	 * header, so extra is 2, and libxcb lays msc down from byte 36 after
+	 * its synthesised full_sequence -- 44 bytes in all. One shorter than
+	 * that has no msc to read, and reading it would be past the allocation
+	 * libxcb made. */
 	uint32_t extra;
 	memcpy(&extra, b + 4, sizeof extra);
-	if (extra < 3)
+	if (extra < 2)
 		return true;
 	memcpy(&msc, b + 36, sizeof msc);
 	if (evtype != PRESENT_COMPLETE_NOTIFY || b[10] != PRESENT_KIND_PIXMAP ||

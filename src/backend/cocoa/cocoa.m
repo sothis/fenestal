@@ -374,10 +374,19 @@ static void publish_output(App *a, bool force)
 		s.maximumPotentialExtendedDynamicRangeColorComponentValue;
 	app_publish_peak(a, peak > 1.0 ? (float)peak : 1.0f);
 
-	/* A screen that names no rate -- some panels -- leaves the spacing on
-	 * the period the loop measures. */
-	const NSInteger fps = s.maximumFramesPerSecond;
-	app_publish_refresh(a, fps > 0 ? (unsigned int)fps * 1000u : 0u);
+	/* The mode's own interval where the screen names one: maximumFramesPer
+	 * Second is the panel's maximum, and a fixed mode below it (a 60 Hz
+	 * choice on a 120 Hz panel, a 4K30 one) would have the loop spacing on
+	 * a rate the display does not run. The maximum is the fallback, and
+	 * neither leaves the period the loop measures. */
+	const NSTimeInterval step = s.displayUpdateGranularity;
+	const NSInteger fps       = s.maximumFramesPerSecond;
+	unsigned int mhz          = 0;
+	if (step > 0.0)
+		mhz = (unsigned int)(1.0 / step * 1000.0 + 0.5);
+	else if (fps > 0)
+		mhz = (unsigned int)fps * 1000u;
+	app_publish_refresh(a, mhz);
 
 	/* The titlebar's output box follows the window from here. */
 	app_publish_outputs(a, names, n, cur);
@@ -439,6 +448,12 @@ static NSSize floor_size(const App *a)
  * with the scale it is in Cocoa points of. */
 static void hold_floor(App *a)
 {
+	/* Not while fullscreen: the minimum there is the library's 1x1, and
+	 * AppKit's own edge resize would then take the window below the floor
+	 * for the rest of its life. What minSize held before stands, and the
+	 * exit from fullscreen holds the floor again. */
+	if (a->is_fullscreen)
+		return;
 	WIN(a->backend_state).minSize = floor_size(a);
 }
 
@@ -1217,6 +1232,7 @@ static void fs_settle(App *a)
 	layer_hold(app->backend_state, false);
 	app->backend_state->fs_transition = false;
 	[self keysToView];
+	hold_floor(app); /* minSize stands again, after the fullscreen's 1x1 */
 	publish_size(app);
 	fs_settle(app);
 }
@@ -1652,6 +1668,11 @@ static FnlResult cocoa_open(App *a)
 
 		FnlCocoaView *v = [[FnlCocoaView alloc]
 			initWithFrame:NSMakeRect(0, 0, sz.width, sz.height)];
+		/* A view that would not be made is no window: the layer would have
+		 * no host and nothing would ever be published or drawn (the two
+		 * checks above take the same answer). */
+		if (!v)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "no FnlCocoaView was made");
 		v->app = a;
 		v.layer = layer;
 		v.wantsLayer = YES;
@@ -1659,6 +1680,9 @@ static FnlResult cocoa_open(App *a)
 		p->view = (void *)CFBridgingRetain(v);
 
 		FnlCocoaWindowDelegate *wd = [[FnlCocoaWindowDelegate alloc] init];
+		if (!wd)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"no FnlCocoaWindowDelegate was made");
 		wd->app = a;
 		w.delegate = wd;
 		p->window_delegate = (void *)CFBridgingRetain(wd);
@@ -2118,7 +2142,13 @@ static void cocoa_clipboard_request(App *a)
 
 static void cocoa_set_title(App *a, const char *utf8)
 {
-	WIN(a->backend_state).title = [NSString stringWithUTF8String:utf8] ?: @"";
+	/* Called from the request drain, which runs after cocoa_pump's pool has
+	 * been popped: a title set every frame -- a rate, a clock -- would leave
+	 * an NSString for every frame it changed on. */
+	@autoreleasepool {
+		WIN(a->backend_state).title =
+			[NSString stringWithUTF8String:utf8] ?: @"";
+	}
 }
 
 /* fnl_set_cursor() moved the shape: put it up now if the pointer is over

@@ -277,10 +277,14 @@ FnlImage *fnl_image_create(FnlApp *app, int w, int h, FnlImageFormat fmt,
 
 	if (!a || !pixels)
 		return NULL;
-	if (app_thread() != APP_THREAD_RENDER) {
-		fnl_log(FNL_LOG_ERROR, "fnl_image_create() is the render thread's: "
-							   "call it in on_overlay, in a fnl_post(), or in "
-							   "on_gpu_created");
+	/* The window's own render thread, or the main thread while that thread
+	 * does not exist (on_gpu_created of a window not yet run, and a
+	 * teardown that has joined it), which is what the list and the copy
+	 * below need. */
+	if (!app_renderer_state_ours(a)) {
+		fnl_log(FNL_LOG_ERROR,
+				"fnl_image_create() is this window's render thread's: call "
+				"it in on_overlay, on_gpu_created, or a fnl_post()");
 		return NULL;
 	}
 	if (w <= 0 || h <= 0 || bpp == 0) {
@@ -337,11 +341,14 @@ void fnl_image_destroy(FnlImage *img)
 	free(img);
 	/* Every image's recording may name the picture -- it is drawn in call
 	 * order through the overlay, and a recording is kept until the draw
-	 * state moves -- so all of them re-record. The command buffer being
-	 * recorded now still names it; the renderers keep its device object
-	 * alive until that frame is submitted (vk_image_free(),
-	 * d3d_image_free()), and their wait covers the ones before. */
-	a->record_gen++;
+	 * state moves -- so all of them re-record. Not by bumping record_gen
+	 * here: the frame being recorded still names the picture, and a bump
+	 * now would stamp that very recording as the new generation, to be
+	 * resubmitted after the renderers have let the image's device object
+	 * go. The bump is the turn's, before the next recording (frame.c's
+	 * draw_state_update()); the renderers keep the object alive until this
+	 * frame is submitted (vk_image_free(), d3d_image_free()). */
+	a->records_stale = true;
 }
 
 /* What is left at teardown, after the render thread has been joined and
@@ -586,15 +593,13 @@ bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y, int *w,
 	 * the strip back. */
 	want_w = want_w > 0 ? clamp_pt(want_w) : 0;
 
-	/* Recorded whatever the answer, so that giving the strip back with a zero
-	 * width works even in the frames where it would not have fitted anyway.
-	 * Only when it moved: this is called every frame, and the pump's hit test
-	 * reads the same word. */
-	if (fnl_atomic_load_u32(&a->titlebar_reserved) != (uint32_t)want_w)
-		fnl_atomic_store_u32(&a->titlebar_reserved, (uint32_t)want_w);
-
-	if (want_w == 0)
+	/* Giving the strip back with a zero width works whatever the frame, so
+	 * the zero is recorded at once and answers false, as the header says. */
+	if (want_w == 0) {
+		if (fnl_atomic_load_u32(&a->titlebar_reserved) != 0)
+			fnl_atomic_store_u32(&a->titlebar_reserved, 0);
 		return false;
+	}
 
 	/* All three from under one lock: the published pair because the extent
 	 * and the scale are the render thread's (App::pub_*), and deco_custom
@@ -617,6 +622,14 @@ bool fnl_titlebar_reserve(FnlApp *app, int want_w, int *x, int *y, int *w,
 	deco_reserved_rect(a, win_w, want_w, &rx, &ry, &rw, &rh, &vis);
 	if (!vis)
 		return false;
+
+	/* Recorded only where it is given: a reservation the library had no
+	 * room for -- before the first frame, in fullscreen, beside a custom
+	 * bar -- is not one the pump's hit test may take presses from on a
+	 * later frame, over a strip the caller was told it did not own. Called
+	 * every frame, so the first frame with room records it. */
+	if (fnl_atomic_load_u32(&a->titlebar_reserved) != (uint32_t)want_w)
+		fnl_atomic_store_u32(&a->titlebar_reserved, (uint32_t)want_w);
 
 	if (x)
 		*x = rx;

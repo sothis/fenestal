@@ -6,11 +6,52 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **A gradient runs along the axis it names, at any angle.** The ramp's
+  extent was the diagonal's projection onto the axis -- zero on a square at
+  45° and its reverse, which painted those flat, and short at most oblique
+  angles -- and it is the rectangle's own extent now. The first colour is at
+  the corner the axis enters by.
+
+- **`fnl_image_create()` works in the first `on_gpu_created`**, which is
+  where its header has always said it belongs: that call is delivered on
+  the main thread before the window's render thread exists. It is refused
+  only from a thread that is not the window's.
+
+- **`fnl_titlebar_reserve()` records a reservation only when it grants
+  one.** A call told there was no room -- before the first frame, in
+  fullscreen, beside a caller's own bar -- no longer leaves a strip the
+  pump's hit test takes presses from, over a rectangle the caller was told
+  it did not own.
+
+- **A smaller `FnlWindowDesc` from an older caller is accepted and
+  defaulted**, as `FnlInitDesc`'s note promises; every size but this build's
+  own was refused before.
+
+- **The temporal accumulation's clamp is the 3x3 neighbourhood its design
+  names**, so a diagonal edge keeps its history; the jitter is stated at
+  `+ jitter` in the shader, the demos and the header alike, the sign the
+  resolve samples at.
+
+- **OpenGL presented red and blue swapped on KMS's copy path** -- the
+  readback is BGRA and was handed over as RGBA -- and **Vulkan's HDR encode
+  pass names its clear value**, which validation requires on every frame.
+
+- **A KMS page-flip completion belongs to the window that flipped.** With
+  two windows on the card, one window's mode set no longer swallows the
+  other's completion, and a mode set that was transiently refused is tried
+  again instead of blanking the window for its life.
+
+- **An image destroyed in the frame that recorded it** no longer leaves
+  that recording to be resubmitted after the renderers have let the
+  image's device object go -- the next recording is made afresh; the
+  testbed's picture is freed in the overlay phase, and the GL renderer
+  forgets a dead context's images rather than binding their names. The
+  IMAGE_LOST event, the compose length's freshness, Win32's composition
+  reporting and X11's repeat release are documented as the code behaves.
+
 - **`fnl_overlay_gradient()` fills its rectangle and nothing else.** The
   gradient's quad was grown by its angle taken as a radius, so it painted a
-  halo beyond the rectangle, and an angle past 90° ran the ramp the way 0°
-  does. The rectangle is now the whole primitive, and a reversed axis starts
-  the ramp where its direction says.
+  halo beyond the rectangle. The rectangle is now the whole primitive.
 
 - **The temporal resolve samples where the jitter put the picture.** It read
   `- jitter` where the caller offsets by `+ jitter`, so the resolved picture

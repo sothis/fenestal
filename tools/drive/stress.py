@@ -2535,8 +2535,16 @@ def run(r):
     m = b.mark()
     b.press("F2")
     b.press("F2")
-    got = b.since(m, "key")
-    check("F2 reaches the caller", len(got) >= 2, "%d events" % len(got))
+    # Two presses, not two events: one press's echo is its press and its
+    # release, and a lost press would leave the clock running behind the
+    # sections below.
+    got = [
+        e
+        for e in b.since(m, "key")
+        if len(e["parts"]) > 2 and e["parts"][1] == "F2"
+        and e["parts"][2] == "press"
+    ]
+    check("F2 reaches the caller", len(got) >= 2, "%d presses" % len(got))
 
     # F5, a key beyond the first sixteen. What is checked is the *name*: a
     # key that arrives as "unknown" has reached the caller and still
@@ -4365,6 +4373,7 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
         # starts over the same file.
         kept = kept_log(b, r)
         r2 = hold2 = None
+        started2 = False
         took = given_back(hold)
         # ---- a second window, where the backend opens one ----------------
         # The single-window round is over and its program stopped; this is a
@@ -4396,9 +4405,9 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                     "one output connected, and a KMS window is an output",
                 )
             else:
-                if hold2.EARLY:
-                    hold2.begin()
                 try:
+                    if hold2.EARLY:
+                        hold2.begin()
                     b.start(
                         args.variant,
                         args=tuple(program_args) + ("--second-window",),
@@ -4406,9 +4415,17 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                         if isinstance(b, B._OnBare)
                         else dict(env, **desk),
                     )
+                    started2 = True
                     if not hold2.EARLY:
                         hold2.begin()
                     two_window(b, r2)
+                except B.Unavailable as e:
+                    # Not this environment's second program: a machine that
+                    # went away, a wineserver still up. The harness's rule is
+                    # a skip, as the first program's start is.
+                    r2.skip(
+                        "a second window opens beside the first", str(e)
+                    )
                 except Exception as e:
                     r2.check(
                         "a second window opens beside the first",
@@ -4425,13 +4442,13 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                             except Exception:
                                 pass
             rounds.append(r2)
-        if took or (hold2 is not None and given_back(hold2)):
-            break
         # One line for the environment, both programs' checks in it: a
         # two-window failure recorded apart would leave the round's line
         # saying it passed.
         both = [x for x in (r, r2) if x is not None]
-        kept2 = kept_log(b, r2) if r2 is not None else {}
+        # The second program's log only where it started: a start that failed
+        # left the first program's log where b.testbed still points.
+        kept2 = kept_log(b, r2) if r2 is not None and started2 else {}
         logs = [k["log"] for k in (kept, kept2) if k]
         # Where a monitor was named: the default is no fact about the round.
         ledger.record(
@@ -4455,6 +4472,11 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
             output=os.environ.get(getattr(b, "WANT_OUTPUT", B.OUTPUT_ENV), ""),
             **({"log": logs[0]} if logs else {}),
         )
+        # After the round is written down: a hand that took the machine's
+        # input back stops the sweep, not the ledger line for the round that
+        # ran.
+        if took or (hold2 is not None and given_back(hold2)):
+            break
 
     print()
     failed = 0

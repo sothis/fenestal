@@ -152,9 +152,10 @@ typedef enum {
 } FnlLogLevel;
 
 /* One of the library's own titlebar controls, for
- * FnlInitDesc::no_titlebar_controls. The antialiasing pair counts as one:
- * they are two names for the same choice of how the scene is sampled. */
-#define FNL_TITLEBAR_ANTIALIAS (1u << 0) /* the FSAA and MLAA checkboxes */
+ * FnlInitDesc::no_titlebar_controls. The antialiasing checkboxes -- FSAA,
+ * MLAA and TAAU -- count as one: they are three names for the choice of how
+ * the scene is sampled. */
+#define FNL_TITLEBAR_ANTIALIAS (1u << 0) /* the FSAA, MLAA and TAAU boxes */
 #define FNL_TITLEBAR_SCALE (1u << 1)     /* the render-scale checkbox  */
 #define FNL_TITLEBAR_OUTPUT (1u << 2)    /* the output box             */
 #define FNL_TITLEBAR_GPU (1u << 3)       /* the GPU box                */
@@ -756,8 +757,10 @@ typedef enum {
 	/* A caller's image is not drawable until the device that replaced the
 	 * lost one is up: fnl_image_valid() answers false between the two, and
 	 * this says the gap opened, so a caller that keeps a picture across a
-	 * loss redraws rather than polls. The gap closes with FNL_EVENT_GPU,
-	 * which is posted when the device is back. Since 0.9. */
+	 * loss can redraw rather than poll. The gap closes when the device is
+	 * back -- fnl_image_valid() answers true again -- and FNL_EVENT_GPU is
+	 * posted where the GPU itself changed; a rebuild on the same one posts
+	 * no GPU event. Since 0.9. */
 	FNL_EVENT_IMAGE_LOST = 21, /* ev.image_lost */
 
 	/* The keyboard focus moved to another of the caller's claims: Tab or
@@ -786,9 +789,12 @@ typedef struct {
 	/* An auto-repeat rather than a fresh press. Always false unless text
 	 * entry is on. Under fnl_set_text_input() a held key comes round again
 	 * as a press with this set and no release between, at the rate the
-	 * desktop is configured for. The library's own bindings never act on
-	 * one; a caller that toggles on a press should test this whenever it
-	 * also takes text. */
+	 * desktop is configured for -- where the window server says which
+	 * press is a repeat, which XKB's detectable autorepeat lets it; a
+	 * server that cannot sends the release it synthesises, and the pair
+	 * then reads as a press and a release like any other. The library's
+	 * own bindings never act on one; a caller that toggles on a press
+	 * should test this whenever it also takes text. */
 	bool repeat;
 } FnlKeyEvent;
 
@@ -901,10 +907,13 @@ typedef struct {
 } FnlTextEvent;
 
 /* The composition's and the clipboard's: a length and not the text, because
- * neither has an upper bound and an event is a fixed size -- the bytes
- * fnl_compose_text() and fnl_clipboard_text() will hand over, terminator
- * not counted. Zero is a composition that ended, or a clipboard with no
- * text in it. */
+ * neither has an upper bound and an event is a fixed size -- the bytes the
+ * getter had when the event was posted, terminator not counted, which is
+ * the room to give its copy. The getter answers with the text as it stands
+ * now, and a newer composition may have replaced this one before the event
+ * is drained: ask with a NULL buffer for the length, or size generously and
+ * use the length the getter returns. Zero is a composition that ended, or a
+ * clipboard with no text in it. */
 typedef struct {
 	unsigned length;
 } FnlLengthEvent;
@@ -1539,8 +1548,10 @@ FNL_API void fnl_overlay_elbow(FnlApp *app, float x0, float y0, float x1,
 FNL_API void fnl_overlay_box(FnlApp *app, float x0, float y0, float x1,
 							 float y1, float width, FnlColor c); /* [overlay] */
 
-/* Issue everything appended so far, so that what follows draws strictly on
- * top: the escape hatch from the invariant above. */
+/* Issue the rectangles and strokes appended so far, so that a rectangle or
+ * stroke that follows draws strictly on top of them: the escape hatch from
+ * the invariant above. Glyphs are not flushed -- text is one draw for the
+ * whole frame, issued last. */
 FNL_API void fnl_overlay_flush(FnlApp *app); /* [overlay] */
 
 /* Confine subsequent rectangles and strokes to a rectangle, in logical points.
@@ -2333,8 +2344,10 @@ FNL_API bool fnl_key_down(const FnlApp *app, FnlKey k); /* [any] */
  *             after it become one character, from a table generated out of
  *             Unicode's own decompositions. No Compose key, no input method.
  *   Win32     the system. Dead keys and an input method's result arrive as
- *             text; the composition in progress is drawn by the system's own
- *             window and is not reported here.
+ *             text; a composition in progress is reported as
+ *             FNL_EVENT_COMPOSE for the caller to draw, and the system's
+ *             own composition window is kept hidden where imm32 loads. The
+ *             system draws it only where imm32 does not.
  *   Cocoa     the system's input method, through NSTextInputClient: dead
  *             keys, the accent menu's keys and CJK entry, with the
  *             composition -- AppKit's marked text -- reported.

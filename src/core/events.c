@@ -200,9 +200,15 @@ void app_event(App *a, FnlEvent *ev)
 	fnl_mutex_unlock(&a->ev_lock);
 
 	/* A loop at rest draws the frame that drains it (see events_pending).
-	 * After ev_lock, never inside it: the two are not nested anywhere. */
+	 * After ev_lock, never inside it: the two are not nested anywhere. The
+	 * wake is one a batch: rest_wait() clears ev_wake when it next comes
+	 * to rest, so an event with the flag already set -- a motion report,
+	 * mostly -- wakes nothing. */
 	fnl_mutex_lock(&a->lock);
-	fnl_cond_signal(&a->cond);
+	if (!a->ev_wake) {
+		a->ev_wake = true;
+		fnl_cond_signal(&a->cond);
+	}
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -220,7 +226,10 @@ void app_event_post(App *a, FnlEvent *ev)
 	fnl_mutex_unlock(&a->ev_lock);
 	/* As app_event(): a loop at rest draws the frame that drains it. */
 	fnl_mutex_lock(&a->lock);
-	fnl_cond_signal(&a->cond);
+	if (!a->ev_wake) {
+		a->ev_wake = true;
+		fnl_cond_signal(&a->cond);
+	}
 	fnl_mutex_unlock(&a->lock);
 }
 

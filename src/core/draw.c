@@ -472,6 +472,11 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 														   : FNL_TARGET_OFFSCREEN,
 						 .samples    = scene_samples,
 						 .scene_time = ds->scene_time,
+						 /* The window's colour, which is where this pass
+						  * draws: the same FnlFrame the scene's callbacks
+						  * are given, so a caller reading it in either
+						  * sees the output it is drawing into. */
+						 .color      = a->draw_color,
 		};
 		f.area_w_px = aw;
 		f.area_h_px = ah;

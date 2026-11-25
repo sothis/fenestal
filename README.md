@@ -260,7 +260,8 @@ What a caller has to know beyond the API reference:
 - **Uploads go through the library's queue from `on_gpu_created`.** From
   anywhere else the queue is shared and wants a lock of the caller's.
 - **Every filled overlay rectangle is a background.** Anything that must sit
-  over text calls `fnl_overlay_flush()` first.
+  over a stroke or an earlier rectangle calls `fnl_overlay_flush()` first;
+  glyphs are one draw issued last, so nothing sits over text.
 - **Some input is the library's**, in every program, and still reaches the
   queue: a left click in the scene captures the pointer and `F9` gives it
   back, `F11` is fullscreen, `F2` starts and stops the scene's clock

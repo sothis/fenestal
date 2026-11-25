@@ -134,8 +134,12 @@ static bool acquire_display(App *a, char *why, size_t size)
 	 * descriptor is a plane-cache hazard in Mesa's WSI (DESIGN *KMS*) and has
 	 * faulted anv, and a display swapchain beside a second window's on the
 	 * one device has too. So a host drawing more than one window, or one
-	 * whose display another window already has, draws by the copy path. */
-	if (fnl_atomic_load_u32(&a->host->window_count) > 1) {
+	 * whose display another window already has, draws by the copy path --
+	 * and so does a host whose second window is opening: the count is not
+	 * raised until that window joins the registry, after its build, while
+	 * force_copy is set before it (kms_window_open()). */
+	if (fnl_atomic_load_u32(&a->host->window_count) > 1 ||
+		fnl_atomic_load_bool(&p->host->force_copy)) {
 		snprintf(why, size, "more than one window draws by the copy path");
 		return false;
 	}
