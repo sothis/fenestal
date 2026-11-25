@@ -3874,6 +3874,7 @@ def two_window_wayland(b, r):
     # And again: the window that comes back is the second one, on a new
     # surface of the same connection, and a key reaches it there.
     shows = count(r"second window: shown \(F10 ")
+    focuses = count(r"window 2: focus 1")
     m = b.mark()
     b.press("F10")                      # to the first: it had the focus
     back = b.until(lambda: count(r"second window: shown \(F10 ") > shows,
@@ -3888,8 +3889,15 @@ def two_window_wayland(b, r):
                      if len(e["parts"]) > 2 and e["parts"][1] == "F10"), None)
 
     first_area = echoed_area(m)
+    # The map reaches the compositor before the keyboard does, and a key
+    # sent while the new surface has no focus yet goes to the window that
+    # still has it: wait for the program's own focus line, as the first
+    # open's check does, before pressing the key this one is about.
+    refocused = back and b.until(
+        lambda: count(r"window 2: focus 1") > focuses, timeout=3.0)
+    r.check("the shown window takes the keyboard again", refocused)
     second_area = None
-    if back:
+    if refocused:
         m = b.mark()
         b.press("F10")                  # the shown window has the focus
         b.until(lambda: count(r"second window: hidden \(F10 ") > hides,
