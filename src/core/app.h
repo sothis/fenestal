@@ -945,7 +945,7 @@ void app_aa_settle(App *a); /* api_state.c */
  * has no wider type. Sized past the enum, so appending a key is not also an
  * edit here until the assert says so. */
 #define KEY_HELD_WORDS 4
-_Static_assert(FNL_KEY_KP_ENTER < 32 * KEY_HELD_WORDS,
+_Static_assert(FNL_KEY_MUTE < 32 * KEY_HELD_WORDS,
 			   "FnlKey has outgrown the held set -- raise KEY_HELD_WORDS");
 
 /* ---- the overlay's three primitives ---------------------------------------
@@ -1200,13 +1200,18 @@ struct Host {
 	 * Main thread writes, every render thread reads. */
 	FnlAtomicU32 opening;
 
-	/* ---- the one renderer, chosen once -------------------------------
+	/* ---- the one renderer -------------------------------------------
 	 * A program has one graphics API, so the first window chooses the
 	 * renderer and every window after it is built on that one (DESIGN *A
 	 * second window*: "the renderer and its list are the host's"). It is
-	 * NULL until the first window's renderer_choose_and_build() settles on
-	 * one; a second window's build reads it rather than choosing again. */
-	const FnlRendererVtbl *renderer;
+	 * null until the first window's renderer_choose_and_build() settles on
+	 * one; a second window's build reads it rather than choosing again.
+	 * And it follows the windows: a move to a GPU of another renderer
+	 * publishes the one moved to (renderer_swap()), so a window created
+	 * after the move is built on that one and not on the one the host
+	 * left. Atomic because the move is the render thread's and the create
+	 * the main thread's; loaded, never held. */
+	FnlAtomicPtr renderer;
 	/* The renderers the first window had a scene for (renderer_scenes() of
 	 * its FnlInitDesc), the set its GPU list spans. A second window's scene
 	 * is drawn on the host's renderer, so it inherits the set rather than
@@ -2132,11 +2137,13 @@ struct FnlApp {
 	bool display_peak_said;
 	bool quit;
 	/* An event has been posted since the render thread last came to rest:
-	 * set under the lock with the wake-up, cleared by rest_wait(), which
-	 * then draws rather than waits -- so a post between the turn's event
-	 * check and the wait is not a wake lost for a display period. It also
-	 * bounds the wake-ups to one a batch rather than one an event. */
-	bool ev_wake;
+	 * set without App::lock by every post (an input burst must not queue
+	 * there per event), cleared by rest_wait() under the lock, which then
+	 * draws rather than waits -- so a post between the turn's event check
+	 * and the wait is not a wake lost for a display period. The first post
+	 * of a batch, the one that finds it clear, takes the lock and signals;
+	 * the rest of the batch only set it. */
+	FnlAtomicBool ev_wake;
 	Zone hovered_button;
 
 	/* The newest configure the compositor has sent, and whether it is still

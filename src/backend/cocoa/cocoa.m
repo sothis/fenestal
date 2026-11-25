@@ -1692,11 +1692,18 @@ static FnlResult cocoa_open(App *a)
 		 * sees the whole application's events, and each window adds one, so
 		 * it acts only on its own window's -- else a second window's monitor
 		 * would deliver the release a second time. */
+		App *app       = a;
 		NSWindow *mine = w;
 		id mon = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyUp
 			handler:^NSEvent *(NSEvent *e) {
+				/* Only a key whose press the view delivered: a menu's
+				 * key-equivalent (Command-Q, Command-H) took the press
+				 * itself, and a release for a press the caller never saw
+				 * is an edge with no other end. */
 				if (e.window == mine &&
-					(e.modifierFlags & NSEventModifierFlagCommand))
+					(e.modifierFlags & NSEventModifierFlagCommand) &&
+					fnl_key_down(app,
+								 key_from_code((unsigned short)e.keyCode)))
 					[e.window sendEvent:e];
 				return e;
 			}];

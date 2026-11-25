@@ -121,10 +121,26 @@ FnlResult create_pipeline_cache(App *a)
 		.pInitialData = initial,
 	};
 	/* The read-back block is this function's, so no VK_TRY. */
-	FnlResult rc = VKR(vkCreatePipelineCache(VK(a)->device, &ci, NULL,
-											 &VK(a)->pipeline_cache));
+	VkResult pc = vkCreatePipelineCache(VK(a)->device, &ci, NULL,
+										&VK(a)->pipeline_cache);
+	if (pc != VK_SUCCESS && initial_size > 0) {
+		/* A persisted cache the driver will not take -- another driver
+		 * version's, or a header this one reads as damaged -- would
+		 * otherwise keep the renderer from opening for the file's life.
+		 * One line and a cache made afresh; the save rewrites the file. */
+		fnl_log(FNL_LOG_WARN,
+				"the pipeline cache file was refused (%d); one is made "
+				"afresh",
+				(int)pc);
+		VK(a)->cache_loaded_size = 0;
+		VK(a)->cache_loaded_hash = 0;
+		ci.initialDataSize       = 0;
+		ci.pInitialData          = NULL;
+		pc = vkCreatePipelineCache(VK(a)->device, &ci, NULL,
+								   &VK(a)->pipeline_cache);
+	}
 	free(initial);
-	return rc;
+	return VKR(pc);
 }
 
 void save_pipeline_cache(App *a)

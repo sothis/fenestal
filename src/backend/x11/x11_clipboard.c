@@ -286,8 +286,14 @@ void x11_selection_request(App *a, const xcb_selection_request_event_t *e)
 			}
 		}
 	}
+	/* SendEvent's request carries a 32-byte event and the generated struct
+	 * is 24 with no trailing pad; xcb_send_event() reads all 32 either way,
+	 * so the event goes from a zeroed 32 rather than past the struct. */
+	_Static_assert(sizeof n <= 32, "SendEvent carries 32 bytes of event");
+	uint8_t ev[32] = { 0 };
+	memcpy(ev, &n, sizeof n);
 	xcb_send_event(p->conn, 0, e->requestor, XCB_EVENT_MASK_NO_EVENT,
-				   (const char *)&n);
+				   (const char *)ev);
 }
 
 void x11_selection_notify(App *a, const xcb_selection_notify_event_t *e)

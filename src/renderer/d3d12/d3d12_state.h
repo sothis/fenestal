@@ -129,7 +129,9 @@ struct RendererState {
 	 * textures are 8-bit. */
 	bool hdr;
 	/* The value that is SDR white in the scRGB target's unit (sdr white
-	 * nits / 80), and the output's peak in those units. */
+	 * nits / 80), and the output's peak as a multiple of SDR white -- what
+	 * FnlOutputColor::peak takes, not nits (a caller scaling it by 80
+	 * alone is right only where sdr_scale is 1). */
 	float sdr_scale, peak;
 
 	/* ---- the device ---------------------------------------------------- */

@@ -137,7 +137,12 @@ static bool high_performance_luid(struct RendererState *g, LUID *out)
 				(void **)&ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
-		IDXGIAdapter1_GetDesc1(ad, &d);
+		if (FAILED(IDXGIAdapter1_GetDesc1(ad, &d))) {
+			/* Never written, and every field of it read below: the
+			 * adapter is skipped as a refused enumeration would be. */
+			IDXGIAdapter1_Release(ad);
+			continue;
+		}
 		if (!(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
 			SUCCEEDED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
 										&IID_ID3D12Device, NULL))) {
@@ -192,7 +197,10 @@ static int d3d_list_gpus(App *a, GpuEntry *out, int max)
 		if (FAILED(IDXGIFactory4_EnumAdapters1(f, i, &ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
-		IDXGIAdapter1_GetDesc1(ad, &d);
+		if (FAILED(IDXGIAdapter1_GetDesc1(ad, &d))) {
+			IDXGIAdapter1_Release(ad);
+			continue;
+		}
 		if (adapter_draws(ad)) {
 			adapter_name(&d, out[n].name, sizeof out[n].name);
 			out[n].kind     = d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE
@@ -233,7 +241,10 @@ static FnlResult choose_adapter(App *a)
 		if (FAILED(IDXGIFactory4_EnumAdapters1(g->factory, i, &ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
-		IDXGIAdapter1_GetDesc1(ad, &d);
+		if (FAILED(IDXGIAdapter1_GetDesc1(ad, &d))) {
+			IDXGIAdapter1_Release(ad);
+			continue;
+		}
 		if (FAILED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
 									 &IID_ID3D12Device, NULL))) {
 			IDXGIAdapter1_Release(ad);
@@ -405,7 +416,9 @@ static FnlResult create_device_objects(App *a)
 		return d3d_fail(FNL_ERR_NO_DEVICE, "D3D12CreateDevice", hr);
 
 	DXGI_ADAPTER_DESC1 d;
-	IDXGIAdapter1_GetDesc1(g->adapter, &d);
+	const HRESULT dhr = IDXGIAdapter1_GetDesc1(g->adapter, &d);
+	if (FAILED(dhr))
+		return d3d_fail(FNL_ERR_NO_DEVICE, "IDXGIAdapter1::GetDesc1", dhr);
 	g->software = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
 	char name[GPU_NAME_MAX];
 	adapter_name(&d, name, sizeof name);

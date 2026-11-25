@@ -347,10 +347,13 @@ FnlResult gl_create_overlay(App *a)
 	 * it and every push writes into it, so a nought would silently draw
 	 * nothing. */
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		gl_clear_errors();
 		gl.CreateBuffers(1, &g->push[i]);
 		gl.NamedBufferStorage(g->push[i], PUSH_BYTES, NULL,
 							  GL_DYNAMIC_STORAGE_BIT);
-		if (!g->push[i])
+		/* The name is no store: a refused storage leaves one that every
+		 * push would write into and no draw could read. */
+		if (!g->push[i] || gl.GetError() != GL_NO_ERROR)
 			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 							"out of memory for the overlay's "
 							"push block");
@@ -377,6 +380,14 @@ FnlResult gl_create_overlay(App *a)
 
 	g->sampler_nearest = make_sampler(GL_NEAREST);
 	g->sampler_linear  = make_sampler(GL_LINEAR);
+	/* A nought here is a layout bound as name 0 -- GL_INVALID_OPERATION,
+	 * or a sampler-less texture -- so the build fails rather than draw
+	 * without them. */
+	if (!g->vao_rect || !g->vao_shape || !g->vao_text || !g->vao_empty ||
+		!g->sampler_nearest || !g->sampler_linear)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"out of memory for the overlay's layouts and "
+						"samplers");
 
 	g->arenas_client = gl_profile41;
 	FNL_TRY(make_arenas(a, g->text_buf, TEXT_ARENA_BYTES, (void **)a->text_map,
@@ -492,6 +503,19 @@ static void set_blend(Blend b)
 							 GL_ONE_MINUS_SRC_ALPHA);
 }
 
+/* The library's GL state, re-established for a deferred draw: a caller may
+ * draw with the context inside on_overlay (fnl_gl.h), and whatever it leaves
+ * -- its framebuffer, viewport, masks, a clip distance, the blend or sRGB
+ * state -- would otherwise reach these draws, which are issued after the
+ * callback returns. The scissor's rectangle is not touched: the core's
+ * overlay_scissor() sets it, and gl_own_state() only enables the test. */
+static void overlay_own_state(App *a)
+{
+	gl_own_state(a);
+	gl.BindFramebuffer(GL_FRAMEBUFFER, GLS(a)->window.fbo);
+	gl.Viewport(0, 0, a->extent.w, a->extent.h);
+}
+
 /* Draw the instances appended since this kind was last flushed: the arena
  * bound at the kind's offset and the first instance where the last flush
  * stopped, so a second flush reads on with nothing copied, as on Vulkan. */
@@ -501,6 +525,7 @@ static void flush(App *a, unsigned prog, unsigned vao, size_t offset,
 {
 	if (*count == *drawn || !GLS(a)->overlay_on || !prog)
 		return;
+	overlay_own_state(a);
 	if (GLS(a)->arenas_client)
 		gl_arena_upload(GLS(a)->ovl_buf[a->ovl_img], a->ovl_map[a->ovl_img],
 						offset + (size_t)*drawn * stride,
@@ -590,6 +615,7 @@ void gl_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 	struct RendererState *g = GLS(a);
 	if (!g->overlay_on || !g->prog_image)
 		return;
+	overlay_own_state(a);
 
 	if (!img->gpu) {
 		GlImageObj *o = NULL;
@@ -696,6 +722,7 @@ bool gl_overlay_cover(App *a, float alpha)
 	struct RendererState *g = GLS(a);
 	if (!g->overlay_on || !a->snap_valid || !g->prog_blit)
 		return false;
+	overlay_own_state(a);
 	if (g->cover_gen != a->snap_gen) {
 		g->cover_gen = a->snap_gen;
 		if (!cover_upload(a))
@@ -740,6 +767,7 @@ FnlResult gl_text_end(App *a)
 	if (a->text_count == a->text_drawn || !GLS(a)->overlay_on ||
 		!GLS(a)->prog_text || !GLS(a)->font_tex)
 		return FNL_OK;
+	overlay_own_state(a);
 
 	if (GLS(a)->arenas_client)
 		gl_arena_upload(GLS(a)->text_buf[a->text_img], a->text_map[a->text_img],

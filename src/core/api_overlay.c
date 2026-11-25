@@ -245,9 +245,10 @@ static unsigned image_pixel_bytes(FnlImageFormat fmt)
 bool fnl_image_supported(const FnlApp *app)
 {
 	const App *a = (App *)app;
-	/* The published table, not App::renderer: a caller on any thread asks
-	 * this, and a move to another renderer may be freeing the drawing one's
-	 * as it does (renderer.h). */
+	/* [overlay]: this window's render thread, where no move to another
+	 * renderer is in flight -- that swap is the same thread's -- so the
+	 * drawing renderer's state below is this thread's to read. The
+	 * published table rather than App::renderer, as renderer.h asks. */
 	const FnlRendererVtbl *r = a ? renderer_any(a) : NULL;
 	if (!r || !r->image_supported)
 		return false;
@@ -440,14 +441,14 @@ void fnl_overlay_circle(FnlApp *app, float cx, float cy, float r, FnlColor c)
 	 * fnl_image_create()'s terms, and said once. */
 	const float lim = (float)OVERLAY_COORD_MAX;
 	if (r > lim) {
-		static bool said;
-		if (!said) {
-			said = true;
+		/* Once per process, and atomic: a host's windows each call this
+		 * from their own render thread. */
+		static FnlAtomicU32 said;
+		if (fnl_atomic_add_u32(&said, 1) == 0)
 			fnl_log(FNL_LOG_WARN,
 					"fnl_overlay_circle(): a radius of %.0f points is past "
 					"the bound of %d, so nothing is drawn",
 					(double)r, OVERLAY_COORD_MAX);
-		}
 		return;
 	}
 	cx = cx > lim ? lim : cx < -lim ? -lim : cx;

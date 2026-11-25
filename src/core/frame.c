@@ -1873,8 +1873,8 @@ static void rest_wait(App *a)
 	 * posters set it under, so a post between the turn's own event check
 	 * and this wait either sees the flag set here and clears it (the turn
 	 * runs) or sets it after and signals the wait: neither is lost. */
-	const bool missed = a->ev_wake;
-	a->ev_wake        = false;
+	const bool missed = fnl_atomic_load_bool(&a->ev_wake);
+	fnl_atomic_store_bool(&a->ev_wake, false);
 	/* Not past a time fnl_invalidate_in() asked for: the next frame is that
 	 * one, and a wait of a whole period would draw it late. */
 	if (a->want_draw_at > 0.0) {
@@ -1950,9 +1950,14 @@ void *render_loop(void *arg)
 	RENDERER(a)->thread_enter(a);
 
 	for (;;) {
-		draw_time_spend(a);
 		if (a->resting)
 			rest_wait(a);
+		/* After the wait, not before it: a resting loop wakes at the
+		 * deadline rest_wait() clamps its sleep to, and the turn that woke
+		 * for it latches with the generation moved and draws the frame
+		 * now, rather than the next turn waiting a whole period first. A
+		 * loop not at rest reaches this as it did. */
+		draw_time_spend(a);
 
 		/* First look, deliberately narrow: whether there is a frame to draw
 		 * and whether it waits. Everything the frame is *drawn from* is taken

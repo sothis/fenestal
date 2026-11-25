@@ -204,12 +204,16 @@ void app_event(App *a, FnlEvent *ev)
 	 * wake is one a batch: rest_wait() clears ev_wake when it next comes
 	 * to rest, so an event with the flag already set -- a motion report,
 	 * mostly -- wakes nothing. */
-	fnl_mutex_lock(&a->lock);
-	if (!a->ev_wake) {
-		a->ev_wake = true;
+	/* The flag is atomic, so the burst after the first report is not a
+	 * lock and a signal apiece: only the post that finds it clear takes
+	 * App::lock. The signal is still sent under that lock after the flag
+	 * is set, so a poster and the waiter clearing it cannot lose each
+	 * other (rest_wait()). */
+	if (fnl_atomic_add_u32(&a->ev_wake, 1) == 0) {
+		fnl_mutex_lock(&a->lock);
 		fnl_cond_signal(&a->cond);
+		fnl_mutex_unlock(&a->lock);
 	}
-	fnl_mutex_unlock(&a->lock);
 }
 
 /* The library's own notification, posted from the render thread: the same
@@ -225,12 +229,16 @@ void app_event_post(App *a, FnlEvent *ev)
 	queue_push(a, ev, &none);
 	fnl_mutex_unlock(&a->ev_lock);
 	/* As app_event(): a loop at rest draws the frame that drains it. */
-	fnl_mutex_lock(&a->lock);
-	if (!a->ev_wake) {
-		a->ev_wake = true;
+	/* The flag is atomic, so the burst after the first report is not a
+	 * lock and a signal apiece: only the post that finds it clear takes
+	 * App::lock. The signal is still sent under that lock after the flag
+	 * is set, so a poster and the waiter clearing it cannot lose each
+	 * other (rest_wait()). */
+	if (fnl_atomic_add_u32(&a->ev_wake, 1) == 0) {
+		fnl_mutex_lock(&a->lock);
 		fnl_cond_signal(&a->cond);
+		fnl_mutex_unlock(&a->lock);
 	}
-	fnl_mutex_unlock(&a->lock);
 }
 
 /* ---- what the frame calls ------------------------------------------------

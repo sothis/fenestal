@@ -520,10 +520,14 @@ typedef struct {
 	float scene_time;
 	/* The subpixel offset this frame's scene is to be rasterised at, in
 	 * pixels of the scene, for a temporal accumulation to gather its samples
-	 * from -- add `2 * jitter_x / scene_w_px` to clip-space x before the w
-	 * divide, and the same on y. Zero unless FNL_AA_TAAU is in force and the
-	 * scene is moving; a caller that draws without it loses the accumulation
-	 * and nothing else. */
+	 * from: shift every vertex by `2 * jitter_x / scene_w_px` in clip-space
+	 * x, multiplied by its w so the perspective divide keeps it --
+	 * `clip.x += (2 * jitter_x / scene_w_px) * clip.w`, and the same on y
+	 * (the demos fold it into the projection's z column, which multiplies
+	 * z, and w is -z there). A constant added to clip.x instead is divided
+	 * away in proportion to depth. Zero unless FNL_AA_TAAU is in force and
+	 * the scene is moving; a caller that draws without it loses the
+	 * accumulation and nothing else. */
 	float jitter_x, jitter_y;
 
 	/* The colour of the target this frame draws into: what its values mean,

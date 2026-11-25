@@ -586,10 +586,12 @@ bool mt_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		if (a->timing)
 			a->fc_submit = (t_present - t_rec) - a->fc_record;
 
-		if (a->counting) {
-			shown_take(a);
+		/* Drained whatever the setting: app_frame_shown() drops what it
+		 * is handed while stats are off, and entries kept until they are
+		 * on again would be reported as new frames then. */
+		shown_take(a);
+		if (a->counting)
 			shown_watch(a, drawable, a->presents);
-		}
 		[cb presentDrawable:drawable];
 		[cb commit];
 		g->slot_cb[slot] = cb;

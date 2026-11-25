@@ -465,10 +465,11 @@ VkResult vk_dxgi_present(App *a, uint32_t img)
 	 * where the factory offers no tearing: a present then queues behind
 	 * the last, flipped at a refresh too, and with no wait the queue
 	 * fills -- 60 fps still, and 132 ms from latch to screen. Tearing,
-	 * the keyed mutex paces the frames. The swapchain is made for vsync
-	 * once (fnl_init() fixes it), so no skipped count is owed. */
+	 * the keyed mutex paces the frames. The swapchain's flags are the
+	 * open's, but the interval follows the policy as it is now: a wait
+	 * skipped only while the frames actually tear. */
 	const bool vsync = fnl_atomic_load_bool(&a->vsync);
-	if (d->wait && !d->tear)
+	if (d->wait && (vsync || !d->tear))
 		WaitForSingleObjectEx(d->wait, 100, TRUE);
 	HRESULT hr = IDXGIKeyedMutex_AcquireSync(d->km[img], 1, 2000);
 	if (hr != S_OK) {

@@ -1563,6 +1563,14 @@ void renderer_swap(App *a)
 		app_gpu_driver_unseen(a);
 	}
 	if (rc == FNL_OK) {
+		/* The host's one renderer is the one this window draws now: a
+		 * window created after the move is built on it and not on the one
+		 * this window left (DESIGN *A second window*). */
+		fnl_atomic_store_ptr(&a->host->renderer, (void *)to);
+		/* The new renderer numbers its presents afresh, so the window's
+		 * serial chain does too (App::present_chain): X11's Present
+		 * matching purges its ordinals on the change, as a swapchain's. */
+		a->present_chain++;
 		/* The other renderers' GPUs listed again once a GPU is on another
 		 * driver, or a GPU came or went: what it is called, and who can
 		 * draw on it, are the driver's. Not on the way back, where the
@@ -1811,8 +1819,10 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 	 * fails only where the window cannot have the host's device (out of
 	 * memory, a GPU gone), and there is no other to step to: every window on
 	 * the host shares the one renderer, by DESIGN *A second window*. */
-	if (a->host->renderer) {
-		const FnlRendererVtbl *g = a->host->renderer;
+	const FnlRendererVtbl *host_g =
+		(const FnlRendererVtbl *)fnl_atomic_load_ptr(&a->host->renderer);
+	if (host_g) {
+		const FnlRendererVtbl *g = host_g;
 		a->renderer_first        = g->api;
 		a->renderer_named        = g->api;
 		a->gpu_spans             = a->host->gpu_spans;
@@ -1847,7 +1857,7 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 			gpu_span_set(a, scenes);
 			/* The host's renderer, once the first window has chosen it: a
 			 * second window is built on this one (see above). */
-			a->host->renderer        = cand[0];
+			fnl_atomic_store_ptr(&a->host->renderer, (void *)cand[0]);
 			a->host->renderer_scenes = scenes;
 		}
 		return rc;
@@ -1862,7 +1872,7 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 					passed[0] ? "; passed over " : "", passed);
 			gpu_span_set(a, scenes);
 			/* The host's renderer, for the windows that follow this one. */
-			a->host->renderer        = g;
+			fnl_atomic_store_ptr(&a->host->renderer, (void *)g);
 			a->host->renderer_scenes = scenes;
 			return FNL_OK;
 		}
@@ -3360,15 +3370,18 @@ void fnl_shutdown(App *a)
 	 * the host, which the pump's thread walks on every turn, so a worker
 	 * doing it would race that walk. A render thread is refused by the same
 	 * test -- joining a thread from itself never returns -- and that thread
-	 * is only ever a callback's. From the outermost pair, on this thread,
-	 * the second test refuses it: it would free the App fnl_run() goes on
-	 * using. Refused with a line rather than raced, hung or freed. */
+	 * is only ever a callback's. A main-thread callback is refused by the
+	 * two tests after it: the window a run is drawing (in_run), and any
+	 * window of the host's while one of its callbacks is being delivered --
+	 * a sibling fnl_start() has not reached yet has in_run false, and
+	 * freeing it would leave the registry the caller is walking. Refused
+	 * with a line rather than raced, hung or freed. */
 	if (app_thread() != APP_THREAD_MAIN) {
 		fnl_log(FNL_LOG_ERROR, "fnl_shutdown() must be called on the "
 							   "thread that called fnl_init()");
 		return;
 	}
-	if (a->in_run) {
+	if (a->in_run || a->host->in_callback) {
 		fnl_log(FNL_LOG_ERROR, "fnl_shutdown() called from a callback; "
 							   "it must be called after fnl_run() returns");
 		return;
@@ -3597,7 +3610,7 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	 * host's renderer was chosen by the first window; a host that somehow has
 	 * none (a first window whose renderer never settled) is a door that
 	 * cannot open a second window yet, and says so. */
-	if (!h->renderer) {
+	if (!fnl_atomic_load_ptr(&h->renderer)) {
 		rc = fnl_fail(FNL_ERR_UNSUPPORTED,
 					  "the host has no renderer to draw a second window "
 					  "on; fnl_init() opens the first");
@@ -3828,7 +3841,12 @@ FnlResult fnl_start(App *a, const FnlCallbacks *cb)
 							"this struct has ever had; set it to sizeof "
 							"(FnlCallbacks)",
 							cb->size);
-		memcpy(&a->cb, cb, cb->size);
+		/* Into a zeroed copy before it is the window's: a second run's
+		 * smaller descriptor would otherwise leave the first run's pointers
+		 * standing past its end, called with this run's ud. */
+		FnlCallbacks c = { 0 };
+		memcpy(&c, cb, cb->size);
+		a->cb = c;
 	}
 
 	/* Every window the host lists, each on its own render thread. A host with

@@ -268,9 +268,6 @@ void testbed_overlay_shapes_on(void)
  * and a window at rest must keep the figures while the panel's own frames
  * are drawn and counted. */
 static bool g_frame_stats_log;
-/* Written by whichever window's draw turns the stats on first: atomic, since
- * two windows draw at once. */
-static _Atomic bool g_stats_on;
 
 void testbed_overlay_frame_stats_log(void)
 {
@@ -644,8 +641,9 @@ static void shapes_draw(FnlApp *app)
 	int cx, cy, cw, ch;
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
 
-	/* A column down the left of the area, wide enough for a row of four and
-	 * clear of the panels on the right. */
+	/* A column down the left of the area: the panels are on that side too, so
+	 * they step aside while this is up (testbed_overlay_draw()), and the four
+	 * forms are read against the scene alone. */
 	const int pad  = 20;
 	const int cell = ch / 6 > 40 ? ch / 6 : 40;
 	const int x    = cx + pad;
@@ -693,7 +691,9 @@ static void shapes_draw(FnlApp *app)
 /* The footprint line, at most twice a second (proc.c's own pace). */
 static void footprint_log(FnlApp *app, double now)
 {
-	static double at = -1.0;
+	/* Per window-thread: every window's overlay runs this, and the line's
+	 * figures are the window's. */
+	static _Thread_local double at = -1.0;
 	if (at >= 0.0 && now >= at && now - at < 0.5)
 		return;
 	at = now;
@@ -726,7 +726,9 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 	 * whatever is drawn next, and the shapes' own pipelines are what a
 	 * leftover would show against. */
 	shapes_draw(app);
-	if (atomic_load(&g_ui.show_help)) {
+	/* The panels are the left of the area, where the shapes column is drawn:
+	 * while --shapes or O is on, they give it the side. */
+	if (atomic_load(&g_ui.show_help) && !atomic_load(&g_ui.shapes)) {
 		/* Two give-ways, in order: the status readout yields to the titlebar,
 		 * and the keybindings yield to whichever of the two is below them. See
 		 * status_panel_fits() and help_panel_fits(). */
@@ -743,7 +745,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		footprint_log(app, f->time);
 	fnl_set_cost_sampling(app, g_footprint_log);
 	if (g_frame_cpu_log) {
-		static double at = -1.0;
+		static _Thread_local double at = -1.0;
 		if (at < 0.0 || f->time - at >= 0.5) {
 			at = f->time;
 			fprintf(stderr, "frame cpu: %.2f ms, fps %d\n",
@@ -751,7 +753,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		}
 	}
 	if (g_reserve_log) {
-		static double at = -1.0;
+		static _Thread_local double at = -1.0;
 		if (at < 0.0 || f->time - at >= 0.5) {
 			at = f->time;
 			int cx, cy, cw, ch, rx, ry, rw, rh;
@@ -771,12 +773,17 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		}
 	}
 	if (g_frame_stats_log) {
-		static double at = -1.0;
-		static FnlFrameSample rows[1024];
-		static unsigned long long n_rows, presented, rows_us, lost_all;
-		if (!atomic_load(&g_stats_on)) {
+		/* The window's own, like every instrument here: two windows draw on
+		 * two render threads, and one static apiece would be both threads'
+		 * counters. Each window turns its own app's stats on once. */
+		static _Thread_local double at = -1.0;
+		static _Thread_local FnlFrameSample rows[1024];
+		static _Thread_local unsigned long long n_rows, presented, rows_us,
+			lost_all;
+		static _Thread_local bool stats_on;
+		if (!stats_on) {
 			fnl_set_frame_stats(app, true);
-			atomic_store(&g_stats_on, true);
+			stats_on = true;
 		}
 		if (at < 0.0 || f->time - at >= 0.5) {
 			at            = f->time;

@@ -156,8 +156,21 @@ trap 'stopping=1
 rc=0
 for j in $running; do
     t=${j%%:*}
+    # After a signal, a child that takes no TERM must not hang the wait: a
+    # watchdog kills it after a grace, and is itself killed the moment the
+    # wait returns -- a pid this shell has not reaped is still its child,
+    # so the kill can never fall on a reused one. Armed only while
+    # stopping: a child running normally is waited for as long as it runs.
+    dog=""
+    if [ "$stopping" -ne 0 ]; then
+        ( sleep 5; kill -9 "${j#*:}" 2>/dev/null ) >/dev/null 2>&1 &
+        dog=$!
+    fi
     status=0
     wait "${j#*:}" || status=$?
+    if [ -n "$dog" ]; then
+        kill "$dog" 2>/dev/null || true
+    fi
     remaining=""
     for k in $running; do
         [ "$k" = "$j" ] || remaining="$remaining $k"

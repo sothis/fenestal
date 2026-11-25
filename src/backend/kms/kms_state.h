@@ -220,6 +220,14 @@ struct BackendHostState {
 	 * (kms_window_open(), and surface_kms.c letting a held display go). */
 	FnlAtomicBool force_copy;
 
+	/* The page-flip bookkeeping's. One event queue on the node is read by
+	 * whichever window's render thread comes to it, so flip_complete() may
+	 * clear the flag a window's own thread is waiting on; this holds each
+	 * window's flip_pending, flip_async, flip_index and flip_stale between
+	 * the store and the use, and makes the give-up and the completion that
+	 * was late for it one decision. */
+	FnlMutex flip_lock;
+
 	KmsInput     inputs[KMS_MAX_INPUTS];
 	int          input_count;
 
@@ -365,12 +373,17 @@ struct BackendState {
 	 * old statement for this connector's. */
 	uint32_t     hdr_connector;
 	bool         hdr_set;
-	bool         flip_async;    /* the pending flip tears: no vblank */
-	/* The frame the pending flip carries, counted when its completion is
-	 * read: the event's user_data names the window (kms_scan_show()), so
-	 * whichever thread reads it clears the right window's flip_pending and
-	 * counts the right frame (flip_complete()). */
+	/* The pending flip: whether one is in flight, whether it tears (no
+	 * vblank), the frame it carries, and how many completions were given up
+	 * on after a wait's timeout and are still to be read (flip_give_up()).
+	 * All four under BackendHostState::flip_lock: the event's user_data
+	 * names the window (kms_scan_show()), so whichever thread reads the
+	 * completion clears the right window's flag. A stale completion is
+	 * consumed and not reported -- the frame it belongs to is older than
+	 * the one being waited for. */
+	bool         flip_async;
 	uint64_t     flip_index;
+	int          flip_stale;
 	/* The driver refused an asynchronous flip (EINVAL): vblank flips until
 	 * the next mode set, which asks again. */
 	bool         flip_async_off;

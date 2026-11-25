@@ -255,6 +255,10 @@ jobs:
             # Every variant the target takes. Each is a build with its
             # in-build checks, and none is run -- there is no desktop here.
             - name: Checker trees
+              # The source checks and the zips are the checkout's, and the
+              # Linux job has run them: no tree here packs them again.
+              env:
+                  FNL_NO_DIST: 1
               run: |
                   git config --global --add safe.directory "$GITHUB_WORKSPACE"
                   for v in clang asan tsan analyzer gc; do

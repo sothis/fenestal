@@ -99,6 +99,8 @@ static void present_opaque(App *a, int w, int h, int m)
 {
 	struct BackendState *p   = a->backend_state;
 	struct wl_region *opaque = wl_compositor_create_region(p->host->compositor);
+	if (!opaque)
+		return; /* no memory: the surface is left unmarked */
 	wl_region_add(opaque, m, m, w, h);
 	wl_surface_set_opaque_region(p->present, opaque);
 	wl_region_destroy(opaque);
@@ -167,8 +169,12 @@ static void wl_output_drop(struct BackendState *p, struct wl_output *o)
 		p->on_output[i] = p->on_output[--p->on_output_count];
 		break;
 	}
-	if (p->current_output == o)
-		p->current_output = NULL; /* re-picked, from what is left */
+	if (p->current_output == o) {
+		/* Re-picked, from what is left -- and the bounds went with the
+		 * output they described: nothing resends them for the one picked. */
+		p->current_output = NULL;
+		p->bounds_w = p->bounds_h = 0;
+	}
 }
 
 static void pick_current_output(App *a)
@@ -848,15 +854,32 @@ static void relative_motion(void *data, struct zwp_relative_pointer_v1 *rp,
 	app_reticle_move(a, pt_to_pxf(mx, s120), pt_to_pxf(my, s120));
 
 	/* Where the desktop cursor reappears. Double-buffered, latched by the next
-	 * wl_surface.commit, so it is set as the reticle moves: set at release it
-	 * would be destroyed with the lock, unread. */
+	 * wl_surface.commit: the value in force then is the last one sent before
+	 * it, so the point is stored here and sent once a pump turn
+	 * (wl_hint_flush()) -- a request per motion would be a thousand a
+	 * second where the compositor reads one a frame. */
 	int cx, cy;
 	app_content_px_rect(a, &cx, &cy, NULL, NULL);
 	const int m = deco_margin(a, a->is_fullscreen);
-	zwp_locked_pointer_v1_set_cursor_position_hint(
-		a->backend_state->locked,
-		wl_fixed_from_double(px_to_ptf(cx + a->cur_px, s120) + m),
-		wl_fixed_from_double(px_to_ptf(cy + a->cur_py, s120) + m));
+	a->backend_state->hint_x =
+		px_to_ptf(cx + a->cur_px, s120) + (double)m;
+	a->backend_state->hint_y =
+		px_to_ptf(cy + a->cur_py, s120) + (double)m;
+	a->backend_state->hint_owed = true;
+}
+
+/* The captured pointer's cursor-position hint, sent once for however many
+ * motion reports a pump turn carried. Pump thread. */
+static void wl_hint_flush(App *a)
+{
+	struct BackendState *p = a->backend_state;
+	if (!p || !p->hint_owed)
+		return;
+	p->hint_owed = false;
+	if (p->locked)
+		zwp_locked_pointer_v1_set_cursor_position_hint(
+			p->locked, wl_fixed_from_double(p->hint_x),
+			wl_fixed_from_double(p->hint_y));
 }
 static const struct zwp_relative_pointer_v1_listener relative_listener = {
 	.relative_motion = relative_motion,
@@ -873,21 +896,29 @@ static void capture_pointer(App *a)
 		!p->host->relative_manager || !p->host->pointer)
 		return;
 
-	app_reticle_start(a);
-
 	/* No region: it says where the pointer must be for the lock to *engage*,
-	 * not where it may go. The reticle is bounded in app_reticle_move(). */
+	 * not where it may go. The reticle is bounded in app_reticle_move().
+	 * Both proxies are made before anything of the capture is: one that is
+	 * not, from allocation, leaves nothing to capture with. */
 	p->locked = zwp_pointer_constraints_v1_lock_pointer(
 		p->host->pointer_constraints, p->surface, p->host->pointer, NULL,
 		ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
-	zwp_locked_pointer_v1_add_listener(p->locked, &locked_listener, a);
-
+	if (!p->locked)
+		return;
 	if (!p->relative) {
 		p->relative = zwp_relative_pointer_manager_v1_get_relative_pointer(
 			p->host->relative_manager, p->host->pointer);
+		if (!p->relative) {
+			zwp_locked_pointer_v1_destroy(p->locked);
+			p->locked = NULL;
+			return;
+		}
 		zwp_relative_pointer_v1_add_listener(p->relative, &relative_listener,
 											 a);
 	}
+
+	app_reticle_start(a);
+	zwp_locked_pointer_v1_add_listener(p->locked, &locked_listener, a);
 
 	a->pointer_captured = true;
 	set_cursor_shape(a, WL_CURSOR_HIDDEN);
@@ -1710,6 +1741,11 @@ static void seat_extras(struct Host *h)
 		if (hs->ti)
 			zwp_text_input_v3_add_listener(hs->ti, &text_input_listener, h);
 	}
+	/* The manager may arrive after the seat has reported its pointer, when
+	 * seat_caps()' branch has already been passed. */
+	if (hs->pointer && hs->cursor_shape_manager && !hs->cursor_device)
+		hs->cursor_device = wp_cursor_shape_manager_v1_get_pointer(
+			hs->cursor_shape_manager, hs->pointer);
 }
 
 static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
@@ -2036,6 +2072,10 @@ static void fractional_preferred_scale(void *data,
 	else
 		p->preferred_scale120 = clamp_scale120((int)scale);
 	update_scale(a);
+	/* The room in points is the mode over this scale, and a scale that
+	 * changes without a configure_bounds after it would leave the published
+	 * room at the old one. */
+	refresh_size_bounds(a);
 }
 static const struct wp_fractional_scale_v1_listener fractional_listener = {
 	.preferred_scale = fractional_preferred_scale,
@@ -2256,7 +2296,10 @@ static void surface_frame_request(App *a)
 	if (!p->frame_cb) {
 		p->frame_ready = false;
 		p->frame_cb    = wl_surface_frame(p->present);
-		wl_callback_add_listener(p->frame_cb, &frame_listener, a);
+		/* No proxy: nothing is waited for, and surface_frame_wait() reads
+		 * the null as no callback rather than blocking on none. */
+		if (p->frame_cb)
+			wl_callback_add_listener(p->frame_cb, &frame_listener, a);
 		/* Asked of a surface made at a renew, whose first frame this is:
 		 * answered, that frame is on screen (frame_done()). */
 		if (p->present_old || p->backing_owed)
@@ -2427,6 +2470,13 @@ static void request_window_size(App *a, int w, int h)
 	a->want_h = h;
 	fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
+
+	/* No configure follows a self-chosen size, so the two things one does
+	 * to what the size bounds are done here: the scale the new device
+	 * extent allows, and the captured reticle, which may now sit outside
+	 * the area (the same pair xdg_surface_configure runs). */
+	update_scale(a);
+	app_reticle_clamp(a);
 }
 
 /* No output is named: the compositor picks the one the window is mostly on,
@@ -2815,6 +2865,11 @@ static void wl_pump(App *a, int timeout_ms)
 
 	wl_display_dispatch_pending(d);
 
+	/* The captured windows' cursor hints, one request for however many
+	 * relative reports the dispatch carried. */
+	for (App *w = a->host->windows; w; w = w->next)
+		wl_hint_flush(w);
+
 	/* After the dispatch: a release in this same turn has then stopped the
 	 * repeat. The repeat is the focused window's, and one however many
 	 * periods the turn was late by. */
@@ -2846,7 +2901,11 @@ static void wl_flush(App *a)
 			wl_surface_commit(p->surface);
 		}
 	}
-	wl_display_flush(p->host->display);
+	if (wl_display_flush(p->host->display) < 0 && errno == EAGAIN)
+		/* No room on the socket: the pump's next turn flushes again and
+		 * arms the out watch, so ask for one rather than leave the tail
+		 * of this commit unread until some other event comes. */
+		app_wakeup(a);
 }
 
 /* ---- a surface of their own for the frames -------------------------------
@@ -2877,8 +2936,11 @@ static struct wl_buffer *backing_buffer(struct BackendState *p)
 	struct wl_buffer *b = NULL;
 	if (ftruncate(fd, 4) == 0) {
 		struct wl_shm_pool *pool = wl_shm_create_pool(p->host->shm, fd, 4);
-		b = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
-		wl_shm_pool_destroy(pool);
+		if (pool) {
+			b = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4,
+										  WL_SHM_FORMAT_ARGB8888);
+			wl_shm_pool_destroy(pool);
+		}
 	}
 	close(fd);
 	return b;
@@ -3127,13 +3189,16 @@ static void wl_window_close(App *a)
 		hs->ptr_window = NULL;
 	/* The selection is this program's, but the string is this window's: the
 	 * source goes, and the selection ends with it. The offer that was our
-	 * selection is the compositor's to destroy as it clears the selection,
-	 * and the selection(NULL) that says so may still be unread: the offer
-	 * kept here is dropped, so a paste asked now answers empty instead of
+	 * selection is a proxy of this client's -- the compositor clears the
+	 * selection, not the proxy -- so it is destroyed here as any other
+	 * offer is; the selection(NULL) that says so may still be unread, and
+	 * the slot is cleared so a paste asked now answers empty instead of
 	 * calling into an object that is gone. */
 	if (hs->clip_owner == a) {
 		hs->clip_owner = NULL;
 		if (hs->offer_sel_ours) {
+			if (hs->offer_sel)
+				wl_data_offer_destroy(hs->offer_sel);
 			hs->offer_sel      = NULL;
 			hs->offer_sel_kind = 0;
 			hs->offer_sel_ours = false;

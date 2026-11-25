@@ -169,13 +169,19 @@ FnlResult text_load_cells(void)
 }
 
 /* One row of the table: the cells for this scale and size, indexed by glyph.
- * NULL, reported once per string, if text_load_cells() has not run -- a
- * startup sequence someone has rearranged, not a runtime condition. */
+ * NULL, reported once, if text_load_cells() has not run -- a startup
+ * sequence someone has rearranged, not a runtime condition. */
 const GlyphCell *cell_row(int si, TextSize sz)
 {
 	if (!cell_table) {
-		fnl_log(FNL_LOG_ERROR, "text measured or drawn before the glyph table "
-							   "was loaded");
+		/* The line is said once and not per call: a caller that measures
+		 * before the table is loaded measures on every frame otherwise, and
+		 * each line is a formatted write on the frame path. The add is the
+		 * guard, so two threads arriving together still say it once. */
+		static FnlAtomicBool said;
+		if (fnl_atomic_add_u32(&said, 1) == 0)
+			fnl_log(FNL_LOG_ERROR,
+					"text measured or drawn before the glyph table was loaded");
 		return NULL;
 	}
 	return cell_table +
@@ -440,14 +446,19 @@ size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
 		const int adv = text_advance(sz);
 		if (adv <= 0)
 			return 0;
+		/* A budget of cells, as text_width() counts them: a byte offset
+		 * against it would stop a non-ASCII line a code point's bytes
+		 * short per glyph. */
 		size_t i          = 0;
+		size_t cells      = 0;
 		const size_t most = (size_t)(max_w / adv);
-		while (i < n && s[i] && i < most) {
+		while (i < n && s[i] && cells < most) {
 			uint32_t cp;
 			const char *q = utf8_next(s + i, &cp);
 			if ((size_t)(q - s) > n)
 				break;
 			i = (size_t)(q - s);
+			cells++;
 		}
 		return i;
 	}

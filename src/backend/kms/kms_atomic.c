@@ -340,8 +340,13 @@ bool kms_atomic_set(struct KmsAtomic *at, uint32_t connector, uint32_t crtc,
 	uint64_t cv;
 	const uint32_t conn_crtc =
 		at_prop(at->fd, connector, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID", &cv);
-	if (!c || !conn_crtc || !fb || !mode)
+	if (!c || !conn_crtc || !fb || !mode) {
+		/* The table's answer, not the kernel's: errno 0 tells the caller the
+		 * atomic path never ran, so a stale value is not taken for the
+		 * ioctl's. */
+		errno = 0;
 		return false;
+	}
 	struct drm_mode_create_blob blob = {
 		.data   = (uintptr_t)mode,
 		.length = (uint32_t)sizeof *mode,
@@ -385,8 +390,10 @@ bool kms_atomic_flip(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
 					 bool async, uint64_t stamp)
 {
 	AtCrtc *c = at_crtc(at, crtc);
-	if (!c || !fb)
+	if (!c || !fb) {
+		errno = 0; /* the table has no answer; the legacy fallback's is kept */
 		return false;
+	}
 	const uint32_t objs[1]   = { c->plane_id };
 	const uint32_t counts[1] = { 2 };
 	const uint32_t props[2]  = { c->p_crtc_id, c->p_fb_id };

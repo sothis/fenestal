@@ -39,18 +39,22 @@ static void step_mode(FnlApp *app, int by)
 	}
 }
 
-/* The output after the one the window is on, round to the first. */
+/* The output after the one the window is on, round to the first. The list
+ * is by connector; the window's output is that alone on X11, Win32 and KMS,
+ * and on Wayland the connector and then the model. */
 static void next_output(FnlApp *app)
 {
-	const int n = fnl_output_count(app);
-	char on[160];   /* the library's own bound on a name; a cut one never
-					 * matches the list */
-	snprintf(on, sizeof on, "%s", fnl_output_name(app));
-	for (int i = 0; i < n; i++)
-		if (strcmp(fnl_output_name_at(app, i), on) == 0) {
+	const int n     = fnl_output_count(app);
+	const char *on  = fnl_output_name(app);
+	for (int i = 0; i < n; i++) {
+		const char *name = fnl_output_name_at(app, i);
+		const size_t len = strlen(name);
+		if (len > 0 && strncmp(on, name, len) == 0 &&
+			(on[len] == '\0' || on[len] == ' ')) {
 			fnl_request_output(app, fnl_output_name_at(app, (i + 1) % n));
 			return;
 		}
+	}
 }
 
 static void print_list(FnlApp *app)

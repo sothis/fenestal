@@ -5761,6 +5761,13 @@ that scene alone, and its list is that renderer's whatever the mask says
 still spans the rest, which is what lets every round of the harness, each
 of which names its renderer, move across.
 
+**The host's renderer is the one its windows draw on, and a move keeps it
+so.** A successful move publishes the renderer moved to as the host's
+(`Host::renderer`, atomic: the move is the render thread's), so a window
+created after the move is built on that one and not on the one the host
+left; `gpu_switch_owed()` refuses a move while a second window is open,
+so no two windows of a host can be drawing different APIs.
+
 **The window's renderer first, then the others in the order tried, for the
 window's life** -- unless a ranking is kept, which orders the list by the
 display's figures (*Ranked by measured frame rate*). `gpu_index` and `FNL_GPU`
@@ -9367,8 +9374,9 @@ less its parts) named the gap: OpenGL's frames through a drag 23 to 28
 ms with some 16.5 of parts. Now `x11_flush()` keeps the value owed for
 the present just made until Present's CompleteNotify for that present's
 index (`x11_sync_answered()`, from `x11_present_event()` on the main
-thread), bounded at 34 ms (`SYNC_SHOWN_WAIT`, Vulkan's bound) by the
-pump's timeout; a cancelled present lets it go at once, and a new sync
+thread), bounded at 100 ms (`SYNC_SHOWN_WAIT`) by the pump's timeout --
+34 ms, Vulkan's bound, was measured too tight for this path: of 145
+completions the median was 16.4 ms and the worst 49.6, 2.8% past it; a cancelled present lets it go at once, and a new sync
 request supersedes a kept one. Only once the window has had one
 completion (`present_live`): Mesa's software WSI under `noshm` presents
 by PutImage and answers none, and a wait that runs out turns the hold
@@ -9394,13 +9402,14 @@ presenter's serial starting over at 1 each time -- so that every
 completion after is taken for a frame some five presents older: 19.8 ms
 after its push at the median before those rebuilds, 180 to 230 ms after
 (2026-11-02, the stress round, 1,818 completions). The kept value's frame
-is then answered five presents late and the 34 ms runs out; the shown
+is then answered five presents late and the 100 ms runs out; the shown
 stamps (`fnl_frame_shown()`) and `app_frame_answered()` read the same
 queue. The steady border drags resize in place and make no new swapchain,
 which is why they never run out. So a completion is matched by its serial:
 Mesa's X11 WSI numbers each swapchain's presents from 1, the backend
 numbers its queued frames the same way, restarting where the renderer
-says a chain began (`App::present_chain`, bumped at each swapchain made),
+says a chain began (`App::present_chain`, bumped at each swapchain made and
+at a move to another renderer, whose presents start at 1 again),
 and a completion is the oldest queued frame of its number, the frames
 queued ahead of it dropped as never sent; a presenter whose serial matches
 none is taken in order as before. The same round with it (2026-11-02): no

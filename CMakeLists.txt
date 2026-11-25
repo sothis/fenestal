@@ -979,11 +979,13 @@ function(fnl_host_tool name)
     endif()
 endfunction()
 
-# cl has no assembler that takes the .incbin stubs, so the same blobs are
-# generated as C arrays by tools/bin2c.c, at build time so that a borrowed
-# bake's re-bake over there is still what rebuilds here. The grammar is
+# cl has no assembler that takes the .incbin stubs, and a macOS archive is
+# made from the library's objects as bitcode, which an assembler object is
+# not: both take C arrays by tools/bin2c.c, made at build time so that a
+# borrowed bake's re-bake over there is still what rebuilds here. Built on
+# the host, which is what runs it. The grammar is
 #   bin2c <out.c> <symbol> <file> <nul|-> ...
-if(MSVC)
+if(MSVC OR APPLE)
     fnl_host_tool(bin2c tools/bin2c.c)
     function(fnl_bin2c out)
         set(_args)
@@ -1371,15 +1373,18 @@ add_custom_command(
 list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/headers_checked.stamp)
 
 # ---- The ABI, against its baseline ----------------------------------------
-# tools/abidump prints every public struct's size and offsets and every enum
+# tools/abidump prints the public structs' sizes and offsets and every enum
 # constant; with the export list (fenestal.syms) it is compared against
 # tools/abi/ on every native build, so a header edit that moves what a
 # compiled caller depends on fails here. tools/abi/check.cmake says what to
 # do about a difference. A cross build cannot run the dump; the layout is the
 # same on both 64-bit ABIs the project targets, and the native trees hold it.
 # A baseline per renderer set: the interop headers and the exports differ. The
-# layout holds every interop header's structs, OpenGL's whatever the build,
-# so it is one of two (fenestal-0 with Vulkan's, fenestal-0-gl without);
+# layout holds fenestal.h's, fnl_gl.h's whatever the build, and Vulkan's where
+# the set has it -- one of two (fenestal-0 with Vulkan's, fenestal-0-gl
+# without). Direct3D 12's and Metal's interop structs are in none of them
+# (TODO *The ABI baseline*), so a change to one of those is checked by no
+# tree;
 # the exports are one list per set -- fenestal-0 for Vulkan alone, -gl,
 # -d3d12 and -metal for one each, and -<set> for a system's several
 # (vulkan-gl, d3d12-vulkan, metal-vulkan-gl). The portable part is in each,

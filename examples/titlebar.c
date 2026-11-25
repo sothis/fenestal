@@ -19,6 +19,10 @@
 
 #define BAR_H 32
 #define BTN_W 40
+/* The strip ends this far from the window's edge. The library's resize edge
+ * wins over a claim at the border (fnl_titlebar_claim()), so a button flush
+ * with the edge would start a resize where its outer points are. */
+#define BTN_MARGIN 8
 
 typedef struct {
 	int buttons_x;      /* where this frame drew the three buttons */
@@ -30,7 +34,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	(void)frame;
 	int w, h;
 	fnl_window_size_pt(app, &w, &h);
-	b->buttons_x = w - 3 * BTN_W;
+	b->buttons_x = w - 3 * BTN_W - BTN_MARGIN;
 
 	const FnlColor active = { 0.20f, 0.22f, 0.28f, 1.0f };
 	const FnlColor idle   = { 0.16f, 0.16f, 0.18f, 1.0f };

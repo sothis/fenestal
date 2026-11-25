@@ -310,9 +310,12 @@ static void recover_from_loss(App *a)
 		 * a move whose open failed and whose way back failed too. */
 		if (a->gpu_switching || !GLS(a)->bridge_display || gone) {
 			gl_bridge_close(a);
-			GLS(a)->display_gone = false;
+			/* Cleared only once it is open again: cleared before a refused
+			 * open, every later recovery would skip this block with no
+			 * display at all. */
 			if (gl_bridge_open(a) < 0)
 				return;
+			GLS(a)->display_gone = false;
 		}
 		/* A move presents into a window of its own, which a driver
 		 * before has not claimed (FnlBackendVtbl::present_window_renew),

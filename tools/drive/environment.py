@@ -1126,10 +1126,24 @@ class _Portal(Environment):
 
         atexit.register(undo)
         try:
-            subprocess.run(put + [self.DESK_DEAD_LAYOUT], timeout=10)
+            setr = subprocess.run(
+                put + [self.DESK_DEAD_LAYOUT],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
         except subprocess.TimeoutExpired:
             undo()
             raise
+        # A write that was refused is no switch: the checks after it would
+        # type the desk's old layout and read as the program's failures.
+        if setr.returncode != 0:
+            undo()
+            raise RuntimeError(
+                "the desk's layout would not change: %s"
+                % (setr.stderr.strip() or "gsettings exited %d"
+                   % setr.returncode)
+            )
         return undo
 
     def on_output(self, out, name, home):

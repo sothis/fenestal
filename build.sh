@@ -222,6 +222,31 @@ find_lipo() {
     return 1
 }
 
+# Whether any of these tools is on PATH. The macOS toolchain file probes
+# each by these names (its `_names`), so the answer here is the same one the
+# configure would give.
+have_tool() {
+    for t in "$@"; do
+        command -v "$t" >/dev/null 2>&1 && return 0
+    done
+    return 1
+}
+
+# Whether the macOS trees can be built here: Apple's SDK, copied once from a
+# Mac by tools/macos_sdk.py, and the LLVM tools their toolchain file names.
+# The configure refuses with a line naming what is missing; the sweep asks
+# the same things first, so a host without them skips the trees with a line
+# instead of failing after the ones before it built.
+have_macos() {
+    command -v python3 >/dev/null 2>&1 || return 1
+    python3 tools/macos_sdk.py --path >/dev/null 2>&1 || return 1
+    have_tool "${FNL_CLANG:-clang-21}" || return 1
+    have_tool llvm-link-21 llvm-link || return 1
+    have_tool llvm-ar-21 llvm-ar || return 1
+    have_tool llvm-ranlib-21 llvm-ranlib || return 1
+    return 0
+}
+
 # llvm-objcopy, which the FreeBSD archive's --keep-global-symbols needs:
 # base's elftoolchain objcopy does not take it.
 find_llvm_objcopy() {
@@ -337,8 +362,10 @@ if [ "${1:-}" = dist ]; then
         echo "build.sh: dist takes no arguments" >&2
         exit 1
     fi
-    if [ "$(git rev-parse --show-toplevel 2>/dev/null)" != "$(pwd -P)" ]
-    then
+    # The test dist() makes, and not a comparison of paths: MSYS2 spells the
+    # same directory C:/... from git and /c/... from pwd.
+    if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" != true ] ||
+       [ -n "$(git rev-parse --show-prefix 2>/dev/null)" ]; then
         echo "build.sh: dist packs a git checkout's working tree, and" \
              "this is not the top of one" >&2
         exit 1
@@ -396,7 +423,16 @@ if [ $# -eq 0 ]; then
             have_freebsd || {
                 printf '\n==> freebsd skipped: not a FreeBSD host\n'
                 continue; } ;;
+        macos|macos-arm64)
+            have_macos || {
+                printf '\n==> %s skipped: no macOS SDK or LLVM tools' "$target"
+                printf ' (tools/macos_sdk.py --fetch)\n'
+                continue; } ;;
         macos-universal)
+            have_macos || {
+                printf '\n==> macos-universal skipped: no macOS SDK or'
+                printf ' LLVM tools\n'
+                continue; }
             find_lipo >/dev/null 2>&1 || {
                 printf '\n==> macos-universal skipped: no lipo\n'
                 continue; } ;;

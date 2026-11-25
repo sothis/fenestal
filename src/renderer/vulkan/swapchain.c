@@ -1172,6 +1172,11 @@ bool recreate_swapchain(App *a)
 
 bool vk_present_mode_matches(const App *a, bool vsync)
 {
+	/* Under the DXGI present no Vulkan swapchain is presented: its flags
+	 * were the open's, and a rebuild for a mode change would remake the
+	 * own images and change nothing else. */
+	if (VK(a)->dxgi)
+		return true;
 	return vk_present_mode(a) == vk_wanted_present_mode(a, vsync);
 }
 

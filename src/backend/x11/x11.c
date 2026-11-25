@@ -2504,6 +2504,11 @@ static void x11_frame_request(App *a)
 		p->present_n          = 0;
 		p->present_chain_seen = a->present_chain;
 		p->present_ord_next   = 0;
+		/* The new presenter numbers from 1, so nothing this chain sends
+		 * can match an ordinal from the old one: the latch that made a
+		 * mismatch a taken-back present goes with the queue, and a serial
+		 * that matches nothing falls back to in-order matching again. */
+		p->present_by_serial = false;
 	}
 	if (p->present_n == X11_PRESENT_Q) {
 		p->present_head = (p->present_head + 1) % X11_PRESENT_Q;

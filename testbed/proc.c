@@ -115,7 +115,10 @@ double testbed_proc_rss_mib(void)
 
 void testbed_proc_sample(double *cpu_pct, double *rss)
 {
-	static double last_cpu = -1.0, last_wall, pct = -1.0, mib = -1.0;
+	/* Per thread: every window's overlay samples, on its own render thread,
+	 * and the figures are the process's either way. */
+	static _Thread_local double last_cpu = -1.0, last_wall, pct = -1.0,
+							   mib = -1.0;
 	double cpu, wall;
 	if (!times_now(&cpu, &wall)) {
 		*cpu_pct = *rss = -1.0;

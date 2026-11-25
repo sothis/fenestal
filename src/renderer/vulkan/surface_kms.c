@@ -308,6 +308,9 @@ static FnlResult create_headless(App *a)
  * has, the one the rest of this renderer was measured on. */
 static FnlResult copy_surface(App *a)
 {
+	/* No display surface has been made for this selection now: a refusal
+	 * the display path recorded is not the headless replace's to read. */
+	VK(a)->swapchain_refusal_lost = false;
 	VK(a)->surfaceless = false;
 	/* An HDR ask takes the renderer's own images: a headless surface's
 	 * format list is the driver's, and none of them is a 10-bit PQ pair to
@@ -470,6 +473,8 @@ static void let_display_go(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	if (VK(a)->vk_display != VK_NULL_HANDLE) {
+		/* The display path's refusal note goes with the display. */
+		VK(a)->swapchain_refusal_lost = false;
 		PFN_vkReleaseDisplayEXT release = (PFN_vkReleaseDisplayEXT)
 			vkGetInstanceProcAddr(VK(a)->instance, "vkReleaseDisplayEXT");
 		if (release)

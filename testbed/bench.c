@@ -633,8 +633,11 @@ static void draw_hud(FnlApp *app, int ph)
 	const int pad = 6;
 	const int w = fnl_text_width(text, FNL_TEXT_BODY) + 2 * pad;
 	const int h = fnl_text_line(FNL_TEXT_BODY) + 2 * pad;
+	/* A wash over the scene, not a filled rectangle: a rectangle writes its
+	 * alpha into the window, which is a hole where the swapchain composites
+	 * premultiplied and solid where it does not (FnlColor). */
 	const FnlColor bg = { 0.06f, 0.06f, 0.08f, 0.85f };
-	fnl_overlay_rect(app, cx + 12, cy + 12, w, h, bg);
+	fnl_overlay_rect_blend(app, cx + 12, cy + 12, w, h, bg);
 	fnl_overlay_text(app, cx + 12 + pad, cy + 12 + pad, FNL_TEXT_BODY,
 					 TESTBED_RGB(0.80f, 0.85f, 0.95f), text);
 }

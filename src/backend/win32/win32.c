@@ -1420,6 +1420,14 @@ static bool on_composition(App *a, HWND hwnd, LPARAM lp)
 	if (!c)
 		return false;
 	char u[sizeof a->compose * 4];
+	/* A message carrying neither string -- GCS_CURSORPOS alone, an IME's
+	 * caret move inside an unchanged composition -- changes nothing; the
+	 * `u` it would hand on clears a composition that is still up. The end
+	 * of one is WM_IME_ENDCOMPOSITION's. */
+	if (!(lp & (GCS_RESULTSTR | GCS_COMPSTR))) {
+		imm.release(hwnd, c);
+		return true;
+	}
 	if (lp & GCS_RESULTSTR) {
 		imm_string(c, GCS_RESULTSTR, u, (int)sizeof u);
 		app_text_utf8(a, u);

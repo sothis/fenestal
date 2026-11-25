@@ -830,13 +830,19 @@ FnlResult gl_bridge_context(App *a)
 	 * egl_dri2.c's dri2_setup_device()): only LIBGL_ALWAYS_SOFTWARE, in the
 	 * environment, switches a display to it, and a library does not write
 	 * the caller's environment. So the reason says how. */
-	if (c == EGL_NO_CONTEXT)
+	if (c == EGL_NO_CONTEXT) {
+		/* Read once, and recorded as egl_fail() records it: a display
+		 * terminated under the renderer is the loss this was, and a
+		 * recovery must open it again rather than retry the context. */
+		const EGLint e = eglGetError();
+		note_terminated(a, e);
 		return fnl_fail(FNL_ERR_NO_DEVICE,
 						"eglCreateContext for OpenGL 4.5 and 4.1 core "
 						"failed: %s -- this device has no OpenGL 4.1; "
 						"LIBGL_ALWAYS_SOFTWARE=1 draws with Mesa's software "
 						"rasteriser instead",
-						egl_error_name(eglGetError()));
+						egl_error_name(e));
+	}
 	GLS(a)->bridge_context = c;
 	if (!eglMakeCurrent(GLS(a)->bridge_display, GLS(a)->bridge_surface,
 						GLS(a)->bridge_surface, c))

@@ -1125,6 +1125,18 @@ and headers through the cache. Owed:
 - **A push that started no run** (`1bd1c42`, the push said it failed and
   had landed): started by hand then; not seen since.
 
+## The ABI baseline
+
+- **Direct3D 12's and Metal's interop structs are not in the dump.**
+  `tools/abidump.c` includes `fenestal.h`, `fnl_gl.h` and, under
+  `FNL_ABI_VULKAN`, `fnl_vulkan.h`; `fnl_d3d12.h`'s and `fnl_metal.h`'s
+  structs (`FnlD3D12*`, `FnlMetal*`) are in no baseline, so a field added,
+  moved or reordered in one of them passes every tree's comparison. Metal's
+  header is portable C and can join every dump; Direct3D 12's wants an
+  `FNL_ABI_D3D12` define in the sets that have it, and a layout baseline per
+  set as the export lists already have. Both want a build to regenerate
+  `tools/abi/*.abi`, which is why the dump and its baselines go in together.
+
 ## OpenGL on macOS
 
 Written and driven on schenker's macOS (DESIGN *OpenGL on macOS*,

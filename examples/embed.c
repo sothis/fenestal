@@ -10,14 +10,17 @@
  *
  * The pump's block is bounded, which is the whole point of doing it this way:
  * this program's own five seconds run when they are due, with nothing
- * happening in the window at all.
+ * happening in the window unless the loop asks. The overlay draws the loop's
+ * own count, so each turn asks for the frame that shows it -- a window at
+ * rest records nothing.
  *
- * Shows: fnl_start fnl_pump fnl_stop fnl_init fnl_shutdown
+ * Shows: fnl_start fnl_pump fnl_stop fnl_init fnl_shutdown fnl_invalidate
  *        fnl_content_rect_pt fnl_overlay_text fnl_error_copy fnl_last_error
  */
 
 #include <fenestal/fenestal.h>
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -27,7 +30,7 @@
 #endif
 
 typedef struct {
-	int turns; /* turns of the caller's loop */
+	_Atomic int turns; /* turns of the caller's loop: the overlay's to read */
 	double started;
 } State;
 
@@ -58,8 +61,8 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	int cx, cy, cw, ch;
 
 	fnl_content_rect_pt(app, &cx, &cy, &cw, &ch);
-	snprintf(line, sizeof line, "the caller's loop: %d turns, %.1f s", s->turns,
-			 now() - s->started);
+	snprintf(line, sizeof line, "the caller's loop: %d turns, %.1f s",
+			 atomic_load(&s->turns), now() - s->started);
 	fnl_overlay_text(app, cx + 16, cy + 16, FNL_TEXT_BODY, ink, line);
 }
 
@@ -98,8 +101,12 @@ int main(void)
 	 * fnl_quit() from anywhere. A negative result is the connection's, and
 	 * the loop's end says which it was. */
 	FnlResult prc;
-	while ((prc = fnl_pump(app, 100)) == FNL_OK && now() - s.started < 5.0)
-		s.turns++;
+	while ((prc = fnl_pump(app, 100)) == FNL_OK && now() - s.started < 5.0) {
+		atomic_fetch_add(&s.turns, 1);
+		/* The readout below is the loop's, so the loop asks for the frame
+		 * that draws it; nothing else in the window changes. */
+		fnl_invalidate(app);
+	}
 
 	/* Copied before fnl_stop() and fnl_shutdown(): fnl_last_error() holds
 	 * its text only until the next call on the thread. */

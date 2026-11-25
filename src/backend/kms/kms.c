@@ -2079,17 +2079,44 @@ static void scan_retire(struct BackendState *p,
  * of this host is nobody's now -- the window has closed -- and is dropped. */
 static void flip_complete(App *a, const struct drm_event_vblank *v)
 {
-	const double mono = (double)v->tv_sec + (double)v->tv_usec * 1e-6;
+	const double mono           = (double)v->tv_sec + (double)v->tv_usec * 1e-6;
+	struct BackendHostState *hs = a->backend_state->host;
+	fnl_mutex_lock(&hs->flip_lock);
 	for (App *w = a->host->windows; w; w = w->next) {
 		struct BackendState *q = w->backend_state;
 		if (!q || (uintptr_t)w != (uintptr_t)v->user_data)
 			continue;
+		if (q->flip_stale > 0) {
+			/* The completion that was given up on (flip_give_up()):
+			 * consumed, not reported -- it is older than the frame the
+			 * window waits for now. */
+			q->flip_stale--;
+			break;
+		}
 		if (!q->flip_pending)
-			return; /* a flip given up on, its event late: nobody's */
+			break; /* nobody's now */
 		q->flip_pending = false;
 		app_frame_shown(w, q->flip_index, mono, !q->flip_async);
-		return;
+		break;
 	}
+	fnl_mutex_unlock(&hs->flip_lock);
+}
+
+/* The pending flip is not waited for after all: given up on, and the
+ * completion still to come for it is stale -- consumed by flip_complete()
+ * and not reported, where it would otherwise be taken for the next flip's.
+ * Under the lock, so a completion another window's thread reads at this
+ * moment is one decision with this one. */
+static void flip_give_up(App *a)
+{
+	struct BackendState *p      = a->backend_state;
+	struct BackendHostState *hs = p->host;
+	fnl_mutex_lock(&hs->flip_lock);
+	if (p->flip_pending) {
+		p->flip_pending = false;
+		p->flip_stale++;
+	}
+	fnl_mutex_unlock(&hs->flip_lock);
 }
 
 /* Wait up to `ms` for the pending flip's completion event; whether it came.
@@ -2100,13 +2127,28 @@ static void flip_complete(App *a, const struct drm_event_vblank *v)
  * keeps the two from reading each other's. */
 static bool flip_wait(App *a, int ms)
 {
-	struct BackendState *p = a->backend_state;
-	while (p->flip_pending) {
-		struct pollfd pf = { .fd = p->host->card_fd, .events = POLLIN };
+	struct BackendState *p      = a->backend_state;
+	struct BackendHostState *hs = p->host;
+	for (;;) {
+		fnl_mutex_lock(&hs->flip_lock);
+		const bool pending = p->flip_pending;
+		fnl_mutex_unlock(&hs->flip_lock);
+		if (!pending)
+			return true;
+		struct pollfd pf = { .fd = hs->card_fd, .events = POLLIN };
 		const int r      = poll(&pf, 1, ms);
 		if (r < 0 && errno == EINTR)
 			continue;
-		if (r <= 0)
+		if (r == 0) {
+			/* Timed out: another window's thread may have read this
+			 * window's completion while we polled -- the flag is the
+			 * answer, not the poll. */
+			fnl_mutex_lock(&hs->flip_lock);
+			const bool still = p->flip_pending;
+			fnl_mutex_unlock(&hs->flip_lock);
+			return !still;
+		}
+		if (r < 0)
 			return false;
 		_Alignas(struct drm_event) char buf[1024];
 		const ssize_t n = read(p->host->card_fd, buf, sizeof buf);
@@ -2130,7 +2172,6 @@ static bool flip_wait(App *a, int ms)
 			off += (ssize_t)e->length;
 		}
 	}
-	return true;
 }
 
 /* Read off every event the node holds now, waiting for none. What the
@@ -2225,7 +2266,7 @@ int kms_scan_begin(App *a)
 	const uint32_t fourcc = scan_fourcc(a);
 	if (p->scan.map[0] && p->scan.fourcc != fourcc) {
 		flip_wait(a, FLIP_WAIT_MS);
-		p->flip_pending = false;
+		flip_give_up(a);
 		scan_retire(p, kms_sel_mode(p, p->scan_sel), true);
 		p->scan_set_owed = true;
 	}
@@ -2237,7 +2278,7 @@ int kms_scan_begin(App *a)
 	if (show != p->scan_sel || resets != p->scan_resets_seen) {
 		p->scan_resets_seen = resets;
 		flip_wait(a, FLIP_WAIT_MS);
-		p->flip_pending = false;
+		flip_give_up(a);
 		const int was   = p->scan_sel;
 		p->scan_sel     = show;
 		if (was >= 0 && KMS_SEL_OUT(was) != KMS_SEL_OUT(show))
@@ -2262,9 +2303,9 @@ int kms_scan_begin(App *a)
 		}
 	}
 	const bool vsync = fnl_atomic_load_bool(&a->vsync);
-	if (p->flip_pending && !flip_wait(a, vsync ? FLIP_WAIT_MS : 0)) {
+	if (!flip_wait(a, vsync ? FLIP_WAIT_MS : 0)) {
 		if (vsync)
-			p->flip_pending = false; /* lost: flip again regardless */
+			flip_give_up(a); /* lost: flip again regardless */
 		else
 			return -1;
 	}
@@ -2492,7 +2533,6 @@ void kms_scan_show(App *a, int back)
 			async_now = false;
 		}
 	}
-	p->flip_async = async_now;
 	if (!flipped) {
 		if (atomic_err)
 			errno = atomic_err;
@@ -2505,9 +2545,12 @@ void kms_scan_show(App *a, int back)
 		scan_refuse(p, "the flip was refused");
 		return;
 	}
-	p->flip_pending = true;
+	fnl_mutex_lock(&hs->flip_lock);
+	p->flip_async   = async_now;
 	p->flip_index   = a->presents;
-	p->scan_front   = back;
+	p->flip_pending = true;
+	fnl_mutex_unlock(&hs->flip_lock);
+	p->scan_front = back;
 	/* A frame reached the output: a refusal from here on is a new one. */
 	p->scan_said = false;
 	if (vsync)
@@ -2687,7 +2730,11 @@ static uint32_t connector_prop(int fd, uint32_t connector_id, const char *name)
 static size_t edid_read(int fd, uint32_t connector, unsigned char *edid,
 						size_t cap)
 {
-	uint32_t ids[64], values[64];
+	uint32_t ids[64];
+	/* 64-bit, as the kernel writes them: `values` here was 32-bit once, and
+	 * a connector with more than 32 properties had the kernel write past
+	 * it. Only index 0 would also have read back right. */
+	uint64_t values[64];
 	struct drm_mode_obj_get_properties gp = {
 		.props_ptr       = (uintptr_t)ids,
 		.prop_values_ptr = (uintptr_t)values,
@@ -2870,7 +2917,7 @@ void kms_scanout_take(App *a)
 		!on.mode_valid || !on.fb_id)
 		return;
 	flip_wait(a, FLIP_WAIT_MS);
-	p->flip_pending = false;
+	flip_give_up(a);
 	scan_retire(p, &on.mode, false);
 	const uint32_t fourcc = scan_fourcc(a);
 	if (!p->scan.map[0] && (!scan_make(p, &p->scan, &on.mode, 0, fourcc) ||
@@ -3029,12 +3076,15 @@ static void kms_set_output(App *a, const char *name)
 	const int count        = (int)fnl_atomic_load_u32(&p->host->output_count);
 	const uint32_t gone    = fnl_atomic_load_u32(&p->host->outputs_gone);
 	const uint32_t held    = held_by_others(a);
-	p->host->away_owed     = -1;
-	p->host->away_owed_app = NULL;
 	for (int o = 0; o < count; o++) {
 		if (strcmp(p->host->outputs[o].name, name) != 0 || o == p->out_cur ||
 			((gone >> o) & 1u))
 			continue;
+		/* A request that names an output the window can act on replaces the
+		 * one owed; a name not in the list, or the output it is on, is the
+		 * no-op the header promises and does not. */
+		p->host->away_owed     = -1;
+		p->host->away_owed_app = NULL;
 		if ((held >> o) & 1u) {
 			fnl_log(FNL_LOG_INFO,
 					"KMS: %s is another window's; the window stays on %s",
@@ -3459,6 +3509,7 @@ static FnlResult kms_host_open(App *a)
 	hs->wake.fd = hs->wake.wfd = -1;
 	hs->card_fd = hs->inotify_fd = hs->uevent_fd = -1;
 	hs->away_owed                               = -1;
+	fnl_mutex_init(&hs->flip_lock);
 
 	/* Every step conditional, and every failure unwinds through
 	 * kms_host_close() here: a NO_DISPLAY refusal (no output, a card held by
@@ -3643,7 +3694,7 @@ static void kms_window_close(App *a)
 	cursor_free(p);
 	if (p->host->card_fd >= 0) {
 		flip_wait(a, FLIP_WAIT_MS);
-		p->flip_pending = false;
+		flip_give_up(a);
 		/* Only the last window gives the console back, and only one that
 		 * joined the host: a CRTC restored while another window still shows
 		 * on the card would take that window's output with it. */
@@ -3702,6 +3753,7 @@ static void kms_host_close(App *a)
 		loop_destroy(&hs->loop);
 		loop_wake_destroy(&hs->wake);
 	}
+	fnl_mutex_destroy(&hs->flip_lock);
 	free(hs);
 	a->host->backend_host = NULL;
 }
@@ -3724,12 +3776,12 @@ static void kms_present_window_renew(App *a)
 	struct BackendState *p = a->backend_state;
 	fnl_atomic_store_u32(&p->scan_resets,
 						 fnl_atomic_load_u32(&p->scan_resets) + 1);
-	if (p->flip_pending && !flip_wait(a, FLIP_DRAIN_MS))
+	if (!flip_wait(a, FLIP_DRAIN_MS))
 		fnl_log(FNL_LOG_WARN,
 				"KMS: a flip's event did not come in %d ms; "
 				"a driver lent the node may read it",
 				FLIP_DRAIN_MS);
-	p->flip_pending = false;
+	flip_give_up(a);
 	events_drain(a);
 }
 

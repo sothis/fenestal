@@ -264,6 +264,12 @@ struct BackendState {
 	/* The accelerated delta stood in for a missing unaccelerated one, and
 	 * the log has said so: once, since it is every motion after. */
 	bool relative_accel_said;
+	/* The cursor-position hint relative_motion() last asked for, and
+	 * whether one is owed: motion arrives at the pointer's rate and the
+	 * hint is latched once per commit, so wl_hint_flush() sends the last of
+	 * a pump turn's. */
+	bool   hint_owed;
+	double hint_x, hint_y;
 
 	/* The last button *press*, which xdg_toplevel.move and .resize want; never
 	 * `pointer_serial`, an enter's, which a compositor rejects. `left_serial`

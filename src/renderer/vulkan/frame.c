@@ -761,6 +761,10 @@ static bool frame_bail(App *a, uint32_t frame, bool fence_reset)
 {
 	if (a->device_lost || a->surface_lost)
 		return false;
+	/* The recorded frame never reaches the queue, so the copy that defines
+	 * this slot's temporal history never runs: the slot must not claim
+	 * one (taau_follows()). */
+	VK(a)->taau_hist_ok[frame] = false;
 	/* The image stays acquired: nothing presents it, and Vulkan 1.0 has no
 	 * other way to hand one back. A few bails in a row would hold every
 	 * image and the acquire would never return one, so the swapchain is

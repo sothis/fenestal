@@ -1023,11 +1023,18 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	if (SUCCEEDED(hr))
 		hr = ID3D12GraphicsCommandList_Reset(g->list, g->alloc[slot], NULL);
 	if (FAILED(hr)) {
-		if (!d3d_hr_lost(a, hr))
+		if (!d3d_hr_lost(a, hr)) {
 			fnl_log(FNL_LOG_ERROR,
 					"the frame's list did not reset "
 					"(0x%08lx)",
 					(unsigned long)hr);
+			/* As a refused Close or Signal: the list does not come back,
+			 * and a turn that only logged would reset it again for ever.
+			 * The queue is waited, as both of those do, and the loss
+			 * raised so the rebuild is owed. */
+			(void)d3d_wait_idle(a);
+			a->device_lost = true;
+		}
 		return false;
 	}
 	g->recording = true;
