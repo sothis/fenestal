@@ -32,7 +32,8 @@ void main()
 	 * light is applied there, the only space it is right in. */
 	const vec3 lit = texture(tex, v_uv).rgb * v_shade;
 
-	/* An _SRGB target encodes as it is written; anything else has to be
-	 * encoded here or the picture comes out dark. */
+	/* An _SRGB target encodes what is written to it, and HDR's float
+	 * one holds it as written; any other target must be encoded here
+	 * or the picture comes out dark. */
 	o_color = vec4(pc.srgb != 0u ? lit : srgb_encode(lit), 1.0);
 }

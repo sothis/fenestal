@@ -184,8 +184,10 @@ caller's in it; the testbed is the other measurement and answers the other
 question. Both are worth having, because they separate a regression here from a
 regression in the testbed.
 
-The CPU figure is `utime + stime` out of `/proc`, which is why the runner is
-Linux's. For `win64-vulkan` the process is wine, so that column carries wine's
+The CPU figure in this desk's and the bare machines' columns is `utime + stime`
+out of `/proc`, which is why the runner is Linux's there; the Windows laptops'
+and the Mac's columns ask their agents instead (`measure_native()`). For
+`win64-vulkan` the process is wine, so that column carries wine's
 overhead too — comparable across rates on that target, and only roughly
 comparable with the other columns. A single sweep is an indication; DESIGN.md's
 tables are two sweeps agreeing.

@@ -37,23 +37,26 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	const FnlColor bar    = fnl_is_active(app) ? active : idle;
 	const FnlColor ink  = { 0.9f, 0.9f, 0.9f, 1.0f };
 	/* The band as the library reports it, rather than the height asked
-	 * for: 0 in fullscreen, where there is none. */
+	 * for: 0 in fullscreen, where there is none and nothing of the bar
+	 * may be drawn or claimed. */
 	const int bar_h = fnl_titlebar_owned(app) ? fnl_titlebar_height(app) : 0;
 	fnl_overlay_rect(app, 0, 0, w, bar_h, bar);
-	fnl_overlay_text(app, 12, 8, FNL_TEXT_UI, ink, "my own titlebar");
-	fnl_overlay_text(app, b->buttons_x + 14, 8, FNL_TEXT_UI, ink, "_");
-	fnl_overlay_text(app, b->buttons_x + BTN_W + 14, 8, FNL_TEXT_UI, ink,
-					 fnl_is_maximized(app) ? "o" : "O");
-	fnl_overlay_text(app, b->buttons_x + 2 * BTN_W + 14, 8, FNL_TEXT_UI, ink,
-					 "x");
-	/* Claimed, so a press there is an event and not a window drag. The
-	 * rest of the bar stays the drag strip. */
-	fnl_titlebar_claim(app, b->buttons_x, 0, 3 * BTN_W, BAR_H);
+	if (bar_h > 0) {
+		fnl_overlay_text(app, 12, 8, FNL_TEXT_UI, ink, "my own titlebar");
+		fnl_overlay_text(app, b->buttons_x + 14, 8, FNL_TEXT_UI, ink, "_");
+		fnl_overlay_text(app, b->buttons_x + BTN_W + 14, 8, FNL_TEXT_UI, ink,
+						 fnl_is_maximized(app) ? "o" : "O");
+		fnl_overlay_text(app, b->buttons_x + 2 * BTN_W + 14, 8, FNL_TEXT_UI,
+						 ink, "x");
+		/* Claimed, so a press there is an event and not a window drag. The
+		 * rest of the bar stays the drag strip. */
+		fnl_titlebar_claim(app, b->buttons_x, 0, 3 * BTN_W, bar_h);
+	}
 
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
 		if (ev.type != FNL_EVENT_BUTTON || !ev.button.pressed ||
-			ev.button.y >= BAR_H)
+			ev.button.y >= bar_h)
 			continue;
 		/* Division truncates toward zero, so a press just left of the
 		 * buttons would otherwise read as the first. */

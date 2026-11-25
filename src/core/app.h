@@ -296,7 +296,7 @@ typedef FnlEdge Edge;
 #define EDGE_COUNT ((Edge)(FNL_EDGE_BOTTOM_RIGHT + 1))
 
 /* ---- the library's titlebar controls ---------------------------------------
- * Three checkboxes and the output, GPU and size drop-downs, in
+ * Four checkboxes and the output, GPU and size drop-downs, in
  * src/core/controls.c. The indices are here because App carries their
  * state. */
 enum {
@@ -909,6 +909,9 @@ typedef struct {
 	float jitter[4]; /* xy: offset in scene pixels, z: history weight */
 	float texel[4];  /* xy: 1 / the scene's extent, zw: its motion in pixels */
 } TaauPush;
+
+_Static_assert(sizeof(TaauPush) == 32, "TaauPush must match taau.frag");
+_Static_assert(offsetof(TaauPush, texel) == 16, "TaauPush layout drifted");
 
 /* Whether a temporal accumulation may mix its history in this frame: the
  * frame slot's history has been written, and this frame's scene is the scene
@@ -1704,6 +1707,12 @@ struct FnlApp {
 		double fps[GPU_LIST_MAX * 2];
 		double at;                /* when the state was entered */
 		double started, entry_at; /* the calibration's, the entry's */
+		/* The presents last seen, and when a frame was last presented:
+		 * only a turn that presented one may take a figure or advance a
+		 * span, and a window that presents none for CAL_LIMIT ends the
+		 * calibration rather than holding its input (app_rank_tick()). */
+		uint64_t seen_presents;
+		double drew_at;
 		/* Which group each entry is of -- 0 on the driver the GPU is on,
 		 * 1 a move's or after one -- and what each group's entries took,
 		 * which the time left is reckoned from. */

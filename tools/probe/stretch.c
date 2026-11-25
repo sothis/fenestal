@@ -141,7 +141,13 @@ static void submit_wait(VkCommandBuffer cb)
 
 static double time_cb(VkCommandBuffer cb, int n)
 {
+	if (n < 1)
+		n = 1; /* the median below is t[n / 2], and t[0] needs one */
 	double *t = malloc(sizeof *t * (size_t)n);
+	if (!t) {
+		fprintf(stderr, "no memory for the timings\n");
+		exit(1);
+	}
 	submit_wait(cb);                          /* first-use costs out */
 	for (int i = 0; i < n; i++) {
 		double t0 = now();
@@ -365,6 +371,10 @@ static void run(VkFormat f, const char *name, int n, double empty)
 int main(int argc, char **argv)
 {
 	const int n = argc > 1 ? atoi(argv[1]) : 100;
+	if (n < 1) {
+		fprintf(stderr, "stretch: iterations must be a positive number\n");
+		return 2;
+	}
 	VkApplicationInfo app = { .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 							  .apiVersion = VK_API_VERSION_1_1 };
 	VkInstanceCreateInfo ici = {
@@ -373,7 +383,14 @@ int main(int argc, char **argv)
 	VkInstance inst;
 	CK(vkCreateInstance(&ici, NULL, &inst));
 	uint32_t np = 1;
-	vkEnumeratePhysicalDevices(inst, &np, &pd);
+	const VkResult er = vkEnumeratePhysicalDevices(inst, &np, &pd);
+	/* VK_INCOMPLETE is several devices, of which one was taken. Anything
+	 * else, or none, leaves pd unusable: the properties call below would
+	 * dereference it. */
+	if ((er != VK_SUCCESS && er != VK_INCOMPLETE) || np < 1) {
+		fprintf(stderr, "stretch: no Vulkan device\n");
+		return 1;
+	}
 	VkPhysicalDeviceProperties pp;
 	vkGetPhysicalDeviceProperties(pd, &pp);
 	printf("%s, %dx%d onto %dx%d, median of %d\n", pp.deviceName, SRC_W,

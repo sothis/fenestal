@@ -10,8 +10,11 @@ ranks how they are timed. This plan makes the spans the same thing
 everywhere, measures the gap before and after, and checks the result
 against a frame rate actually drawn.
 
-Nothing here is built yet. Each phase lists what it changes and what it is
-measured by; the user drives every build and every run.
+**Built**: Phases 0, 1, 2 and 4 are in the tree -- Phase 3 was dropped --
+each phase's **Built** paragraph saying what landed and what it measured
+(DESIGN *What a frame costs, compared*, *At rest*). What follows is the plan
+and the measurements that argued for it; the user drives every build and
+every run.
 
 ## What started it
 

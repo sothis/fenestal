@@ -72,6 +72,12 @@ static double g_fps_next;
  * g_second_want, and the run's loop below creates or destroys the window on
  * its own thread. */
 static bool g_second_window; /* --second-window: open it at startup */
+/* The window settings a second window wears too, held from the options as
+ * they are parsed: the first window's descriptor has them; the second's is
+ * made later, without it. */
+static uint32_t g_no_titlebar_controls;
+static int      g_scale_override120;
+static bool     g_frame_times;
 static FnlApp *g_second;     /* the second window's app, main thread's own */
 
 /* What the keys have asked the loop for: -1 leave the second window as it is,
@@ -93,6 +99,12 @@ static _Atomic(FnlApp *) g_second_atomic;
  * opened beside the first shows different content rather than a copy of the
  * first's picture. */
 static _Atomic int g_view_mode = TESTBED_VIEW_OWN;
+/* F12's view, as a generation both windows catch up with: the key may be
+ * taken by either window's render thread, and the run's loop -- the main
+ * thread, which owns both apps -- is what calls fnl_invalidate(), since
+ * another window's app may be freed while a render thread is inside it. */
+static _Atomic unsigned g_view_gen;
+static unsigned g_view_seen; /* the main thread's own */
 
 /* A JOIN lays the pattern on a canvas as wide as the first window twice over,
  * so the first shows its left half and the second its right and the seam falls
@@ -381,14 +393,11 @@ static void usage(FILE *f, const char *prog)
 		"\n"
 		"  --custom-titlebar  draw the titlebar in this program instead of\n"
 		"                     the library's, buttons included\n"
-		"  --bare-titlebar    the library's bar with none of its controls\n"
-		"                     in the library: a taller bar with its own four\n"
-		"                     buttons, claimed with fnl_titlebar_claim() so\n"
-		"                     a press on one reaches this program while the\n"
-		"                     rest of the strip still drags the window. The\n"
-		"                     library's own checkboxes and size drop-down are\n"
-		"                     not drawn in this mode -- they live in its bar,\n"
-		"                     and there is not one.\n"
+		"  --bare-titlebar    the library's bar with none of its own\n"
+		"                     controls in it (FnlInitDesc::\n"
+		"                     no_titlebar_controls): no checkboxes or\n"
+		"                     drop-downs, while the drag, the double-click\n"
+		"                     and the edges stay the library's\n"
 		"\n"
 		"  --echo-events      print every event the library delivers, one per\n"
 		"                     line, on stderr, for driving this program from\n"
@@ -471,7 +480,7 @@ static void usage(FILE *f, const char *prog)
 		"  --bench            the benchmark mode: a panel of its\n"
 		"                     options, then a run in a window of its own,\n"
 		"                     and its results, written as a record\n"
-		"                     (docs/benchmark-mode.md). --bench-run starts\n"
+		"                     (DESIGN, Benchmarking). --bench-run starts\n"
 		"                     at once, --bench-<key>=<value> sets an\n"
 		"                     option, --bench-replay=<record> takes a\n"
 		"                     record's, --bench-list names them all.\n"
@@ -507,7 +516,8 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		"--gpu=",          "--custom-titlebar", "--text-input",
 		"--frame-times",   "--no-vsync",        "--transition=",
 		"--footprint-log", "--frame-cpu-log",   "--frame-stats-log",
-		"--reserve-log",   "--shapes",
+		"--reserve-log",   "--shapes",          "--freeze",
+		"--second-window", "--fps=",            "--width=",
 	};
 
 	for (int i = 1; i < argc; i++) {
@@ -550,6 +560,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		if (!strcmp(arg, "--bare-titlebar")) {
 			/* The library's bar with none of its own controls in it: the
 			 * buttons, the drag and the edges are still the window's. */
+			g_no_titlebar_controls = FNL_TITLEBAR_ALL;
 			d->no_titlebar_controls = FNL_TITLEBAR_ALL;
 			continue;
 		}
@@ -618,6 +629,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			continue;
 		}
 		if (!strcmp(arg, "--frame-times")) {
+			g_frame_times = true;
 			d->frame_times = true;
 			continue;
 		}
@@ -711,7 +723,8 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			/* To 120ths, the unit the whole scale path works in -- rounded to
 			 * nearest, so --scale=1.3 is the 156 nearest it rather than a
 			 * truncation that lands a 120th low. */
-			d->scale_override120 = (int)(s * 120.0 + 0.5);
+			g_scale_override120 = (int)(s * 120.0 + 0.5);
+			d->scale_override120 = g_scale_override120;
 			continue;
 		}
 		if (!strncmp(arg, COLOUR, sizeof COLOUR - 1)) {
@@ -900,13 +913,10 @@ static void testbed_drain(FnlApp *app)
 				const int m = (atomic_load(&g_view_mode) + 1) % 3;
 				atomic_store(&g_view_mode, m);
 				fprintf(stderr, "scene view: %s\n", testbed_view_name());
-				/* Both windows redraw with it, whichever asked. The second
-				 * window is reached through the atomic, as the view is: this
-				 * may be either window's render thread. */
-				fnl_invalidate(app);
-				FnlApp *other = atomic_load(&g_second_atomic);
-				if (other && other != app)
-					fnl_invalidate(other);
+				/* Both windows redraw with it, whichever asked, and the
+				 * run's loop does the asking: from here, another window's
+				 * app may be freed while this thread calls into it. */
+				atomic_fetch_add(&g_view_gen, 1u);
 			}
 		}
 		testbed_overlay_event(app, &ev);
@@ -1060,6 +1070,12 @@ static FnlResult second_open(FnlApp *sibling)
 		.height_pt      = 600,
 		.x_pt           = 120,
 		.y_pt           = 120,
+		/* The settings the first window was given, as FnlWindowDesc's own:
+		 * a bar with its controls left out, a scale, frame times. The
+		 * renderer and its list are the host's either way. */
+		.no_titlebar_controls = g_no_titlebar_controls,
+		.scale_override120    = g_scale_override120,
+		.frame_times          = g_frame_times,
 	};
 	const FnlCallbacks second_cb = {
 		.size           = sizeof second_cb,
@@ -1071,6 +1087,12 @@ static FnlResult second_open(FnlApp *sibling)
 	FnlResult rc = fnl_window_create(sibling, &wd, &second_cb, &g_second);
 	if (rc < 0)
 		return rc;
+	/* The bar the first window wears, where it is the program's: before
+	 * the window's first frame, as the first's is taken before fnl_run().
+	 * Without it, this window would wear both bars at once. */
+	if (testbed_titlebar_custom_enabled())
+		fnl_titlebar_custom(g_second, testbed_titlebar_custom_height(),
+							testbed_titlebar_custom_min_width());
 	/* Read by every window's view on its render thread: a joined picture is
 	 * two windows' parts of one canvas only while both are open. */
 	atomic_store(&g_second_open, 1);
@@ -1154,6 +1176,15 @@ static FnlResult run(FnlApp *app, const FnlCallbacks *cb)
 		if (g_second && fnl_is_closing(app))
 			fnl_quit(g_second);
 		rc = fnl_pump(app, -1);
+		/* F12's view caught up with, both windows, before anything here
+		 * may free one of them: the key was taken by a render thread. */
+		const unsigned gen = atomic_load(&g_view_gen);
+		if (gen != g_view_seen) {
+			g_view_seen = gen;
+			fnl_invalidate(app);
+			if (g_second)
+				fnl_invalidate(g_second);
+		}
 		/* The pump stops a window whose close was asked for at its turn's
 		 * top, so a window hidden before it is stopped by the time it
 		 * returns -- and only then may fnl_shutdown() free it. */

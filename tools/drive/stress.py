@@ -566,9 +566,11 @@ def window_output_box(r):
     home = st["out"]
     out_dx = OUTPUT_BOX_DX + (GPU_BOX_SPAN if gpus_listed(b) else 0)
     # The rows are the backend's order, which the round is not told: the
-    # row that is not the window's is found by trying, as KMS's are.
+    # row that is not the window's is found by trying, as KMS's are. One
+    # row an output, so as many as there are monitors -- a third one makes
+    # the try and the way back past row 1.
     moved = None
-    for row in (0, 1):
+    for row in range(len(mons)):
         mk = pick_row(r, out_dx, row)
         got = b.wait_for("output", mk, timeout=2.0)
         if got and not is_output(b.refresh()["out"], home.split()[0]):
@@ -581,20 +583,25 @@ def window_output_box(r):
     check(
         "the output box moves the window",
         moved is not None,
-        "%s on %s, wanted %s" % (st["area"], st["out"], other[0]),
+        "%s was on %s, now on %s" % (st["area"], home, st["out"]),
     )
     if moved is None:
         return
     time.sleep(2.0 * b.patience())
-    pick_row(r, out_dx, 1 - moved)
-    b.wait_for("output", mk, timeout=2.0)
-    b.until(lambda: is_output(b.refresh()["out"], home.split()[0]), timeout=5.0)
+    back = None
+    for row in range(len(mons)):
+        mk = pick_row(r, out_dx, row)
+        got = b.wait_for("output", mk, timeout=2.0)
+        if got and is_output(b.refresh()["out"], home.split()[0]):
+            back = row
+            break
+        time.sleep(NOT_A_DOUBLE_CLICK)
     time.sleep(2.0 * b.patience())
     st = b.refresh()
     check(
         "and the list puts it back",
-        is_output(st["out"], home.split()[0]),
-        "%s on %s" % (st["area"], st["out"]),
+        back is not None and is_output(st["out"], home.split()[0]),
+        "%s on %s, wanted %s" % (st["area"], st["out"], home),
     )
 
 
@@ -1067,9 +1074,11 @@ def gpu_moves(r):
             continue
         logged = len(b.dump(1 << 30))
         mk = pick_row(r, dx, n - 1)
-        away = away or not back
         await_move(b, logged, lambda: b.since(mk, "gpu"), 20.0 * b.patience())
         got = b.since(mk, "gpu")
+        # A move that did not happen leaves the window where it was; the
+        # pick back to it then says nothing, and is not the move back.
+        away = away or (bool(got) and not back)
         parts = got[-1]["parts"] if got else []
         name = (
             "and back to the GPU it opened on"
@@ -1855,10 +1864,12 @@ def display_modes(r):
         r.skip("the window moved to another output", "one output connected")
         return
     # The rows are the card's order, which the line does not give: the row
-    # that is not the one the window is on is found by trying.
+    # that is not the one the window is on is found by trying -- one row an
+    # output, and the way back is a row of the same list found the same way.
+    rows = 1 + len(others.split(", "))
     moved = None
     out_dx = OUTPUT_BOX_DX + (GPU_BOX_SPAN if gpus_listed(b) else 0)
-    for row in (0, 1):
+    for row in range(rows):
         mk = pick_row(r, out_dx, row)
         b.until(lambda: b.since(mk, "output"), timeout=10.0)
         got = b.since(mk, "output")
@@ -1877,13 +1888,21 @@ def display_modes(r):
         return
     time.sleep(2.0 * b.patience())
     check("and it is drawn there", b.alive())
-    pick_row(r, out_dx, 1 - moved)
-    b.until(lambda: is_output(b.refresh()["out"], home), timeout=10.0)
+    back = None
+    for row in range(rows):
+        mk = pick_row(r, out_dx, row)
+        b.until(lambda: b.since(mk, "output"), timeout=10.0)
+        if is_output(b.refresh()["out"], home):
+            back = row
+            break
+        time.sleep(NOT_A_DOUBLE_CLICK)
     time.sleep(2.0 * b.patience())
     st = b.refresh()
     check(
         "and goes back",
-        is_output(st["out"], home) and st["area"] == area0,
+        back is not None
+        and is_output(st["out"], home)
+        and st["area"] == area0,
         "%s on %s" % (st["area"], st["out"]),
     )
     if r.can("forced-hotplug"):
@@ -3464,6 +3483,10 @@ def expected(line):
         is not None
         or re.match(r"GPU driver: moving \S+ from \S+ to \S+$", line)
         is not None
+        # A move the library makes with the frames paused, which is the
+        # move going right where nothing can be drawn across it: a build
+        # with no Vulkan scene for the other driver (app.c renderer_cross).
+        or line.startswith("GPU driver: the frames pause for this move")
         # NVIDIA's module loaded at the start by a move there and back
         # (app_gpu_drivers_start()), on a machine booted on nouveau.
         or line.startswith(
@@ -3840,19 +3863,34 @@ def two_window_wayland(b, r):
     # And again: the window that comes back is the second one, on a new
     # surface of the same connection, and a key reaches it there.
     shows = count(r"second window: shown \(F10 ")
-    b.press("F10")
+    m = b.mark()
+    b.press("F10")                      # to the first: it had the focus
     back = b.until(lambda: count(r"second window: shown \(F10 ") > shows,
                    timeout=4.0)
     r.check("F10 shows it again", back)
     hides = count(r"second window: hidden \(F10 ")
+
+    def echoed_area(mark):
+        """The area of the first F10 echo since `mark`: which window the
+        seat's key was delivered to."""
+        return next((e["area"] for e in b.since(mark, "key")
+                     if len(e["parts"]) > 2 and e["parts"][1] == "F10"), None)
+
+    first_area = echoed_area(m)
+    second_area = None
     if back:
-        b.press("F10")  # the shown window has the focus: the key is its own
+        m = b.mark()
+        b.press("F10")                  # the shown window has the focus
         b.until(lambda: count(r"second window: hidden \(F10 ") > hides,
                 timeout=4.0)
+        second_area = echoed_area(m)
     r.check(
         "a key reaches the window the seat's focus is on",
-        count(r"second window: hidden \(F10 ") > hides,
-        "the press was echoed from a window of the two",
+        count(r"second window: hidden \(F10 ") > hides
+        and second_area is not None
+        and second_area != first_area,
+        "the hide's press echoed from %s, the show's from %s"
+        % (second_area, first_area),
     )
 
     # F12: one scene view across the two, said by the window that took it.
@@ -4323,24 +4361,11 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
             said = b.dump(1 << 30)
         except Exception:
             said = []  # a program that never started said nothing
-        # Where a monitor was named: the default is no fact about the round.
-        ledger.record(
-            instrument,
-            ledger.place(b.NAME),
-            args.variant,
-            asked=b.gpu,
-            layer=layered,
-            **ledger.bound(b),
-            **ledger.wine(b),
-            checks=len(r.oks) + len(r.fails),
-            failed=len(r.fails),
-            na=len(r.skips),
-            fails=[f.split(" FAIL")[0].strip() for f in r.fails[:8]],
-            capture=bool(r.capture),
-            device=ledger.device(said),
-            output=os.environ.get(getattr(b, "WANT_OUTPUT", B.OUTPUT_ENV), ""),
-            **kept_log(b, r),
-        )
+        # The first program's log, kept now: the second window's program
+        # starts over the same file.
+        kept = kept_log(b, r)
+        r2 = hold2 = None
+        took = given_back(hold)
         # ---- a second window, where the backend opens one ----------------
         # The single-window round is over and its program stopped; this is a
         # fresh one, opened with --second-window, that the harness drives for
@@ -4348,9 +4373,16 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
         if (
             "second-window" in b.CAN
             and b.program == "fenestal-testbed"
-            and not given_back(hold)
+            and not took
         ):
             r2 = Round(b, False)
+            # A program of its own, so a hold of its own: the machine's
+            # input is held for this round as for the one before it.
+            hold2 = (
+                b.input_hold()
+                if input_hold.wanted()
+                else input_hold.NoHold(b.NAME)
+            )
             home, others = (None, None)
             if getattr(b, "BACKEND", None) == "kms":
                 home, others = outputs_offered(b)
@@ -4364,6 +4396,8 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                     "one output connected, and a KMS window is an output",
                 )
             else:
+                if hold2.EARLY:
+                    hold2.begin()
                 try:
                     b.start(
                         args.variant,
@@ -4372,6 +4406,8 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                         if isinstance(b, B._OnBare)
                         else dict(env, **desk),
                     )
+                    if not hold2.EARLY:
+                        hold2.begin()
                     two_window(b, r2)
                 except Exception as e:
                     r2.check(
@@ -4380,14 +4416,45 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                         "%s: %s" % (type(e).__name__, e),
                     )
                 finally:
-                    for stop in (b.stop, b.close):
-                        try:
-                            stop()
-                        except Exception:
-                            pass
+                    try:
+                        hold2.end()
+                    finally:
+                        for stop in (b.stop, b.close):
+                            try:
+                                stop()
+                            except Exception:
+                                pass
             rounds.append(r2)
-        if given_back(hold):
+        if took or (hold2 is not None and given_back(hold2)):
             break
+        # One line for the environment, both programs' checks in it: a
+        # two-window failure recorded apart would leave the round's line
+        # saying it passed.
+        both = [x for x in (r, r2) if x is not None]
+        kept2 = kept_log(b, r2) if r2 is not None else {}
+        logs = [k["log"] for k in (kept, kept2) if k]
+        # Where a monitor was named: the default is no fact about the round.
+        ledger.record(
+            instrument,
+            ledger.place(b.NAME),
+            args.variant,
+            asked=b.gpu,
+            layer=layered,
+            **ledger.bound(b),
+            **ledger.wine(b),
+            checks=sum(len(x.oks) + len(x.fails) for x in both),
+            failed=sum(len(x.fails) for x in both),
+            na=sum(len(x.skips) for x in both),
+            fails=[
+                f.split(" FAIL")[0].strip()
+                for x in both
+                for f in x.fails
+            ][:8],
+            capture=bool(r.capture),
+            device=ledger.device(said),
+            output=os.environ.get(getattr(b, "WANT_OUTPUT", B.OUTPUT_ENV), ""),
+            **({"log": logs[0]} if logs else {}),
+        )
 
     print()
     failed = 0

@@ -444,6 +444,10 @@ void destroy_overlay_pipelines(App *a);
 bool vk_image_supported(const App *a);
 void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
 void vk_image_free(App *a, FnlImage *img);
+/* The images vk_image_free() deferred while a recording was open, let go
+ * once that frame has been submitted: from vk_retire_tick(), and with the
+ * device about to be destroyed. overlay.c. */
+void vk_images_retire(App *a);
 void vk_images_device_gone(App *a);
 
 /* ---- frame.c ------------------------------------------------------------- */

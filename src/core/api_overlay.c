@@ -335,6 +335,13 @@ void fnl_image_destroy(FnlImage *img)
 		RENDERER(a)->image_free(a, img);
 	free(img->pixels);
 	free(img);
+	/* Every image's recording may name the picture -- it is drawn in call
+	 * order through the overlay, and a recording is kept until the draw
+	 * state moves -- so all of them re-record. The command buffer being
+	 * recorded now still names it; the renderers keep its device object
+	 * alive until that frame is submitted (vk_image_free(),
+	 * d3d_image_free()), and their wait covers the ones before. */
+	a->record_gen++;
 }
 
 /* What is left at teardown, after the render thread has been joined and

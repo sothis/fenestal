@@ -2346,11 +2346,18 @@ void app_clipboard_deliver(App *a, const char *data, size_t len)
 
 bool app_text_rect(const App *a, int *x, int *y, int *w, int *h)
 {
+	/* One lock for the four: fnl_set_text_rect_pt() stores them together,
+	 * and a reader between two of its stores would take a rectangle made of
+	 * two. The const is cast away for the lock, as api_state.c does. */
+	App *m = (App *)a;
+	fnl_mutex_lock(&m->text_lock);
 	*x = (int)fnl_atomic_load_u32(&a->text_rect[0]);
 	*y = (int)fnl_atomic_load_u32(&a->text_rect[1]);
 	*w = (int)fnl_atomic_load_u32(&a->text_rect[2]);
 	*h = (int)fnl_atomic_load_u32(&a->text_rect[3]);
-	return fnl_atomic_load_bool(&a->text_rect_set);
+	const bool set = fnl_atomic_load_bool(&a->text_rect_set);
+	fnl_mutex_unlock(&m->text_lock);
+	return set;
 }
 
 /* The public half of the two strings: a copy out, on the terms fenestal.h

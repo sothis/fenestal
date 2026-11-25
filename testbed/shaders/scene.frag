@@ -236,7 +236,9 @@ void main()
 			if (pc.srgb != 0u && pc.colour.y > 1.0)
 				c *= 1.0 + (pc.colour.y - 1.0) * smoothstep(0.75, 1.0, t);
 		} else if (p.y < base + 2.0 * band) {
-			c = vec3(to_linear(floor(t * 16.0) / 15.0));  /* 16 steps    */
+			/* 16 steps, the last held at 1: floor(t * 16) alone reaches
+			 * 16/15 on the right edge, which an HDR target shows. */
+			c = vec3(to_linear(floor(min(t * 16.0, 15.0)) / 15.0));
 		} else {
 			int  i  = int(clamp(t * 6.0, 0.0, 5.999));    /* six primaries */
 			/* Each channel is 0 or 1, which linearise to themselves, so

@@ -51,7 +51,11 @@ def main():
     reader.start()
     time.sleep(seconds)
     proc.terminate()
-    proc.wait(timeout=10)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
     reader.join(timeout=3)
 
 

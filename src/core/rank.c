@@ -870,6 +870,8 @@ static void plan(App *a, const char *display, bool all)
 static void begin(App *a, const char *why)
 {
 	a->cal.started = a->cal.entry_at = now_seconds();
+	a->cal.drew_at                  = a->cal.started;
+	a->cal.seen_presents            = a->presents;
 	a->cal.dur_sum[0] = a->cal.dur_sum[1] = 0.0;
 	a->cal.dur_k[0] = a->cal.dur_k[1] = 0;
 	a->cal.back[0]                    = '\0';
@@ -984,6 +986,10 @@ static void finish(App *a)
 	aim(a, a->cal.back);
 }
 
+/* Entering a state (defined below), which measured() uses to begin the next
+ * entry's wait afresh. */
+static void enter(App *a, int state, double now);
+
 /* One entry's figure, sampled each frame from the means the frame cost
  * keeps (app_frame_cost()). */
 static void sample(App *a)
@@ -1029,7 +1035,7 @@ static void measured(App *a, const char *why)
 				id, fps, gpu * 1e3, cpu * 1e3, now_seconds() - a->cal.entry_at);
 	}
 	a->cal.i++;
-	a->cal.state = CAL_NEXT;
+	enter(a, CAL_NEXT, now_seconds());
 }
 
 /* The best figure on the display measured so far: this calibration's, and
@@ -1278,7 +1284,10 @@ void app_rank_tick(App *a)
 				 * checked as such. */
 				const bool moved =
 					a->rank_display[0] && strcmp(display, a->rank_display) != 0;
-				if (moved && a->rank_mode == RANK_AUTO)
+				/* An aim the calibration just set is not overwritten: the
+				 * move to it waits until the window is settled here. */
+				if (moved && a->rank_mode == RANK_AUTO && !a->rank_land[0] &&
+					a->rank_target == 0)
 					aim(a, "");
 				fnl_mutex_lock(&a->lock);
 				snprintf(a->rank_display, sizeof a->rank_display, "%s",
@@ -1314,6 +1323,11 @@ void app_rank_tick(App *a)
 			if (fnl_atomic_load_bool(&a->calibrating))
 				return;
 		}
+		/* A move is refused while another window is open (gpu_switch_owed()
+		 * clears the request), so an aim is kept until the host is one
+		 * window rather than spent on a request that cannot be made. */
+		if (fnl_atomic_load_u32(&a->host->window_count) > 1)
+			return;
 		/* Back to the entry a named GPU was on before the calibration:
 		 * by its key, wherever the ranking has put it in the list. */
 		if (a->rank_land[0]) {
@@ -1379,6 +1393,27 @@ void app_rank_tick(App *a)
 		aim(a, a->cal.back);
 		return;
 	}
+	/* Only a turn that presented a frame may take a figure or advance a
+	 * span: a covered, minimized or uninvited window presents none, and
+	 * its means are the last ones taken -- read again every turn they
+	 * would keep a figure the entry never produced, and the wall clock
+	 * alone would keep a zero for one it never drew. And a calibration
+	 * that cannot draw for CAL_LIMIT ends with what it measured, rather
+	 * than holding the window's input for a frame nobody shows. */
+	const uint64_t presents = a->presents;
+	const bool drew         = presents != a->cal.seen_presents;
+	a->cal.seen_presents    = presents;
+	if (drew)
+		a->cal.drew_at = now;
+	if (now - a->cal.drew_at > CAL_LIMIT) {
+		fnl_log(FNL_LOG_WARN,
+				"GPU rank: the window drew nothing for %.0f s; the "
+				"calibration ends with %d of %d entries measured",
+				CAL_LIMIT, a->cal.i, a->cal.n);
+		a->cal.n = a->cal.i;
+		finish(a);
+		return;
+	}
 	/* Drawn throughout, whether the scene moves or not: the cost is a
 	 * frame's, and the banner says the time left. */
 	fnl_mutex_lock(&a->lock);
@@ -1388,6 +1423,18 @@ void app_rank_tick(App *a)
 	switch (a->cal.state) {
 	case CAL_NEXT:
 		if (a->cal.i >= a->cal.n) {
+			finish(a);
+			return;
+		}
+		if (now - a->cal.at > CAL_LIMIT) {
+			/* The list never settled -- a listing or a move that hangs:
+			 * the calibration ends with what it measured rather than
+			 * waiting for it with the window's input held. */
+			fnl_log(FNL_LOG_WARN,
+					"GPU rank: the list did not settle in %.0f s; the "
+					"calibration ends with %d of %d entries measured",
+					CAL_LIMIT, a->cal.i, a->cal.n);
+			a->cal.n = a->cal.i;
 			finish(a);
 			return;
 		}
@@ -1427,6 +1474,8 @@ void app_rank_tick(App *a)
 		}
 		return;
 	case CAL_SETTLING: {
+		if (!drew)
+			return;
 		/* Settled when two spans in a row agree -- the clocks have risen and
 		 * the means caught up -- after CAL_SETTLE_MIN, or at CAL_SETTLE
 		 * whatever they say: a GPU that ramps slowly gets the time it
@@ -1465,6 +1514,8 @@ void app_rank_tick(App *a)
 		return;
 	}
 	case CAL_SAMPLING: {
+		if (!drew)
+			return;
 		at = entry_of(a, a->cal.ids[a->cal.i], &cur);
 		if (at < 0 || at != cur) {
 			measured(a, "moved off while measured");

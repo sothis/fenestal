@@ -1351,16 +1351,40 @@ static void clip_close(struct BackendHostState *hs)
 	}
 }
 
+/* The answer to every window that asked and was not answered while one paste
+ * was coming. The buffer changes hands to one of them elsewhere; the rest get
+ * a copy, because a request from a second window is that window's answer too
+ * (fenestal.h: a request is always answered). */
+static void clip_answer_all(struct BackendHostState *hs, const char *text,
+							size_t len)
+{
+	for (App *w = hs->open_list; w; w = w->backend_state->open_next)
+		if (w->backend_state->clip_waiting) {
+			w->backend_state->clip_waiting = false;
+			app_clipboard_deliver(w, text, len);
+		}
+}
+
 /* `whole` is whether all of it arrived: a paste cut short may end inside a
- * character, and is reported as no text. The answer is the waiting window's;
- * one that closed while its paste was coming answers nobody. */
+ * character, and is reported as no text. The answer is every waiting
+ * window's: the waiter's buffer changes hands, a copy to each other that
+ * asked while it was coming. */
 static void clip_finish(struct BackendHostState *hs, bool whole)
 {
 	clip_close(hs);
 	if (!hs->clip_waiter) {
 		clip_in_free(&hs->clip);
+		clip_answer_all(hs, NULL, 0);
 		return;
 	}
+	for (App *w = hs->open_list; w; w = w->backend_state->open_next)
+		if (w != hs->clip_waiter && w->backend_state->clip_waiting) {
+			w->backend_state->clip_waiting = false;
+			app_clipboard_deliver(w,
+								  whole ? hs->clip.buf : NULL,
+								  whole ? hs->clip.len : 0);
+		}
+	hs->clip_waiter->backend_state->clip_waiting = false;
 	clip_in_finish(hs->clip_waiter, &hs->clip, whole);
 	hs->clip_waiter = NULL;
 }
@@ -1394,7 +1418,11 @@ static void wl_clipboard_request(App *a)
 	struct BackendHostState *hs = app_backend_host(a);
 	if (!hs)
 		return;
-	hs->clip_waiter = a;
+	/* This window's answer is owed from here, whichever way it comes: at
+	 * once where our own selection answers, otherwise from the paste's
+	 * finish (clip_finish()). A second window asking while one is in flight
+	 * is answered then too, and does not replace the first. */
+	a->backend_state->clip_waiting = true;
 	/* Our own selection is answered from the string: asked for the long way,
 	 * this pump would wait on a pipe only it can write to. So is one set and
 	 * not yet answered, whose offer_sel is the one before (clip_sync). The
@@ -1409,18 +1437,19 @@ static void wl_clipboard_request(App *a)
 		if (hs->clip_fd >= 0) {
 			clip_close(hs);
 			clip_in_free(&hs->clip);
+			hs->clip_waiter = NULL;
 		}
-		app_clipboard_deliver(a, owner->clip_out, owner->clip_out_len);
-		hs->clip_waiter = NULL;
+		/* Every window waiting for the paste given up is answered with the
+		 * copy's string too: the question changed under it. */
+		clip_answer_all(hs, owner->clip_out, owner->clip_out_len);
 		return;
 	}
 	if (hs->clip_fd >= 0)
-		return; /* one already on its way answers both */
+		return; /* one already on its way answers every waiter */
 
 	int fds[2];
 	if (!hs->offer_sel || !hs->offer_sel_kind || pipe2(fds, O_CLOEXEC) < 0) {
-		app_clipboard_deliver(a, NULL, 0);
-		hs->clip_waiter = NULL;
+		clip_answer_all(hs, NULL, 0);
 		return;
 	}
 	/* Our end only: the write end is the owner's, and it expects to block. */
@@ -1432,11 +1461,11 @@ static void wl_clipboard_request(App *a)
 
 	if (!loop_add(&hs->loop, fds[0])) {
 		close(fds[0]);
-		app_clipboard_deliver(a, NULL, 0);
-		hs->clip_waiter = NULL;
+		clip_answer_all(hs, NULL, 0);
 		return;
 	}
 	hs->clip_fd = fds[0];
+	hs->clip_waiter = a;
 	clip_in_renew(&hs->clip);
 }
 
@@ -3092,10 +3121,21 @@ static void wl_window_close(App *a)
 			hs->clip_source = NULL;
 		}
 	}
+	/* Its request goes with it; a paste it was the buffer's owner for is
+	 * still the other waiters' answer, so another takes it over. With none,
+	 * the transfer is given up as it was. */
+	p->clip_waiting = false;
 	if (hs->clip_waiter == a) {
 		hs->clip_waiter = NULL;
-		clip_close(hs);
-		clip_in_free(&hs->clip);
+		for (App *w = hs->open_list; w; w = w->backend_state->open_next)
+			if (w->backend_state->clip_waiting) {
+				hs->clip_waiter = w;
+				break;
+			}
+		if (!hs->clip_waiter) {
+			clip_close(hs);
+			clip_in_free(&hs->clip);
+		}
 	}
 
 	if (p->decoration)

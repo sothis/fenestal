@@ -1964,6 +1964,10 @@ void *render_loop(void *arg)
 		if (a->renderer_owed) {
 			device_recover(a);
 			if (a->renderer_owed) {
+				/* The rank's clock runs here too: a calibration waiting
+				 * on a rebuild that keeps failing must still end, as one
+				 * whose window presents nothing does. */
+				app_rank_tick(a);
 				fnl_sleep_seconds(0.2);
 				continue;
 			}

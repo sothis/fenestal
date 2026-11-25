@@ -1122,9 +1122,19 @@ static void publish_mode(App *a)
 	struct BackendState *p = a->backend_state;
 	const int s120         = kms_scale120(a);
 	const int w = px_to_pt(p->mode_w, s120), h = px_to_pt(p->mode_h, s120);
+	const KmsOutput *o = &p->host->outputs[p->out_cur];
 	app_publish_size(a, w, h, s120);
 	app_publish_refresh(a, p->refresh_mhz);
-	app_publish_output(a, p->host->outputs[p->out_cur].name, w, h);
+	app_publish_output(a, o->name, w, h);
+	/* The headroom is the output's, and moves with it: the EDID's peak in
+	 * SDR-white units where it can show PQ, 1.0 where it cannot. Said here,
+	 * where every adoption of a selection passes, rather than once at the
+	 * window's open -- a move to an HDR output would otherwise keep the old
+	 * output's figure, or the renderer's 1000-nit default. */
+	float peak = 1.0f;
+	if (o->hdr_ok)
+		peak = (float)(o->max_lum ? o->max_lum : 1000u) / 203.0f;
+	app_publish_peak(a, peak);
 }
 
 /* ---- the keyboard -------------------------------------------------------- */
@@ -1664,7 +1674,10 @@ static void input_add(App *a, const char *node)
 			hs->num_on     = test_bit(leds, LED_NUML);
 			hs->leds_known = true;
 		}
-		keys_seed(a, d);
+		/* The focused window's held set, where typing goes -- not whatever
+		 * window the pump was handed (the SYN_DROPPED path below does the
+		 * same). */
+		keys_seed(kms_focus(a), d);
 	}
 }
 
@@ -1681,7 +1694,7 @@ static void input_remove(App *a, KmsInput *d)
 	*d = p->host->inputs[--p->host->input_count];
 	if (keyboard) {
 		memset(p->host->down, 0, sizeof p->host->down);
-		app_keys_clear(a);
+		app_keys_clear(kms_focus(a));
 	}
 }
 
@@ -2111,8 +2124,19 @@ static void scan_refuse(struct BackendState *p, const char *what)
 int kms_scan_begin(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	if (p->scan_failed)
-		return -1;
+	if (p->scan_failed) {
+		/* A refusal -- the pair's, or a flip that found the CRTC busy --
+		 * is not the window's for good. A mode asked for anew is tried:
+		 * the reset that comes with another selection or a returned output
+		 * clears it, and so does the next mode set a caller's move asks
+		 * for. Without this a transient EBUSY ends every frame for the
+		 * window's life. */
+		const int show        = kms_sel_to_show(p);
+		const uint32_t resets = fnl_atomic_load_u32(&p->scan_resets);
+		if (show == p->scan_sel && resets == p->scan_resets_seen)
+			return -1;
+		p->scan_failed = false;
+	}
 	/* The pair is of the colour the renderer last published: a device that
 	 * came back onto or off HDR leaves the other format's pair, retired as
 	 * another size's is. The same frame then sets the mode again. */
@@ -2236,7 +2260,8 @@ static void scan_hdr_apply(App *a, uint32_t connector)
 					"KMS: the HDR metadata was refused (%s)",
 					strerror(errno));
 	}
-	p->hdr_set = true;
+	p->hdr_set       = true;
+	p->hdr_connector = connector;
 	fnl_log(FNL_LOG_INFO, "KMS: %s scans out 10-bit PQ, %u cd/m²",
 			kms_name(p, p->scan_sel), max_lum);
 }
@@ -2266,7 +2291,8 @@ static void scan_hdr_clear(App *a, uint32_t connector)
 		drm_ioctl(fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
 		p->hdr_blob = 0;
 	}
-	p->hdr_set = false;
+	p->hdr_set       = false;
+	p->hdr_connector = 0;
 }
 
 void kms_scan_show(App *a, int back)
@@ -2280,11 +2306,18 @@ void kms_scan_show(App *a, int back)
 	const KmsOutput *out                 = kms_out(p, p->scan_sel);
 	if (p->scan_front < 0 || p->scan_set_owed) {
 		/* What the frame is, said to the output before it is set: 10-bit
-		 * PQ where the pair is, and back to nothing where it is not. */
-		if (p->scan.fourcc == DRM_FORMAT_XRGB2101010 && !p->hdr_set)
+		 * PQ where the pair is, and back to nothing where it is not. The
+		 * connector told is the one set, not one set once: a move to another
+		 * output clears the old statement and tells the new, and one that
+		 * goes 8-bit clears whichever connector was told. */
+		const bool pq = p->scan.fourcc == DRM_FORMAT_XRGB2101010;
+		if (pq && (!p->hdr_set || p->hdr_connector != out->connector_id)) {
+			if (p->hdr_set)
+				scan_hdr_clear(a, p->hdr_connector);
 			scan_hdr_apply(a, out->connector_id);
-		else if (p->scan.fourcc != DRM_FORMAT_XRGB2101010 && p->hdr_set)
-			scan_hdr_clear(a, out->connector_id);
+		} else if (!pq && p->hdr_set) {
+			scan_hdr_clear(a, p->hdr_connector);
+		}
 		const bool good = (int)fnl_atomic_load_u32(&p->sel_good) == p->scan_sel;
 		const bool forced = !good && FNL_FAULT("kms-mode-refused");
 		bool set_ok = false;
@@ -2372,6 +2405,12 @@ void kms_scan_show(App *a, int back)
 	}
 	p->flip_async = async_now;
 	if (!flipped) {
+		/* A CRTC still busy -- the flip before it not yet complete, or a
+		 * mode set in flight -- is not a refusal: this frame is dropped and
+		 * the next one tries again. Told apart from a real refusal, a
+		 * transient EBUSY would end every frame for the window's life. */
+		if (errno == EBUSY)
+			return;
 		scan_refuse(p, "the flip was refused");
 		return;
 	}
@@ -3145,6 +3184,10 @@ static void outputs_rescan(App *a)
 	uint32_t gone           = fnl_atomic_load_u32(&hs->outputs_gone);
 	const uint32_t was_gone = gone;
 	uint32_t away           = hs->outputs_away;
+	/* Slots that left and came back with the modes they had: the CRTC may
+	 * have gone dark with the monitor, as a gone output's has, so the
+	 * window on one sets its mode again below. */
+	uint32_t revived = 0;
 	bool came = false, back = false;
 	/* A connector the card no longer lists -- a DisplayPort MST sink's,
 	 * which goes with its monitor -- is unplugged too, away or not; unless
@@ -3172,6 +3215,7 @@ static void outputs_rescan(App *a)
 		if (live >= 0 && on && ((away >> live) & 1u)) {
 			away &= ~(1u << live);
 			if (modes_alike(&hs->outputs[live], &o)) {
+				revived |= 1u << live;
 				back = true;
 				continue;
 			}
@@ -3284,7 +3328,8 @@ static void outputs_rescan(App *a)
 						hs->outputs[out].name);
 			continue;
 		}
-		if (((was_gone >> out) & 1u) && !((gone >> out) & 1u)) {
+		if ((((was_gone | revived) >> out) & 1u) &&
+			!((gone >> out) & 1u)) {
 			fnl_atomic_store_u32(&q->scan_resets,
 								 fnl_atomic_load_u32(&q->scan_resets) + 1);
 			app_surface_remake(w);
@@ -3388,7 +3433,11 @@ static FnlResult kms_window_open(App *a)
 		out = hs->first_output;
 	} else {
 		const uint32_t held = held_by_others(a);
-		const uint32_t gone = fnl_atomic_load_u32(&hs->outputs_gone);
+		/* Away as well as gone: an output whose monitor is asleep is still
+		 * listed, and opening a window on it shows nothing for as long as
+		 * the away lasts. */
+		const uint32_t gone = fnl_atomic_load_u32(&hs->outputs_gone) |
+							  hs->outputs_away;
 		const int n         = (int)fnl_atomic_load_u32(&hs->output_count);
 		out                 = -1;
 		for (int o = 0; o < n && out < 0; o++)
@@ -3491,6 +3540,12 @@ static void kms_window_close(App *a)
 	}
 	if (fnl_atomic_load_ptr(&p->host->display_owner) == a)
 		fnl_atomic_store_ptr(&p->host->display_owner, NULL);
+	/* A move to another output asked for by this window goes with it: the
+	 * rescan would otherwise give its address to a later window. */
+	if (p->host->away_owed_app == a) {
+		p->host->away_owed     = -1;
+		p->host->away_owed_app = NULL;
+	}
 	cursor_free(p);
 	if (p->host->card_fd >= 0) {
 		flip_wait(a, FLIP_WAIT_MS);
@@ -3504,6 +3559,11 @@ static void kms_window_close(App *a)
 		scan_release(p, &p->scan_old);
 		scan_release(p, &p->scan);
 		scan_parked_tidy(p, true);
+		/* The output's colour statement goes with the window: left, it
+		 * outlives this program on a connector the console or the next
+		 * program now shows in. clear() destroys the blob with it. */
+		if (p->hdr_set && p->hdr_connector)
+			scan_hdr_clear(a, p->hdr_connector);
 		if (p->hdr_blob) {
 			struct drm_mode_destroy_blob db = { .blob_id = p->hdr_blob };
 			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
@@ -3754,13 +3814,27 @@ static void kms_capture(App *a)
 /* The pointer comes back where the reticle is. */
 static void kms_release(App *a)
 {
-	struct BackendState *p = a->backend_state;
+	struct BackendState *p      = a->backend_state;
+	struct BackendHostState *hs = p->host;
 	if (!p->captured)
 		return;
 	int cx, cy;
 	app_content_px_rect(a, &cx, &cy, NULL, NULL);
 	p->ptr_x            = clampd(cx + a->cur_px, 0.0, p->mode_w - 1.0);
 	p->ptr_y            = clampd(cy + a->cur_py, 0.0, p->mode_h - 1.0);
+	/* The desktop point follows the released reticle. Captured motion kept
+	 * only the window's position, so the host's still names where the
+	 * capture began, and the first relative report after this would put the
+	 * pointer back there. */
+	double ox = 0.0, tw, th;
+	for (App *o = a->host->windows; o && o != a; o = o->next) {
+		const struct BackendState *q = o->backend_state;
+		if (q && kms_window_on_screen(o))
+			ox += q->mode_w;
+	}
+	desktop_size(a, &tw, &th);
+	hs->gx              = clampd(ox + p->ptr_x, 0.0, tw - 1.0);
+	hs->gy              = clampd(p->ptr_y, 0.0, th - 1.0);
 	p->captured         = false;
 	a->pointer_captured = false;
 	for (int i = 0; i < p->host->input_count; i++)

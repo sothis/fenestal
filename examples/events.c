@@ -16,6 +16,7 @@
 #include <fenestal/fenestal.h>
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -42,11 +43,12 @@ typedef struct {
 
 /* A thread of the caller's, reaching the drawing's state through a post: the
  * count is written on the render thread, in tick(), and nothing here needs a
- * lock of its own. */
+ * lock of its own. `run` is atomic rather than volatile: C11's word for one
+ * thread's store being another's cue, which volatile is not. */
 struct Ticker {
 	FnlApp *app;
 	State *s;
-	volatile int run;
+	_Atomic int run;
 };
 
 static void tick(void *ud)
@@ -174,8 +176,11 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		fnl_overlay_flush(app);
 	}
 
-	/* A marker over the text, so drawn after a flush: without it the
-	 * rectangle would go under, every filled rectangle being a background. */
+	/* The pointer's marker, over the wash drawn above: everything appended
+	 * so far is issued by the flush, and a rectangle after it lands on the
+	 * strokes and rectangles before it. Glyphs stay on top whatever the
+	 * order -- text is one draw for the whole frame, issued last -- so a
+	 * marker over a line of text is what the overlay cannot draw. */
 	fnl_overlay_flush(app);
 	const FnlColor mark = { 1.0f, 0.4f, 0.2f, 1.0f };
 	fnl_overlay_rect(app, (int)s->x - 2, (int)s->y - 2, 4, 4, mark);

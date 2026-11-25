@@ -237,7 +237,15 @@ class SshHold(Hold):
             stderr=subprocess.STDOUT, text=True)
         ready, _, _ = select.select([self.proc.stdout], [], [], 15)
         line = self.proc.stdout.readline().strip() if ready else ""
-        if not line.startswith("held"):
+        # "held 0:" is nothing grabbed -- no keyboard or mouse the account
+        # may open -- which is not the hold this round means to take.
+        held = 0
+        if line.startswith("held "):
+            try:
+                held = int(line.split()[1].rstrip(":"))
+            except (IndexError, ValueError):
+                held = 0
+        if held <= 0:
             print("  input not held on %s: %s" % (self.where,
                                                   line or "no answer"),
                   flush=True)

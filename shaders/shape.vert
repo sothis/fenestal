@@ -43,7 +43,13 @@ void main()
 	vec2 k = vec2(gl_VertexIndex & 1, (gl_VertexIndex >> 1) & 1);
 
 	vec2  p0 = i_p0p1.xy, p1 = i_p0p1.zw, p2 = i_p2hf.xy;
-	float pad = i_p2hf.z + i_p2hf.w + 1.0;
+	/* The gradient's half_w is an angle in degrees, not a radius: its quad
+	 * is the rectangle itself, so the fragment shader's ramp is all that is
+	 * drawn. A stroke's box is grown by its radius plus the antialiasing
+	 * falloff, once more for the ramp's own half-width, so no coverage is
+	 * clipped at the box's border. */
+	float pad = (i_kind.x > 2.5 && i_kind.x < 3.5)
+		? 0.0 : i_p2hf.z + i_p2hf.w + 1.0;
 	vec2  lo  = min(min(p0, p1), p2) - pad;
 	vec2  hi  = max(max(p0, p1), p2) + pad;
 

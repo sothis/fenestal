@@ -161,6 +161,10 @@ typedef enum {
 #define FNL_TITLEBAR_MODE (1u << 4)      /* the size or mode drop-down */
 #define FNL_TITLEBAR_ALL (0xffffffffu)
 
+/* A result's name, a string literal the library owns for its life. It leaves
+ * fnl_last_error()'s text as it was, so a caller may print both in one call
+ * -- `fprintf(stderr, "%s: %s", fnl_result_str(rc), fnl_last_error())` -- in
+ * either order C evaluates the arguments. */
 FNL_API const char *fnl_result_str(FnlResult r); /* [any] */
 /* The last failure on this thread, in full. Thread-local, and valid until the
  * next Fenestal call on the same thread. */
@@ -1295,8 +1299,11 @@ FNL_API const char *fnl_font_licence(void); /* [any] */
  * rectangle lands *under* the thing it was meant to cover -- silently, with no
  * error anywhere and nothing in a validation layer to catch it.
  *
- * fnl_overlay_flush() is the escape hatch. It issues everything appended so
- * far, so anything drawn after it is strictly on top.
+ * fnl_overlay_flush() is the escape hatch for rectangles and strokes: it
+ * issues everything appended so far, so a rectangle or a stroke drawn after
+ * it is strictly on top of them. Glyphs are not flushed -- text is one draw
+ * for the whole frame, issued last -- so no rectangle or stroke can be made
+ * to sit over a glyph.
  */
 
 /* Straight (non-premultiplied) RGBA, authored in *sRGB* -- the numbers a colour

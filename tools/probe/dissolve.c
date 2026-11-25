@@ -725,5 +725,8 @@ int main(int argc, char **argv)
 	if (rc < 0)
 		fprintf(stderr, "%s: %s\n", fnl_result_str(rc), fnl_last_error());
 	fnl_shutdown(app);
-	return rc < 0 || p.failed ? 1 : 0;
+	/* A run that ended before both moves came back -- the window closed, or
+	 * fnl_run() stopped for another reason -- is no success: step 2 is every
+	 * success path's end (the docstring's). */
+	return rc < 0 || p.failed || p.step < 2 ? 1 : 0;
 }

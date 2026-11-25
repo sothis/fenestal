@@ -24,9 +24,11 @@ A Windows laptop's columns are one a GPU, as `native-hosts` lists them;
 `FNL_DRIVE_NATIVE` set to bare names would replace that list with one
 column a machine. The NVK columns are the bare ones run again with the
 key booted on its nouveau entry (as root there, `fenestal-boot once
-fnl-$(uname -r)-plain`, then a reboot). The order of a sweep is every
-other machine first and this desktop last, since its rounds hold its
-input; the bare machines run side by side, one harness each, since each
+fnl-$(uname -r)-plain`, then a reboot). The order to run a sweep in by
+hand is every other machine first and this desktop last, since its rounds
+hold its input; `stress.py`'s own environment order is not that, so name
+the machines on its command line, or run this desk's round last. The bare
+machines run side by side, one harness each, since each
 round's forwarded display takes a port of its own. `tools/drive/status.py`
 has the latest of each from the ledger, with how many commits old it is.
 

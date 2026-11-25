@@ -1076,10 +1076,17 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		.ppEnabledExtensionNames = exts,
 		.pEnabledFeatures = &want,
 	};
-	if (borrow != VK_NULL_HANDLE)
+	if (borrow != VK_NULL_HANDLE) {
 		VK(a)->device = borrow;
-	else
+		/* The device's features are the host's, not this window's ask: a
+		 * window borrowing a device another made without the maintenance
+		 * extension must not chain a scaled swapchain on it, and one
+		 * borrowing a device that has it may. */
+		VK(a)->present_scale = VKH(a)->present_scale;
+	} else {
 		VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &VK(a)->device));
+		VKH(a)->present_scale = VK(a)->present_scale;
+	}
 	VK(a)->memory_budget =
 		VK(a)->get_memory2 &&
 		device_has_extension(a, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
@@ -1650,7 +1657,10 @@ static void destroy_device_objects(App *a, bool save_cache)
 	/* The caller's images' objects go with the device, and the pool that held
 	 * their sets is destroyed below; only the renderer's own memory is let go
 	 * here, leaving each FnlImage to upload its copy again on the next
-	 * device (vk_images_device_gone()). */
+	 * device (vk_images_device_gone()). One destroyed inside the recording
+	 * that was still open is let go here too, before the pool takes its set
+	 * (vk_images_retire()). */
+	vk_images_retire(a);
 	vk_images_device_gone(a);
 	destroy_overlay_pipelines(a);
 	destroy_text_pipeline(a);

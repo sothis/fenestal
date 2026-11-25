@@ -67,14 +67,56 @@ _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, colour) == 64, "ScenePush layout drifted");
 
-/* One pair per target. A nil entry is a target this window cannot use --
- * the multisampled one on a device with no sample count worth having --
- * and the frame will never ask for it. Strong references, the example's
- * own: the library hands none over. */
-static id<MTLRenderPipelineState> g_pattern[FNL_TARGET_COUNT];
-static id<MTLRenderPipelineState> g_star[FNL_TARGET_COUNT];
-static id<MTLDepthStencilState>   g_no_depth;
-static bool                       g_srgb;
+/* One per window, as scene_vulkan.c's Scene is: a second window has a device
+ * of its own, and a pipeline state is the device's that made it. Keyed by
+ * the App, given with on_gpu_created and taken with on_gpu_lost, so neither
+ * window's device loss drops the other's states. A nil entry is a target
+ * this window cannot use -- the multisampled one on a device with no sample
+ * count worth having -- and the frame will never ask for it. Strong
+ * references, the example's own: the library hands none over. */
+#define SCENE_WINDOWS 8
+typedef struct {
+	FnlApp *app;
+	id<MTLRenderPipelineState> pattern[FNL_TARGET_COUNT];
+	id<MTLRenderPipelineState> star[FNL_TARGET_COUNT];
+	id<MTLDepthStencilState>   no_depth;
+	bool                       srgb;
+} Scene;
+static Scene g_scenes[SCENE_WINDOWS];
+
+static Scene *scene_slot(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (g_scenes[i].app == app)
+			return &g_scenes[i];
+	return NULL;
+}
+
+/* Let go of what the window's device made. Nil assignments, which ARC
+ * releases; a memset would drop the references on the floor. */
+static void scene_clear(Scene *s)
+{
+	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
+		s->pattern[t] = nil;
+		s->star[t] = nil;
+	}
+	s->no_depth = nil;
+	s->srgb = false;
+}
+
+/* The window's slot, emptied; a new one when it had none. NULL when every
+ * slot is taken, which is more windows than the testbed draws a scene in. */
+static Scene *scene_open(FnlApp *app)
+{
+	for (int i = 0; i < SCENE_WINDOWS; i++) {
+		if (g_scenes[i].app == app || !g_scenes[i].app) {
+			g_scenes[i].app = app;
+			scene_clear(&g_scenes[i]);
+			return &g_scenes[i];
+		}
+	}
+	return NULL;
+}
 
 /* One stage from MSL text; spirv-cross names every entry main0. */
 static id<MTLFunction> stage(id<MTLDevice> dev, const char *msl)
@@ -122,7 +164,11 @@ static id<MTLRenderPipelineState> make_pso(id<MTLDevice> dev,
 void scene_metal_on_gpu_created(void *ud, FnlApp *app)
 {
 	(void)ud;
-	scene_metal_on_gpu_lost(NULL, app);
+	/* This window's states alone: another window's device is another
+	 * device's pipelines, and dropping them would stop its scene. */
+	Scene *s = scene_open(app);
+	if (!s)
+		return;
 
 	FnlMetalGpu gpu;
 	if (fnl_renderer(app) != FNL_RENDERER_METAL || !fnl_metal_gpu(app, &gpu)) {
@@ -137,7 +183,7 @@ void scene_metal_on_gpu_created(void *ud, FnlApp *app)
 	MTLDepthStencilDescriptor *dd = [[MTLDepthStencilDescriptor alloc] init];
 	dd.depthCompareFunction = MTLCompareFunctionAlways;
 	dd.depthWriteEnabled = NO;
-	g_no_depth = [gpu.device newDepthStencilStateWithDescriptor:dd];
+	s->no_depth = [gpu.device newDepthStencilStateWithDescriptor:dd];
 	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
 		FnlMetalSceneLayout layout;
 		if (!fnl_metal_scene_layout(app, (FnlSceneTarget)t, &layout))
@@ -145,25 +191,23 @@ void scene_metal_on_gpu_created(void *ud, FnlApp *app)
 		/* Whether the target holds linear light: hardware-encoded _sRGB, or
 		 * HDR's float format that keeps it as written. */
 		if (t == FNL_TARGET_DIRECT)
-			g_srgb = layout.color_format == MTLPixelFormatBGRA8Unorm_sRGB ||
-					 layout.color_format == MTLPixelFormatRGBA16Float;
-		g_pattern[t] = make_pso(gpu.device, &layout, sv, sf);
-		g_star[t] = make_pso(gpu.device, &layout, tv, tf);
+			s->srgb = layout.color_format == MTLPixelFormatBGRA8Unorm_sRGB ||
+					  layout.color_format == MTLPixelFormatRGBA16Float;
+		s->pattern[t] = make_pso(gpu.device, &layout, sv, sf);
+		s->star[t] = make_pso(gpu.device, &layout, tv, tf);
 	}
 }
 
 /* Let go: a command buffer still drawing with them keeps its own
- * references. */
+ * references, and the slot is freed so the next window may take it. */
 void scene_metal_on_gpu_lost(void *ud, FnlApp *app)
 {
 	(void)ud;
-	(void)app;
-	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
-		g_pattern[t] = nil;
-		g_star[t] = nil;
-	}
-	g_no_depth = nil;
-	g_srgb = false;
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
+	scene_clear(s);
+	s->app = NULL;
 }
 
 /* The scene itself, as in scene_vulkan.c: the pattern over one covering
@@ -172,11 +216,14 @@ void scene_metal_on_gpu_lost(void *ud, FnlApp *app)
 void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 {
 	(void)ud;
+	Scene *s = scene_slot(app);
+	if (!s)
+		return;
 	FnlMetalScene sc;
 	if (!fnl_metal_scene(app, &sc))
 		return;
 	if (f->target < 0 || f->target >= FNL_TARGET_COUNT ||
-		!g_pattern[f->target] || !g_star[f->target])
+		!s->pattern[f->target] || !s->star[f->target])
 		return;
 
 	TestbedViewSpec view;
@@ -189,23 +236,23 @@ void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.tint = { view.tint[0], view.tint[1], view.tint[2], view.tint[3] },
 		.time = testbed_scene_time(f),
 		.time_bias = view.time_bias,
-		.srgb = g_srgb ? 1u : 0u,
+		.srgb = s->srgb ? 1u : 0u,
 		.content = view.content,
 		.colour = { f->color.sdr_scale, f->color.peak, 0.0f, 0.0f },
 	};
 	id<MTLRenderCommandEncoder> enc = sc.encoder;
-	[enc setDepthStencilState:g_no_depth];
+	[enc setDepthStencilState:s->no_depth];
 	[enc setCullMode:MTLCullModeNone];
 	[enc setVertexBytes:&pc length:sizeof pc atIndex:0];
 	[enc setFragmentBytes:&pc length:sizeof pc atIndex:0];
 
-	[enc setRenderPipelineState:g_pattern[f->target]];
+	[enc setRenderPipelineState:s->pattern[f->target]];
 	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
 			vertexCount:3];
 	/* The other scene is one picture and has no star; the star's wedges are
 	 * the pattern's alone. */
 	if (view.content == 0u) {
-		[enc setRenderPipelineState:g_star[f->target]];
+		[enc setRenderPipelineState:s->star[f->target]];
 		[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
 				vertexCount:STAR_VERTICES];
 	}

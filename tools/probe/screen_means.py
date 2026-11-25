@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Janos Sonntag
 """On a bare machine, as root: what its display is scanning out, sampled
-as fast as tools/drive/kms_grab.py (beside this file) can read it, each
+as fast as tools/drive/kms_grab.py (beside this file, or in tools/drive/
+when run from the tree) can read it, each
 capture one line -- the time, the mean red, green and blue of the frame
 and the brightest column of its middle band -- for a look at what the
 screen shows across a move (DESIGN *The veil*). A black frame says so.
@@ -19,12 +20,20 @@ import time
 
 def main():
     seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 10.0
-    grab = [sys.executable,
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         'kms_grab.py')] + sys.argv[2:]
+    here = os.path.dirname(os.path.abspath(__file__))
+    grab_py = os.path.join(here, 'kms_grab.py')
+    if not os.path.exists(grab_py):
+        # From the tree, beside this script is not where it lives. On the
+        # machine both files are copied together, and it is.
+        grab_py = os.path.join(here, '..', 'drive', 'kms_grab.py')
+    if not os.path.exists(grab_py):
+        sys.exit('screen_means.py: no kms_grab.py beside this script or in '
+                 'tools/drive')
+    grab = [sys.executable, grab_py] + sys.argv[2:]
     t0 = time.monotonic()
     print('   t     red   green    blue   bar  note', flush=True)
     last = None
+    decoded = 0
     while time.monotonic() - t0 < seconds:
         t = time.monotonic() - t0
         r = subprocess.run(grab, capture_output=True)
@@ -62,6 +71,11 @@ def main():
         print('%6.3f  %6.1f  %6.1f  %6.1f  %4d  %s'
               % (t, red, green, blue, bar, note), flush=True)
         last = (red, green, blue)
+        decoded += 1
+    # Nothing read is not a run that saw a black screen: it is no run at all,
+    # and says so to whoever started it.
+    if not decoded:
+        sys.exit('screen_means.py: no capture was read')
 
 
 if __name__ == '__main__':

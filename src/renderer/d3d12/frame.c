@@ -930,6 +930,9 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	const double t_fence = now_seconds();
 	if (!wait_slot(a, slot))
 		return false;
+	/* The images destroyed inside the frame submitted before this one: its
+	 * list is done with them (d3d_images_retire()). */
+	d3d_images_retire(a);
 	if (g->via11_switch && !via11_remake(a))
 		return false;
 	/* The swapchain's throttle, as Vulkan's acquire is: signalled once the

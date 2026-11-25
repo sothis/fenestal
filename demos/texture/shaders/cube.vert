@@ -11,7 +11,7 @@
 layout(push_constant) uniform Push {
 	mat4 mvp;
 	vec4 light;     /* xyz: towards the light, in the cube's own space */
-	uint srgb;      /* the target is _SRGB and encodes as it is written */
+	uint srgb;      /* nonzero when the target holds linear light as written */
 } pc;
 
 layout(location = 0) out vec2 v_uv;

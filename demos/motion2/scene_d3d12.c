@@ -155,10 +155,12 @@ void scene_d3d12_on_gpu_created(void *ud, FnlApp *app)
 		FnlD3D12SceneLayout layout;
 		if (!fnl_d3d12_scene_layout(app, (FnlSceneTarget)i, &layout))
 			continue;          /* this window cannot use that target */
-		/* Whether the target encodes linear to sRGB as it is written,
-		 * which decides whether the shader must. */
+		/* Whether the target holds linear light as written: the _SRGB
+		 * format, whose writes the hardware encodes, and the float one
+		 * HDR's target is. Either way the shader writes linear values. */
 		g_dev.srgb[i] =
-			layout.color_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+			layout.color_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+			layout.color_format == DXGI_FORMAT_R16G16B16A16_FLOAT;
 		g_dev.pso[i] = make_pso(gpu.device, &layout);
 	}
 }

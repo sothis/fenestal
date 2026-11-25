@@ -330,11 +330,19 @@ void bench_process_apply(const BenchConfig *c, BenchConditions *out)
 		}
 	}
 #else
-	/* macOS: the process's nice is POSIX's; there is no CPU affinity to
-	 * ask for, only hints the scheduler may ignore. */
-	if (aff[0])
+	/* macOS and FreeBSD: the process's nice is POSIX's; neither puts a
+	 * process on chosen CPUs from here -- macOS has only hints the
+	 * scheduler may ignore, and this build does not ask FreeBSD's
+	 * cpuset. */
+	if (aff[0]) {
+#if defined(__APPLE__)
 		snprintf(out->notes, sizeof out->notes, "macOS puts no process "
 				 "on chosen CPUs");
+#else
+		snprintf(out->notes, sizeof out->notes, "FreeBSD puts no process "
+				 "on chosen CPUs here");
+#endif
+	}
 	if (want_nice) {
 		errno = 0;
 		const int was = getpriority(PRIO_PROCESS, 0);
@@ -531,6 +539,16 @@ void bench_load_start(const BenchConfig *c, BenchConditions *out)
 		snprintf(out->notes + k, sizeof out->notes - k, "%smacOS sets "
 				 "neither a thread's CPUs nor a nice of its own", k ? "; "
 																	: "");
+	}
+#elif !defined(__linux__) && !defined(_WIN32)
+	/* FreeBSD's cpuset is not asked for, and a nice is the process's
+	 * there; the record says the requested conditions were not applied
+	 * instead of reading as their default. */
+	if (L.affinity[0] || L.want_nice) {
+		const size_t k = strlen(out->notes);
+		snprintf(out->notes + k, sizeof out->notes - k, "%sFreeBSD sets "
+				 "neither a thread's own CPUs nor a nice of its own",
+				 k ? "; " : "");
 	}
 #endif
 }

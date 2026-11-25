@@ -769,16 +769,24 @@ void fnl_set_text_rect_pt(FnlApp *app, int x, int y, int w, int h)
 							(uint32_t)h };
 	/* A caret is drawn every frame and this is the natural place to say
 	 * where, so the unchanged case has to cost nothing -- no request, no
-	 * wakeup of a pump that would find the same rectangle. */
+	 * wakeup of a pump that would find the same rectangle.
+	 *
+	 * The four go under App::text_lock, where app_text_rect() reads them:
+	 * four separate atomics are a coherent rectangle only if no reader can
+	 * stand between them and take half of one call and half of the next. */
+	fnl_mutex_lock(&a->text_lock);
 	bool moved = !fnl_atomic_load_bool(&a->text_rect_set);
 	for (int i = 0; i < 4; i++)
 		if (fnl_atomic_load_u32(&a->text_rect[i]) != v[i])
 			moved = true;
+	if (moved) {
+		for (int i = 0; i < 4; i++)
+			fnl_atomic_store_u32(&a->text_rect[i], v[i]);
+		fnl_atomic_store_bool(&a->text_rect_set, true);
+	}
+	fnl_mutex_unlock(&a->text_lock);
 	if (!moved)
 		return;
-	for (int i = 0; i < 4; i++)
-		fnl_atomic_store_u32(&a->text_rect[i], v[i]);
-	fnl_atomic_store_bool(&a->text_rect_set, true);
 	fnl_mutex_lock(&a->lock);
 	a->req.text_mode = true;
 	fnl_mutex_unlock(&a->lock);

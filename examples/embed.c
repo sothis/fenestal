@@ -13,7 +13,7 @@
  * happening in the window at all.
  *
  * Shows: fnl_start fnl_pump fnl_stop fnl_init fnl_shutdown
- *        fnl_content_rect_pt fnl_overlay_text fnl_text_line fnl_last_error
+ *        fnl_content_rect_pt fnl_overlay_text fnl_error_copy fnl_last_error
  */
 
 #include <fenestal/fenestal.h>
@@ -95,12 +95,23 @@ int main(void)
 	/* This program's own loop. The pump is asked back every tenth of a
 	 * second so the five seconds are honoured with nothing happening in the
 	 * window; FNL_SKIPPED is the window closing -- the close button, or a
-	 * fnl_quit() from anywhere. A negative result is the connection's. */
-	while (fnl_pump(app, 100) == FNL_OK && now() - s.started < 5.0)
+	 * fnl_quit() from anywhere. A negative result is the connection's, and
+	 * the loop's end says which it was. */
+	FnlResult prc;
+	while ((prc = fnl_pump(app, 100)) == FNL_OK && now() - s.started < 5.0)
 		s.turns++;
 
+	/* Copied before fnl_stop() and fnl_shutdown(): fnl_last_error() holds
+	 * its text only until the next call on the thread. */
+	char why[256] = "";
+	if (prc < 0)
+		fnl_error_copy(why, sizeof why);
 	fnl_stop(app);
 	fnl_shutdown(app);
 	printf("%d turns of the caller's loop\n", s.turns);
+	if (prc < 0) {
+		fprintf(stderr, "fnl_pump: %s: %s\n", fnl_result_str(prc), why);
+		return 1;
+	}
 	return 0;
 }

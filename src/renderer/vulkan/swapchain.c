@@ -1179,4 +1179,8 @@ void vk_retire_tick(App *a)
 			retired_destroy(a, &VK(a)->retired[i], true);
 			VK(a)->retired[i] = VK(a)->retired[--VK(a)->retired_count];
 		}
+	/* And the caller's images destroyed inside the frame that was just
+	 * submitted: their draws are in that frame's command buffers, which the
+	 * drain above (or the call's own) makes safe to let go. */
+	vk_images_retire(a);
 }

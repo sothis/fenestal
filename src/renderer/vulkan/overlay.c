@@ -269,12 +269,15 @@ void vk_overlay_flush_shapes(App *a)
  * calls are declared). The copy is what a rebuild uploads again from. */
 
 /* The device object behind FnlImage::gpu: what the draw binds, freed by
- * vk_image_free(). */
-typedef struct {
+ * vk_image_free(). `retire_next` threads the ones destroyed while a recording
+ * is open -- the command buffer being recorded still names them -- until the
+ * frame that recorded it is submitted (vk_images_retire()). */
+typedef struct VkImageObj {
 	VkImage image;
 	VkDeviceMemory mem;
 	VkImageView view;
 	VkDescriptorSet set;
+	struct VkImageObj *retire_next;
 } VkImageObj;
 
 bool vk_image_supported(const App *a)
@@ -462,24 +465,58 @@ void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 	VK(a)->overlay_pushed = false;
 }
 
-void vk_image_free(App *a, FnlImage *img)
+static void image_obj_destroy(App *a, VkImageObj *o)
 {
-	VkImageObj *o = img->gpu;
-	if (!o)
-		return;
-	img->gpu = NULL;
-	/* The other frame slot's list may still sample the view and read the
-	 * descriptor set, which the slot gives back below for a later picture to
-	 * write. Drained first, as d3d_image_free() drains: a destroy waits and a
-	 * frame does not, so the cost is the caller's toggle. A lost device
-	 * answers at once and is recorded, and the destroy is legal there. */
-	(void)vk_lost(a, vk_device_wait_idle(a));
 	vkDestroyImageView(VK(a)->device, o->view, NULL);
 	vkDestroyImage(VK(a)->device, o->image, NULL);
 	vkFreeMemory(VK(a)->device, o->mem, NULL);
 	if (o->set)
 		vkFreeDescriptorSets(VK(a)->device, VK(a)->image_pool, 1, &o->set);
 	free(o);
+}
+
+/* Let go the images destroyed while a recording was open: their draws are in
+ * the command buffer that frame submitted, so this runs after a submit (the
+ * frame's retire) or with the device about to go, and waits it out first. One
+ * wait covers the lot. A lost device answers at once and is recorded, and
+ * every destroy is legal there. */
+void vk_images_retire(App *a)
+{
+	VkImageObj *o = VK(a)->img_retire;
+	if (!o)
+		return;
+	VK(a)->img_retire = NULL;
+	(void)vk_lost(a, vk_device_wait_idle(a));
+	while (o) {
+		VkImageObj *next = o->retire_next;
+		image_obj_destroy(a, o);
+		o = next;
+	}
+}
+
+void vk_image_free(App *a, FnlImage *img)
+{
+	VkImageObj *o = img->gpu;
+	if (!o)
+		return;
+	img->gpu = NULL;
+	/* A recording is open: the command buffer being recorded names the view
+	 * and the set, and a wait does not cover a buffer that has not been
+	 * submitted. It is let go once the frame is (vk_images_retire()), which
+	 * is the same wait, one submit later. Outside a recording the wait below
+	 * is the whole story: every submitted list is done with it. */
+	if (a->overlay_open) {
+		o->retire_next    = VK(a)->img_retire;
+		VK(a)->img_retire = o;
+		return;
+	}
+	/* The other frame slot's list may still sample the view and read the
+	 * descriptor set, which the slot gives back below for a later picture to
+	 * write. Drained first, as d3d_image_free() drains: a destroy waits and a
+	 * frame does not, so the cost is the caller's toggle. A lost device
+	 * answers at once and is recorded, and the destroy is legal there. */
+	(void)vk_lost(a, vk_device_wait_idle(a));
+	image_obj_destroy(a, o);
 }
 
 /* Every image's device object let go, before the device it names is destroyed

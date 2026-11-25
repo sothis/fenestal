@@ -506,6 +506,11 @@ typedef struct {
 	FnlApp   *app;
 	FnlImage *img;
 	bool      on;
+	/* I turned the picture off with an image still there: the free is the
+	 * overlay phase's (picture_draw()), since this drain also runs at the
+	 * top of on_record, where fnl_image_destroy() is not the caller's to
+	 * make (fenestal.h, fnl_image_destroy). */
+	bool      destroy_owed;
 } Picture;
 static Picture g_pictures[PICTURE_WINDOWS];
 /* Two windows' overlays can first run at the same moment, each hunting a free
@@ -531,6 +536,7 @@ static Picture *picture_for(FnlApp *app)
 		free_slot->app = app;
 		free_slot->img = NULL;
 		free_slot->on  = true;
+		free_slot->destroy_owed = false;
 		found          = free_slot;
 	}
 	atomic_flag_clear(&g_pictures_lock);
@@ -561,7 +567,17 @@ static void picture_pixels(unsigned char *px)
 static void picture_draw(FnlApp *app)
 {
 	Picture *p = picture_for(app);
-	if (!p || !p->on)
+	if (!p)
+		return;
+	/* The I key's free, spent here where the overlay phase allows it. */
+	if (p->destroy_owed) {
+		p->destroy_owed = false;
+		if (p->img) {
+			fnl_image_destroy(p->img);
+			p->img = NULL;
+		}
+	}
+	if (!p->on)
 		return;
 	if (!p->img) {
 		unsigned char px[PICTURE_PX * PICTURE_PX * 4];
@@ -588,10 +604,8 @@ static void picture_toggle(FnlApp *app)
 	if (!p)
 		return;
 	p->on = !p->on;
-	if (!p->on && p->img) {
-		fnl_image_destroy(p->img);
-		p->img = NULL;
-	}
+	if (!p->on && p->img)
+		p->destroy_owed = true;
 }
 
 /* The window is gone: its slot must not outlive it. A closed window's app can
@@ -607,6 +621,7 @@ void testbed_overlay_picture_forget(FnlApp *app)
 			g_pictures[i].app = NULL;
 			g_pictures[i].img = NULL;
 			g_pictures[i].on  = true;
+			g_pictures[i].destroy_owed = false;
 		}
 	atomic_flag_clear(&g_pictures_lock);
 }

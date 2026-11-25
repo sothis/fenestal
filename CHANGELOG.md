@@ -6,6 +6,28 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **`fnl_overlay_gradient()` fills its rectangle and nothing else.** The
+  gradient's quad was grown by its angle taken as a radius, so it painted a
+  halo beyond the rectangle, and an angle past 90° ran the ramp the way 0°
+  does. The rectangle is now the whole primitive, and a reversed axis starts
+  the ramp where its direction says.
+
+- **The temporal resolve samples where the jitter put the picture.** It read
+  `- jitter` where the caller offsets by `+ jitter`, so the resolved picture
+  moved by twice the jitter instead of standing still and moving edges were
+  mixed across that phase; TAAU's output is sharper for it.
+
+- **A calibration measures only frames the window shows.** With
+  `FNL_GPU_RANK=calibrate` (or the box's last row) and the window covered,
+  minimized or not drawing, no figure is taken from stale means, and a
+  calibration that cannot draw for 30 s -- or one whose move or listing never
+  settles -- ends with what it measured and gives the window's input back.
+
+- **`fnl_result_str()` leaves `fnl_last_error()`'s text alone**, so a caller
+  may print both in one call in either argument order; and
+  `fnl_overlay_flush()` is stated for rectangles and strokes, glyphs being
+  one draw for the frame, issued last.
+
 - **The Direct3D 12 and Metal scene layouts are the render thread's**, as
   Vulkan's already were: both read the renderer's state, which a device loss
   or a move to another renderer frees under any other thread.

@@ -265,6 +265,14 @@ bool x11_present_event(App *a, const xcb_generic_event_t *ev)
 	memcpy(&window, b + 16, sizeof window);
 	memcpy(&serial, b + 20, sizeof serial);
 	memcpy(&ust, b + 24, sizeof ust);
+	/* The body sits past the 32-byte generic header, and its length is the
+	 * event's own (4-byte units): one too short for the whole completion
+	 * -- a broken or spoofed server on a remote DISPLAY -- has no msc to
+	 * read, and reading it would be past the allocation libxcb made. */
+	uint32_t extra;
+	memcpy(&extra, b + 4, sizeof extra);
+	if (extra < 3)
+		return true;
 	memcpy(&msc, b + 36, sizeof msc);
 	if (evtype != PRESENT_COMPLETE_NOTIFY || b[10] != PRESENT_KIND_PIXMAP ||
 		window != p->window)

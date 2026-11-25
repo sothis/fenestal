@@ -206,7 +206,7 @@ static void environment(BenchJson *j)
 {
 	static const char *const VARS[] = {
 		"FNL_BACKEND", "FNL_RENDERER", "FNL_GPU", "FNL_VSYNC",
-		"FNL_GPU_RANK", "FNL_GPU_DRIVER", "FNL_KMS_LAYOUT",
+		"FNL_GPU_RANK", "FNL_GPU_DRIVER", "FNL_KMS_LAYOUT", "FNL_COLOR",
 		"MESA_VK_WSI_DEBUG", "VK_INSTANCE_LAYERS", "DRI_PRIME",
 	};
 	bench_json_obj(j, "env");
@@ -547,6 +547,7 @@ static void document(BenchJson *j, const BenchConfig *c,
 		bench_json_end_arr(j);
 		bench_json_arr(j, "rows");
 		size_t n = r->interval_ms.n;
+		if (r->record_ms.n > n) n = r->record_ms.n;
 		if (r->overlay_ms.n > n) n = r->overlay_ms.n;
 		for (size_t i = 0; i < n; i++) {
 			const double row[3] = {

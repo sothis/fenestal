@@ -62,7 +62,11 @@ def main():
                 pass
             if proc.poll() is None:
                 proc.terminate()
-                proc.wait(timeout=10)
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
     finally:
         # Closing tells the agent to go, and it stops what it started.
         desk.close()

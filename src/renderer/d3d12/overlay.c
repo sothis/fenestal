@@ -81,9 +81,12 @@ _Static_assert(offsetof(D3dImagePush, screen) == 16,
  * of the image heap its view sits in, freed by d3d_image_free(). Here and
  * not with the rest of the images because d3d_destroy_overlay(), above them
  * in this file, lets every one of them go. */
-typedef struct {
+typedef struct D3dImageObj {
 	ID3D12Resource *tex;
 	uint32_t slot;
+	/* The images destroyed inside a recording, threaded until the frame that
+	 * recorded them is submitted (d3d_images_retire()). */
+	struct D3dImageObj *retire_next;
 } D3dImageObj;
 
 /* The root signature's parameters, in order. */
@@ -1167,19 +1170,53 @@ void d3d_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h)
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 }
 
+static void image_obj_destroy(App *a, D3dImageObj *o)
+{
+	D3D_RELEASE(o->tex);
+	image_slot_give(a, (int)o->slot);
+	free(o);
+}
+
+/* Let go the images destroyed while a recording was open: their draws are in
+ * the list that frame submitted, so this runs after a submit or with the
+ * device about to go, and drains first. One drain covers the lot. On a lost
+ * device the release goes ahead all the same -- it is legal there, and
+ * leaving it leaks. */
+void d3d_images_retire(App *a)
+{
+	D3dImageObj *o = D3D(a)->img_retire;
+	if (!o)
+		return;
+	D3D(a)->img_retire = NULL;
+	(void)d3d_wait_idle(a);
+	while (o) {
+		D3dImageObj *next = o->retire_next;
+		image_obj_destroy(a, o);
+		o = next;
+	}
+}
+
 void d3d_image_free(App *a, FnlImage *img)
 {
 	D3dImageObj *o = img->gpu;
 	if (!o)
 		return;
 	img->gpu = NULL;
+	/* A recording is open: the command list being recorded names the texture
+	 * and reads the descriptor this holds, and a drain does not cover a list
+	 * not yet submitted. It is let go once the frame is (d3d_images_retire()),
+	 * which drains then. Outside a recording the drain below is the whole
+	 * story: every submitted list is done with it. */
+	if (a->overlay_open) {
+		o->retire_next    = D3D(a)->img_retire;
+		D3D(a)->img_retire = o;
+		return;
+	}
 	/* The other frame slot's list may still sample the texture and read its
 	 * descriptor, which the slot gives back below for a later image to write:
 	 * drained first, as d3d_cover_release() drains. On a lost device the
 	 * release goes ahead all the same -- it is legal there, and leaving it
 	 * leaks. */
 	(void)d3d_wait_idle(a);
-	D3D_RELEASE(o->tex);
-	image_slot_give(a, (int)o->slot);
-	free(o);
+	image_obj_destroy(a, o);
 }

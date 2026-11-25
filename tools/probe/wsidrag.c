@@ -795,6 +795,21 @@ int main(int argc, char **argv)
 												 &img);
 		if (r == VK_TIMEOUT || r == VK_NOT_READY) {
 			timeouts++;
+			/* While an escape is tried the resizer is held, so no rebuild
+			 * comes to count a try: a driver that times acquires out rather
+			 * than answering out of date would spin here for ever. A
+			 * timeout is a try that did not free the image. */
+			if (esc >= 0 && ++tries > TRIES) {
+				fprintf(stderr, "  %s: no acquire after %d timeouts\n",
+						ESCAPE_NAMES[order[esc]], TRIES);
+				tries = 1;
+				if (++esc == norder) {
+					fprintf(stderr, "  nothing freed it\n");
+					unfreed++;
+					break;
+				}
+				rebuild_due = true;
+			}
 			continue;
 		}
 		if (r == VK_ERROR_OUT_OF_DATE_KHR) {

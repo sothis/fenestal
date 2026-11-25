@@ -126,7 +126,8 @@ def full_place(doc):
     share a short name and are two drivers, which a fit must not mix."""
     p = doc["platform"]
     return "%s, %s on %s, %s" % (doc["machine"]["host"] or "?", p["renderer"],
-                                 p["backend"], p["gpu"] or p["gpu_short"])
+                                 p["backend"],
+                                 p.get("gpu") or p.get("gpu_short") or "")
 
 
 def fits(docs):
@@ -220,14 +221,14 @@ COLUMNS = [
 SHOWN = [("vsync", lambda v: None if v else "vsync off"),
          ("redraw", lambda v: None if v == "every-frame" else v),
          ("scene-motion", lambda v: "moving" if v else None),
-         ("load-threads", lambda v: "load %d" % v if v else None),
+         ("load-threads", lambda v: "load %s" % v if v else None),
          ("antialias", lambda v: None if v == "default" else v),
-         ("late-latch", lambda v: None if v == "auto" else "latch " + v),
+         ("late-latch", lambda v: None if v == "auto" else "latch " + str(v)),
          ("fullscreen", lambda v: "fullscreen" if v else None),
-         ("load-affinity", lambda v: "load on " + v if v else None),
-         ("load-priority", lambda v: "load nice %d" % v if v else None),
-         ("process-affinity", lambda v: "program on " + v if v else None),
-         ("priority", lambda v: "nice %d" % v if v else None)]
+         ("load-affinity", lambda v: "load on " + str(v) if v else None),
+         ("load-priority", lambda v: "load nice %s" % v if v else None),
+         ("process-affinity", lambda v: "program on " + str(v) if v else None),
+         ("priority", lambda v: "nice %s" % v if v else None)]
 
 
 def state_dir():
@@ -275,14 +276,24 @@ def metric(doc, path, part):
 
 def place(doc):
     p, m = doc["platform"], doc["machine"]
+    # gpu_short is the writer's convenience, not a required field: a record
+    # without one is the schema's, and reads by its full name.
     return "%s, %s on %s, %s" % (m["host"] or "?", p["renderer"],
-                                 p["backend"], p["gpu_short"] or p["gpu"])
+                                 p["backend"],
+                                 p.get("gpu_short") or p.get("gpu") or "")
 
 
 def conditions(doc):
     o = doc["options"]
-    said = [f(o[k]) for k, f in SHOWN if k in o]
-    said = [s for s in said if s]
+    # A value is whatever type the writer gave it (the schema allows string,
+    # number and boolean), so each is said as text; a JSON true that a lambda
+    # passes through would otherwise join a string list as a bool.
+    said = []
+    for k, f in SHOWN:
+        if k in o:
+            s = f(o[k])
+            if s:
+                said.append(str(s))
     if doc["run"]["label"]:
         said.insert(0, doc["run"]["label"])
     return ", ".join(said) or "defaults"
@@ -747,7 +758,8 @@ def interval_chart(sides):
             else:
                 lines.append({"cls": cls, "tip": run_name(name, d),
                               "marks": tail_summary(
-                                  d["metrics"]["frame"].get("interval_ms"))})
+                                  (d["metrics"].get("frame") or {})
+                                  .get("interval_ms"))})
                 how.add("the record's percentiles")
             hz = known(d["platform"].get("refresh_hz"))
             if hz:

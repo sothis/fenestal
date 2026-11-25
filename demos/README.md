@@ -72,15 +72,18 @@ FNL_BACKEND=x11 ./build/linux/release/motion2-dyn
 A Linux program opens Wayland, then X11, then KMS on a bare console, whichever
 the session has; `FNL_BACKEND=wayland`, `x11` or `kms` picks one. Where a demo
 has more than one renderer, or the machine more than one GPU (a software
-rasteriser counts), Fenestal chooses which draws. The first run of each
-program measures every GPU with every renderer the demo has, a second or more
-each, while the window shows a calibration panel and takes no input; that run
-and every later one draw on the fastest, kept in the user's cache
-(`~/.cache/fenestal/` on Linux, `~/Library/Caches/fenestal/` on macOS,
-`%LOCALAPPDATA%\fenestal` on Windows). So `texture` may draw with OpenGL on a
-machine where OpenGL measured faster than Vulkan. `FNL_RENDERER=vulkan`,
+rasteriser counts), Fenestal chooses which draws. A ranking kept in the
+user's cache (`~/.cache/fenestal/` on Linux, `~/Library/Caches/fenestal/` on
+macOS, `%LOCALAPPDATA%\fenestal` on Windows) orders that choice where it has
+figures, and without figures the automatic pick decides. Measuring is asked
+for, never done unasked: `FNL_GPU_RANK=calibrate` or the GPU box's last row
+measures every GPU with every renderer the demo has, a second or more each,
+while the window shows a calibration panel and takes no input, and that run
+and every later one draw on the fastest, kept in the same cache. So
+`texture` may draw with OpenGL on a machine where OpenGL measured faster
+than Vulkan. `FNL_RENDERER=vulkan`,
 `d3d12`, `gl` or `metal` names a renderer among those the demo has, `FNL_GPU`
-a GPU, and `FNL_GPU_RANK=off` skips the measuring. Each program logs the
+a GPU, and `FNL_GPU_RANK=off` skips the ranking. Each program logs the
 backend, renderer and GPU it chose. OpenGL wants a GPU with OpenGL 4.1 core,
 which a Raspberry Pi 4's has not: `texture` draws with Vulkan there.
 

@@ -51,6 +51,11 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			p->hover = row_at(app, ev.motion.x, ev.motion.y);
 			fnl_set_cursor(app, p->hover >= 0 ? FNL_CURSOR_POINTER
 											  : FNL_CURSOR_DEFAULT);
+		} else if (ev.type == FNL_EVENT_LEAVE) {
+			/* No motion follows the pointer out: the row it was over is
+			 * gone with it, and the shape it chose. */
+			p->hover = -1;
+			fnl_set_cursor(app, FNL_CURSOR_DEFAULT);
 		} else if (ev.type == FNL_EVENT_BUTTON && ev.button.pressed &&
 				   ev.button.button == FNL_BUTTON_LEFT &&
 				   !fnl_is_pointer_captured(app)) {
@@ -67,8 +72,8 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	if (fnl_is_pointer_captured(app))
 		return;
 
-	const FnlColor bg  = { 0.10f, 0.10f, 0.12f, 0.85f };
-	const FnlColor lit = { 0.22f, 0.24f, 0.30f, 0.95f };
+	const FnlColor bg  = { 0.10f, 0.10f, 0.12f, 1.00f };
+	const FnlColor lit = { 0.22f, 0.24f, 0.30f, 1.00f };
 	const FnlColor ink = { 0.90f, 0.90f, 0.90f, 1.0f };
 	char fitted[64];
 	for (int r = 0; r < ROWS; r++) {

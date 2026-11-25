@@ -443,11 +443,19 @@ static bool cursor_glyph_bitmap(struct BackendState *p, xcb_pixmap_t pix,
 		return false;
 	}
 	/* A depth-1 pixmap's scanline pad is the server's, 32 bits on every
-	 * server measured; the reply's length says whether it was this one. */
-	const int len = xcb_get_image_data_length(r);
-	int row       = p->cell_h > 0 ? len / p->cell_h : 0;
-	if (row * p->cell_h != len || row < (p->cell_w + 7) / 8)
-		row = (p->cell_w + 7) / 8;
+	 * server measured; the reply's length says whether it was this one. A
+	 * reply shorter than the cell -- not one a conforming server sends -- is
+	 * no glyph at all, never a copy of the stride's worth out of it. */
+	const int len  = xcb_get_image_data_length(r);
+	const int need = (p->cell_w + 7) / 8;
+	int row        = p->cell_h > 0 ? len / p->cell_h : 0;
+	if (row * p->cell_h != len || row < need) {
+		if (len < need * p->cell_h) {
+			free(r);
+			return false;
+		}
+		row = need;
+	}
 	unsigned char *out = malloc((size_t)row * (size_t)p->cell_h);
 	if (!out) {
 		free(r);

@@ -104,7 +104,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 
 	int w_pt, h_pt;
 	fnl_window_size_pt(app, &w_pt, &h_pt);
-	const FnlColor panel = { 0.10f, 0.10f, 0.12f, 0.85f };
+	const FnlColor panel = { 0.10f, 0.10f, 0.12f, 1.00f };
 	const FnlColor ink   = { 0.95f, 0.95f, 0.90f, 1.00f };
 	const int side = 128;   /* logical points the picture is drawn into */
 	const int x = (w_pt - side) / 2, y = (h_pt - side) / 2;

@@ -7,6 +7,7 @@
 /* What one software present costs: a copy into a DIB section and a blit of
  * it to a window, beside the same copy into plain memory. */
 #include <windows.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,10 @@ static double now(void)
 int main(int argc, char **argv)
 {
 	int w = argc > 1 ? atoi(argv[1]) : 1280, h = argc > 2 ? atoi(argv[2]) : 754;
+	if (w <= 0 || h <= 0 || (size_t)w > SIZE_MAX / 4u / (size_t)h) {
+		fprintf(stderr, "dibtest: the size must be two positive numbers\n");
+		return 2;
+	}
 	size_t n = (size_t)w * h * 4;
 	HWND win = CreateWindowExW(0, L"STATIC", L"dibtest",
 							   WS_OVERLAPPEDWINDOW | WS_VISIBLE, 50, 50,
@@ -55,7 +60,9 @@ int main(int argc, char **argv)
 	double tp = 0, td = 0, tb = 0, tf = 0;
 	int rounds = 100;
 	for (int i = 0; i < rounds; i++) {
-		memset(src, i, 4096);
+		/* A window smaller than the 4096-byte pattern writes only what it
+		 * has: 31x31 is 3844 bytes. */
+		memset(src, i, n < 4096 ? n : 4096);
 		double a = now();
 		memcpy(plain, src, n);
 		double b = now();

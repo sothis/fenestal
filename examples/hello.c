@@ -7,8 +7,8 @@
  *
  * Shows: fnl_version fnl_init fnl_run fnl_shutdown fnl_result_str
  *        fnl_last_error fnl_error_copy fnl_overlay_text fnl_overlay_rect
- *        fnl_text_width fnl_text_wrap
- *        fnl_text_line fnl_window_size_pt fnl_font_notice fnl_font_licence
+ *        fnl_text_wrap fnl_text_line fnl_window_size_pt fnl_font_notice
+ *        fnl_font_licence
  */
 
 #include <fenestal/fenestal.h>
@@ -22,7 +22,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 	(void)frame;
 	const char *msg = "Hello from Fenestal, wrapped into the window it is "
 					  "drawn in however narrow that is";
-	const FnlColor panel = { 0.10f, 0.10f, 0.12f, 0.85f };
+	const FnlColor panel = { 0.10f, 0.10f, 0.12f, 1.00f };
 	const FnlColor ink   = { 0.95f, 0.95f, 0.90f, 1.00f };
 
 	/* Wrapped, in logical points: the same layout at every display scale.

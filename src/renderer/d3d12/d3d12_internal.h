@@ -158,6 +158,10 @@ bool d3d_image_supported(const App *a);
  * pixels first where this device has no texture of it yet. */
 void d3d_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
 void d3d_image_free(App *a, FnlImage *img);
+/* The images d3d_image_free() deferred while a recording was open, let go
+ * once that frame has been submitted: from the next draw_frame(), and with
+ * the device about to be destroyed. overlay.c. */
+void d3d_images_retire(App *a);
 
 /* ---- frame.c ------------------------------------------------------------- */
 bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,

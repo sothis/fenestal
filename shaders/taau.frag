@@ -12,7 +12,7 @@
  *
  * The caller offsets its projection by FnlFrame::jitter_x every frame (see
  * fenestal.h), so the image is the scene shifted off the pixel grid by that
- * much; sampling at `- jitter` puts it back. What that buys is a fresh set of
+ * much; sampling at `+ jitter` puts it back. What that buys is a fresh set of
  * subpixel samples per frame, which the mix gathers into one.
  *
  * The history is the last frame this pass wrote and is mixed in at
@@ -48,9 +48,11 @@ layout(location = 0) out vec4 out_color;
 
 void main()
 {
-	/* Where this frame's scene put this pixel: the offset undone, and half a
-	 * texel out at the edge, which CLAMP_TO_EDGE holds. */
-	const vec2 uv  = v_uv - pc.jitter.xy * pc.texel.xy;
+	/* Where this frame's scene put the picture's own pixel: the caller
+	 * moved the picture by the jitter, so the sample is taken that far
+	 * forward along it -- half a texel out at the edge, which CLAMP_TO_EDGE
+	 * holds. */
+	const vec2 uv  = v_uv + pc.jitter.xy * pc.texel.xy;
 	/* Where the picture now at v_uv was in the frame before: the scene's
 	 * motion undone. Zero is the default, and then this is v_uv and the
 	 * history is read under the pixel it is blended into. */

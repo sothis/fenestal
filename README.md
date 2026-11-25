@@ -204,8 +204,9 @@ built: `FNL_RENDERER` (`vulkan`; `gl` on Linux and macOS, `d3d12` on
 Windows, `metal` on macOS; or `all`, the default, for every one the system
 has) is the one a consumer normally sets, and a build of several renderers
 wants `FnlInitDesc::renderers` to say which the program has a scene for;
-`FNL_BACKEND` (`wayland`, `x11` or `kms`; `linux`, the default, for all
-three) builds one backend alone. A program that links the loader anyway
+`FNL_BACKEND` (`wayland`, `x11` or `kms`; `linux`, the default on Linux,
+for all three, and `freebsd` on FreeBSD) builds one backend alone. A program
+that links the loader anyway
 (`Vulkan::Vulkan`) gets, in a cross build, an import library synthesised
 from the sources, and `FNL_VULKAN_SCAN` lists globs over the consumer's own
 so that it has the entry points they call.
@@ -277,7 +278,7 @@ options that name one set it.
 | `FNL_BACKEND` | Linux: `wayland`, `x11` or `kms` opens that backend or fails |
 | `FNL_RENDERER` | `vulkan`, `gl`, `d3d12` or `metal` draws with that renderer or fails |
 | `FNL_GPU` | the device, by its number in the startup log or by part of its name |
-| `FNL_VSYNC=0` | draw flat out, for measuring; vsync is otherwise always on |
+| `FNL_VSYNC=0` | draw flat out, for measuring; vsync is on by default, and `fnl_set_vsync()` turns it off at run time |
 | `FNL_ECHO_EVENTS=1` | print every event the program is handed, on stderr |
 | `FNL_COST_PARTS=1` | in the frame-times log (the testbed's `--frame-times`), what the two cost figures are made of (`docs/comparable-frame-costs.md`) |
 | `FNL_GPU_RANK` | the GPU list ranked by measured frame rate (the testbed's `--gpu-rank`) |
@@ -293,7 +294,8 @@ options that name one set it.
 `build/api/index.html`, written after every successful build from the headers,
 is the reference: every declaration with its comment and the thread it may be
 called from, and the examples in `examples/` -- a window with text, the event
-queue, a text field with copy and paste, a titlebar of the caller's own, a panel
+queue, a scene embedded by hand, an image in the overlay, a text field with
+copy and paste, a titlebar of the caller's own, a panel
 of the caller's, the display modes, the frame statistics, the GPU list, the
 metrics panel, and a scene recorded through each renderer's seam. Every tree
 compiles and links each of them that its renderers allow.
@@ -391,12 +393,12 @@ Its options, beside the environment variables above:
 | `--no-late-latch`, `--late-latch=<ms>` | sample state at the top of the frame, or at a fixed delay |
 | `--custom-titlebar` | the testbed draws the titlebar instead of the library |
 | `--frame-times` | where each frame's time went, a line each half second on stderr (`FNL_COST_PARTS=1` adds what the two cost figures are made of) |
-| `--no-vsync` | draw flat out, for measuring (`FNL_VSYNC=0` for any program); vsync is otherwise always on |
+| `--no-vsync` | draw flat out, for measuring (`FNL_VSYNC=0` for any program); vsync is on by default, and `fnl_set_vsync()` turns it off at run time |
 | `--transition=<ms>` | how long the first frames after a move to another GPU, renderer or kernel driver dissolve from the last frame before it; the library's own is 250, and 0 is a cut |
 | `--echo-events` | print every event (`FNL_ECHO_EVENTS=1` for any program) |
 | `--text-input` | text entry on at startup: with `--echo-events` each character a key types is a line of its own, and Escape no longer closes the window, so close it from the titlebar |
 | `--footprint-log` | this process's CPU, RAM and VRAM -- the metrics panel's figures -- on stderr twice a second, for a harness that cannot read the screen |
-| `--bench` | the benchmark mode: a panel of options worked with the mouse, a run in a window of its own, and a `fenestal-bench/1` record of it; `--bench-run` starts at once, `--bench-<key>=<value>` sets an option, `--bench-replay=<record>` takes a record's, `--bench-list` names them (`docs/benchmark-mode.md`) |
+| `--bench` | the benchmark mode: a panel of options worked with the mouse, a run in a window of its own, and a `fenestal-bench/1` record of it; `--bench-run` starts at once, `--bench-<key>=<value>` sets an option, `--bench-replay=<record>` takes a record's, `--bench-list` names them (DESIGN *Benchmarking*) |
 | `--licence` | the baked font's name, notice and licence |
 | `-h`, `--help` | usage |
 

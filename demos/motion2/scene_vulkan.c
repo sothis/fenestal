@@ -71,14 +71,17 @@ static struct {
 	bool             srgb[FNL_TARGET_COUNT];
 } g_dev;
 
-/* The three _SRGB formats the library picks a surface from. A write to one
- * is encoded by the hardware, which is why the shader has to know. */
-static bool format_is_srgb(VkFormat f)
+/* Whether the target holds linear light: the three _SRGB formats the library
+ * picks a surface from, whose writes the hardware encodes, and the float one
+ * HDR's target is, which holds it as written. Either way the shader writes
+ * linear values and encodes nothing itself. */
+static bool format_is_linear(VkFormat f)
 {
 	switch (f) {
 	case VK_FORMAT_B8G8R8A8_SRGB:
 	case VK_FORMAT_R8G8B8A8_SRGB:
 	case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
+	case VK_FORMAT_R16G16B16A16_SFLOAT:
 		return true;
 	default:
 		return false;
@@ -230,7 +233,7 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 			FnlVulkanSceneLayout layout;
 			if (!fnl_vulkan_scene_layout(app, (FnlSceneTarget)i, &layout))
 				continue;          /* this window cannot use that target */
-			g_dev.srgb[i] = format_is_srgb(layout.color_format);
+			g_dev.srgb[i] = format_is_linear(layout.color_format);
 			g_dev.pipeline[i] = make_pipeline(&gpu, &layout, vert, frag);
 		}
 	vkDestroyShaderModule(gpu.device, vert, NULL);

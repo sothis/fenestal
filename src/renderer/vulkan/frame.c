@@ -693,9 +693,18 @@ static void present_copied(App *a, uint32_t frame, uint32_t img)
 		VK(a)->hdr ? PIXELS_RGB10 : bgra ? PIXELS_BGRA8 : PIXELS_RGBA8;
 	BACKEND(a)->present_pixels(a, VK(a)->readback_map[img], a->extent.w,
 							   a->extent.h, (size_t)a->extent.w * 4u, fmt);
-	if (a->snap_owed)
-		app_snapshot_set(a, VK(a)->readback_map[img], a->extent.w, a->extent.h,
-						 (size_t)a->extent.w * 4u, bgra);
+	if (a->snap_owed) {
+		/* The copy path's readback is 10-bit PQ under HDR, and the
+		 * snapshot is 8-bit rows: the other renderers decline it there and
+		 * the veil is a fade through black. Passed on, the ten-bit words
+		 * would be read as four bytes of colour and the KMS take-back
+		 * would freeze on garbage. */
+		if (VK(a)->hdr)
+			app_snapshot_decline(a);
+		else
+			app_snapshot_set(a, VK(a)->readback_map[img], a->extent.w,
+							 a->extent.h, (size_t)a->extent.w * 4u, bgra);
+	}
 }
 
 /* The host buffer a frame copies itself into for the snapshot, at this

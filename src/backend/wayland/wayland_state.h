@@ -174,8 +174,10 @@ struct BackendHostState {
 	/* The clipboard's manager and the one data device made from it: the
 	 * selection is the seat's, so the offer is the program's. `clip_owner` is
 	 * the window whose clip_out the selection holds, and `clip_waiter` the one
-	 * waiting for a paste. `clip_marker` is a mime type nobody else offers,
-	 * which marks our own selection come back.
+	 * whose answer changes hands at clip_finish(); BackendState::clip_waiting
+	 * is each window that asked and has not been answered. `clip_marker` is a
+	 * mime type nobody else offers, which marks our own selection come
+	 * back.
 	 *
 	 * `clip_source` is what this program is offering. An offer is described
 	 * one mime type at a time and only then named as the selection, so the one
@@ -323,6 +325,11 @@ struct BackendState {
 
 	/* The held accent, where no input method holds it instead. */
 	KeyCompose compose;
+
+	/* Pump thread: this window has asked for the clipboard and not been
+	 * answered. Every window with it set is answered by the one paste's
+	 * finish (clip_finish()), or at once where our own selection answers. */
+	bool clip_waiting;
 };
 /* wl_surface.set_buffer_scale arrived in wl_compositor v3. Without it -- and
  * without a viewport -- the only scale we can express is 1.0. */

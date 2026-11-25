@@ -54,8 +54,10 @@ and the questions left open for them. A question it lists is answered in
   (`.github/workflows/ci.yml`) builds each target's release tree on a
   push to `main` and on a pull request -- macOS on a Mac runner, against
   its Xcode's SDK, `win64-msvc` with cl.exe on a Windows runner, and
-  FreeBSD in a VM -- and runs ruff; it builds no checker tree and opens
-  no window. This tree's own work takes no PR flow — do not propose one;
+  FreeBSD in a VM -- and runs ruff; a push builds no checker tree and
+  opens no window, and the scheduled or hand-asked run builds the checker
+  and clang trees and runs none of them.
+  This tree's own work takes no PR flow — do not propose one;
   pull requests are how others send changes (`CONTRIBUTING.md`).
 
 ## Build
@@ -554,11 +556,13 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
 - **Performance is `tools/drive/pace.py`.** It runs `fenestal-dev pace` — a
   caller that asks for its own sizes from a thread of its own, built into
   every tree —
-  in the four environments of this desktop at a sweep of rates and
+  in every desktop environment the harness has a column for — Wayland,
+  X11 and wine, each with every renderer it runs — at a sweep of rates and
   tabulates frames presented and CPU. One instrument across them is the
   point: a pacing figure in one environment alone reads as "this client is
   fast". Takes a target,
-  `--variant` and `--rates`; the full default sweep is about six minutes. A
+  `--variant` and `--rates`; a cell is a dozen seconds by default, so a
+  sweep of every column is tens of minutes. A
   laptop the harness knows is a column more, started and sampled by the agent
   there. Its last row, `border`, is the one the harness drives: a corner of
   `fenestal-testbed`'s window held and carried in and out, since the harness
@@ -836,8 +840,9 @@ finding not on it is new.
   pointer's reticle (`app_reticle_*`) and the entries a backend has nothing
   to do for (`backend_noop*`) live in `src/core/decor.c` and `app.c`. A
   backend that grows its own copy of one has started the drift those replaced.
-- **The titlebar's controls are the library's** (`src/core/controls.c`): three
-  checkboxes and the output, GPU and size drop-downs, acting through the same
+- **The titlebar's controls are the library's** (`src/core/controls.c`): four
+  checkboxes -- three where the window is the output, which leaves out Fs
+  Upsample -- and the output, GPU and size drop-downs, acting through the same
   public knobs a caller would use, so the event that reports a change comes
   from the frame's diff either way. The size list is *derived* from the output
   and the floor, never a shipped table. While a list is open, and the

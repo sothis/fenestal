@@ -233,9 +233,11 @@ void scene_metal_on_gpu_created(void *ud, FnlApp *app)
 		FnlMetalSceneLayout layout;
 		if (!fnl_metal_scene_layout(app, (FnlSceneTarget)i, &layout))
 			continue;          /* this window cannot use that target */
-		/* Whether the target encodes linear to sRGB as it is written,
-		 * which decides whether the shader must. */
-		g_srgb[i] = layout.color_format == MTLPixelFormatBGRA8Unorm_sRGB;
+		/* Whether the target holds linear light as written: the _SRGB
+		 * format, whose writes the hardware encodes, and the float one
+		 * HDR's target is. Either way the shader writes linear values. */
+		g_srgb[i] = layout.color_format == MTLPixelFormatBGRA8Unorm_sRGB ||
+					layout.color_format == MTLPixelFormatRGBA16Float;
 		g_pso[i] = make_pso(gpu.device, &layout, vs, fs);
 	}
 }

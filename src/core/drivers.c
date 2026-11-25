@@ -267,8 +267,14 @@ void app_gpu_drivers_start(App *a)
 	 * one other driver of the two. The backend refuses a name that is no
 	 * driver's. */
 	char now[GPU_DRIVER_NAME_MAX];
-	if (strcmp(g.bound, v) != 0 &&
-		(strcmp(g.other, v) == 0 || strcmp(g.bound, "none") == 0)) {
+	/* From nothing as well, which a move cut short leaves: there the list
+	 * names one driver of the two and the other is bound on request, the
+	 * helper refusing a name that is no driver's. `switch` is not a name --
+	 * it asks for the move the box makes -- so it is no bind on any GPU. */
+	const bool asked =
+		strcmp(g.bound, v) != 0 &&
+		(strcmp(g.other, v) == 0 || strcmp(g.bound, "none") == 0);
+	if (asked && strcmp(v, "switch") != 0) {
 		(void)bind_and_check(a, &g, v, now, sizeof now);
 		return;
 	}
@@ -290,7 +296,15 @@ void app_gpu_drivers_start(App *a)
 		fnl_mutex_lock(&a->lock);
 		GpuDriver back = a->gpu_drivers[0];
 		fnl_mutex_unlock(&a->lock);
-		(void)bind_and_check(a, &back, "nouveau", now, sizeof now);
+		/* With the module loaded, the move back is not a bind from
+		 * nothing; a bind that fails leaves the GPU on NVIDIA's driver,
+		 * what this pre-load exists to avoid, and says so. */
+		if (!bind_and_check(a, &back, "nouveau", now, sizeof now)) {
+			fnl_log(FNL_LOG_WARN,
+					"GPU driver: %s is left on NVIDIA's driver, whose "
+					"module could not be let go of: the window opens "
+					"there", back.pci);
+		}
 	}
 }
 
@@ -425,6 +439,17 @@ void app_gpu_driver_join(App *a)
 		return;
 	fnl_thread_join(a->mover);
 	a->mover_started = false;
+	/* A move drawn across that ends here -- the caller's fnl_stop() with a
+	 * move under way -- lands as app_gpu_driver_poll() lands one: the GPU
+	 * is on the driver asked for, and the window a later fnl_start() brings
+	 * back goes to it by name. Left as it was, gpu_cross would keep every
+	 * later instance on the crossover renderer for good. */
+	if (a->gpu_cross) {
+		a->gpu_cross         = false;
+		a->gpu_cross_landing = true;
+		memcpy(a->gpu_want, a->gpu_cross_want, sizeof a->gpu_want);
+		swap_owed(a);
+	}
 }
 
 bool app_gpu_driver_landed(App *a)
@@ -532,7 +557,11 @@ void app_gpu_driver_undo(App *a)
 	fnl_log(FNL_LOG_WARN, "GPU driver: %s back from %s to %s", made.pci,
 			back.bound, made.bound);
 	char now[GPU_DRIVER_NAME_MAX];
-	(void)bind_and_check(a, &back, made.bound, now, sizeof now);
+	if (!bind_and_check(a, &back, made.bound, now, sizeof now))
+		/* Not back: the GPU is on the landing's driver, or on none, and
+		 * the record keeps saying so -- the list made after a later swap
+		 * is read against what is bound and not what was meant. */
+		a->gpu_driver_moved = true;
 }
 
 /* ---- a GPU plugged in or out ------------------------------------------- */

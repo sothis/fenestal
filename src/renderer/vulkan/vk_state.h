@@ -68,6 +68,11 @@ struct VkHost {
 	VkQueue          queue;
 	char             gpu_name[GPU_NAME_MAX];
 	uint32_t         msaa_samples;
+	/* Whether the device was made with VK_KHR/EXT_swapchain_maintenance1 and
+	 * its feature. The device's, not a window's: one window's refused scale
+	 * makes the device without it, and a window that borrows that device
+	 * must not chain a scaled swapchain on it (create_device()). */
+	bool             present_scale;
 	/* The physical device's extension names, asked once for every window
 	 * (device_has_extension()). */
 	VkExtensionProperties *dev_exts;
@@ -538,6 +543,11 @@ struct RendererState {
 	VkDescriptorSetLayout image_set_layout;
 	VkDescriptorPool      image_pool;
 	VkSampler             image_sampler;
+	/* Caller images destroyed while a recording was open, whose draws that
+	 * command buffer still names: a list through VkImageObj::retire_next,
+	 * let go by vk_images_retire() after the frame is submitted. overlay.c
+	 * owns the objects; this is the head. */
+	void                 *img_retire;
 
 	/* Where the scene is being recorded, while on_record runs, and null
 	 * outside it. Stashed because the public callback signature carries no

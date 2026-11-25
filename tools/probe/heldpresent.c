@@ -318,8 +318,21 @@ make_swapchain(VkDevice dev, uint32_t w, uint32_t h)
 	}
 	if (old)
 		vkDestroySwapchainKHR(dev, old, NULL);
-	uint32_t ni = 8;
-	vkGetSwapchainImagesKHR(dev, sc, &ni, imgs);
+	/* The array's size first: a swapchain may have more images than it
+	 * holds, and acquire would then index past it. */
+	uint32_t ni = 0;
+	VkResult gr = vkGetSwapchainImagesKHR(dev, sc, &ni, NULL);
+	if (gr != VK_SUCCESS || ni > 8) {
+		fprintf(stderr, "heldpresent: the swapchain has %u images, 8 at "
+						"most\n", ni);
+		exit(2);
+	}
+	ni = 8;
+	gr = vkGetSwapchainImagesKHR(dev, sc, &ni, imgs);
+	if (gr != VK_SUCCESS && gr != VK_INCOMPLETE) {
+		fprintf(stderr, "heldpresent: vkGetSwapchainImagesKHR: %d\n", gr);
+		exit(2);
+	}
 }
 
 int

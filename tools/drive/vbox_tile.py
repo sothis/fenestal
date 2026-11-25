@@ -91,11 +91,14 @@ def measure(vm, screen):
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "s.png")
         got = subprocess.run(["VBoxManage", "controlvm", vm, "screenshotpng",
-                              path, str(screen - 1)], capture_output=True)
+                              path, str(screen - 1)], capture_output=True,
+                             timeout=60)
         if got.returncode != 0 or not os.path.exists(path):
             return None
         with open(path, "rb") as f:
             head = f.read(24)
+    if len(head) < 24:
+        return None
     w, h = struct.unpack(">II", head[16:24])
     return (w, h) if w and h else None
 
@@ -107,10 +110,10 @@ def guest_size(vm, screen):
     got = measure(vm, screen)
     if got:
         subprocess.run(["VBoxManage", "setextradata", vm, key,
-                        "%dx%d" % got], capture_output=True)
+                        "%dx%d" % got], capture_output=True, timeout=60)
         return got
     out = subprocess.run(["VBoxManage", "getextradata", vm, key],
-                         capture_output=True, text=True).stdout
+                         capture_output=True, text=True, timeout=60).stdout
     try:
         w, h = out.split(":", 1)[1].strip().split("x")
         return int(w), int(h)
@@ -196,7 +199,7 @@ def main():
                         + ("" if s == 1 else "1")):
                 subprocess.run(["VBoxManage", "setextradata", vm, key,
                                 "%d,%d,%d,%d" % (x, y, cw, ch)],
-                               capture_output=True)
+                               capture_output=True, timeout=60)
             if w:
                 place(d, w, x, y, cw, ch)
             print("%s screen %d: %dx%d at %d,%d%s" % (

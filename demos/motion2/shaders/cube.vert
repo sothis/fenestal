@@ -11,7 +11,7 @@
 layout(push_constant) uniform Push {
 	mat4 mvp;
 	vec4 light;     /* xyz: towards the light, in the cube's own space */
-	uint srgb;      /* the target is _SRGB and encodes as it is written */
+	uint srgb;      /* nonzero when the target holds linear light as written */
 } pc;
 
 layout(location = 0) flat out vec3 v_color;
@@ -63,7 +63,8 @@ void main()
 	const float diffuse = max(dot(n, pc.light.xyz), 0.0);
 	const vec3 lit = srgb_decode(COLOR[face]) * (0.18 + 0.82 * diffuse);
 
-	/* An _SRGB target encodes as it is written; anything else has to be
-	 * encoded here or the picture comes out dark. */
+	/* An _SRGB target encodes what is written to it, and HDR's float
+	 * one holds it as written; any other target must be encoded here
+	 * or the picture comes out dark. */
 	v_color = pc.srgb != 0u ? lit : srgb_encode(lit);
 }

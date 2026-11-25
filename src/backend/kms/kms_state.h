@@ -345,6 +345,10 @@ struct BackendState {
 	 * where none was, and whether the connector's HDR properties are set
 	 * for it (scan_hdr_apply(), cleared when an 8-bit pair is shown). */
 	uint32_t     hdr_blob;
+	/* The connector it was attached to, while hdr_set: a move to another
+	 * output clears that one and tells the new one, rather than taking the
+	 * old statement for this connector's. */
+	uint32_t     hdr_connector;
 	bool         hdr_set;
 	bool         flip_async;    /* the pending flip tears: no vblank */
 	/* The driver refused an asynchronous flip (EINVAL): vblank flips until

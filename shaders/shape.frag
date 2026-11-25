@@ -74,12 +74,15 @@ void main()
 		vec2  dir = vec2(cos(a), sin(a));
 		vec2  lo = v_p0p1.xy, hi = v_p0p1.zw;
 		/* The span is signed, since an angle past 90 degrees runs the axis
-		 * backwards, so the test is on its size and not on the value: a box
-		 * with no extent along the axis has no ramp to run, and its answer is
-		 * the first colour rather than a divide by a fudge factor, which put
-		 * a hard edge down the box instead. */
+		 * backwards: the ramp starts at the corner the axis enters by and
+		 * runs the span's size, so 180 degrees starts where 0's ramp ends
+		 * and not where it starts. A box with no extent along the axis has
+		 * no ramp to run, and its answer is the first colour rather than a
+		 * divide by a fudge factor, which put a hard edge down the box. */
 		float span = dot(hi - lo, dir);
-		float t    = abs(span) > 1e-6 ? dot(v_px - lo, dir) / span : 0.0;
+		vec2  from = span < 0.0 ? hi : lo;
+		float t    = abs(span) > 1e-6
+					 ? dot(v_px - from, dir) / abs(span) : 0.0;
 		out_color = mix(v_color, v_color2, clamp(t, 0.0, 1.0));
 		return;
 	}

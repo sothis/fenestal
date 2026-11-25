@@ -26,6 +26,7 @@
 #if defined(__linux__)
 #include <dirent.h>
 #include <dlfcn.h>
+#include <stdatomic.h>
 #include <unistd.h>
 
 /* ---- NVIDIA's own driver, through NVML ---------------------------------- */
@@ -54,15 +55,16 @@ typedef int (*nvml_procs_fn)(nvmlDevice_t, unsigned int *,
  * device's end (testbed_gpu_mem_os_release()). Started, it holds NVIDIA's
  * driver -- /dev/nvidiactl, nvidia0, nvidia-uvm -- and the library will
  * not move the GPU to nouveau (FNL_GPU_DRIVER) while anything does; shut
- * down it lets go of all of it (schenker, 580.196). Only the render
- * thread, and the thread fnl_run() was called on once that one has
- * ended, reach it. */
+ * down it lets go of all of it (schenker, 580.196). Every window's render
+ * thread reaches it, and a device loss releases it from one of them while
+ * another may be asking: nvml_lock serialises the two. */
 static bool             nvml_tried, nvml_ready;
 static void            *nvml_lib;
 static nvml_shutdown_fn nvml_shutdown;
 static nvml_count_fn    nvml_count;
 static nvml_handle_fn   nvml_handle;
 static nvml_procs_fn    nvml_procs;
+static atomic_flag      nvml_lock = ATOMIC_FLAG_INIT;
 
 /* This process's memory on `dev` added to *used, off a list with room for
  * `cap` processes; NVML's answer, and its count in *need where the list is
@@ -96,7 +98,7 @@ static int nvml_sum(nvmlDevice_t dev, unsigned int cap, unsigned int me,
 
 /* This process's memory on any NVIDIA GPU, summed; false where NVML is not
  * there, will not start, or does not list this process. */
-static bool nvml_mib(double *mib)
+static bool nvml_mib_locked(double *mib)
 {
 	if (!nvml_tried) {
 		nvml_tried = true;
@@ -140,6 +142,17 @@ static bool nvml_mib(double *mib)
 		return false;
 	*mib = (double)used / (1024.0 * 1024.0);
 	return true;
+}
+
+/* The same, with the lock: another window's render thread may be releasing
+ * NVML (testbed_gpu_mem_os_release()) while this one asks. */
+static bool nvml_mib(double *mib)
+{
+	while (atomic_flag_test_and_set(&nvml_lock))
+		;
+	const bool ok = nvml_mib_locked(mib);
+	atomic_flag_clear(&nvml_lock);
+	return ok;
 }
 
 /* ---- Mesa's drivers, through the kernel's fdinfo ------------------------ */
@@ -209,12 +222,15 @@ static bool fdinfo_mib(const char *driver, double *mib)
 void testbed_gpu_mem_os_release(void)
 {
 #if defined(__linux__)
+	while (atomic_flag_test_and_set(&nvml_lock))
+		;
 	if (nvml_ready)
 		(void)nvml_shutdown();
 	if (nvml_lib)
 		dlclose(nvml_lib);
 	nvml_lib = NULL;
 	nvml_tried = nvml_ready = false;
+	atomic_flag_clear(&nvml_lock);
 #endif
 }
 

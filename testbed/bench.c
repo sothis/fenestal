@@ -211,12 +211,14 @@ static struct {
 	double measure_t0;          /* its first frame, the series' zero */
 	double record_t0;
 	int    samples;
-	/* The render scale pinned at the first frame, where --bench-scene-scale
-	 * asked for one: the scene at area/scale, so the same measure can be
-	 * read at a size the fetch upscales (fnl_set_scene_size_px()). 1 is
-	 * native and pins nothing; zero until a run sets it. */
+	/* The render scale pinned at the first frame with an area, where
+	 * --bench-scene-scale asked for one: the scene at area/scale, so the same
+	 * measure can be read at a size the fetch upscales
+	 * (fnl_set_scene_size_px()). Pinned again while the window settles, since
+	 * the warm-up may resize it and a mode or fullscreen request lands there;
+	 * 1 is native and pins nothing, zero until a run pins one. */
 	double scene_scale;
-	bool   scene_pinned;
+	int    pin_w, pin_h;
 
 	/* The log, while a run's window is open. */
 	bool   logging;
@@ -525,15 +527,18 @@ static void run_record(void *ud, FnlApp *app, const FnlFrame *f)
 	/* The render scale, placed at the first frame that has an area: the
 	 * scene at area/scale on both axes, which the fetch then upscales. A
 	 * scale of 1 pins nothing (an equal pin is native, and
-	 * scene_pin_applies() refuses it), and the pin is set once -- the
-	 * measure's frames are the same size, and setting it again each frame
-	 * would only re-signal the render thread. */
-	if (!R.scene_pinned && R.scene_scale > 1 && f->area_w_px > 0 &&
-		f->area_h_px > 0) {
+	 * scene_pin_applies() refuses it). Placed again whenever the quotient
+	 * has moved, which is the window settling or a mode request landing --
+	 * and only then, so a settled window does not re-signal the render
+	 * thread every frame. */
+	if (R.scene_scale > 1 && f->area_w_px > 0 && f->area_h_px > 0) {
 		const int sw = (int)((double)f->area_w_px / (double)R.scene_scale);
 		const int sh = (int)((double)f->area_h_px / (double)R.scene_scale);
-		fnl_set_scene_size_px(app, sw, sh);
-		R.scene_pinned = true;
+		if (sw != R.pin_w || sh != R.pin_h) {
+			fnl_set_scene_size_px(app, sw, sh);
+			R.pin_w = sw;
+			R.pin_h = sh;
+		}
 	}
 	R.scene->on_record(ud, app, f);
 	if (atomic_load(&R.phase) == PH_MEASURE)
@@ -669,6 +674,10 @@ static void run_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 			R.sample_inputs = 0;
 			double user, sys;
 			R.sample_cpu = testbed_proc_times(&user, &sys) ? user + sys : -1.0;
+			/* The first measure frame has no interval before it in the
+			 * measure, and a place is kept for one: row i of the frames
+			 * table is frame i's interval, record and overlay alike. */
+			bench_series_add(&r->interval_ms, BENCH_NAN);
 		} else {
 			bench_series_add(&r->interval_ms, (now - R.last_frame) * 1e3);
 			drain_frames(app);

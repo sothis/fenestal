@@ -111,7 +111,7 @@ def main():
             if base is None and t >= args.warmup:
                 base = kib
             print('%6.1f min  %8d KiB%s' % (
-                t, kib, '' if base is None else
+                t, kib, '' if not base else
                 '  %+.1f%%' % (100.0 * (kib - base) / base)), flush=True)
         if proc.poll() is None:
             proc.terminate()

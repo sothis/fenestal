@@ -300,6 +300,11 @@ struct RendererState {
 	 * d3d_image_free()). `image_used` has a bit a slot. */
 	ID3D12PipelineState *pso_image;
 	uint64_t image_used;
+	/* Caller images destroyed while a recording was open, whose draws that
+	 * list still names: a list through D3dImageObj::retire_next, let go by
+	 * d3d_images_retire() after the frame is submitted. overlay.c owns the
+	 * objects; this is the head. */
+	void *img_retire;
 
 	/* Whether the overlay is being drawn: a flush outside it draws
 	 * nothing, as one outside a Vulkan recording does. */

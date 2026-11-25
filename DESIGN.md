@@ -1001,13 +1001,13 @@ to `/WX`: its warning set has not been gone over, and the branches in
 | `F11` | toggle fullscreen |
 | `Esc` | quit |
 
-The titlebar is the library's, and so is everything in it: four window buttons
-(minimize, maximize, fullscreen, close), a resolution drop-down, three
-checkboxes — `FSAA`, `MLAA`, `Fs Upsample`, in the order the pixels go through
-them — and a GPU drop-down that moves the window onto another GPU or renderer
-while it stays open, dim where there is only one, and before it, where the
-window is wide enough, an output drop-down naming the monitor the window is
-on and moving it to another, dim where there is one monitor and on
+The titlebar is the library's, and so is everything in it: four window
+buttons (minimize, maximize, fullscreen, close), a resolution drop-down, four
+checkboxes — `FSAA`, `MLAA`, `TAAU`, `Fs Upsample`, in the order the pixels
+go through them — and a GPU drop-down that moves the window onto another GPU
+or renderer while it stays open, dim where there is only one, and before it,
+where the window is wide enough, an output drop-down naming the monitor the
+window is on and moving it to another, dim where there is one monitor and on
 Wayland, whose clients place no window.
 Double-click to maximize, drag to move. The testbed draws none of it; see
 *The titlebar controls*.
@@ -1684,7 +1684,7 @@ src/core/      every platform's. Names no window server and no graphics API,
                  window measurements
   decor.c        the client titlebar's layout, its hit test, and what a
                  left press, a drag and a release do in it
-  controls.c     the titlebar's three checkboxes and its output, GPU and size
+  controls.c     the titlebar's four checkboxes and its output, GPU and size
                  drop-downs
   overlay.c      the three primitives, appended, and the palette
   text_measure.c UTF-8, the glyph table, the width of a string
@@ -2335,11 +2335,14 @@ lies. `FNL_GPU` stays the device's (*The startup inventory*). The inventory
 says which platform it took and, a line each, why every one above it was
 passed over.
 
-**Builds and rounds.** The targets are `linux`, `win64` and `macos`, and
+**Builds and rounds.** At the move to one build per system (2026-10) the
+targets were `linux`, `win64` and `macos`, and
 `linux-arm64` and `macos-arm64` for the other processors, with the variants
-they take now: six of the native target, three of Windows and two of each
+they took then: six of the native target, three of Windows and two of each
 macOS one, thirteen trees where there were forty-seven, and the ARM Linux
-one's four where its compiler is. The cross trees borrow `linux/release`'s
+one's four where its compiler is. `freebsd`, `win64-msvc` and
+`macos-universal` came after them; the Build section above and `build.sh`
+list what a tree is built as now. The cross trees borrow `linux/release`'s
 bake. A configure option keeps a build of one platform (`FNL_BACKEND`
 taking one name as well as `linux`, as it does now, and `FNL_RENDERER` one
 as well as all) for a consumer who wants the smaller library; the sweep
@@ -2508,9 +2511,9 @@ told.
 
 ### The titlebar controls
 
-Beside the four window buttons the bar carries three checkboxes — `FSAA`,
-`MLAA`, `Fs Upsample` (two buttons, and no `Fs Upsample`, where the window
-is the output) — an output drop-down, a GPU drop-down and a size
+Beside the four window buttons the bar carries four checkboxes — `FSAA`,
+`MLAA`, `TAAU`, `Fs Upsample` (two buttons, and no `Fs Upsample`, where the
+window is the output) — an output drop-down, a GPU drop-down and a size
 drop-down. They are the library's, drawn in `src/core/controls.c`, and the
 test for whether a control belongs there is simple: **it turns a knob the
 library already owns.** All of them do — `fnl_set_antialias()`,
@@ -2828,7 +2831,7 @@ on X11 for both renderers, on Win32 on both laptops and under wine's X11
 driver. Confirmed by a width sweep of the testbed's `--width` (2026-11-22):
 requesting 700 and 690 opens at those widths and 670 and 650 both clamp to
 683, and at 683 the bar draws every control it should -- the four checkboxes,
-the GPU box, the size box and the three window buttons -- with no overlap or
+the GPU box, the size box and the four window buttons -- with no overlap or
 truncation, the output box already given way. Wine's Wayland driver lets the
 compositor take the window to 119,
 below what the Win32 backend arms after a resize, and is declared
