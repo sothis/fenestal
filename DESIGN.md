@@ -250,7 +250,7 @@ break the first `#include <stdint.h>`.
 
 The result is `libfenestal.dll`, `libfenestal.a` and the programs, importing
 Windows' own DLLs alone -- `KERNEL32`, `USER32`, `GDI32`, `d3d12`, `dxgi`
-and the UCRT's `ucrtbase`/`api-ms-win-crt-*` -- and not `msvcrt.dll`;
+and the UCRT's `api-ms-win-crt-*` contracts -- and not `msvcrt.dll`;
 `vulkan-1.dll` is opened at run time, by the library for itself and for the
 examples' scenes (*One build per operating system*).
 
@@ -287,7 +287,13 @@ ordinary thing to want.
 compiler, from a Windows shell with the Visual Studio environment set and
 Ninja on `PATH`; CMake is driven with `-DCMAKE_C_COMPILER=cl`. CI builds it
 on every push (`windows-latest`), which is where it is compiled at all -- no
-MSVC runs on the Linux machine this tree is developed on.
+MSVC runs on the Linux machine this tree is developed on. Its first compile
+there passed on 2026-11-25, library and programs: `/experimental:c11atomics`
+took the testbed's and `fenestal-dev`'s atomics, the `/GL` objects linked
+with `/LTCG` that the linker starts on its own, the DLL's exports are the
+`/DEF:` list, and the archive and import library came out named apart. The
+ABI dump's layout is the baseline's; the export list is a baseline per
+renderer set, Windows' `d3d12-vulkan` among them.
 
 Four things differ from every other compiler's tree:
 
@@ -2250,14 +2256,21 @@ built without a warning once one test was put in the form clang's
 `-Wunreachable-code` reads as a constant on purpose. The shared object and
 `fenestal-dev` need libc and libm alone on Linux and Windows' own DLLs
 alone on Windows (`d3d12`, `dxgi`, `GDI32`, `KERNEL32`, `msvcrt`,
-`USER32`); the testbed adds the Vulkan loader, for its own scene. (The
-mingw tree now links the Universal CRT, so its list has `ucrtbase` and
-the `api-ms-win-crt-*` contracts in `msvcrt`'s place; the figures here are
-the msvcrt trees' and have not been re-measured.) Every
+`USER32`); the testbed adds the Vulkan loader, for its own scene. The UCRT
+tree's import lists were read off the built images on 2026-11-25: the
+`api-ms-win-crt-*` contracts in `msvcrt`'s place -- `convert`,
+`environment`, `filesystem`, `heap`, `locale`, `math`, `private`,
+`runtime`, `stdio`, `string`, `time`, `utility` -- and not
+`ucrtbase.dll` directly, with `d3d12`, `dxgi`, `GDI32`, `KERNEL32` and
+`USER32` unchanged. Every
 round passed with none failed, each saying the backend and the renderer it
 was named: the twelve bare environments on the aspire and on the thinkpad,
 Linux's six and wine's six; this desktop's four and wine's four; and both
-renderers in both guests, 72 checks each. Unforced under plain wine, with
+renderers in both guests, 72 checks each. On 2026-11-25 the four wine
+environments ran again on the UCRT tree and passed -- Vulkan on X11, 88 and
+23 checks; Direct3D 12 on X11, 92 and 23; winewayland's Vulkan, 54, and
+its Direct3D 12, 57 -- the library's `colour: srgb` report the one line
+the harness's list had not known. Unforced under plain wine, with
 no vkd3d-proton beside the program, the order steps down as built:
 `renderer: Vulkan; passed over Direct3D 12: no adapter builds the
 library's Direct3D 12 pipeline states, and there is no WARP` -- wine's own

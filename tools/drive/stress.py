@@ -3421,6 +3421,10 @@ def expected(line):
         or line.startswith("footprint: ")
         or line.startswith("backend: ")
         or line.startswith("renderer: ")
+        # The colour the output was granted (app_publish_color()), said at
+        # the open and at each move: what a program got, which a round on an
+        # HDR output reads.
+        or re.match(r"colour: (srgb|linear|pq)$", line) is not None
         or line.startswith("Vulkan on")
         or re.match(r"EGL \d+\.\d+, .+$", line) is not None
         or re.match(r"GPU \d+: .* \(.*\)$", line) is not None

@@ -157,7 +157,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   target the Universal CRT** — MSYS2's UCRT64 or llvm-mingw's UCRT release,
   named by `FNL_MINGW_PREFIX` or probed for; Ubuntu's is msvcrt's and is
   refused, as is a configure that names one. `tools/check-crt.cmake` then
-  proves the built image imports `ucrtbase` rather than `msvcrt.dll`.
+  proves the built image imports the UCRT and not `msvcrt.dll`.
   llvm-mingw links with lld, whose MinGW driver has no relocatable link,
   so the archive's one object needs binutils' PE `ld` and `objcopy` beside
   it (`FNL_MINGW_LD`, `FNL_MINGW_OBJCOPY`, found by `build.sh`), and that

@@ -137,7 +137,8 @@ borrow the `linux` release tree's baked font, since the font tool runs
 during the build and would otherwise be compiled for the target. The
 Windows tree produces `libfenestal.dll`, `libfenestal.a` and the `.exe`
 programs, the library importing only Windows' own DLLs -- `KERNEL32`,
-`ucrtbase`, `USER32`, `GDI32`, `d3d12` and `dxgi` -- and opening
+the UCRT's `api-ms-win-crt-*` contracts, `USER32`, `GDI32`, `d3d12` and
+`dxgi` -- and opening
 `vulkan-1.dll` when it tries Vulkan. It links the Universal CRT and not
 `msvcrt.dll`: `build.sh` refuses an msvcrt-targeted mingw, and the build
 checks the import tables (tools/check-crt.cmake). The programs import

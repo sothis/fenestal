@@ -7,7 +7,8 @@ this list.
 ## FreeBSD, MSVC and the UCRT
 
 Written on 2026-11-25, the day the targets were added. The FreeBSD and
-MSVC trees are compiled in CI; none of the three has been driven.
+MSVC trees are compiled in CI; the UCRT one has been driven on this
+desktop under wine, the other two not.
 
 - **The bake's filter.** Ubuntu's FreeType is built with
   `FT_CONFIG_OPTION_SUBPIXEL_RENDERING` and filters LCD coverage with the
@@ -46,41 +47,16 @@ MSVC trees are compiled in CI; none of the three has been driven.
 
 ### win64-msvc
 
-- **C11 atomics.** The testbed and `fenestal-dev` build with
-  `/experimental:c11atomics`, which is the switch MSVC takes `_Atomic`
-  behind. `_Atomic double` and `_Atomic float` are the forms most likely
-  to be refused; if cl refuses them the six files want a local
-  `_Interlocked*` shim, as `compiler.h` has.
 - **The archive.** `fenestal::static` keeps its internals global: MSVC has
   no relocatable link and no objcopy. The DLL's exports are still the API
   list alone. A consumer defining a library-internal name could meet a
   duplicate at the link, and `fenestal-dev`'s five-name check is guarded
   out there (`tools/drive/lifecycle.c`).
-- **The ABI baseline.** `abidump` runs natively, and the baseline is the
-  Linux one; it holds if no public struct uses `long` (none does). If
-  MSVC's layout differs, the check is the first to say so.
 - **Warnings.** The tree is built at `/W3` and not held to `/WX`; its
   warnings have not been gone over, unlike gcc's and clang's.
 - **The win64 analyser tree** needs a gcc-based UCRT compiler; CI's
   llvm-mingw is clang and has no `-fanalyzer`, so the checkers job skips
   that tree. MSYS2's UCRT64 gcc on Windows can run it.
-
-### The Universal CRT
-
-- **The import list on Windows itself** -- `ucrtbase` and the
-  `api-ms-win-crt-*` contracts in `msvcrt`'s place -- has not been read
-  off a machine: only the build's own check (tools/check-crt.cmake) says
-  the image imports it and not msvcrt. DESIGN's measured list is the
-  msvcrt tree's.
-- **The harness under wine** has run only msvcrt trees. Wine provides the
-  UCRT, but the four wine environments have not been re-run against the
-  UCRT build.
-- **llvm-mingw's archive.** llvm-mingw links with lld, which has no
-  relocatable link, and its `llvm-objcopy` no COFF symbol localisation, so
-  the tree needs binutils' PE `ld` and `objcopy` and has no LTO. That
-  path -- binutils' `ld -r` over clang's COFF objects, then its
-  `objcopy --keep-global-symbols` -- has not been run on a real tree: the
-  first CI `win64` build is its test.
 
 ## HDR
 
