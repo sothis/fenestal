@@ -6,11 +6,6 @@ this list.
 
 ## Temporal upscaling, measured
 
-> **Handoff.** What was built on 2026-11-22 -- motion vectors, the bicubic
-> fetch, the depth-aware resolve and the third binding in all four renderers --
-> what was decided and why, and the measurements still owed is in
-> `.rpiv/artifacts/handoffs/2026-11-22_10-31-09_temporal-upscaling.md`. That
-> file is session tooling and untracked; this note is the pointer to it.
 > **Built on 2026-11-22** (`a42c7d8`), the first compile of any of it: every
 > tree is clean under gcc and under clang, the analyzer and the three
 > sanitizers among them. The compile found what reading had not -- a C-style
@@ -1355,7 +1350,7 @@ Open, each needing a decision or a measurement:
   call and nobody's frame. `under_wine()`'s loader lock and ntdll scan no
   longer run per step of a window drag.
 
-What verifies any of the pictures is now in the tree and owes a round.
+What verifies any of the pictures is now in the tree.
 `fnl_image_create()` had one caller, `examples/image.c`, whose
 `snippet-image` is built into every tree and run by nothing, and the round's
 `read-pixels` evidence was a row for motion and blackness -- neither reads
@@ -1367,11 +1362,16 @@ the snippet binds it, so that a destroy and a create land mid-round and not
 only at exit, and `stress.py`'s picture check reads the middle row through it
 three times -- drawn, destroyed, drawn again.
 
-Owed: a round where that check can read pixels, which is this desk's X11 and
-wine, the guests, the laptops and the Mac; and `kms-vulkan-bare` for the
-commit's other half, the LED's bit test at open and `GETCRTC` in the motion
-the round drives. Until one, the two image fixes and the check are reasoned
-and not measured.
+**Measured since, and what is left.** This desk's `x11-vulkan` and `x11-gl`
+pass the three checks (7.0% of the middle row white, 2026-11-21), and wine
+does at `df55495` (the paragraph below). The laptops' and the Mac's rounds
+pass with the check in them (2026-11-23/24). The KMS half has run too: the
+LED's bit test at open and the `GETCRTC` kept off the motion path are on
+every KMS open and pointer move, and `kms-vulkan-bare` passes (2026-11-23/24,
+release, `gc` and `asan`, 185 checks each on schenker; `pi4` 59 at
+`039518b`); the picture check itself is skipped there, KMS having no
+`read-pixels`. **Still owed: the guests**, whose last rounds in the ledger
+are 2026-11-05, before the check existed.
 
 **The wine environments' failure did not reproduce, and no diagnosis was
 made.** Measured (2026-11-21, commit `1deaf19`, nine runs between them: six on
