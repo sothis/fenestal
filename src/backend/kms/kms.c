@@ -2137,8 +2137,9 @@ static bool flip_wait(App *a, int ms)
  * queue holds is nobody's at two points. Before the descriptor is lent to
  * a driver, once the pending flip is waited out: a flip of ours still
  * queued is read by Mesa's wait thread as one of its own images and its
- * user_data, 0 for ours, dereferenced -- a segfault inside the driver at
- * the move from OpenGL back to Vulkan. And after a mode set, which the
+ * user_data -- the window's address, where the driver's is an image's --
+ * dereferenced: a segfault inside the driver at the move from OpenGL back
+ * to Vulkan. And after a mode set, which the
  * kernel completes only once every flip before it has: the driver's last,
  * in flight when the display was released and it stopped reading, would
  * otherwise count as the first of ours, and the next flip find the CRTC

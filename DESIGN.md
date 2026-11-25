@@ -9816,7 +9816,8 @@ the other two are tried in turn:
   hazard. A flip of the backend's still queued
   when the copy is lent -- the copy path's or OpenGL's last, whose event
   is read only at the next frame without vsync -- is read by Mesa as one
-  of its own images and its `user_data`, 0 for ours, dereferenced
+  of its own images and its `user_data` -- the window's address, where the
+  driver's is an image's -- dereferenced
   (`wsi_display_page_flip_handler2`, Mesa 26.0.8: a segfault in RADV at
   `image->chain` on this desktop's console, at the move from OpenGL back
   to Vulkan); and the driver's last flip, in flight when the display was

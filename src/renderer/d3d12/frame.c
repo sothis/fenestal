@@ -529,9 +529,9 @@ static ShownSaid wait_shown(App *a, UINT want, IDXGIOutput *out)
 /* What one wait said, kept for the next: a swapchain that refuses the
  * statistics, or gives none in DISJOINT_GIVE_UP waits, is not asked
  * again. */
-static void shown_note(App *a, ShownSaid said) FNL_REQUIRES(D3D(a)->shown_lock)
+static void shown_note(struct RendererState *g,
+					   ShownSaid said) FNL_REQUIRES(g->shown_lock)
 {
-	struct RendererState *g = D3D(a);
 	if (said == SHOWN_SEEN) {
 		g->stats_unseen = 0;
 	} else if (said == SHOWN_REFUSED) {
@@ -577,7 +577,7 @@ static void *shown_main(void *arg)
 		BACKEND(a)->ack_release(a);
 
 		fnl_mutex_lock(&g->shown_lock);
-		shown_note(a, said);
+		shown_note(g, said);
 		g->shown_busy = false;
 		fnl_cond_signal(&g->shown_cond);
 	}
@@ -765,7 +765,7 @@ static void shown_begin(App *a)
 		if (out)
 			IDXGIOutput_Release(out);
 		fnl_mutex_lock(&g->shown_lock);
-		shown_note(a, said);
+		shown_note(g, said);
 		fnl_mutex_unlock(&g->shown_lock);
 		return;
 	}
