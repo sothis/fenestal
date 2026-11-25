@@ -2036,6 +2036,12 @@ void *render_loop(void *arg)
 		app_gpu_hotplug_poll(a);
 		app_rank_tick(a);
 		gpu_switch_owed(a);
+		/* A swap that failed both ways left the window owed a renderer and
+		 * set a->renderer to NULL (renderer_swap()): nothing below may
+		 * dereference it. The turn's top routes an owed window through
+		 * device_recover() and paces it. */
+		if (a->renderer_owed)
+			continue;
 		/* Before the frame's own state is taken, so what a post changed is
 		 * drawn by this turn. */
 		app_post_drain(a);

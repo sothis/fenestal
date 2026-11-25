@@ -21,10 +21,12 @@
  *
  * A request given up at its deadline may still be answered, late, by an
  * owner that was only slow. So each is stamped with a server time, which the
- * answer carries back, and the one after it is answered on the other of two
- * properties: a late SelectionNotify is told apart by its time, and a late
- * INCR piece lands where nothing reads it -- unread, so its owner waits
- * for a delete that never comes rather than sending the rest. Nor is the
+ * answer carries back, and the one after it is answered on the next of four
+ * properties, rotating: a late SelectionNotify is told apart by its time, and
+ * a late INCR piece lands where nothing reads it -- unread, so its owner waits
+ * for a delete that never comes rather than sending the rest. Four, not two,
+ * because an owner given up on keeps watching its property, and two give-ups
+ * would bring the next request back onto the first one's. Nor is the
  * given-up property deleted, which would be that delete.
  */
 

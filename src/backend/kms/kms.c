@@ -3956,6 +3956,12 @@ static void kms_window_close(App *a)
 	}
 	cursor_free(p);
 	if (p->host->card_fd >= 0) {
+		/* The CRTC and scan ioctls below are the render thread's under
+		 * crtc_lock (kms_scan_show(), kms_output_off()): a close on the
+		 * main thread that runs them without it races another window's
+		 * flip -- an RMFB or SETCRTC on a buffer that thread is mid-flip
+		 * on. The lock is the outermost, as the order has it. */
+		fnl_mutex_lock(&p->host->crtc_lock);
 		flip_wait(a, FLIP_WAIT_MS);
 		flip_give_up(a);
 		/* Only the last window gives the console back, and only one that
@@ -3977,6 +3983,7 @@ static void kms_window_close(App *a)
 			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
 			p->hdr_blob = 0;
 		}
+		fnl_mutex_unlock(&p->host->crtc_lock);
 	}
 	/* A window that never joined the host took the copy path with it: the
 	 * windows that are open get their display path back (surface_kms.c). */

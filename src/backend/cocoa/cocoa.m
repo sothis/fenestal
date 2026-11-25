@@ -1071,6 +1071,9 @@ static void compose_discard(App *a)
 	if (!app)
 		return;
 	publish_output(app, true);
+	/* A screen change moves the window's visual coordinates as a move does,
+	 * so the IME's candidate list is told to ask again. */
+	[VIEW(app->backend_state).inputContext invalidateCharacterCoordinates];
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification *)n
@@ -1193,13 +1196,19 @@ static void fs_settle(App *a)
 		}
 	}
 	/* A maximize asked for in the same animation: out of fullscreen, and
-	 * with no toggle of its own just started, it is asked now. */
+	 * with no toggle of its own just started, it is asked now. A toggle
+	 * just started ends in another fs_settle(), so the maximize is kept
+	 * for that one rather than dropped here. */
 	const int zoom = p->fs_max_owed;
-	p->fs_max_owed = 0;
 	if (!toggling && zoom && p->window && !a->is_fullscreen) {
+		p->fs_max_owed = 0;
 		NSWindow *w = WIN(p);
 		if ((zoom == 1) != (bool)w.zoomed)
 			[w zoom:nil];
+	} else if (toggling && zoom) {
+		p->fs_max_owed = zoom; /* asked as the toggle ends */
+	} else {
+		p->fs_max_owed = 0;
 	}
 }
 

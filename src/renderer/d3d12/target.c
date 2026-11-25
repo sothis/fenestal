@@ -326,8 +326,12 @@ FnlResult d3d_window_images(App *a)
 									 D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		if (!g->window_depth) {
 			d3d_release_window_images(a);
-			if (!d3d_device_lost(a))
-				a->device_lost = true;
+			/* An allocation that failed is not a device gone: raising the
+			 * loss would rebuild the device and ask for the same depth for
+			 * ever (device-lost@N). A real removal d3d_device_lost() still
+			 * sets; a plain shortage leaves the build to fail and the loop
+			 * to pace its retry, so a transient one recovers. */
+			(void)d3d_device_lost(a);
 			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 							"could not make the "
 							"window's %dx%d depth",

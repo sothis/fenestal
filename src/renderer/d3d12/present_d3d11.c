@@ -232,7 +232,12 @@ FnlResult d3d_via11_buffers(App *a, int w, int h)
 		const char *step = "a shared back buffer";
 		HRESULT hr = ID3D12Device_CreateCommittedResource(
 			g->device, &hp, D3D12_HEAP_FLAG_SHARED, &rd,
-			D3D12_RESOURCE_STATE_COMMON, &black, &IID_ID3D12Resource,
+			/* PRESENT, not COMMON: the frame's first barrier names PRESENT as
+			 * the before-state (frame.c, record_begin()), so a texture made
+			 * in COMMON is a state mismatch the debug layer reports every
+			 * frame. A swapchain's own buffers are exempt from the clear-value
+			 * rule below; these are not. */
+			D3D12_RESOURCE_STATE_PRESENT, &black, &IID_ID3D12Resource,
 			(void **)&g->back[i]);
 		HANDLE sh = NULL;
 		if (SUCCEEDED(hr)) {

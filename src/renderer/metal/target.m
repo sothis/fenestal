@@ -75,8 +75,10 @@ FnlResult mt_window_images(App *a)
 	if (resized) {
 		g->window_depth = make_image(a, MT_DEPTH_FORMAT, e.w, e.h, 1, false);
 		if (!g->window_depth) {
-			if (!mt_device_lost(a))
-				a->device_lost = true;
+			/* An allocation that failed is not a device gone: raising the
+			 * loss would rebuild the device and ask for the same depth for
+			 * ever. The build fails, the loop paces its retry, and a
+			 * transient shortage recovers. */
 			return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "could not make the "
 							"window's %dx%d depth", e.w, e.h);
 		}
