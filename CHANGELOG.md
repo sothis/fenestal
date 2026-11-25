@@ -6,6 +6,19 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- `fnl_is_closing()` says whether a close has been asked for a window, by the
+  window server or by `fnl_quit()`. A program with several windows needs it:
+  the window's `FNL_EVENT_CLOSE` is read on its render thread, and that is the
+  thread the close stops, so the event can be missed where the query cannot.
+  The window is still the caller's to give back with `fnl_shutdown()`.
+
+- The testbed's second window shows a scene of its **own** from the start --
+  a different picture entirely, the demos' turning cube drawn where the first
+  draws the test pattern -- rather than a mirror of the first; F12 still
+  cycles own, mirror and join. Closing it with its close button now hides it,
+  as F10 does, rather than leaving it on screen with its last frame while its
+  render thread is already stopped; F10 shows it again.
+
 - `fnl_window_create()` opens a second window on **macOS** too: one
   `NSApplication`, one wakeup and one application delegate serving every
   window, each with its own NSWindow, layer, delegate and render thread, and
@@ -24,12 +37,13 @@ promised: before 1.0, nothing between minor releases.
 - The testbed's second window is shown and hidden with **F10**, and **F12**
   cycles what it draws: a **mirror** of the first window, a **join** (one
   shared canvas split across both windows, the star and the sweep crossing
-  the seam), or a scene of its **own** (its own canvas, tint and phase). The
-  library needed no change -- each window was already a picture of its own on
-  one renderer -- and the pinned `ScenePush` grew a `canvas`/`origin`/`tint`/
-  `time_bias` view that every renderer and both geometry shaders now read. It
-  is an application showing what three windows on one host can draw, so nothing
-  a consumer links against moved.
+  the seam), or a scene of its **own** (the second window draws the scene
+  shader's other scene -- a different picture entirely -- on its own canvas).
+  The library needed no change -- each window was already a picture of its own
+  on one renderer -- and the pinned `ScenePush` grew a `canvas`/`origin`/
+  `tint`/`time_bias` view that every renderer and both geometry shaders now
+  read. It is an application showing what three windows on one host can draw,
+  so nothing a consumer links against moved.
 - X11's graphics connection is the host's, not each window's. A window opened
   and closed no longer disconnects the connection the Vulkan presentation
   engine is bound to: Mesa's X11 WSI keeps XFixes state keyed by the

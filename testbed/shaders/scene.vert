@@ -31,7 +31,7 @@ layout(push_constant) uniform Push {
 	float time;       /* seconds; frozen at 0 when motion is off */
 	float time_bias;  /* this window's own phase, for its own scene */
 	uint  srgb;       /* nonzero when the surface blends in linear light */
-	float pad;
+	uint  content;    /* 0: the pattern; nonzero: the other scene */
 } pc;
 
 void main()

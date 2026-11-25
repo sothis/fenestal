@@ -3,11 +3,12 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The test pattern, as a Fenestal client draws it with Direct3D 12: one root
+ * The window's scene, as a Fenestal client draws it with Direct3D 12: one root
  * signature, two pipeline states per target and two draws, from the same
  * shaders scene_vulkan.c builds its Vulkan pipelines from -- compiled to
  * SPIR-V, translated to HLSL by spirv-cross and compiled to DXIL by dxc at
- * build time.
+ * build time. The pattern and the other scene a second window draws are one
+ * fragment shader's two pictures, chosen by the push block's content.
  *
  * As in scene_vulkan.c, this file does not know whether the scene is drawn
  * straight into the window or into a smaller image, whether it is multisampled,
@@ -47,7 +48,7 @@ typedef struct {
 	float    time;
 	float    time_bias;
 	uint32_t srgb;
-	float    pad;
+	uint32_t content;
 } ScenePush;
 
 _Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
@@ -59,6 +60,7 @@ _Static_assert(offsetof(ScenePush, time) == 48, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
 
 typedef struct {
 	ID3D12RootSignature *root;
@@ -314,6 +316,7 @@ void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time = testbed_scene_time(f),
 		.time_bias = view.time_bias,
 		.srgb = s->srgb ? 1u : 0u,
+		.content = view.content,
 	};
 	ID3D12GraphicsCommandList *l = sc.list;
 	ID3D12GraphicsCommandList_SetGraphicsRootSignature(l, s->root);
@@ -324,8 +327,12 @@ void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 
 	ID3D12GraphicsCommandList_SetPipelineState(l, s->pattern[f->target]);
 	ID3D12GraphicsCommandList_DrawInstanced(l, 3, 1, 0, 0);
-	ID3D12GraphicsCommandList_SetPipelineState(l, s->star[f->target]);
-	ID3D12GraphicsCommandList_DrawInstanced(l, STAR_VERTICES, 1, 0, 0);
+	/* The other scene is one picture and has no star; the star's wedges are
+	 * the pattern's alone. */
+	if (view.content == 0u) {
+		ID3D12GraphicsCommandList_SetPipelineState(l, s->star[f->target]);
+		ID3D12GraphicsCommandList_DrawInstanced(l, STAR_VERTICES, 1, 0, 0);
+	}
 }
 
 

@@ -3978,9 +3978,9 @@ def two_window(b, r):
     b.tap("F9")                       # the library's release
     r.check("and the second lets it go", wait_second(False))
 
-    # The second window draws the scene, not only its bar. The click above
+    # The second window draws its scene, not only its bar. The click above
     # activated it and left it focused, so F2 -- the library's, to this
-    # window's clock -- reaches the second's: on, the scene sweeps and a row
+    # window's clock -- reaches the second's: on, the scene moves and a row
     # read some frames apart differs, where a window drawing only the
     # background and its bar holds the same row. Off, the clock stops and a
     # still window records nothing, so the clock is switched on and back.
@@ -4009,10 +4009,11 @@ def two_window(b, r):
     b.aim(prim)                       # back to the window the harness drives
 
     # ---- F12: the second window's scene is its own ----------------------
-    # F12 cycles mirror -> join -> own, and each in turn moves both windows:
-    # a mirror draws two identical scenes, a join splits one canvas, an own
-    # scene is plainly another colour and phase. Each says its name on
-    # stderr, which is what is read.
+    # The second window starts on a scene of its own, and F12 cycles
+    # own -> mirror -> join: a mirror draws two identical patterns, a join
+    # splits one canvas, an own scene is another picture entirely (the
+    # scene shader's turning cube). Each says its name on stderr, which is
+    # what is read.
     def last_view():
         for ln in reversed(b.dump(1 << 30)):
             if ln.startswith("scene view: "):
@@ -4020,21 +4021,22 @@ def two_window(b, r):
         return None
 
     b.aim(prim)
+    r.check("the second window starts on its own scene",
+            last_view() == "own", "saw %r" % last_view())
     b.press("F12")
-    b.until(lambda: last_view() == "join", timeout=3.0)
-    r.check("F12 names the second window's view", last_view() == "join",
+    b.until(lambda: last_view() == "mirror", timeout=3.0)
+    r.check("F12 names the second window's view", last_view() == "mirror",
             "saw %r" % last_view())
-    # Through all three and back to mirror, so a later round draws what it
+    # Through all three and back to own, so a later round draws what it
     # always did.
-    seen = []
-    for _ in range(3):
+    seen = [last_view()]
+    for _ in range(2):
         b.press("F12")
-        b.until(lambda: last_view() != (seen[-1] if seen else "join"),
-                timeout=2.0)
+        b.until(lambda: last_view() != seen[-1], timeout=2.0)
         seen.append(last_view())
         time.sleep(0.2)
     r.check(
-        "and cycles mirror, join and own",
+        "and cycles own, mirror and join",
         {"mirror", "join", "own"} <= set(seen),
         "saw %s" % seen,
     )
@@ -4055,6 +4057,35 @@ def two_window(b, r):
         r.check("the program is alive with the second back", b.alive())
     else:
         r.skip("and F10 shows it again", "F10 did not hide it")
+
+    # ---- the close button hides it, as F10 does -------------------------
+    # An additional window's close button is not a close: the window goes and
+    # the first lives on, so the key that hid it above brings it back. The
+    # button is the library's own bar's, at the same place the single-window
+    # round aims at its minimize and maximize, on the second window.
+    if gone and b.alive():
+        # The window found at the top is the one F10 hid: on a server that
+        # names a window by its handle, the one above is not this one.
+        again = b.windows()
+        second = next((w for w in again if SECOND in w.title.lower()), None)
+        prim = next((w for w in again if w is not second), None)
+        if second is None or prim is None:
+            r.skip("its close button hides the second window",
+                   "%d window(s) to aim at" % len(again))
+        else:
+            focus_on(second)
+            wpt = second.geom[2] / b._gain()
+            b.click(int(wpt - 24), 17)
+            closed = b.until(lambda: len(b.windows()) == 1, timeout=4.0)
+            r.check("its close button hides the second window", closed,
+                    "%d window(s) still" % len(b.windows()))
+            r.check("the first is untouched with the second closed", b.alive())
+            if closed:
+                focus_on(prim)
+                b.press("F10")
+                back = b.until(lambda: len(b.windows()) >= 2, timeout=5.0)
+                r.check("and F10 shows it again after the close", back,
+                        "%d window(s) after showing" % len(b.windows()))
 
     b.aim(prim)                       # back to the window the harness drives
 

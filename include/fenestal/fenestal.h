@@ -1054,6 +1054,19 @@ FNL_API FnlResult fnl_stop(FnlApp *app);                 /* [main] */
  * here. A program with several closes them one at a time. */
 FNL_API void fnl_quit(FnlApp *app); /* [any]  */
 
+/* Whether a close has been asked for this window: by the window server -- its
+ * close button, Alt+F4, the Dock -- or by fnl_quit(). The pump's next turn
+ * stops it -- its render thread joined, its last on_gpu_lost delivered -- and
+ * it draws nothing after; it is still the caller's to give back with
+ * fnl_shutdown(). The run goes on while another window on the host has not
+ * asked to close.
+ *
+ * A caller with one window needs nothing of this: its loop ends there. One
+ * with several asks this of each window, since the close is not a fact the
+ * event queue can be relied on to deliver -- FNL_EVENT_CLOSE is read on the
+ * window's render thread, which is the thread the close stops. */
+FNL_API bool fnl_is_closing(const FnlApp *app); /* [any] */
+
 /* ---- the event queue ------------------------------------------------------
  *
  * Take the next event, or return false when there are none left. Drain it in a

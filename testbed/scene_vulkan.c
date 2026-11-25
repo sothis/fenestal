@@ -3,7 +3,9 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The test pattern, as a Fenestal client draws it: two pipelines and two draws.
+ * The window's scene, as a Fenestal client draws it: two pipelines and two
+ * draws -- the test pattern, or the other scene a second window draws, which
+ * are the fragment shader's two pictures chosen by the push block's content.
  *
  * This file does not know whether the scene is drawn straight into the window
  * or into a smaller image scaled back up, whether it is multisampled, whether
@@ -94,7 +96,7 @@ typedef struct {
 	float    time;
 	float    time_bias;
 	uint32_t srgb;
-	float    pad;
+	uint32_t content;
 } ScenePush;
 
 _Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
@@ -106,6 +108,7 @@ _Static_assert(offsetof(ScenePush, time) == 48, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
 
 typedef struct {
 	VkDevice         device;
@@ -391,6 +394,7 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time = testbed_scene_time(f),
 		.time_bias = view.time_bias,
 		.srgb = s->srgb ? 1u : 0u,
+		.content = view.content,
 	};
 	vkCmdPushConstants(cb, s->layout,
 					   VK_SHADER_STAGE_VERTEX_BIT |
@@ -401,8 +405,13 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 					  s->pattern[f->target]);
 	vkCmdDraw(cb, 3, 1, 0, 0);
 
-	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, s->star[f->target]);
-	vkCmdDraw(cb, STAR_VERTICES, 1, 0, 0);
+	/* The other scene is one picture and has no star; the star's wedges are
+	 * the pattern's alone. */
+	if (view.content == 0u) {
+		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						  s->star[f->target]);
+		vkCmdDraw(cb, STAR_VERTICES, 1, 0, 0);
+	}
 }
 
 /* ---- the GPU memory in use ---------------------------------------------- */

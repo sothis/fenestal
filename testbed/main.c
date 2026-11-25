@@ -63,12 +63,14 @@ static int g_fps;
 static double g_fps_next;
 /* The second window on this host: opened by --second-window, or by F10, which
  * shows and hides it. g_second is the app while it is open, NULL while it is
- * not. It draws a picture of its own -- a mirror, a joined part of the first's
- * canvas, or its own scene -- and F12 cycles the three (testbed_scene_view()
- * says what each draws). The keys arrive on the render thread and window
- * creation and shutdown are the main thread's, so a key only records what was
- * asked for in g_second_want, and the run's loop below creates or destroys the
- * window on its own thread. */
+ * not. It draws a picture of its own -- its own scene, a joined part of the
+ * first's canvas, or a mirror -- and F12 cycles the three
+ * (testbed_scene_view() says what each draws). Its close button hides it, as
+ * F10 does: an additional window closed is one hidden, and F10 shows it again.
+ * The keys and the close arrive on the render thread and window creation and
+ * shutdown are the main thread's, so they only record what was asked for in
+ * g_second_want, and the run's loop below creates or destroys the window on
+ * its own thread. */
 static bool g_second_window; /* --second-window: open it at startup */
 static FnlApp *g_second;     /* the second window's app, main thread's own */
 
@@ -84,10 +86,13 @@ static _Atomic int g_second_want = -1;
  * it and is written only there. */
 static _Atomic int g_second_open;
 static _Atomic(FnlApp *) g_second_atomic;
-/* How the second window is to draw, as F12 cycles it: a mirror, joined to the
- * first's canvas, or its own scene. Read by every window's scene_*.c through
- * testbed_scene_view(); written by the key and by nothing else. */
-static _Atomic int g_view_mode;
+/* How the second window is to draw, as F12 cycles it: its own scene -- the
+ * scene shader's other picture -- joined to the first's canvas, or a mirror of
+ * it. Read by every window's scene_*.c through testbed_scene_view(); written
+ * by the key and by nothing else. Its own is where it starts, so a window
+ * opened beside the first shows different content rather than a copy of the
+ * first's picture. */
+static _Atomic int g_view_mode = TESTBED_VIEW_OWN;
 
 /* A JOIN lays the pattern on a canvas as wide as the first window twice over,
  * so the first shows its left half and the second its right and the seam falls
@@ -244,19 +249,15 @@ void testbed_scene_view(FnlApp *app, const FnlFrame *frame,
 	}
 	case TESTBED_VIEW_OWN:
 		/* A window's own canvas is its own size, so no part of it is
-		 * another's; the second is additionally a different colour and a
-		 * little out of phase, so echoing a row or reading a pixel tells the
-		 * two apart without the title. The first keeps the pattern's own
-		 * colours and clock, so a mirror of the first is exactly what the
-		 * testbed drew before this was a choice. */
+		 * another's; the second window additionally draws the scene shader's
+		 * other scene -- content of its own, not this pattern at all -- so
+		 * what the two windows show is told apart without the title. The
+		 * first keeps the pattern's own colours and clock, so a mirror of the
+		 * first is exactly what the testbed drew before this was a choice. */
 		v->canvas[0] = v->size[0];
 		v->canvas[1] = v->size[1];
-		if (second) {
-			v->tint[0]   = 0.75f;
-			v->tint[1]   = 0.55f;
-			v->tint[2]   = 1.00f;
-			v->time_bias = 3.7f;
-		}
+		if (second)
+			v->content = 1u;
 		break;
 	case TESTBED_VIEW_MIRROR:
 	default:
@@ -389,12 +390,12 @@ static void usage(FILE *f, const char *prog)
 		"\n"
 		"  --second-window    open a second window on the same host and run\n"
 		"                     it beside the first, drawing a picture of its\n"
-		"                     own. F10 shows and hides it; F12 cycles what it\n"
-		"                     draws -- a mirror of this window, a joined part\n"
-		"                     of one shared canvas, or its own scene. A\n"
-		"                     backend that does not route a second window\n"
-		"                     refuses it, and F10 then says so and nothing\n"
-		"                     opens.\n"
+		"                     own. F10 shows and hides it, and its close\n"
+		"                     button hides it too; F12 cycles what it draws:\n"
+		"                     its own scene, a joined part of one shared\n"
+		"                     canvas, or a mirror of this window. A backend\n"
+		"                     that does not route a second window refuses it,\n"
+		"                     and F10 then says so and nothing opens.\n"
 		"\n"
 		"  --footprint-log    print this process's CPU, RAM and VRAM -- the\n"
 		"                     metrics panel's figures -- to stderr twice a\n"
@@ -1049,14 +1050,17 @@ static FnlResult second_open(FnlApp *sibling)
 	atomic_store(&g_second_atomic, g_second);
 	atomic_store(&g_second_captured, false);
 	fprintf(stderr, "second window: shown (F10 hides it)\n");
+	/* What the window that just opened draws, since a hidden and shown window
+	 * keeps the kind F12 last chose rather than starting over. */
+	fprintf(stderr, "scene view: %s\n", testbed_view_name());
 	return FNL_OK;
 }
 
-/* F10 hid it: close the app and free it, so the run goes on with the first
- * window, which is what a host of one window always did. Two steps, because
- * fnl_shutdown() refuses a window still running: ask it to close, let the
- * pump stop its render thread, and free it on the turn after. g_second_hiding
- * is that "on the turn after". */
+/* F10 hid it, or its own close button did: close the app and free it, so the
+ * run goes on with the first window, which is what a host of one window always
+ * did. Two steps, because fnl_shutdown() refuses a window still running: ask
+ * it to close, let the pump stop its render thread, and free it on the turn
+ * after. g_second_hiding is that "on the turn after". */
 static bool g_second_hiding;
 
 static void second_hide(void)
@@ -1085,6 +1089,7 @@ static void second_reap(void)
 	testbed_overlay_picture_forget(g_second);
 	fnl_shutdown(g_second);
 	atomic_store(&g_second_atomic, NULL);
+	atomic_store(&g_second_open, 0);
 	g_second          = NULL;
 	g_second_hiding   = false;
 	atomic_store(&g_second_captured, false);
@@ -1092,7 +1097,8 @@ static void second_reap(void)
 
 /* fnl_run()'s loop, with the second window opened and closed between turns.
  * `cb` is the first window's callbacks, as fnl_run() takes; `--second-window`
- * opened one before this, and F10 toggles it either way. */
+ * opened one before this, and F10 toggles it either way. Closing the second
+ * window with its own close button is the same hide. */
 static FnlResult run(FnlApp *app, const FnlCallbacks *cb)
 {
 	FnlResult rc = fnl_start(app, cb);
@@ -1102,16 +1108,24 @@ static FnlResult run(FnlApp *app, const FnlCallbacks *cb)
 		/* The key's wish, spent before the turn that would draw the run with
 		 * it: a window opened here draws from this turn on. A hide asks the
 		 * window to close and lets the pump below stop it; the reap is after
-		 * the pump, once its render thread is joined. */
+		 * the pump, once its render thread is joined. The window server's
+		 * close button asks the same of the second window -- an additional
+		 * window is hidden rather than closed, and F10 shows it again --
+		 * and is asked of fnl_is_closing() rather than of FNL_EVENT_CLOSE,
+		 * which that window's stopped render thread may never drain. The
+		 * first window's close still ends the run: it asks the second to
+		 * close too, so the pump's cue comes and both are given back. */
 		const int want = atomic_exchange(&g_second_want, -1);
 		if (want == 1 && !g_second) {
 			const FnlResult cr = second_open(app);
 			if (cr < 0)
 				fprintf(stderr, "second window: %s: %s\n",
 						fnl_result_str(cr), fnl_last_error());
-		} else if (want == 0 && g_second) {
+		} else if (g_second && (want == 0 || fnl_is_closing(g_second))) {
 			second_hide();
 		}
+		if (g_second && fnl_is_closing(app))
+			fnl_quit(g_second);
 		rc = fnl_pump(app, -1);
 		/* The pump stops a window whose close was asked for at its turn's
 		 * top, so a window hidden before it is stopped by the time it
@@ -1220,7 +1234,7 @@ int main(int argc, char **argv)
 
 	/* --second-window: a window beside the first on the same host, before the
 	 * run starts, so both draw from the same pump. It draws a picture of its
-	 * own -- a mirror, joined to the first's canvas, or its own scene, as F12
+	 * own -- its own scene, joined to the first's canvas, or a mirror, as F12
 	 * says -- on its own render thread and device. A position on the desktop
 	 * is asked for, where the backend honours one, so the two do not land on
 	 * top of each other. */

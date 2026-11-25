@@ -3529,6 +3529,14 @@ void fnl_quit(App *a)
 	app_wakeup(a);
 }
 
+/* A window with no render thread left is still the caller's to give back, so
+ * the answer stays true until it does; it is the only way to learn of a close
+ * the stopped render thread would have drained (fenestal.h). */
+bool fnl_is_closing(const App *a)
+{
+	return a && fnl_atomic_load_bool(&a->should_close);
+}
+
 /* fnl_run() in three, which is what it is: fnl_start() takes the callbacks
  * and starts the render thread, fnl_pump() is one turn of the window server,
  * and fnl_stop() joins the render thread and lets the device go. A caller

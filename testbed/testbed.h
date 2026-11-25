@@ -85,18 +85,22 @@ float testbed_scene_time(const FnlFrame *frame);
 
 /* ---- how a window's scene is shown ---------------------------------------
  *
- * Every window is a window on the same host and the same pattern, so what it
- * draws of it is the program's to say. Three kinds, which main.c's F12 key
- * cycles for the second window (F10 shows and hides that window):
+ * Every window is a window on the same host and the same scene shader, so
+ * what it draws of it is the program's to say. Three kinds, which main.c's F12
+ * key cycles for the second window (F10 shows and hides that window, and its
+ * close button hides it too):
  *
- *   MIRROR  the whole pattern, the same in every window -- the default, and
- *           what two windows of one host drew before this was a choice.
+ *   OWN     a picture of its own. The second window draws the scene shader's
+ *           other scene -- the turning cube other_scene() renders -- so the
+ *           two windows show different content and not one picture twice;
+ *           where the window's own scene is the first's, that is the pattern
+ *           laid out on its own canvas.
  *   JOIN    one picture across the windows: the pattern laid out on a canvas
  *           as wide as the windows side by side, each window showing the
  *           part of it at its own offset. The star and the sweep cross the
  *           seam rather than repeating.
- *   OWN     a window's own picture: its own canvas, so no part of it is
- *           another's, its own tint, and its own phase on the clock.
+ *   MIRROR  the whole pattern, the same in every window -- what two windows
+ *           of one host drew before this was a choice.
  *
  * The two windows need not agree: the first is a mirror while the second
  * joins it, and neither draws a part of the other's pattern that it is not
@@ -116,6 +120,7 @@ typedef enum {
  * size, so two windows cannot disagree about a shared canvas. */
 typedef struct {
 	TestbedView kind;
+	uint32_t    content;   /* 0: the pattern; 1: the other scene */
 	float       size[2];   /* this window's scene, px */
 	float       canvas[2]; /* the pattern's whole canvas, px */
 	float       origin[2]; /* this window's corner inside it, px */

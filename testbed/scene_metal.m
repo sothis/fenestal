@@ -3,10 +3,12 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The test pattern, as a Fenestal client draws it with Metal: two pipeline
+ * The window's scene, as a Fenestal client draws it with Metal: two pipeline
  * states per target and two draws, from the same shaders scene_vulkan.c builds
  * its Vulkan pipelines from -- compiled to SPIR-V and translated to MSL by
- * spirv-cross at build time, then compiled by the device when it is made.
+ * spirv-cross at build time, then compiled by the device when it is made. The
+ * pattern and the other scene a second window draws are one fragment shader's
+ * two pictures, chosen by the push block's content.
  *
  * As in scene_vulkan.c, this file does not know whether the scene is drawn
  * straight into the window or into a smaller image, whether it is multisampled,
@@ -45,7 +47,7 @@ typedef struct {
 	float    time;
 	float    time_bias;
 	uint32_t srgb;
-	float    pad;
+	uint32_t content;
 } ScenePush;
 
 _Static_assert(sizeof(ScenePush) == 64, "ScenePush must match scene.frag");
@@ -57,6 +59,7 @@ _Static_assert(offsetof(ScenePush, time) == 48, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, time_bias) == 52,
 			   "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, srgb) == 56, "ScenePush layout drifted");
+_Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
 
 /* One pair per target. A nil entry is a target this window cannot use --
  * the multisampled one on a device with no sample count worth having --
@@ -180,6 +183,7 @@ void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.time = testbed_scene_time(f),
 		.time_bias = view.time_bias,
 		.srgb = g_srgb ? 1u : 0u,
+		.content = view.content,
 	};
 	id<MTLRenderCommandEncoder> enc = sc.encoder;
 	[enc setDepthStencilState:g_no_depth];
@@ -190,9 +194,13 @@ void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 	[enc setRenderPipelineState:g_pattern[f->target]];
 	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
 			vertexCount:3];
-	[enc setRenderPipelineState:g_star[f->target]];
-	[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
-			vertexCount:STAR_VERTICES];
+	/* The other scene is one picture and has no star; the star's wedges are
+	 * the pattern's alone. */
+	if (view.content == 0u) {
+		[enc setRenderPipelineState:g_star[f->target]];
+		[enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+				vertexCount:STAR_VERTICES];
+	}
 }
 
 /* ---- the GPU memory in use ---------------------------------------------- */

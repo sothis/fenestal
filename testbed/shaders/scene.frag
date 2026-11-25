@@ -6,10 +6,12 @@
 
 #version 450
 /*
- * The scene: a test pattern, drawn at whatever resolution the scene is being
- * rendered at. A pattern rather than a triangle because the thing worth seeing
- * is the render scale (see DESIGN.md): the scene may be rendered smaller than
- * the window and stretched back over it.
+ * The window's scene -- one of two pictures, chosen by pc.content.
+ *
+ * The first is the test pattern, drawn at whatever resolution the scene is
+ * being rendered at. A pattern rather than a triangle because the thing worth
+ * seeing is the render scale (see DESIGN.md): the scene may be rendered
+ * smaller than the window and stretched back over it.
  *
  * Everything is laid out in *scene pixels* -- pc.size is the scene's own
  * resolution -- so a one-pixel grid line lands on screen as whatever the
@@ -25,6 +27,10 @@
  *   border     two pixels at the very edge, so the scene's own rectangle is
  *              visible: letterboxing shows as a gap between it and the window
  *
+ * The second is a scene of its own -- see other_scene() -- which a window
+ * draws instead, so that two windows of one program show different content
+ * and not one picture twice.
+ *
  * Colours are authored in sRGB, linearised on the way into the composite, and
  * encoded on the way out only when the surface will not do it. See the note at
  * out_color, and DESIGN *Colour*.
@@ -39,7 +45,7 @@ layout(push_constant) uniform Push {
 	float time;      /* seconds; frozen at 0 when motion is off */
 	float time_bias; /* this window's own phase, for its own scene */
 	uint  srgb;      /* nonzero when the surface blends in linear light */
-	float pad;
+	uint  content;   /* 0: the pattern; nonzero: the other scene */
 } pc;
 
 layout(location = 0) in  vec2 v_uv;
@@ -65,10 +71,103 @@ vec3 enc(vec3 c)
 	return vec3(to_srgb(c.r), to_srgb(c.g), to_srgb(c.b));
 }
 
+/* ---- the second window's picture ------------------------------------------
+ *
+ * The demos' lit cube, turning in space. A ray is cast per pixel into a box
+ * that spins, one colour a face, lit from one side. It shares the push block,
+ * the jitter and the colour pipeline with the pattern and nothing else -- no
+ * canvas, no star, no ramps -- because a window that draws it is showing
+ * content of its own, not another arrangement of the first window's.
+ */
+
+/* One rotation, in the plane the two components name. */
+vec2 turn(vec2 v, float a)
+{
+	float c = cos(a), s = sin(a);
+	return vec2(c * v.x - s * v.y, s * v.x + c * v.y);
+}
+
+vec3 other_scene(vec2 p, vec2 size, float t)
+{
+	/* The pixel as a ray: y up, since pixels are y-down, and x stretched so
+	 * the cube is round whatever the window's aspect; the eye sits back
+	 * along +z looking down -z. */
+	vec2 q = (p / max(size, vec2(1.0))) * 2.0 - 1.0;
+	q.y    = -q.y;
+	q.x   *= size.x / max(size.y, 1.0);
+	vec3 ro = vec3(0.0, 0.0, 3.0);
+	vec3 rd = normalize(vec3(q * 1.1, -2.2));
+
+	/* The cube turns about the vertical and, slower, about x. Asked in its
+	 * own frame, so the box below is the axis-aligned one whose slabs are;
+	 * the ray is turned the other way instead. */
+	float a = t * 0.60;
+	float b = t * 0.35;
+	vec3 o = ro, d = rd;
+	o.xz = turn(o.xz, -a);
+	d.xz = turn(d.xz, -a);
+	o.yz = turn(o.yz, -b);
+	d.yz = turn(d.yz, -b);
+
+	/* The background: a dark gradient, a little warmer towards the bottom. */
+	vec3 c = mix(lin(vec3(0.03, 0.04, 0.08)), lin(vec3(0.10, 0.09, 0.16)),
+				 p.y / max(size.y, 1.0));
+
+	/* The slabs. 1/d with d kept off zero, the sign carried out rather than
+	 * in, so a ray along an axis yields a large finite t and not an infinity
+	 * the drivers are free to make of nothing. Zero counts as positive:
+	 * sign() would give it a zero m and collapse that axis's slab to a point,
+	 * which the centre column of an untilted frame would then miss. */
+	float H = 0.72;
+	vec3  s = mix(vec3(-1.0), vec3(1.0), step(0.0, d));
+	vec3  m = s / max(abs(d), vec3(1e-5));
+	vec3  ta = (vec3(-H) - o) * m;
+	vec3  tb = (vec3(H) - o) * m;
+	vec3  tn = min(ta, tb);
+	vec3  tf = max(ta, tb);
+	float t_near = max(max(tn.x, tn.y), tn.z);
+	float t_far  = min(min(tf.x, tf.y), tf.z);
+
+	if (t_far > 0.0 && t_near <= t_far) {
+		t_near = max(t_near, 0.0);
+		vec3 hit = o + t_near * d;
+		/* The face entered: the axis whose near crossing came last. */
+		vec3 nrm;
+		if (tn.x >= tn.y && tn.x >= tn.z)
+			nrm = vec3(hit.x > 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+		else if (tn.y >= tn.z)
+			nrm = vec3(0.0, hit.y > 0.0 ? 1.0 : -1.0, 0.0);
+		else
+			nrm = vec3(0.0, 0.0, hit.z > 0.0 ? 1.0 : -1.0);
+
+		/* The demo's colours, a face each, lit in the cube's own frame as
+		 * the demo lights them: the light turns with the box. */
+		vec3 face = nrm.x > 0.5  ? vec3(0.92, 0.33, 0.28)
+				  : nrm.x < -0.5 ? vec3(0.20, 0.72, 0.80)
+				  : nrm.y > 0.5  ? vec3(0.40, 0.80, 0.35)
+				  : nrm.y < -0.5 ? vec3(0.78, 0.36, 0.72)
+				  : nrm.z > 0.5  ? vec3(0.28, 0.47, 0.90)
+								 : vec3(0.95, 0.80, 0.30);
+		float diff = max(dot(nrm, normalize(vec3(0.4, 0.6, 0.7))), 0.0);
+		c = lin(face) * (0.18 + 0.82 * diff);
+	}
+	return c;
+}
+
 const float PI = 3.14159265;
 
 void main()
 {
+	/* The second window's own picture, filling its own rectangle: no
+	 * canvas, no tint and no star -- a scene of its own, not the pattern's
+	 * arrangement. The jitter still moves it, applied in the vertex stage,
+	 * as it moves anything else. */
+	if (pc.content != 0u) {
+		vec3 c = other_scene(v_uv * pc.size, pc.size, pc.time);
+		out_color = vec4(pc.srgb != 0u ? c : enc(c), 1.0);
+		return;
+	}
+
 	/* The pattern is laid out on the canvas, and this window shows the part
 	 * of it that starts at `origin`: a window showing the whole canvas is
 	 * one at (0, 0), and several windows each showing a piece of one picture

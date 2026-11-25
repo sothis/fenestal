@@ -3799,6 +3799,17 @@ their argument: an `FnlApp` carries the host it belongs to, so `fnl_pump(app)`
 is one turn of the host that app lives on and dispatches for every window
 there.
 
+**A window that closes is the caller's to give back, and the caller is told.**
+The pump stops a window whose close was asked for — the render thread joined,
+the last `on_gpu_lost` delivered — and answers `FNL_SKIPPED` only once every
+window on the host has; with several windows the run goes on, and the window
+that closed stays registered until `fnl_shutdown()`. The event queue cannot
+carry that news: `FNL_EVENT_CLOSE` is drained on the window's render thread,
+which is the thread the close stops, so a caller that reaps only from the
+event misses it and leaves the window on screen with its last frame.
+`fnl_is_closing(app)` is the question asked between two turns instead; it is
+true from the request until the app is given back.
+
 The backend seam splits with it, and along a line the seam already draws:
 `open` becomes `host_open` and `window_open`, `close` becomes `window_close`
 and `host_close`, `pump`/`wakeup`/`check_error`/`absent`/`host` move to the

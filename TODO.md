@@ -1576,18 +1576,23 @@ so the work is the process state that is still in the app, not a handle to add.
   is now the device's, since a second window compiles for its own device on
   its own render thread.
 - **The testbed shows the three ways two windows can relate** (2026-11-24):
-  F10 shows and hides the second window, F12 cycles **mirror** (both draw the
-  same picture, the default), **join** (one canvas split across the two, the
-  first the left half and the second the right, the star on the seam and the
-  sweep crossing it) and **own** (the second a different canvas, tint and
-  phase). The library has no hand in it: the view rides the pinned `ScenePush`
-  as `canvas`/`origin`/`tint`/`time_bias`, read by `testbed_scene_view()` on
-  each window's own render thread, so what a window draws is that window's
-  app. The key arrives on the render thread and the window is opened and freed
-  on the main thread, so the testbed writes its own `fnl_start`/`fnl_pump`/
-  `fnl_stop` loop (`run()`) that spends the key between two turns. It also
-  closed the harness gap `--second-window` left open: F10/F12 are driven by the
-  two-window round, on every backend that opens one.
+  F10 shows and hides the second window, F12 cycles **own** (the second draws
+  the scene shader's other scene -- the demos' turning cube, content of its
+  own entirely -- where it starts, so a second window is not a copy of the
+  first), **mirror** (both draw the same pattern) and **join** (one canvas
+  split across the two, the first the left half and the second the right, the
+  star on the seam and the sweep crossing it). The second window's own close
+  button hides it, as F10 does, rather than leaving it on screen stopped --
+  `fnl_is_closing()` is how the loop learns of a close the window's stopped
+  render thread may never drain. The library has no hand in the views: the
+  view rides the pinned `ScenePush`
+  as `canvas`/`origin`/`tint`/`time_bias`/`content`, read by
+  `testbed_scene_view()` on each window's own render thread, so what a window
+  draws is that window's app. The key arrives on the render thread and the
+  window is opened and freed on the main thread, so the testbed writes its own
+  `fnl_start`/`fnl_pump`/`fnl_stop` loop (`run()`) that spends the key between
+  two turns. It also closed the harness gap `--second-window` left open:
+  F10/F12 are driven by the two-window round, on every backend that opens one.
 - **The DESIGN table's pointer row is closed**: Win32's `ShowCursor` count and
   `ClipCursor` confinement are now the host's -- a host count of windows that
   have confined the pointer, so the first hides it and the last gives it back,

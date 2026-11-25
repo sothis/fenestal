@@ -28,7 +28,7 @@ owns them. The pinned structs and their shaders are:
 
 | C struct | Shader | Pinned |
 |---|---|---|
-| `ScenePush` (in each `testbed/scene_*`: Vulkan, GL, D3D12, Metal) | `testbed/shaders/scene.frag`, `star.vert` | `sizeof == 16`, `time` at 8, `srgb` at 12 |
+| `ScenePush` (in each `testbed/scene_*`: Vulkan, GL, D3D12, Metal) | `testbed/shaders/scene.vert`, `scene.frag`, `star.vert` | `sizeof == 64`, `time` at 48, `srgb` at 56, `content` at 60 |
 | `TextPush` | `shaders/text.*` | `sizeof == 16`, `srgb` at 8, `texel_u` at 12 |
 | `OverlayPush` | `shaders/*.vert` | `sizeof == 8` |
 | `RectInstance` | `shaders/rect.vert` | `sizeof == 32`, `color` at 16 |

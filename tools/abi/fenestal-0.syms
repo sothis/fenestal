@@ -11,6 +11,7 @@ fnl_start
 fnl_pump
 fnl_stop
 fnl_quit
+fnl_is_closing
 fnl_poll_event
 fnl_gpu_name
 fnl_gpu_short_name
