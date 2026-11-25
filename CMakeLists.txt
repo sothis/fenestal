@@ -1371,9 +1371,10 @@ list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/headers_checked.stamp)
 # A baseline per renderer set: the interop headers and the exports differ. The
 # layout holds every interop header's structs, OpenGL's whatever the build,
 # so it is one of two (fenestal-0 with Vulkan's, fenestal-0-gl without);
-# the exports are one list per set -- fenestal-0 for Vulkan alone, -gl for
-# OpenGL alone, -all for Linux's two. The portable part is in each, and a
-# change to it updates each.
+# the exports are one list per set -- fenestal-0 for Vulkan alone, -gl,
+# -d3d12 and -metal for one each, and -<set> for a system's several
+# (vulkan-gl, d3d12-vulkan, metal-vulkan-gl). The portable part is in each,
+# and a change to it updates each.
 if(NOT FNL_GENERATED_DIR)
     fnl_host_tool(abidump tools/abidump.c)
     target_include_directories(abidump PRIVATE
@@ -1387,7 +1388,11 @@ if(NOT FNL_GENERATED_DIR)
         set(_abi_layout fenestal-0-gl)
     endif()
     if(FNL_RENDERER_COUNT GREATER 1)
-        set(_abi_syms fenestal-0-all)
+        # Named for the set, in the order fnl_init() tries them: Linux and
+        # FreeBSD's vulkan-gl, Windows' d3d12-vulkan, macOS'
+        # metal-vulkan-gl.
+        string(JOIN "-" _fnl_abi_set ${FNL_RENDERERS})
+        set(_abi_syms fenestal-0-${_fnl_abi_set})
     elseif(FNL_RENDERER STREQUAL vulkan)
         set(_abi_syms fenestal-0)
     else()

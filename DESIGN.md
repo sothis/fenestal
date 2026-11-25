@@ -2365,8 +2365,8 @@ In this order, each step leaving every round passing:
    its correction, the step down on the same window, `FNL_RENDERER`, and every
    scene of each example compiled in. Built and driven: `win64`, `linux` and
    `macos` for the seven targets of one renderer each, with an ABI baseline of
-   the two Linux renderers' exports (`fenestal-0-all.syms`); the correction left
-   out.
+   the two Linux renderers' exports (`fenestal-0-vulkan-gl.syms`); the
+   correction left out.
 
 ### Threading
 
