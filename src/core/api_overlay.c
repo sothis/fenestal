@@ -354,8 +354,11 @@ void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
 	/* The rectangle in the framebuffer's pixels, as a rectangle's own is
 	 * (overlay_rect), so a picture and a rectangle at the same coordinates
 	 * land on the same pixels however the scale and the margin are. */
+	/* Bounded like every other overlay coordinate (clamp_pt): x + w and the
+	 * margin's product must not run past an int. */
 	FnlRect r;
-	if (!overlay_clip(a, x, y, w, h, &r))
+	if (!overlay_clip(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
+					  &r))
 		return;
 	/* What was appended before it is behind it, as it was drawn before it:
 	 * both streams go out first, so the order is the call order. Not text,
@@ -721,6 +724,14 @@ bool fnl_titlebar_claim(FnlApp *app, int x, int y, int w, int h)
 
 int fnl_claim_at(const FnlApp *app, double x_pt, double y_pt)
 {
+	/* The range every point figure takes (app.h, OVERLAY_COORD_MAX), tested
+	 * as the bounds themselves: a NaN fails both comparisons, and a cast of
+	 * one -- or of a figure past an int -- is undefined. */
+	if (!(x_pt >= -(double)OVERLAY_COORD_MAX &&
+		  x_pt <= (double)OVERLAY_COORD_MAX &&
+		  y_pt >= -(double)OVERLAY_COORD_MAX &&
+		  y_pt <= (double)OVERLAY_COORD_MAX))
+		return -1;
 	/* Floored, not truncated, as deco_hit() is: half a point outside the left
 	 * edge is outside it. */
 	return deco_claim_at((App *)app, (int)floor(x_pt), (int)floor(y_pt));

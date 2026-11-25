@@ -366,6 +366,13 @@ static bool timing_surface(App *a)
 	VkPresentTimingSurfaceCapabilitiesEXT tc = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_TIMING_SURFACE_CAPABILITIES_EXT,
 	};
+	/* The present carries a VkPresentId2KHR as well, which the surface has to
+	 * take (presentId2Supported); asking both here keeps the swapchain's
+	 * flag and the presents made on it one decision. */
+	VkSurfaceCapabilitiesPresentId2KHR id2 = {
+		.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_ID_2_KHR,
+	};
+	tc.pNext = &id2;
 	VkSurfaceCapabilities2KHR c2 = {
 		.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR,
 		.pNext = &tc,
@@ -375,7 +382,7 @@ static bool timing_surface(App *a)
 		.surface = VK(a)->vk_surface,
 	};
 	return VK(a)->surface_caps2(VK(a)->phys, &si, &c2) == VK_SUCCESS &&
-		   tc.presentTimingSupported &&
+		   tc.presentTimingSupported && id2.presentId2Supported &&
 		   (tc.presentStageQueries &
 			VK_PRESENT_STAGE_IMAGE_FIRST_PIXEL_OUT_BIT_EXT);
 #else
@@ -491,8 +498,13 @@ static FnlResult swapchain_make(App *a, const VkSurfaceCapabilitiesKHR *caps,
 		ci.pNext = &scaling;
 	const bool timed = timing_surface(a);
 #ifdef VK_EXT_present_timing
+	/* Both: a present on a timed swapchain carries VkPresentId2KHR, which
+	 * only a swapchain made with the present-id-2 flag takes
+	 * (VUID-VkPresentId2KHR-None-10820). The surface's support for it is
+	 * part of timing_surface(). */
 	if (timed)
-		ci.flags |= VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT;
+		ci.flags |= VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT |
+					VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR;
 #endif
 	/* With create_swapchain()'s capability query, one of the two calls that
 	 * can report a lost device or surface before any drawing, so it

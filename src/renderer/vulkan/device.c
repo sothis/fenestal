@@ -1521,9 +1521,17 @@ static FnlResult create_device_objects(App *a)
 	FnlResult rc;
 	fnl_mutex_lock(&h->lock);
 	/* Bounded: a window that never lets go is a run already ending. Giving
-	 * up here leaves the loss raised, and the loop comes back next turn. */
+	 * up here leaves the loss raised, and the loop comes back next turn.
+	 *
+	 * A device whose generation is the lost one is no device to join, even
+	 * while it is not NULL: the window still on it destroys it on its own
+	 * recovery, and joining it in between -- which a surface loss allows,
+	 * the device itself being alive -- rebuilds every object on the dead
+	 * generation and reports the loss again the moment it is done. */
 	int spins = 0;
-	while (h->device == VK_NULL_HANDLE && h->live > 0) {
+	while ((h->device == VK_NULL_HANDLE ||
+			h->generation == fnl_atomic_load_u32(&h->lost_gen)) &&
+		   h->live > 0) {
 		if (++spins > 2500) {
 			fnl_mutex_unlock(&h->lock);
 			return fnl_fail(FNL_ERR_NO_DEVICE,

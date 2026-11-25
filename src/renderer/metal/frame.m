@@ -420,9 +420,12 @@ static bool wait_slot(App *a, uint32_t slot)
 	 * (fnl_frame_gpu_ms()): read here, on this thread, and not by a
 	 * completion handler, which could run after the App is gone. */
 	if (cb.status == MTLCommandBufferStatusCompleted &&
-		!g->slot_untimed[slot] && cb.GPUEndTime > cb.GPUStartTime)
-		app_gpu_time(a, cb.GPUEndTime - cb.GPUStartTime,
-					 g->slot_index[slot]);
+		!g->slot_untimed[slot] && cb.GPUEndTime > cb.GPUStartTime) {
+		static const char *const NAMES[] = { "span" };
+		const double s = cb.GPUEndTime - cb.GPUStartTime;
+		app_gpu_time(a, s, g->slot_index[slot]);
+		parts_gpu(a, NAMES, &s, 1);
+	}
 	return !mt_cb_lost(a, cb);
 }
 
@@ -437,9 +440,12 @@ void mt_gpu_time_poll(App *a)
 		if (!cb || cb.status != MTLCommandBufferStatusCompleted)
 			continue;
 		g->slot_cb[i] = nil;
-		if (!g->slot_untimed[i] && cb.GPUEndTime > cb.GPUStartTime)
-			app_gpu_time(a, cb.GPUEndTime - cb.GPUStartTime,
-						 g->slot_index[i]);
+		if (!g->slot_untimed[i] && cb.GPUEndTime > cb.GPUStartTime) {
+			static const char *const NAMES[] = { "span" };
+			const double s = cb.GPUEndTime - cb.GPUStartTime;
+			app_gpu_time(a, s, g->slot_index[i]);
+			parts_gpu(a, NAMES, &s, 1);
+		}
 	}
 }
 

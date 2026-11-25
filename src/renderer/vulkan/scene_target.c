@@ -527,7 +527,13 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 		 * here rather than at every size, which is what keeps the memory
 		 * off the frames that never ask for the mode. */
 		scene_depth_make_resident(a);
-		if (create_scene_taau(a)) {
+		/* The resolve samples that depth, so a target whose depth stayed lazy
+		 * -- or that could not be built at all -- has no TAAU: the mode is
+		 * refused here rather than a pass made over an image the device was
+		 * never given to sample. */
+		if (!VK(a)->scene_depth_resident) {
+			VK(a)->taau_refused = true;
+		} else if (create_scene_taau(a)) {
 			built = true;
 		} else {
 			destroy_scene_taau(a);
@@ -599,9 +605,20 @@ static void scene_depth_make_resident(App *a)
 	if (create_scene_target(a, w, h, true))
 		return;
 	destroy_scene_target(a);
+	/* The size's own target again, with the lazy depth it was made with: the
+	 * render scale is kept and only the comparison is given up, which is what
+	 * the mode's own check reads (scene_depth_resident). */
+	if (create_scene_target(a, w, h, false)) {
+		fnl_log(FNL_LOG_WARN,
+				"no room for a %dx%d scene target with a depth to read; "
+				"TAAU is off at this size",
+				(int)w, (int)h);
+		return;
+	}
+	destroy_scene_target(a);
 	fnl_log(FNL_LOG_WARN,
-			"no room for a %dx%d scene target with a depth to read; "
-			"TAAU runs without the comparison",
+			"no room for a %dx%d scene target; drawing the scene at the "
+			"window's own resolution",
 			(int)w, (int)h);
 }
 

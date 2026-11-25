@@ -291,7 +291,11 @@ def measure_native(b, variant, rate, seconds, settle, window, extra):
             time.sleep(window)
             c1, t1 = desk.cpu_seconds(), time.time()
             rc = proc.wait(timeout=seconds + 30)
-    except (Unreachable, RuntimeError, subprocess.TimeoutExpired) as e:
+    # OSError as well: a laptop's or a guest's agent answers over a socket,
+    # and a dropped connection is a socket.timeout or a reset, not the
+    # RuntimeError a refusal is -- one column lost, not the sweep.
+    except (Unreachable, RuntimeError, OSError,
+            subprocess.TimeoutExpired) as e:
         return None, "%s: %s" % (type(e).__name__, e)
     finally:
         if proc and proc.poll() is None:
@@ -334,6 +338,8 @@ def measure_bare(b, variant, rate, seconds, settle, window, extra):
         if not os.path.exists(exe):
             return None, "no %s" % os.path.relpath(exe, ROOT)
         box.kill_stale()
+        # Before driver_bind(), which reads it (see bench.py's).
+        b.variant = variant
         try:
             b.driver_bind()
         except (D.Unreachable, D.DriverMoveFailed) as e:

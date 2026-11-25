@@ -81,6 +81,10 @@ FNL_API bool fnl_metal_gpu(FnlApp *app, FnlMetalGpu *out);
  * sample count, and the colour and depth attachments' formats
  * (MTLPixelFormat values). One pipeline state per target you might see.
  *
+ * Read from the renderer's state, so it is the render thread's as
+ * fnl_metal_gpu() is: call it from a callback -- on_gpu_created, on_record
+ * or on_overlay -- and anywhere else it returns false and writes nothing.
+ *
  * False when this window cannot use that target: FNL_TARGET_OFFSCREEN_MS on
  * a device that offers no sample count worth having, for instance. */
 typedef struct {
@@ -94,7 +98,7 @@ typedef struct {
 } FnlMetalSceneLayout;
 
 FNL_API bool fnl_metal_scene_layout(FnlApp *app, FnlSceneTarget target,
-									FnlMetalSceneLayout *out);    /* [any] */
+									FnlMetalSceneLayout *out);
 
 /* This frame's scene: the encoder it is recorded into, the command buffer
  * that encoder belongs to, and the rectangle of the target it is drawn

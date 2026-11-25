@@ -52,8 +52,10 @@ typedef enum {
  * path's, where the backend scans out what the renderer read back. The two
  * 8-bit orders are a byte a channel; PIXELS_RGB10 is one 32-bit word a
  * pixel, R in bits 9:0, G 19:10, B 29:20 and the two above ignored, which is
- * Vulkan's A2B10G10R10_UNORM_PACK32 and, word for word, DRM's XRGB2101010:
- * the 10-bit PQ frame an HDR output scans out. */
+ * Vulkan's A2B10G10R10_UNORM_PACK32: the 10-bit PQ frame an HDR output scans
+ * out. DRM's XRGB2101010 names the same three channels in the opposite
+ * order (R 29:20, B 9:0), so a backend that scans it out swaps them --
+ * kms.c's scan_row(). */
 typedef enum {
 	PIXELS_BGRA8 = 0,
 	PIXELS_RGBA8 = 1,

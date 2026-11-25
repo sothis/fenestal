@@ -375,10 +375,14 @@ static void note_missing(Parse *p, XkbKind kind, const char *file,
 	snprintf(line, sizeof line, "%s/%.*s%s%.*s%s: %s", KIND_DIR[kind],
 			 (int)flen, file, slen ? "(" : "", (int)slen, sect ? sect : "",
 			 slen ? ")" : "", why);
+	/* The terminator and what is before it: snprintf() writes that much and
+	 * leaves the rest of the buffer as it found it, and a copy of the whole
+	 * reads those bytes. */
+	const size_t n = strlen(line) + 1;
 	if (!p->src->missing[0])
-		memcpy(p->src->missing, line, sizeof line);
+		memcpy(p->src->missing, line, n);
 	if (p->depth == 0 && !p->src->top_miss[0])
-		memcpy(p->src->top_miss, line, sizeof line);
+		memcpy(p->src->top_miss, line, n);
 }
 
 /* A name that stays under the root: no leading slash and no `..` step. The

@@ -388,9 +388,12 @@ static void gpu_time_read(App *a, uint32_t slot)
 	const D3D12_RANGE none = { 0, 0 };
 	ID3D12Resource_Unmap(g->ts_read, 0, &none);
 	g->ts_unread[slot] = false;
-	if (t1 >= t0)
-		app_gpu_time(a, (double)(t1 - t0) / (double)g->ts_freq,
-					 g->ts_index[slot]);
+	if (t1 >= t0) {
+		static const char *const NAMES[] = { "span" };
+		const double s = (double)(t1 - t0) / (double)g->ts_freq;
+		app_gpu_time(a, s, g->ts_index[slot]);
+		parts_gpu(a, NAMES, &s, 1);
+	}
 }
 
 /* Every slot whose fence has passed, which is what says its pair is in. */
@@ -413,11 +416,18 @@ static bool submit(App *a, uint32_t slot)
 	g->recording = false;
 	HRESULT hr = ID3D12GraphicsCommandList_Close(g->list);
 	if (FAILED(hr)) {
-		if (!d3d_hr_lost(a, hr))
+		/* A list left recording fails every later reset, so a failure that
+		 * is not the device's ends the window on a live device: rebuilt, as
+		 * the Signal failure below is (and nothing of this frame was
+		 * submitted, so the wait is for the frames before it). */
+		if (!d3d_hr_lost(a, hr)) {
 			fnl_log(FNL_LOG_ERROR,
 					"the frame's list did not close "
-					"(0x%08lx)",
+					"(0x%08lx); rebuilding",
 					(unsigned long)hr);
+			(void)d3d_wait_idle(a);
+			a->device_lost = true;
+		}
 		return false;
 	}
 	ID3D12CommandList *lists[1] = { (ID3D12CommandList *)g->list };

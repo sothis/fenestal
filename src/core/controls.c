@@ -769,10 +769,15 @@ void ctl_draw(App *a, const FnlDrawState *ds, int win_w, int area_w, int area_h)
 		ctl_draw_combo(a, ctl_gpu_x(a, win_w, rx), ry, ctl_gpu_w(a), rh, gpu,
 					   ds->is_active && ctl_gpu_count(a) > 1);
 	}
-	char label[CTL_SIZE_MAX];
-	ctl_combo_label(a, ds, area_w, area_h, label, sizeof label);
-	ctl_draw_combo(a, ctl_size_x(a, win_w, rx), ry, ctl_combo_w(a), rh, label,
-				   ds->is_active && n > 0);
+	/* Where FNL_TITLEBAR_MODE leaves the box out it has no width, and a
+	 * zero-width frame and its arrow would be drawn over the box beside
+	 * it; the output and GPU boxes above are gated the same way. */
+	if (ctl_combo_w(a) > 0) {
+		char label[CTL_SIZE_MAX];
+		ctl_combo_label(a, ds, area_w, area_h, label, sizeof label);
+		ctl_draw_combo(a, ctl_size_x(a, win_w, rx), ry, ctl_combo_w(a), rh,
+					   label, ds->is_active && n > 0);
+	}
 }
 
 /* The open list: which box it drops from, where, and its rows as text.
@@ -879,8 +884,18 @@ FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds, int win_w)
 		return FNL_OK;
 
 	static FNL_THREAD_LOCAL CtlList l; /* 2.6 KiB: not on the stack */
-	if (!ctl_list(a, win_w, &l))
+	if (!ctl_list(a, win_w, &l)) {
+		/* The box it drops from gave way, or no row could be built: put the
+		 * list away as the bar's own case above does, or the window stays
+		 * modal on an invisible list and the next press is the dismissing
+		 * click rather than the caller's. The frame draws no list, so
+		 * nothing is owed a re-record. */
+		if (CTL_OPEN(a) != CTL_SHUT) {
+			fnl_atomic_store_u32(&a->ctl_combo_open, (uint32_t)CTL_SHUT);
+			ctl_set_hover(a, -1);
+		}
 		return FNL_OK;
+	}
 
 	const int x = l.x, w = l.w, ly = l.y, n = l.n;
 	const float *line = a->pal[COL_LINE_ON];

@@ -260,6 +260,7 @@ static void x11_publish_size(App *a)
  * BackendState::publish_pending. */
 static void bring_on_screen(App *a);
 static void set_size_hints(App *a);
+static void cursors_rebuild(App *a, int s120);
 
 static void outputs_flush(App *a)
 {
@@ -272,7 +273,8 @@ static void outputs_flush(App *a)
 		const int s    = scale_from_resource_manager(p, resources_ask(p));
 		if (s != p->xft_scale120) {
 			p->xft_scale120 = s;
-			set_size_hints(a); /* the floor is in pixels */
+			set_size_hints(a);   /* the floor is in pixels */
+			cursors_rebuild(a, s); /* the shapes are cut for the old one */
 			p->publish_pending = true;
 		}
 	}
@@ -769,11 +771,19 @@ static void wm_state_set(struct BackendState *p, xcb_atom_t a1, xcb_atom_t a2,
  * not held, unless a size is, which it then rides with. */
 #define SIZE_HOLD_S 0.25
 
-/* Whether the frame last presented is at the size last given. */
+/* Whether the frame last presented is at the size last given, to within the
+ * pixel the point round trip costs: the window's pixels go to the loop as
+ * points (x11_publish_size()) and come back scaled, and off 100 % the two
+ * roundings do not always return the same pixel -- 200 becomes 199 at 240
+ * in 120ths, 202 becomes 203 at 180. Compared exactly, a drag at such a
+ * scale never found its frame and fell back to SIZE_HOLD_S's four sizes a
+ * second; a pixel either way is still a frame at the size asked for, which
+ * is all this decides. */
 static bool size_shown(const struct BackendState *p)
 {
-	return (int)fnl_atomic_load_u32(&p->shown_w) == p->given_w &&
-		   (int)fnl_atomic_load_u32(&p->shown_h) == p->given_h;
+	const int dw = (int)fnl_atomic_load_u32(&p->shown_w) - p->given_w;
+	const int dh = (int)fnl_atomic_load_u32(&p->shown_h) - p->given_h;
+	return dw >= -1 && dw <= 1 && dh >= -1 && dh <= 1;
 }
 
 static void size_apply(struct BackendState *p, uint16_t mask, int x, int y,
@@ -2264,8 +2274,13 @@ static void x11_pump(App *a, int timeout_ms)
 			int wms = loop_wait_ms(p->clip_waiting ? p->clip.deadline
 												   : -1.0, -1.0);
 			/* And back by a sync request's deadline, where its configure
-			 * has not come: the publish that answers it is owed then. */
-			if (p->sync_asked && !p->sync_configured) {
+			 * has not come: the publish that answers it is owed then. The
+			 * deadline bounds the wait only while it is in force: once it
+			 * has passed, the publish it was for has been made (and
+			 * sync_asked left standing for a later configure), and a bound
+			 * that is already past is a 0 ms wait on every turn for ever. */
+			if (p->sync_asked && !p->sync_configured &&
+				now_seconds() < p->sync_deadline) {
 				const int sync_ms = loop_wait_ms(p->sync_deadline, -1.0);
 				wms = wms < 0 || sync_ms < wms ? sync_ms : wms;
 			}
@@ -2830,10 +2845,13 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 			XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_STRUCTURE_NOTIFY |
 			XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_PROPERTY_CHANGE,
 	};
+	/* The position at the same scale as the size above: want_s120() is the
+	 * frame's, still 120 here -- the backend's scale is published after this
+	 * open -- and a caller's points would land at 100% on a 2x desktop. */
 	xcb_create_window(
 		p->conn, XCB_COPY_FROM_PARENT, p->window, p->root,
-		(int16_t)scale_pt(a->init_x_pt, want_s120(a)),
-		(int16_t)scale_pt(a->init_y_pt, want_s120(a)),
+		(int16_t)scale_pt(a->init_x_pt, s120),
+		(int16_t)scale_pt(a->init_y_pt, s120),
 		(uint16_t)p->win_w, (uint16_t)p->win_h, 0,
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, p->screen->root_visual,
 		XCB_CW_BACK_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_EVENT_MASK, values);
@@ -3008,6 +3026,14 @@ static FnlResult x11_window_open(App *a)
 	p->gfx = p->host->gfx;
 	FNL_TRY(poll_watch(&p->host->loop, xcb_get_file_descriptor(p->conn)));
 	wait_for_map(a);
+	/* The wait's other way out: the server went, or kills this client,
+	 * before the map. That is no display, which fnl_init() steps past to the
+	 * next backend; a manager that would not map is not, and wait_for_map()
+	 * has drawn anyway. */
+	if (xcb_connection_has_error(p->conn))
+		return fnl_fail(FNL_ERR_NO_DISPLAY,
+						"the X11 connection failed while the window waited "
+						"for its map");
 	return FNL_OK;
 }
 

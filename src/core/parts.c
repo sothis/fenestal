@@ -284,7 +284,7 @@ void parts_mark(App *a, FrameMark m, double cpu)
 			break;
 		p->rec_wall_sum += p->pre_wall - p->rec_wall;
 		p->pre_wall_sum += wall - p->pre_wall;
-		if (cpu >= 0.0 && p->rec_cpu >= 0.0) {
+		if (cpu >= 0.0 && p->rec_cpu >= 0.0 && p->pre_cpu >= 0.0) {
 			p->rec_cpu_sum += p->pre_cpu - p->rec_cpu;
 			p->pre_cpu_sum += cpu - p->pre_cpu;
 			p->cpu_frames++;

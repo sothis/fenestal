@@ -419,14 +419,19 @@ bool create_target_image(App *a, uint32_t w, uint32_t h, VkFormat fmt,
 						 VkSampleCountFlagBits samples,
 						 VkImageUsageFlags usage, bool lazy, TargetImage *t)
 {
+	t->image = VK_NULL_HANDLE;
+	t->mem   = VK_NULL_HANDLE;
+	t->view  = VK_NULL_HANDLE;
+	/* A zero extent is no image at all: vkCreateImage would be asked for one,
+	 * which is invalid usage. A target the caller could not size is simply
+	 * not built, and left empty as every refusal is, so destroying it does
+	 * nothing. */
+	if (w == 0 || h == 0)
+		return false;
 	const bool depth =
 		(usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
 	uint32_t type = 0;
 	const bool want_lazy = lazy && lazy_memory_type(a, ~0u, &type);
-
-	t->image = VK_NULL_HANDLE;
-	t->mem   = VK_NULL_HANDLE;
-	t->view  = VK_NULL_HANDLE;
 
 	VkImageCreateInfo ici = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -609,9 +614,16 @@ VkRenderPass make_render_pass(App *a, const PassDesc *d)
 		{
 			.srcSubpass = 0,
 			.dstSubpass = VK_SUBPASS_EXTERNAL,
-			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			/* The depth's too, where there is one: a pass that stores it
+			 * transitions it for its reader (either the read-only layout a
+			 * sampler wants or the attachment layout the next frame starts
+			 * from), and that transition and the store are the subpass's
+			 * writes. Colour alone left the following pass's depth read
+			 * unordered behind them. */
+			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+							depth_stages,
 			.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | depth_write,
 			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
 		},
 	};

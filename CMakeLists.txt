@@ -785,12 +785,13 @@ function(embed_shader name var)
         # Made under .new names and renamed into place only once every
         # check has passed: a make that stopped at a check would otherwise
         # leave the outputs newer than the shader, and the next one would
-        # not run the check again.
+        # not run the check again. The .new names are not BYPRODUCTS: they
+        # do not survive the rule, and Ninja takes a declared output that
+        # is missing for a dirty one -- every build would rerun every
+        # translation. What does survive is listed.
         add_custom_command(
             OUTPUT ${gl}.h ${gl} ${gl41}.h ${gl41} ${hlsl} ${msl}.h
-            BYPRODUCTS ${spv} ${hlsl}.spv ${gl}.new ${gl}.h.new ${hlsl}.new
-                       ${gl41}.new ${gl41}.h.new
-                       ${msl} ${msl}.new ${msl}.h.new
+            BYPRODUCTS ${spv} ${hlsl}.spv ${msl}
             COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V ${define}
                     ${src} -o ${spv}
             COMMAND ${FNL_SPIRV_CROSS} ${spv} --version 450 --no-es
@@ -1117,29 +1118,24 @@ else()
         set(FNL_FONT_STUB ${FNL_GEN_DIR}/font_atlas.S)
     endif()
     # mkfont writes each under a .new name and renames them all at the end,
-    # as the shader rule does and for its reason.
-    set(_font_new)
-    foreach(_f ${FNL_FONT_HDRS} ${FNL_FONT_BINS})
-        list(APPEND _font_new ${_f}.new)
-    endforeach()
+    # as the shader rule does and for its reason. Those names are not
+    # BYPRODUCTS: missing is normal for them, and Ninja would rerun the bake
+    # on every build (the shader rule says it at length).
     if(MSVC)
         # mkfont still writes its assembler stub, which cl cannot assemble:
-        # the arrays are made from the blobs in the same rule.
-        list(APPEND _font_new ${FNL_GEN_DIR}/font_atlas.S
-                              ${FNL_GEN_DIR}/font_atlas.S.new)
+        # the arrays are made from the blobs in the same rule. The stub
+        # itself survives and is listed.
         add_custom_command(
             OUTPUT ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS}
-            BYPRODUCTS ${_font_new}
+            BYPRODUCTS ${FNL_GEN_DIR}/font_atlas.S
             COMMAND mkfont ${FONT_TTF} ${FNL_GEN_DIR}
             COMMAND bin2c ${FNL_FONT_STUB}
                     font_atlas_blob ${FNL_GEN_DIR}/font_atlas.bin -
                     font_cells_blob ${FNL_GEN_DIR}/font_cells.bin -
             DEPENDS mkfont bin2c ${FONT_TTF} VERBATIM)
     else()
-        list(APPEND _font_new ${FNL_FONT_STUB}.new)
         add_custom_command(
             OUTPUT ${FNL_FONT_HDRS} ${FNL_FONT_STUB} ${FNL_FONT_BINS}
-            BYPRODUCTS ${_font_new}
             COMMAND mkfont ${FONT_TTF} ${FNL_GEN_DIR}
             DEPENDS mkfont ${FONT_TTF} VERBATIM)
     endif()
@@ -2148,6 +2144,10 @@ foreach(_s scene.vert scene.frag star.vert star.frag)
             BYPRODUCTS ${_gl}
             COMMAND ${FNL_SPIRV_CROSS} ${_spv} --version 450 --no-es
                     --glsl-emit-push-constant-as-ubo --output ${_gl}
+            # The library's rule validates both translations, and so does the
+            # 4.10 one below: a translation the device would refuse fails the
+            # build here instead.
+            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -S ${_stage} ${_gl}
             COMMAND ${CMAKE_COMMAND} -DIN=${_gl}
                     -DOUT=${TESTBED_GEN_DIR}/${_s}.gl.h -DVAR=${_var}_glsl
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake

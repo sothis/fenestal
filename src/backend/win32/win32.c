@@ -614,6 +614,8 @@ static void raw_unregister(struct BackendState *p)
 	p->raw_saved_valid = false;
 }
 
+static void win32_release(App *a);
+
 /* Raw input with the cursor clip. Only a device that reports *relative*
  * motion turns the view. A tablet, or a virtual machine's pointer
  * integration, reports positions, which on_raw_input() passes over: in a
@@ -624,6 +626,13 @@ static void win32_capture(App *a)
 	struct BackendState *p = a->backend_state;
 	if (a->pointer_captured)
 		return;
+
+	/* One capture, the program's: the host's raw thread forwards for one
+	 * window, so a second window taking it lets the first go -- its release
+	 * would otherwise stop the forwarding the new holder now relies on. */
+	for (App *w = a->host->windows; w; w = w->next)
+		if (w != a && w->pointer_captured && w->backend_state)
+			win32_release(w);
 
 	/* Where the raw input thread has the process's raw mouse, the motion is
 	 * handed on from there; otherwise registered here. One raw thread
@@ -913,6 +922,10 @@ static void hold_fullscreen(App *a, HWND hwnd)
 /* WM_SIZE's handler, which a fullscreen change runs where Windows does not. */
 static void on_size(App *a, HWND hwnd, WPARAM wp);
 
+/* Defined with the output move below; the rectangle saved for leaving
+ * fullscreen is a placement's, in its coordinates. */
+static POINT workspace_origin(void);
+
 /* Borderless fullscreen: the whole monitor, no frame, back where it was after.
  *
  * The window rectangle is saved, and not a WINDOWPLACEMENT to hand back to
@@ -946,12 +959,21 @@ static void win32_set_fullscreen(App *a, bool on)
 			(DWORD)GetWindowLongPtrW(p->hwnd, GWL_STYLE) & ~(DWORD)WS_MAXIMIZE;
 		p->saved_maximized = a->is_maximized;
 		/* A maximized window's rectangle is the screen's, which is not what
-		 * it should come back to, so what is saved is the restored one. */
+		 * it should come back to, so what is saved is the restored one. A
+		 * placement's rectangle is in workspace coordinates, and the
+		 * SetWindowPos that restores it takes screen ones (workspace_origin()),
+		 * so it is converted here, once, where the space it is in is known. */
 		WINDOWPLACEMENT wp = { .length = sizeof wp };
-		if (GetWindowPlacement(p->hwnd, &wp))
+		if (GetWindowPlacement(p->hwnd, &wp)) {
+			const POINT o = workspace_origin();
 			p->saved_rect = wp.rcNormalPosition;
-		else
+			p->saved_rect.left += o.x;
+			p->saved_rect.right += o.x;
+			p->saved_rect.top += o.y;
+			p->saved_rect.bottom += o.y;
+		} else {
 			GetWindowRect(p->hwnd, &p->saved_rect);
+		}
 
 		MONITORINFO mi = { .cbSize = sizeof mi };
 		if (!GetMonitorInfoW(
@@ -1209,6 +1231,11 @@ static void on_size(App *a, HWND hwnd, WPARAM wp)
 
 static const char *win32_host(const App *a);
 static const char *win32_host_probe(void);
+/* The probe's answer, process-wide and written from win32_open(): read by
+ * win32_host(), which FnlBackendVtbl::host lets come from any thread, and
+ * which may not read App::backend_state -- the pump's thread frees it. A
+ * literal, so two racing stores are the same value. */
+static FnlAtomicPtr host_name;
 
 /* A move to another monitor at the same DPI changes no size. Cheap: the
  * monitor is only asked about when its handle changed.
@@ -2472,8 +2499,9 @@ static FnlResult win32_open(App *a)
 	publish_size(a);
 
 	/* And what stands between this window and a display driver: asked here,
-	 * where wine's has loaded, so on_move() need not ask on every WM_MOVE. */
-	a->backend_state->host = win32_host_probe();
+	 * where wine's has loaded, so a later host() call by any thread reads the
+	 * cached answer. */
+	fnl_atomic_store_ptr(&host_name, (void *)win32_host_probe());
 
 	return FNL_OK;
 
@@ -2890,7 +2918,10 @@ static void win32_cursor_changed(App *a)
 {
 	const HWND hwnd = a->backend_state->hwnd;
 	POINT pt;
-	if (!GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd)
+	/* The root of what is under the pointer: after a move the frames go into
+	 * a child that fills the client area, and WindowFromPoint names it. */
+	if (!GetCursorPos(&pt) ||
+		GetAncestor(WindowFromPoint(pt), GA_ROOT) != hwnd)
 		return;
 	const LRESULT ht =
 		SendMessageW(hwnd, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y));
@@ -2921,13 +2952,13 @@ static const char *win32_host_probe(void)
 
 static const char *win32_host(const App *a)
 {
-	const struct BackendState *p = a->backend_state;
-	/* The cached answer, from open. Before it -- the status line is asked for
-	 * while the window is still being made -- there is nothing to cache in and
-	 * a probe costs nothing anybody waits on, so it is asked each time. */
-	if (p && p->host)
-		return p->host;
-	return win32_host_probe();
+	(void)a;
+	const char *h = fnl_atomic_load_ptr(&host_name);
+	if (h)
+		return h;
+	h = win32_host_probe();
+	fnl_atomic_store_ptr(&host_name, (void *)h);
+	return h;
 }
 
 /* Under wine whichever display driver: its Direct3D 12 is vkd3d-proton,

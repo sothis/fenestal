@@ -286,7 +286,14 @@ static void app_teardown(App *a)
 	a->snap_valid = false;
 
 	/* The caller's images first: their GPU objects are the device's, and the
-	 * call below is what destroys it (FnlRendererVtbl::image_free). */
+	 * call below is what destroys it (FnlRendererVtbl::image_free). The
+	 * window's device is entered around them: window_stop() leaves the *last*
+	 * window's context current, so without this a second window's images and
+	 * objects would be deleted by name in the survivor's context, where those
+	 * names are the survivor's. The leave precedes destroy_instance(), which
+	 * frees the renderer state the leave reads. */
+	if (a->renderer && a->renderer_ready)
+		RENDERER(a)->thread_enter(a);
 	app_images_free(a);
 
 	/* Both seams, renderer first: the surface belongs to the graphics API and
@@ -298,6 +305,7 @@ static void app_teardown(App *a)
 		 * to read it back from. */
 		RENDERER(a)->destroy_device_objects(a, !a->device_lost);
 		RENDERER(a)->destroy_surface(a);
+		RENDERER(a)->thread_leave(a);
 		RENDERER(a)->destroy_instance(a);
 	}
 	/* The window's own state goes here; the host's connection and pump stay

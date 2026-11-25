@@ -866,9 +866,13 @@ class Bare:
         puts it aside, so there it is put back either way: only
         nvidia_userspace_aside() moved it."""
         files = " ".join(NVIDIA_FILES)
+        # Every move that fails ends the shell: the closing count below would
+        # otherwise make the status 0 and the round go on with the files
+        # where they are.
         back = (
             "for f in %s; do if [ -e %s$f ] && [ ! -e $f ]; then "
-            "mv %s$f $f; fi; done" % (files, NVIDIA_STASH, NVIDIA_STASH)
+            "mv %s$f $f || exit 1; fi; done"
+            % (files, NVIDIA_STASH, NVIDIA_STASH)
         )
         count = (
             "n=0; for f in %s; do [ -e $f ] && n=$((n+1)); done; "
@@ -876,7 +880,7 @@ class Bare:
         )
         res = _ssh(
             as_root(self.dest),
-            "%s; if [ -x %s ]; then %s; else %s; fi; %s"
+            "%s; if [ -x %s ]; then %s || exit 1; else %s || exit 1; fi; %s"
             % (
                 count,
                 NVIDIA_USERSPACE,
@@ -1102,7 +1106,11 @@ class Bare:
         the one the sweep's first bring-up found, however many rounds
         follow it. Run before the chvt, or what is read back is the round's
         own VT. A save that fails is not the round's to fail: the exit
-        status is the chvt's, as it was before there was anything to keep."""
+        status is the chvt's, as it was before there was anything to keep.
+
+        The caller groups this after the start's `&&` (`&& { ...; }`): a
+        start that failed must neither save the VT it never took nor switch
+        to one -- and the command's status has to stay the start's failure."""
         f = shlex.quote("%s/%s" % (self.there, VT_SAVED_FILE))
         return (
             "{ [ -e %s ] || cat /sys/class/tty/tty0/active > %s; } "
@@ -1262,8 +1270,9 @@ class Bare:
                 as_root(self.dest),
                 "rm -f %s; " % shlex.quote(self._wsock())
                 + " ".join(map(shlex.quote, argv))
-                + " && "
-                + self._vt_take(),
+                + " && { "
+                + self._vt_take()
+                + "; }",
             )
             if res.returncode != 0:
                 raise Unreachable(
@@ -1435,7 +1444,10 @@ class Bare:
             argv += ["/usr/bin/cage", "--", "/bin/sh", "-c", hold]
             res = _ssh(
                 as_root(self.dest),
-                " ".join(map(shlex.quote, argv)) + " && " + self._vt_take(),
+                " ".join(map(shlex.quote, argv))
+                + " && { "
+                + self._vt_take()
+                + "; }",
             )
             if res.returncode != 0:
                 raise Unreachable(
@@ -2734,9 +2746,12 @@ for lib in sorted(libs):
 # the subdev has to say there is this one. nouveau's config=disp=0 was
 # tried first and stops none of them: the reader is not the display's.
 SETUP_ROOT = r"""
-usermod -aG input %(user)s
-modprobe uinput
-echo uinput > /etc/modules-load.d/fenestal-uinput.conf
+# The three the rounds depend on end the script where they fail: its status
+# is otherwise the last thing it ran, and --setup would report success with
+# the account still out of `input`.
+usermod -aG input %(user)s || exit 1
+modprobe uinput || exit 1
+echo uinput > /etc/modules-load.d/fenestal-uinput.conf || exit 1
 if grep -qs 0x10de /sys/bus/pci/devices/*/vendor; then
     cat > /etc/modprobe.d/fenestal-nouveau.conf <<EOF
 # nouveau's bus subdev reports MMIO faults; on a GM107 the graphics
@@ -2766,7 +2781,7 @@ ExecStart=$logcons 12
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload &&
-        systemctl enable --now -q fenestal-logcons.service
+        systemctl enable --now -q fenestal-logcons.service || exit 1
 else
     echo "no setlogcons (kbd): the kernel's messages stay on the VT in front"
 fi

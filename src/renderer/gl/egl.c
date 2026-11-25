@@ -61,12 +61,14 @@ static const char *egl_error_name(EGLint e)
 	}
 }
 
-/* EGL_NOT_INITIALIZED on a display that was: terminated under the renderer
- * (RendererState::display_gone), which the recovery answers by opening it
- * again. */
+/* EGL_NOT_INITIALIZED on a display that was -- or EGL_BAD_DISPLAY, its handle
+ * gone with it: terminated under the renderer (RendererState::display_gone),
+ * which the recovery answers by opening it again. Every call here names the
+ * display the renderer holds, so a bad one is a display that went. */
 static void note_terminated(App *a, EGLint e)
 {
-	if (e == EGL_NOT_INITIALIZED && GLS(a)->bridge_display)
+	if ((e == EGL_NOT_INITIALIZED || e == EGL_BAD_DISPLAY) &&
+		GLS(a)->bridge_display)
 		GLS(a)->display_gone = true;
 }
 
@@ -609,17 +611,25 @@ FnlResult gl_bridge_open(App *a)
 		if (g->devs.dev[i] == on)
 			g->dev_cur = i;
 	/* eglGetPlatformDisplay and eglCreatePlatformWindowSurface, both used
-	 * here, are EGL 1.5's. */
-	if (major < 1 || (major == 1 && minor < 5))
+	 * here, are EGL 1.5's. A failure from here on gives the display back
+	 * through gl_bridge_close(): left named by bridge_display with no
+	 * configuration, the next recovery would see a display and skip the
+	 * reopen that is the only way out (recover_from_loss()). */
+	if (major < 1 || (major == 1 && minor < 5)) {
+		gl_bridge_close(a);
 		return fnl_fail(FNL_ERR_NO_DEVICE, "EGL %d.%d; this renderer needs 1.5",
 						(int)major, (int)minor);
+	}
 	const char *vendor = eglQueryString(dpy, EGL_VENDOR);
 	fnl_log(FNL_LOG_INFO, "EGL %d.%d, %s", (int)major, (int)minor,
 			vendor ? vendor : "(no vendor)");
 	GLS(a)->can_opaque = native(a)->alpha(a) > 0 &&
 						 has_extension(eglQueryString(dpy, EGL_EXTENSIONS),
 									   "EGL_EXT_present_opaque");
-	return choose_config(a, dpy);
+	const FnlResult rc = choose_config(a, dpy);
+	if (rc < 0)
+		gl_bridge_close(a);
+	return rc;
 }
 
 void gl_bridge_close(App *a)
@@ -940,6 +950,14 @@ GlSwap gl_bridge_swap(App *a)
 	const EGLint e = eglGetError();
 	switch (e) {
 	case EGL_CONTEXT_LOST:
+		return GL_SWAP_DEVICE_LOST;
+	/* A display terminated under the renderer (note_terminated()): its
+	 * surfaces and contexts went with it, so this is the loss the recovery
+	 * reopens the display for. Left in the default branch it would be a
+	 * warning a frame and a window that never presents again. */
+	case EGL_NOT_INITIALIZED:
+	case EGL_BAD_DISPLAY:
+		note_terminated(a, e);
 		return GL_SWAP_DEVICE_LOST;
 	case EGL_BAD_SURFACE:
 	case EGL_BAD_NATIVE_WINDOW:

@@ -63,6 +63,10 @@ FNL_API bool fnl_d3d12_gpu(FnlApp *app, FnlD3D12Gpu *out);
  * count, and the render target's and depth's formats (DXGI_FORMAT values).
  * One pipeline state per target you might see.
  *
+ * Read from the renderer's state, so it is the render thread's as
+ * fnl_d3d12_gpu() is: call it from a callback -- on_gpu_created, on_record
+ * or on_overlay -- and anywhere else it returns false and writes nothing.
+ *
  * False when this window cannot use that target: FNL_TARGET_OFFSCREEN_MS on
  * a device that offers no sample count worth having, for instance. */
 typedef struct {
@@ -75,7 +79,7 @@ typedef struct {
 } FnlD3D12SceneLayout;
 
 FNL_API bool fnl_d3d12_scene_layout(FnlApp *app, FnlSceneTarget target,
-									FnlD3D12SceneLayout *out);    /* [any] */
+									FnlD3D12SceneLayout *out);
 
 /* This frame's scene: the command list it is recorded into, the render
  * target and depth it draws to, and the rectangle of them it is drawn

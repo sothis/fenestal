@@ -6,6 +6,12 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **The Direct3D 12 and Metal scene layouts are the render thread's**, as
+  Vulkan's already were: both read the renderer's state, which a device loss
+  or a move to another renderer frees under any other thread.
+  `fnl_d3d12_scene_layout()` and `fnl_metal_scene_layout()` return false off
+  that thread, and from the callbacks as the GPU handles do.
+
 - **FreeBSD.** A native `freebsd` target: Wayland, X11 and KMS, drawn with
   Vulkan and OpenGL. The KMS backend's DRM headers come from libdrm, its
   input from FreeBSD's evdev, and the event loop is `poll()` and a pipe.

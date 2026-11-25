@@ -142,9 +142,11 @@ done
 
 # Ctrl-C at this terminal already reaches all four: they are in this script's
 # process group and the tty signals the group, not the leader. The kill is for
-# the other way in -- a TERM sent to the script alone -- and every pid is one
-# the loop below has not yet reaped, so a failure here is a window that has
-# already gone and is not worth a word.
+# the other way in -- a TERM sent to the script alone -- and every pid left in
+# `running` is one the loop below has not yet reaped: each is taken out as its
+# wait returns, so a pid the system has already given to something else is
+# never signalled. A failure here is a window that has already gone and is not
+# worth a word.
 stopping=0
 trap 'stopping=1
       for j in $running; do kill "${j#*:}" 2>/dev/null || true; done' INT TERM
@@ -156,6 +158,11 @@ for j in $running; do
     t=${j%%:*}
     status=0
     wait "${j#*:}" || status=$?
+    remaining=""
+    for k in $running; do
+        [ "$k" = "$j" ] || remaining="$remaining $k"
+    done
+    running=$remaining
     if [ "$stopping" -eq 0 ] && [ "$status" -ne 0 ]; then
         rc=1
         echo "run_all.sh: $t exited $status, and its log ends:" >&2

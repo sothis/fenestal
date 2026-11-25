@@ -787,10 +787,9 @@ const FnlRendererVtbl fnl_renderer_d3d12 = {
  * include/fenestal/fnl_d3d12.h.
  *
  * Each refuses an App that another renderer draws: a build may have several,
- * and every one's interop is exported. fnl_d3d12_gpu() is the render
- * thread's, since it reads the renderer's state, and refuses any other
- * (app_renderer_state_ours()); fnl_d3d12_scene_layout() any thread's,
- * reading atomics alone. */
+ * and every one's interop is exported. Both are the render thread's, since
+ * both read App::renderer_state, which a move may free under any other thread
+ * (app_renderer_state_ours()). */
 
 bool fnl_d3d12_gpu(App *a, FnlD3D12Gpu *out)
 {
@@ -806,8 +805,9 @@ bool fnl_d3d12_gpu(App *a, FnlD3D12Gpu *out)
 
 bool fnl_d3d12_scene_layout(App *a, FnlSceneTarget t, FnlD3D12SceneLayout *out)
 {
-	if (!a || !out || renderer_any(a) != &fnl_renderer_d3d12 || t < 0 ||
-		t >= FNL_TARGET_COUNT)
+	if (!a || !out || !app_renderer_state_ours(a) ||
+		renderer_any(a) != &fnl_renderer_d3d12 || !a->renderer_state ||
+		t < 0 || t >= FNL_TARGET_COUNT)
 		return false;
 	int samples = 1;
 	if (t == FNL_TARGET_OFFSCREEN_MS) {

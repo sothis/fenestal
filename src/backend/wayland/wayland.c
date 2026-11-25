@@ -953,10 +953,16 @@ static void ptr_enter(void *data, struct wl_pointer *wp, uint32_t serial,
 	if (!a)
 		return;
 	struct BackendState *p = a->backend_state;
-	/* A leave that never came for the window before. */
+	/* A leave that never came for the window before: said as ptr_leave()
+	 * says it, or that window's caller never hears the edge and its bar keeps
+	 * the hover the pointer left. */
 	if (hs->ptr_window && hs->ptr_window != a) {
-		hs->ptr_window->backend_state->left_held = false;
-		deco_release(hs->ptr_window);
+		App *prev = hs->ptr_window;
+		prev->backend_state->left_held = false;
+		deco_release(prev);
+		app_reticle_publish(prev);
+		app_pointer_presence(prev, false, win_pt(prev, prev->ptr_x),
+							 win_pt(prev, prev->ptr_y));
 	}
 	hs->ptr_window        = a;
 	hs->pointer_serial    = serial;
@@ -1659,14 +1665,21 @@ static void seat_extras(App *a)
 	struct BackendHostState *hs = app_backend_host(a);
 	if (!hs->seat)
 		return;
+	/* A proxy the compositor would not make is left NULL: the next call --
+	 * each global's arrival asks again -- tries once more, and there is
+	 * nothing to add a listener to meanwhile. */
 	if (hs->ddm && !hs->dd) {
 		hs->dd = wl_data_device_manager_get_data_device(hs->ddm, hs->seat);
-		wl_data_device_add_listener(hs->dd, &data_device_listener, a->host);
+		if (hs->dd)
+			wl_data_device_add_listener(hs->dd, &data_device_listener,
+										a->host);
 	}
 	if (hs->ti_manager && !hs->ti) {
 		hs->ti =
 			zwp_text_input_manager_v3_get_text_input(hs->ti_manager, hs->seat);
-		zwp_text_input_v3_add_listener(hs->ti, &text_input_listener, a->host);
+		if (hs->ti)
+			zwp_text_input_v3_add_listener(hs->ti, &text_input_listener,
+										   a->host);
 	}
 }
 
@@ -1678,7 +1691,8 @@ static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
 	bool has_kb = caps & WL_SEAT_CAPABILITY_KEYBOARD;
 	if (has_kb && !hs->keyboard) {
 		hs->keyboard = wl_seat_get_keyboard(seat);
-		wl_keyboard_add_listener(hs->keyboard, &keyboard_listener, data);
+		if (hs->keyboard)
+			wl_keyboard_add_listener(hs->keyboard, &keyboard_listener, data);
 	} else if (!has_kb && hs->keyboard) {
 		release_keyboard(hs->keyboard);
 		hs->keyboard = NULL;
@@ -1697,9 +1711,10 @@ static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
 	bool has_ptr = caps & WL_SEAT_CAPABILITY_POINTER;
 	if (has_ptr && !hs->pointer) {
 		hs->pointer = wl_seat_get_pointer(seat);
-		wl_pointer_add_listener(hs->pointer, &pointer_listener, data);
+		if (hs->pointer)
+			wl_pointer_add_listener(hs->pointer, &pointer_listener, data);
 
-		if (hs->cursor_shape_manager)
+		if (hs->pointer && hs->cursor_shape_manager)
 			hs->cursor_device = wp_cursor_shape_manager_v1_get_pointer(
 				hs->cursor_shape_manager, hs->pointer);
 	} else if (!has_ptr && hs->pointer) {
@@ -2469,11 +2484,20 @@ static FNL_MUST_USE FnlResult connect_display(App *a)
 		return fnl_fail(FNL_ERR_NO_DISPLAY,
 						"no Wayland display (is WAYLAND_DISPLAY set?)");
 	hs->registry = wl_display_get_registry(hs->display);
+	if (!hs->registry)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"no proxy for the Wayland registry");
 	wl_registry_add_listener(hs->registry, &registry_listener, a->host);
 	/* Two roundtrips: the first delivers the globals, the second the events
-	 * (seat caps, output scale) emitted when we bound them. */
-	wl_display_roundtrip(hs->display);
-	wl_display_roundtrip(hs->display);
+	 * (seat caps, output scale) emitted when we bound them. A roundtrip that
+	 * fails is a connection that went or a latched protocol error, and the
+	 * proxies made on it answer NULL from here on -- a surface made from one
+	 * is a null dereference at its first listener. */
+	if (wl_display_roundtrip(hs->display) < 0 ||
+		wl_display_roundtrip(hs->display) < 0)
+		return fnl_fail(FNL_ERR_NO_DISPLAY,
+						"the Wayland connection failed while the globals were "
+						"arriving");
 
 	if (!hs->compositor || !hs->wm_base)
 		return fnl_fail(FNL_ERR_NO_DISPLAY,
@@ -2489,6 +2513,9 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 	struct BackendHostState *hs = p->host;
 
 	p->surface = wl_compositor_create_surface(hs->compositor);
+	if (!p->surface)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"no proxy for the window's Wayland surface");
 	wl_surface_add_listener(p->surface, &surface_listener, a);
 	p->present = p->surface;
 
@@ -2499,13 +2526,22 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 	if (hs->fractional_manager && p->viewport) {
 		p->fractional = wp_fractional_scale_manager_v1_get_fractional_scale(
 			hs->fractional_manager, p->surface);
+		if (!p->fractional)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"no proxy for the fractional scale");
 		wp_fractional_scale_v1_add_listener(p->fractional, &fractional_listener,
 											a);
 	}
 
 	p->xdg_surface = xdg_wm_base_get_xdg_surface(hs->wm_base, p->surface);
+	if (!p->xdg_surface)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"no proxy for the window's xdg_surface");
 	xdg_surface_add_listener(p->xdg_surface, &xdg_surface_listener, a);
 	p->xdg_toplevel = xdg_surface_get_toplevel(p->xdg_surface);
+	if (!p->xdg_toplevel)
+		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						"no proxy for the window's xdg_toplevel");
 	xdg_toplevel_add_listener(p->xdg_toplevel, &xdg_toplevel_listener, a);
 	/* The string the titlebar draws, so the two cannot disagree. */
 	xdg_toplevel_set_title(p->xdg_toplevel, a->title);
@@ -2522,6 +2558,9 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 	if (hs->decoration_manager) {
 		p->decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(
 			hs->decoration_manager, p->xdg_toplevel);
+		if (!p->decoration)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"no proxy for the titlebar decoration");
 		zxdg_toplevel_decoration_v1_add_listener(p->decoration,
 												 &decoration_listener, a);
 		zxdg_toplevel_decoration_v1_set_mode(
@@ -2744,18 +2783,11 @@ static void wl_pump(App *a, int timeout_ms)
 		clip_readable(hs);
 	if (hs->clip_fd >= 0 && clip_in_expired(&hs->clip))
 		clip_finish(hs, false);
-	/* A GPU that came or went is every window's: each draws with it. */
-	if (uevent && hs->uevent_fd >= 0) {
-		char buf[4096];
-		bool gpu = false;
-		ssize_t got;
-		while ((got = recv(hs->uevent_fd, buf, sizeof buf - 1, 0)) > 0) {
-			buf[got] = '\0';
-			gpu |= loop_uevent_is_gpu(a, buf, (size_t)got);
-		}
-		if (gpu || (got < 0 && errno == ENOBUFS))
-			WL_FOR_EACH_WINDOW(hs, w) app_gpu_hotplug(w);
-	}
+	/* A GPU that came or went is every window's, and the drain is the shared
+	 * one X11 uses. At pump time the host's open list and Host::windows hold
+	 * the same windows: a window is linked only after its open succeeds. */
+	if (uevent && hs->uevent_fd >= 0)
+		loop_uevent_drain(a, hs->uevent_fd);
 }
 
 /* [render] Safe against the pump's prepare_read and dispatch. After the
@@ -2891,12 +2923,36 @@ static void wl_present_window_renew(App *a)
 
 	struct wl_surface *s   = wl_compositor_create_surface(p->host->compositor);
 	struct wl_region *none = wl_compositor_create_region(p->host->compositor);
+	if (!s || !none) {
+		/* No memory for the move's surface: the frames stay on the window's
+		 * own, as where no subcompositor is bound, which present_drop() has
+		 * just made the presenting one. */
+		if (none)
+			wl_region_destroy(none);
+		if (s)
+			wl_surface_destroy(s);
+		fnl_log(FNL_LOG_WARN, "no proxy for the move's surface; the frames "
+							  "stay on the window's own");
+		return;
+	}
 	wl_surface_set_input_region(s, none);
 	wl_region_destroy(none);
 	p->present_sub =
 		wl_subcompositor_get_subsurface(p->host->subcompositor, s, p->surface);
+	p->present_viewport = NULL;
+	if (p->present_sub)
+		p->present_viewport =
+			wp_viewporter_get_viewport(p->host->viewporter, s);
+	if (!p->present_sub || !p->present_viewport) {
+		if (p->present_sub)
+			wl_subsurface_destroy(p->present_sub);
+		p->present_sub = NULL;
+		wl_surface_destroy(s);
+		fnl_log(FNL_LOG_WARN, "no proxy for the move's subsurface; the frames "
+							  "stay on the window's own");
+		return;
+	}
 	wl_subsurface_set_desync(p->present_sub);
-	p->present_viewport = wp_viewporter_get_viewport(p->host->viewporter, s);
 	p->present_src_w = p->present_src_h = 0;
 	if (p->applied_vp_w > 0)
 		wp_viewport_set_destination(p->present_viewport, p->applied_vp_w,
@@ -3014,7 +3070,12 @@ static void wl_window_close(App *a)
 	p->open_next = NULL;
 
 	release_pointer_capture(a);
-	ti_drop(hs);
+	/* The host's transaction is the focused window's: dropping it while
+	 * another window has the input method enabled would lose a commit that
+	 * arrived in one pump turn and is applied in the next. The focused case
+	 * drops it below. */
+	if (hs->ti_enabled_for == a)
+		ti_drop(hs);
 
 	if (hs->kb_window == a) {
 		hs->kb_window = NULL;

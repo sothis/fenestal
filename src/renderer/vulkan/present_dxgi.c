@@ -93,6 +93,35 @@ static void dxgi_textures_release(VkDxgi *d)
 	d->n = 0;
 }
 
+/* What dxgi_open() made before it failed, given back with the VkDxgi kept
+ * for the next try: a retry sees no device and opens again, rather than
+ * taking the half-built one for open and resizing a swapchain that is not
+ * there (vk_dxgi_own_images()). */
+static void dxgi_partial_drop(VkDxgi *d)
+{
+	dxgi_textures_release(d);
+	if (d->sc) {
+		IDXGISwapChain2_Release(d->sc);
+		d->sc = NULL;
+	}
+	if (d->ctx) {
+		ID3D11DeviceContext_ClearState(d->ctx);
+		ID3D11DeviceContext_Flush(d->ctx);
+		ID3D11DeviceContext_Release(d->ctx);
+		d->ctx = NULL;
+	}
+	if (d->dev) {
+		ID3D11Device_Release(d->dev);
+		d->dev = NULL;
+	}
+	if (d->d3d11) {
+		FreeLibrary(d->d3d11);
+		d->d3d11 = NULL;
+	}
+	d->wait  = NULL;
+	d->buf_w = d->buf_h = 0;
+}
+
 void vk_dxgi_end(App *a)
 {
 	VkDxgi *d = DX(a);
@@ -201,17 +230,21 @@ static FnlResult dxgi_open(App *a, VkExtent2D e)
 		f, (IUnknown *)d->dev, win32_present_hwnd(a->backend_state), &sd,
 		NULL, NULL, &sc1);
 	if (SUCCEEDED(hr))
-		IDXGIFactory2_MakeWindowAssociation(f, a->backend_state->hwnd,
-											DXGI_MWA_NO_ALT_ENTER);
+		IDXGIFactory2_MakeWindowAssociation(
+			f, win32_present_hwnd(a->backend_state), DXGI_MWA_NO_ALT_ENTER);
 	IDXGIFactory2_Release(f);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		dxgi_partial_drop(d);
 		return fnl_fail(FNL_ERR_SYSTEM, "DXGI present: "
 						"CreateSwapChainForHwnd 0x%08lx", (unsigned long)hr);
+	}
 	hr = IDXGISwapChain1_QueryInterface(sc1, &IID_IDXGISwapChain2,
 										(void **)&d->sc);
 	IDXGISwapChain1_Release(sc1);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		dxgi_partial_drop(d);
 		return fnl_fail(FNL_ERR_SYSTEM, "DXGI present: no IDXGISwapChain2");
+	}
 	IDXGISwapChain2_SetMaximumFrameLatency(d->sc, 1);
 	d->wait = IDXGISwapChain2_GetFrameLatencyWaitableObject(d->sc);
 	d->buf_w = (int)e.width;

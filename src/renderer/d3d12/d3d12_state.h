@@ -79,9 +79,15 @@ enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_LINEAR2, SMP_LINEAR3, SMP_COUNT };
 
 /* Caller images (fnl_image_create()) take a descriptor each from the srv
  * heap, after the fixed slots above, which name the library's resources and
- * are never handed on: the srv heap is SRV_COUNT + IMAGE_SETS_MAX wide.
- * RendererState::image_used is a bit a slot, so this is a word -- the bound
- * Vulkan's descriptor pool has, and for its reason.
+ * are never handed on. RendererState::image_used is a bit a slot, so this is
+ * a word -- the bound Vulkan's descriptor pool has, and for its reason.
+ *
+ * Two past the last image slot: the one root signature declares a
+ * three-descriptor srv range (the TAAU resolve reads three images in one
+ * draw), and a descriptor table must lie inside its heap. An image in the
+ * last slot starts a table whose other two descriptors are past its view
+ * (d3d12/overlay.c, image_srv_gpu); only t0 is read by the image shader, so
+ * the range is otherwise wasted, but it has to exist.
  *
  * One heap and not a second one: a list binds at most one heap of each type,
  * and two CBV_SRV_UAV heaps in one SetDescriptorHeaps() make every Close()
@@ -89,6 +95,7 @@ enum { SMP_NEAREST = 0, SMP_LINEAR, SMP_LINEAR2, SMP_LINEAR3, SMP_COUNT };
  * takes it, which is what hid this in the wine rounds. */
 #define IMAGE_SETS_MAX 64
 _Static_assert(IMAGE_SETS_MAX <= 64, "image_used is one word of slots");
+#define SRV_HEAP_COUNT (SRV_COUNT + IMAGE_SETS_MAX + 2)
 
 /* An image the GPU draws into, with its depth where it has one. Null
  * together when there is none. `state` is the colour image's resource state

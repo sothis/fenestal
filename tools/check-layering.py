@@ -129,8 +129,35 @@ def strip(text):
 
     None of the APIS patterns appears inside one, which is what makes
     that safe. The AMBIGUOUS ones do -- x11.c interns its ICCCM atoms by
-    name -- and those columns are never fatal, so the over-count is free."""
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
+    name -- and those columns are never fatal, so the over-count is free.
+
+    A literal is copied whole rather than run through the comment regex:
+    several say what a shader file is called -- "shaders/rect.vert" -- and
+    the `/*` that pair of characters makes would open a comment running to
+    the next `*/`, swallowing the code between."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '/' and i + 1 < n and text[i + 1] == '*':
+            end = text.find('*/', i + 2)
+            i = n if end < 0 else end + 2
+        elif c in '"\'':
+            out.append(c)
+            i += 1
+            while i < n:
+                out.append(text[i])
+                if text[i] == '\\' and i + 1 < n:
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                i += 1
+                if text[i - 1] == c:
+                    break
+        else:
+            out.append(c)
+            i += 1
+    text = ''.join(out)
     return re.sub(r'^[ \t]*#[ \t]*(?:include|import).*$', '', text,
                   flags=re.M)
 

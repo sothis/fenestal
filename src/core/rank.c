@@ -283,7 +283,12 @@ static bool rank_save(const App *a)
 	 * step, which a remove first would give up. */
 	(void)remove(a->rank_path);
 #endif
-	return rename(tmp, a->rank_path) == 0;
+	if (rename(tmp, a->rank_path) == 0)
+		return true;
+	/* A rename that failed leaves the whole temporary behind, once per run:
+	 * the ranking's own name is what the next start would read. */
+	(void)remove(tmp);
+	return false;
 }
 
 /* ---- the display, and the figures for it -------------------------------- */

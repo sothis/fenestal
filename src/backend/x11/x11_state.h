@@ -342,7 +342,8 @@ struct BackendState {
 	 * Main thread. shown_w and shown_h are the extent of the frame last
 	 * presented, from the render thread's flush, which wakes the pump
 	 * after one where held_wake asks it to; flush_presents is that
-	 * thread's own. */
+	 * thread's own. Compared with the pixels given, to within the point
+	 * round trip's pixel (size_shown()). */
 	int given_w, given_h;
 	double given_at;
 	bool held;

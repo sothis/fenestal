@@ -1290,20 +1290,28 @@ static void fs_settle(App *a)
 	return NSTerminateCancel;
 }
 
+/* Hiding is the application's, so it is every window's -- as didWake: and
+ * screensChanged: below, and for their reason: one delegate hears it once.
+ * The front window alone would leave a sibling's on_screen true and its
+ * render thread drawing into a window nobody can see. */
 - (void)applicationDidHide:(NSNotification *)n
 {
 	(void)n;
-	App *a = [self front];
-	if (a && a->backend_state)
-		publish_on_screen(a);
+	if (!host)
+		return;
+	for (App *w = host->windows; w; w = w->next)
+		if (w->backend_state)
+			publish_on_screen(w);
 }
 
 - (void)applicationDidUnhide:(NSNotification *)n
 {
 	(void)n;
-	App *a = [self front];
-	if (a && a->backend_state)
-		publish_on_screen(a);
+	if (!host)
+		return;
+	for (App *w = host->windows; w; w = w->next)
+		if (w->backend_state)
+			publish_on_screen(w);
 }
 
 /* Back from a sleep, as Win32's PBT_APMRESUMEAUTOMATIC: every window, since
@@ -1783,14 +1791,19 @@ static bool cocoa_media_key(App *a, NSEvent *e)
 	case 7:  k = FNL_KEY_MUTE;        break;
 	default: return false;
 	}
-	/* The repeat flag is the low byte's, as a key's is: a held volume key
-	 * re-fires a binding once per repeat if this reaches app_key(), which is
-	 * what the invariant against repeats acting is for. */
-	const bool down = ((data >> 8) & 0xff) == 0x0a;
-	if (down)
-		app_key(a, k, true);
-	else
+	/* Down, up or a repeat, from the two flags data1 packs: bit 0 is the
+	 * repeat and the middle byte the state. A release takes app_key(), or the
+	 * held set never clears and the caller never sees the edge; a repeat takes
+	 * app_key_repeat(), or a held volume key re-fires its binding once each,
+	 * which no binding may. */
+	const bool down   = ((data >> 8) & 0xff) == 0x0a;
+	const bool repeat = (data & 1u) != 0;
+	if (!down)
+		app_key(a, k, false);
+	else if (repeat)
 		app_key_repeat(a, k);
+	else
+		app_key(a, k, true);
 	return true;
 }
 

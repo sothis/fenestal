@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Janos Sonntag
+#
 # Compares what this build's headers and library say the ABI is against the
 # committed baseline, and says what to do about a difference. Run by the
 # build (cmake -P), with ABI, SYMS, BASE_ABI and BASE_SYMS set.

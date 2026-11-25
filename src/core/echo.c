@@ -256,14 +256,17 @@ void echo_event(const App *app, const FnlEvent *ev)
 							  : "press");
 		break;
 	case FNL_EVENT_BUTTON:
-		echo(app, "button %s %s %.1f %.1f", button_name(ev->button.button),
-			 ev->button.pressed ? "press" : "release", ev->button.x,
-			 ev->button.y);
-		/* The click count, when there is one: a harness driving a double-click
-		 * reads the second press as "double", not as two presses it has to
-		 * time itself. */
+		/* The click count is a suffix on the press, not a line of its own: a
+		 * harness driving a double-click reads the second press as "double",
+		 * and a line beginning "(click" would be an event nobody names. */
 		if (ev->button.pressed && ev->button.clicks > 1)
-			echo(app, " (click %d)", ev->button.clicks);
+			echo(app, "button %s press %.1f %.1f (click %d)",
+				 button_name(ev->button.button), ev->button.x, ev->button.y,
+				 ev->button.clicks);
+		else
+			echo(app, "button %s %s %.1f %.1f", button_name(ev->button.button),
+				 ev->button.pressed ? "press" : "release", ev->button.x,
+				 ev->button.y);
 		break;
 	case FNL_EVENT_MOTION:
 		echo(app, "motion %.1f %.1f", ev->motion.x, ev->motion.y);

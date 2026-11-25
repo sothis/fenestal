@@ -41,6 +41,10 @@ if(FNL_MINGW_PREFIX)
     set(TOOLCHAIN_PREFIX "${FNL_MINGW_PREFIX}")
 else()
     foreach(_cand x86_64-w64-mingw32ucrt-gcc x86_64-w64-mingw32-gcc)
+        # find_program() caches its answer and skips the search when one is
+        # there, so without this the second name would re-probe the first
+        # compiler for ever -- and the cache survives the failed configure.
+        unset(_cand_path CACHE)
         find_program(_cand_path ${_cand})
         if(NOT _cand_path)
             continue()

@@ -217,8 +217,13 @@ def run_local(cls, variant, args, log_path, with_hands=False):
     except B.Unavailable as e:
         return str(e)
     with open(log_path, "w") as log:
+        # The program's own copy goes under build/drive too: left to its
+        # default it lands in the state directory, where bench.py keeps the
+        # emitted one -- the same run counted twice by report.py.
+        out = os.path.join(OUT, "bench")
         proc = subprocess.Popen(
-            cls.RUNNER + [exe] + FIXED + args, stdout=subprocess.DEVNULL,
+            cls.RUNNER + [exe] + FIXED + ["--bench-out=" + out] + args,
+            stdout=subprocess.DEVNULL,
             stderr=log, env=cls.environ(
                 TSAN_OPTIONS="suppressions=%s"
                 % os.path.join(ROOT, "tsan.supp"),
@@ -258,6 +263,9 @@ def run_bare(b, variant, args, log_path, with_hands=False):
         if not os.path.exists(exe):
             return "no %s" % os.path.relpath(exe, ROOT)
         box.kill_stale()
+        # Before driver_bind(), which reads it: under tsan NVIDIA's
+        # userspace is put aside rather than loaded.
+        b.variant = variant
         try:
             b.driver_bind()
         except (D.Unreachable, D.DriverMoveFailed) as e:

@@ -302,9 +302,12 @@ FnlResult d3d_bridge_swapchain(App *a, bool recolour)
 				(double)g->sdr_scale, (double)(g->peak * 80.0f * g->sdr_scale));
 
 	/* Fullscreen is the library's (fnl_set_fullscreen()), never DXGI's
-	 * exclusive mode behind Alt+Enter. */
-	IDXGIFactory4_MakeWindowAssociation(g->factory, a->backend_state->hwnd,
-										DXGI_MWA_NO_ALT_ENTER);
+	 * exclusive mode behind Alt+Enter. The window associated with the
+	 * swapchain is the one it was made for -- after a move that is the child
+	 * filling the client area, not the parent (win32_present_hwnd()). */
+	IDXGIFactory4_MakeWindowAssociation(g->factory,
+									   win32_present_hwnd(a->backend_state),
+									   DXGI_MWA_NO_ALT_ENTER);
 	IDXGISwapChain3_SetMaximumFrameLatency(g->swapchain, 1);
 	g->latency = 1;
 	g->frame_wait = IDXGISwapChain3_GetFrameLatencyWaitableObject(

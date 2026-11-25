@@ -1810,8 +1810,10 @@ static bool input_read(App *a, KmsInput *d)
 #define FLIP_DRAIN_MS 500
 
 /* The kernel's colourimetry enum (drm_connector.h) for BT.2020 RGB, which a
- * PQ frame is in; DRM_MODE_COLORIMETRY_DEFAULT is 0. */
-#define KMS_COLORIMETRY_BT2020_RGB 8
+ * PQ frame is in: DRM_MODE_COLORIMETRY_BT2020_CYCC is 8, BT2020_RGB 9, and
+ * DEFAULT 0. RGB it must be: the frame is RGB, and 8 would tell the sink to
+ * read it as constant-luminance YCbCr. */
+#define KMS_COLORIMETRY_BT2020_RGB 9
 /* CTA-861's codes for the metadata infoframe: the EOTF and the descriptor
  * type. The kernel's drm_mode.h names the structures only. */
 #define KMS_EOTF_SMPTE_ST2084 0x02
@@ -2379,11 +2381,11 @@ void kms_scan_show(App *a, int back)
 		flip_wait(a, FLIP_WAIT_MS);
 }
 
-/* One row of a frame into a scanout buffer, `scan10`'s format. A 10-bit word
- * is R in bits 9:0, G 19:10 and B 29:20 -- Vulkan's A2B10G10R10 -- and an
- * 8-bit one X in 31:24, R 23:16, G 15:8 and B 7:0 (XRGB8888). The 10-bit
- * output's own word is XRGB2101010, whose R sits at 29:20: the two 10-bit
- * orders are the same bits read the other way round. */
+/* One row of a frame into a scanout buffer, `scan10`'s format. The frame's
+ * 10-bit word is Vulkan's A2B10G10R10: R in bits 9:0, G 19:10 and B 29:20.
+ * An 8-bit one is X in 31:24, R 23:16, G 15:8 and B 7:0 (XRGB8888). The
+ * 10-bit scanout's own word is XRGB2101010, x 31:30, R 29:20, G 19:10 and B
+ * 9:0 -- the opposite order -- so the two named channels must swap here. */
 static void scan_row(unsigned char *dst, const unsigned char *src, int n,
 					 FnlPixelFormat fmt, bool scan10)
 {
@@ -2406,7 +2408,7 @@ static void scan_row(unsigned char *dst, const unsigned char *src, int n,
 			b = (uint32_t)px[2] << 2;
 		}
 		const uint32_t w =
-			scan10 ? (b << 20) | (g << 10) | r
+			scan10 ? (r << 20) | (g << 10) | b
 				   : ((b >> 2) << 0) | ((g >> 2) << 8) | ((r >> 2) << 16);
 		memcpy(dst + (size_t)x * 4u, &w, sizeof w);
 	}

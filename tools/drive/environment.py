@@ -106,7 +106,8 @@ def monitors(refresh=False):
         return _monitors
     try:
         out = subprocess.run(["xrandr", "--listmonitors"],
-                             capture_output=True, text=True).stdout
+                             capture_output=True, text=True,
+                             timeout=10).stdout
     except Exception:
         return []
     _monitors = parse_monitors(out)
@@ -2354,7 +2355,9 @@ class Win32VM(_Placed, _Portal):
             b.machine = vm
             b.NAME = "%s@%s" % (cls.NAME, vm)
             made.append(b)
-        return made
+        # A machine nobody named: the class itself, so that it says why it
+        # was skipped rather than vanishing from the selection.
+        return made or [cls()]
 
     def _open(self):
         """The way in to the machine, opened: a windows_driver.Desk. Raises
@@ -3000,7 +3003,11 @@ class CocoaNative(Win32VM):
         return self._vulkan_macos().files() + [molten]
 
     def start(self, variant="release", args=(), env=None):
-        checking = variant != "release"
+        # A checker variant is checked as a matter of course; a release one
+        # is under the layer where the round asked for it (--validation on,
+        # FNL_VK_VALIDATION), and then MoltenVK's fallback applies as it
+        # does to any checker.
+        checking = variant != "release" or validation_asked()
         self.fronted = checking and self._vulkan_macos().ready()
         self.NO_LAYER = "" if self.fronted or not checking else self.NO_LOADER
         if checking:
@@ -3325,6 +3332,10 @@ class _OnBare:
         """The machine, the program on it, and the program started: what
         every round there does before it looks for its window."""
         import bare_driver as D
+        # Read by driver_bind() and gpu_sent(), which start() reaches after
+        # this; a caller that binds the driver itself (bench.py, pace.py)
+        # sets it before that call.
+        self.variant = variant
         if not getattr(self, "machine", None):
             raise Unavailable(
                 "no machine is named -- bare_driver.py --setup <name> "

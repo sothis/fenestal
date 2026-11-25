@@ -388,6 +388,15 @@ int main(int argc, char **argv)
 		int aw = ATLAS_W;
 		/* Room for the widest glyph and its gutter, or each takes a shelf. */
 		while (maxw + 3 > aw) aw *= 2;
+		/* The height's check below has a width's twin: a width past the
+		 * device floor is a glyph no ATLAS_W can fit, and it is refused here
+		 * rather than as a failed image at run time. */
+		if (aw > 4096) {
+			fprintf(stderr, "mkfont: scale %d's widest glyph needs %d columns, "
+							"past the 4096 a Vulkan device may offer\n",
+					SCALES[si], aw);
+			return 1;
+		}
 
 		int x = 0, y = 0, shelf = 0, used = 0;
 		for (int j = 0; j < k; j++) {
