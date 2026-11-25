@@ -4136,7 +4136,14 @@ def two_window(b, r):
         else:
             focus_on(second)
             wpt = second.geom[2] / b._gain()
-            b.click(int(wpt - 24), 17)
+            # Onto the button, then the focus again: under wine a window that
+            # takes the focus is raised over the other, and a pointer move to
+            # the bar can hand the focus back and leave the first on top of
+            # the button. The press does not move the pointer, so what it
+            # hits is the window raised last.
+            b.move_to(int(wpt - 24), 17)
+            focus_on(second)
+            b.click_here()
             closed = b.until(lambda: len(b.windows()) == 1, timeout=4.0)
             r.check("its close button hides the second window", closed,
                     "%d window(s) still" % len(b.windows()))

@@ -2070,15 +2070,18 @@ void *render_loop(void *arg)
 		}
 
 		if (w == 0 || h == 0) {
-			if (urgent) /* no frame drawn, so still owed; see above */
-				app_mark_urgent(a);
 			/* Minimized, on Win32 and Cocoa: no lift is seen. */
 			veil_unseen(a);
 			/* On the condition, not a sleep: the size a restore publishes
 			 * signals it (and Win32's size_await() is waiting on that
 			 * frame), where a sleep would turn the loop a hundred times a
-			 * second through a minimize for nothing. */
+			 * second through a minimize for nothing. The flag this turn
+			 * carries is put back under the same lock and without a
+			 * signal: app_mark_urgent()'s is the condition's own, and the
+			 * wait would take it and spin instead of sleep. */
 			fnl_mutex_lock(&a->lock);
+			if (urgent) /* no frame drawn, so still owed */
+				a->want_urgent = true;
 			if (!a->quit && (a->want_w == 0 || a->want_h == 0))
 				fnl_cond_wait_for(&a->cond, &a->lock, NO_SIZE_WAIT_S);
 			fnl_mutex_unlock(&a->lock);
