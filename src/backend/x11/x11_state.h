@@ -242,6 +242,9 @@ struct BackendState {
 	 * does a present that failed, after which the loop rebuilds and presents
 	 * again, where a counter set would show the manager the old frame. */
 	uint32_t sync_counter;
+	/* The SyncQueryCounter that confirms the counter was made, taken in
+	 * x11_ext_take() behind the monitors' names (x11_sync_open()). */
+	unsigned int sync_query;
 	uint32_t sync_lo;
 	bool sync_asked;
 	/* Whether the ConfigureNotify after the request has come, and until
@@ -292,11 +295,16 @@ struct BackendState {
 	uint32_t present_ord[X11_PRESENT_Q];
 	uint32_t present_ord_next;
 	uint32_t present_chain_seen;
-	/* [main] Whether a completion's serial has matched a queued frame's
-	 * number: then one that matches none answers a present taken back --
-	 * NVIDIA's driver shows a frame whose present it said was out of date
-	 * -- and is no frame of the queue's, where before any match it is the
-	 * oldest, the presenter counting otherwise. */
+	/* The presenter the chain seen was begun by (renderer_any() at the
+	 * purge), so a latch below is cleared on a move to another renderer and
+	 * not on a same-renderer rebuild. Under present_lock. */
+	const FnlRendererVtbl *present_renderer;
+	/* [main and render; under present_lock] Whether a completion's serial
+	 * has matched a queued frame's number: then one that matches none
+	 * answers a present taken back -- NVIDIA's driver shows a frame whose
+	 * present it said was out of date -- and is no frame of the queue's,
+	 * where before any match it is the oldest, the presenter counting
+	 * otherwise. */
 	bool present_by_serial;
 	int present_head, present_n;
 	bool present_pushed;

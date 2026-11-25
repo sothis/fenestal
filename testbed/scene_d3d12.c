@@ -26,6 +26,7 @@
 
 #include <dxgi1_4.h>
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -94,26 +95,47 @@ static struct {
 	Scene s;
 } g_scenes[SCENE_WINDOWS];
 
+/* The table is written on the main thread -- scene_open() and scene_close()
+ * run from on_gpu_created and on_gpu_lost -- and read on each window's render
+ * thread by scene_slot() (on_record), so one spinlock covers every scan and
+ * write, as the testbed's picture table has. */
+static atomic_flag g_scenes_lock;
+static void scenes_lock(void)
+{
+	while (atomic_flag_test_and_set(&g_scenes_lock))
+		;
+}
+static void scenes_unlock(void)
+{
+	atomic_flag_clear(&g_scenes_lock);
+}
+
 static Scene *scene_slot(FnlApp *app)
 {
-	for (int i = 0; i < SCENE_WINDOWS; i++)
+	Scene *s = NULL;
+	scenes_lock();
+	for (int i = 0; i < SCENE_WINDOWS && !s; i++)
 		if (g_scenes[i].app == app)
-			return &g_scenes[i].s;
-	return NULL;
+			s = &g_scenes[i].s;
+	scenes_unlock();
+	return s;
 }
 
 /* The window's slot, emptied; a new one when it had none. NULL when every
  * slot is taken, which is more windows than the testbed draws a scene in. */
 static Scene *scene_open(FnlApp *app)
 {
-	for (int i = 0; i < SCENE_WINDOWS; i++) {
+	Scene *s = NULL;
+	scenes_lock();
+	for (int i = 0; i < SCENE_WINDOWS && !s; i++) {
 		if (g_scenes[i].app == app || !g_scenes[i].app) {
 			g_scenes[i].app = app;
 			memset(&g_scenes[i].s, 0, sizeof g_scenes[i].s);
-			return &g_scenes[i].s;
+			s = &g_scenes[i].s;
 		}
 	}
-	return NULL;
+	scenes_unlock();
+	return s;
 }
 
 #define RELEASE(p)                                                             \
@@ -128,9 +150,17 @@ static Scene *scene_open(FnlApp *app)
 /* The window's objects, where it made any, and its slot back. */
 static void scene_close(FnlApp *app)
 {
-	Scene *s = scene_slot(app);
-	if (!s)
+	int at = -1;
+	scenes_lock();
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (g_scenes[i].app == app) {
+			at = i;
+			break;
+		}
+	scenes_unlock();
+	if (at < 0)
 		return;
+	Scene *s = &g_scenes[at].s;
 	for (int t = 0; t < FNL_TARGET_COUNT; t++) {
 		RELEASE(s->pattern[t]);
 		RELEASE(s->star[t]);
@@ -139,9 +169,9 @@ static void scene_close(FnlApp *app)
 	if (s->vram_adapter)
 		IDXGIAdapter3_Release(s->vram_adapter);
 	memset(s, 0, sizeof *s);
-	for (int i = 0; i < SCENE_WINDOWS; i++)
-		if (&g_scenes[i].s == s)
-			g_scenes[i].app = NULL;
+	scenes_lock();
+	g_scenes[at].app = NULL;
+	scenes_unlock();
 }
 
 /* The block as 32-bit root constants at b0, the register spirv-cross gives

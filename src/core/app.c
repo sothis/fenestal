@@ -1567,6 +1567,7 @@ void renderer_swap(App *a)
 		 * window created after the move is built on it and not on the one
 		 * this window left (DESIGN *A second window*). */
 		fnl_atomic_store_ptr(&a->host->renderer, (void *)to);
+		fnl_atomic_store_u32(&a->host->renderer_moving, 0);
 		/* The new renderer numbers its presents afresh, so the window's
 		 * serial chain does too (App::present_chain): X11's Present
 		 * matching purges its ordinals on the change, as a swapchain's. */
@@ -1601,6 +1602,9 @@ void renderer_swap(App *a)
 		a->renderer      = NULL;
 		a->renderer_owed = from;
 	}
+	/* The move is over either way: landed on the one before, or owed a
+	 * rebuild of it. */
+	fnl_atomic_store_u32(&a->host->renderer_moving, 0);
 }
 
 bool renderer_owed_retry(App *a)
@@ -1668,6 +1672,7 @@ static void gpu_span_clear(App *a)
 	a->gpu_list_n    = 0;
 	a->gpu_list_cur  = -1;
 	fnl_atomic_store_u32(&a->gpu_count, 0);
+	gpu_list_gen_bump(a);
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -1822,6 +1827,14 @@ FnlResult renderer_choose_and_build(App *a, const FnlInitDesc *d)
 	const FnlRendererVtbl *host_g =
 		(const FnlRendererVtbl *)fnl_atomic_load_ptr(&a->host->renderer);
 	if (host_g) {
+		/* A window created as a move lands would be built on the renderer
+		 * the host is leaving: refused, and the move's FNL_EVENT_GPU is
+		 * the caller's cue to open it again. */
+		if (fnl_atomic_load_u32(&a->host->renderer_moving))
+			return fnl_fail(FNL_ERR_NO_DEVICE,
+							"a move to another GPU is landing; "
+							"fnl_window_create() once its FNL_EVENT_GPU "
+							"has come");
 		const FnlRendererVtbl *g = host_g;
 		a->renderer_first        = g->api;
 		a->renderer_named        = g->api;
@@ -2625,6 +2638,7 @@ static void gpu_merge(App *a) FNL_REQUIRES(a->lock)
 	a->gpu_list_n   = m;
 	a->gpu_list_cur = cur;
 	fnl_atomic_store_u32(&a->gpu_count, (uint32_t)m);
+	gpu_list_gen_bump(a);
 }
 
 void app_gpu_list_merge(App *a)
@@ -3737,11 +3751,21 @@ static FnlResult window_start(App *a)
 	if (a->renderer && a->renderer_ready)
 		RENDERER(a)->thread_enter(a);
 	app_aa_settle(a);
-	a->in_run         = true;
-	/* Set with or without a callback, so that a caller which registered only
-	 * on_gpu_lost gets exactly one per loss. See App::cb_gpu_created. */
-	a->cb_gpu_created = true;
-	deliver_gpu_created(a);
+	a->in_run = true;
+	/* A device that did not survive the enter -- a display terminated between
+	 * fnl_init() and here, which the GL renderer meets as a refused
+	 * eglMakeCurrent -- is not handed to the caller: the loop's
+	 * device_recover() makes one and delivers the first on_gpu_created
+	 * itself, on the render thread, as it does after every later loss. */
+	const bool created = !(a->renderer && a->renderer_ready &&
+						   RENDERER(a)->lost(a));
+	if (created) {
+		/* Set with or without a callback, so that a caller which registered
+		 * only on_gpu_lost gets exactly one per loss. See
+		 * App::cb_gpu_created. */
+		a->cb_gpu_created = true;
+		deliver_gpu_created(a);
+	}
 
 	/* Anything asked for between the window's creation and here, spent
 	 * before the render thread can latch the state without it. */
@@ -3753,12 +3777,16 @@ static FnlResult window_start(App *a)
 	RENDERER(a)->thread_leave(a);
 	if (!fnl_thread_start(&a->render_thread, render_loop, a)) {
 		RENDERER(a)->thread_enter(a);
-		/* on_gpu_created has run, so the pair is balanced here:
-		 * fnl_shutdown() destroys the device objects and never calls back. */
-		a->cb_gpu_created = false;
-		if (a->cb.on_gpu_lost) {
-			RENDERER(a)->wait_idle(a);
-			deliver_gpu_lost(a);
+		/* Where on_gpu_created ran the pair is balanced here:
+		 * fnl_shutdown() destroys the device objects and never calls back.
+		 * A device lost before the run was never handed over, so there is
+		 * nothing to take back. */
+		if (created) {
+			a->cb_gpu_created = false;
+			if (a->cb.on_gpu_lost) {
+				RENDERER(a)->wait_idle(a);
+				deliver_gpu_lost(a);
+			}
 		}
 		a->in_run = false;
 		return fnl_fail(FNL_ERR_SYSTEM, "could not start the render thread");

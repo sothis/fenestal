@@ -988,6 +988,19 @@ static void gpu_switch_owed(App *a)
 		memcpy(name, a->gpu_list[want].name, sizeof name);
 	fnl_mutex_unlock(&a->lock);
 	if (move >= 0) {
+		/* Stored before the openers are counted again: fnl_window_create()
+		 * counts itself first and reads this after, so the two sees are
+		 * sequenced and cannot both miss each other. A window that began
+		 * opening since the check above defers the move a turn, its wish
+		 * kept. */
+		fnl_atomic_store_u32(&a->host->renderer_moving, 1);
+		if (fnl_atomic_load_u32(&a->host->opening) > 0) {
+			fnl_atomic_store_u32(&a->host->renderer_moving, 0);
+			fnl_mutex_lock(&a->lock);
+			a->gpu_req = (uint32_t)(want + 1);
+			fnl_mutex_unlock(&a->lock);
+			return;
+		}
 		app_gpu_driver_owe(a, move, name, lands);
 		return;
 	}
@@ -999,6 +1012,19 @@ static void gpu_switch_owed(App *a)
 		return;
 	}
 
+	/* From here the move is made: a window created while it lands would be
+	 * built on the renderer being left (fnl_window_create()'s guard), and
+	 * renderer_swap() clears it as it publishes or reverts. Stored before
+	 * the openers are counted again, as the driver move's is, so the two
+	 * sees are sequenced. */
+	fnl_atomic_store_u32(&a->host->renderer_moving, 1);
+	if (fnl_atomic_load_u32(&a->host->opening) > 0) {
+		fnl_atomic_store_u32(&a->host->renderer_moving, 0);
+		fnl_mutex_lock(&a->lock);
+		a->gpu_req = (uint32_t)(want + 1);
+		fnl_mutex_unlock(&a->lock);
+		return;
+	}
 	fnl_log(FNL_LOG_INFO, "moving to GPU %d: %s", want + 1, name);
 	a->gpu_back_index = a->gpu_index;
 	memcpy(a->gpu_back_want, a->gpu_want, sizeof a->gpu_back_want);
@@ -1750,8 +1776,8 @@ static void slack_learn(App *a, bool rebuilt, bool vsync, bool spaced)
 				return;
 			}
 			const bool taken      = disp_period_sample(a, period);
-			const double parts[4] = { held, a->device_block, a->present_block,
-									  a->late_cost };
+			const double parts[5] = { held, a->display_block, a->device_block,
+									  a->present_block, a->late_cost };
 			parts_period(a, parts, taken);
 
 			if (a->late_latch && a->late_fixed <= 0.0 && a->late_held >= 0.0)
@@ -1869,10 +1895,12 @@ static void rest_wait(App *a)
 	fnl_mutex_lock(&a->lock);
 	/* An event posted before this point is in the queue for the turn about
 	 * to be drawn -- not a wake-up to wait for -- so the flag is cleared
-	 * and the turn runs without waiting. Cleared under the lock the
-	 * posters set it under, so a post between the turn's own event check
-	 * and this wait either sees the flag set here and clears it (the turn
-	 * runs) or sets it after and signals the wait: neither is lost. */
+	 * and the turn runs without waiting. The posters set the flag atomically
+	 * without the lock and take it only to signal; the clear here, under
+	 * the lock the signal is sent under, with the load before the wait, is
+	 * what keeps a post between the turn's event check and this wait from
+	 * being lost: it is either seen in `missed` or its signal reaches the
+	 * wait below. */
 	const bool missed = fnl_atomic_load_bool(&a->ev_wake);
 	fnl_atomic_store_bool(&a->ev_wake, false);
 	/* Not past a time fnl_invalidate_in() asked for: the next frame is that
@@ -1894,8 +1922,8 @@ static void rest_wait(App *a)
  * be shown. */
 static void draw_time_spend(App *a)
 {
-	if (a->want_draw_at <= 0.0)
-		return;
+	/* Read under the lock: fnl_invalidate_in() is [any] and writes it
+	 * under this one. */
 	fnl_mutex_lock(&a->lock);
 	if (a->want_draw_at > 0.0 && now_seconds() >= a->want_draw_at) {
 		a->want_draw_at = 0.0;

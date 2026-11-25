@@ -721,10 +721,10 @@ void parts_mark(App *a, FrameMark m, double cpu); /* parts.c */
 void parts_gpu(App *a, const char *const *names, const double *seconds,
 			   int n);  /* parts.c */
 void parts_log(App *a); /* parts.c */
-/* One period sample, its four parts (held, device, present, cost), and
- * whether the estimator took it: what the frame line's `period` is made
- * of. */
-void parts_period(App *a, const double s[4], bool taken); /* parts.c */
+/* One period sample, its five parts (held, display, device, present, cost),
+ * and whether the estimator took it: what the frame line's `period` is made
+ * of, and every part of it (DISPLAY_AHEAD's server wait included). */
+void parts_period(App *a, const double s[5], bool taken); /* parts.c */
 void parts_reset(App *a);                                 /* parts.c */
 
 /* The other renderers' GPUs, listed once and placed in App::gpu_list: the
@@ -1199,6 +1199,12 @@ struct Host {
 	 * spent then would rebuild the device under the window being built.
 	 * Main thread writes, every render thread reads. */
 	FnlAtomicU32 opening;
+	/* A move to another renderer is landing: decided by the render thread
+	 * (gpu_switch_owed()) and not yet published or reverted by
+	 * renderer_swap(). A window created in the interval would read the
+	 * renderer the host is leaving, so fnl_window_create() is refused until
+	 * it clears -- the move's FNL_EVENT_GPU is the caller's cue. */
+	FnlAtomicU32 renderer_moving;
 
 	/* ---- the one renderer -------------------------------------------
 	 * A program has one graphics API, so the first window chooses the
@@ -1689,10 +1695,16 @@ struct FnlApp {
 	bool rank_forced;
 	char rank_display[RANK_DISPLAY_MAX];
 	unsigned long rank_list_hash;
-	/* The display stamp the last derivation was made at (App::display_gen),
-	 * so a turn that changed no display fact skips display_now() and
-	 * list_hash() entirely (app_rank_tick()). */
+	/* The display stamp the last derivation was made at
+	 * (App::display_gen), with rank_list_gen_seen for the GPU list's, so a
+	 * turn that changed neither skips display_now() and list_hash()
+	 * entirely (app_rank_tick()). */
 	uint32_t rank_gen_seen;
+	/* The GPU list's stamp the last derivation was made at
+	 * (App::gpu_list_gen): a list that gained or lost an entry with no
+	 * display fact -- a hotplug, a relist -- derives again, so a GPU new to
+	 * it is measured (check_missing()). */
+	uint32_t rank_list_gen_seen;
 	/* What the window was last seen on and at what size, and since when:
 	 * a display is measured, and the window moved to its first entry, only
 	 * once it has stayed on one output, unmoved and not straddling another,
@@ -2018,7 +2030,9 @@ struct FnlApp {
 	 * on_gpu_lost. It keeps the two strictly alternating when a recovery
 	 * fails and the loss flag stays set. Render thread after fnl_run()
 	 * starts it, main thread before and after -- every site is either side
-	 * of the join. */
+	 * of the join. A device lost before the run was not handed over: the
+	 * flag is set by the recovery's delivery, on the render thread
+	 * (window_start()). */
 	bool cb_gpu_created;
 	/* Whether fnl_run() is on the main thread's stack, which alone writes
 	 * and reads it. The outermost on_gpu_created and on_gpu_lost run
@@ -2197,6 +2211,11 @@ struct FnlApp {
 	 * render thread's, and app_publish_refresh() takes no lock to sit in
 	 * (display_gen_bump()). */
 	FnlAtomicU32 display_gen;
+	/* The GPU list's stamp, for a change no display fact carries: bumped by
+	 * every merge of the list (gpu_merge(), gpu_span_clear()). Atomic for
+	 * display_gen's reason -- the listing thread merges -- and read by the
+	 * tick as the second half of its gate (gpu_list_gen_bump()). */
+	FnlAtomicU32 gpu_list_gen;
 	/* The images the caller made, newest first (fnl_image_create()). The
 	 * render thread's list, walked at fnl_shutdown() for what is left. */
 	struct FnlImage *images;
@@ -2569,6 +2588,14 @@ static inline void display_gen_bump(App *a)
 {
 	fnl_atomic_store_u32(&a->display_gen,
 						 fnl_atomic_load_u32(&a->display_gen) + 1u);
+}
+
+/* The GPU list changed: an entry joined or left, or the list was ordered
+ * again, with no display fact to say so. app_rank_tick()'s other gate. */
+static inline void gpu_list_gen_bump(App *a)
+{
+	fnl_atomic_store_u32(&a->gpu_list_gen,
+						 fnl_atomic_load_u32(&a->gpu_list_gen) + 1u);
 }
 
 /* The window a presentable area of this many pixels needs, in logical points.

@@ -1946,6 +1946,12 @@ static const char *vk_device_name(const App *app)
 
 static const char *vk_current_present_mode(const App *a)
 {
+	/* Under the DXGI present there is no Vulkan swapchain to name and the
+	 * interval follows the live policy, so the answer is the policy's, as
+	 * Direct3D 12's is. */
+	if (VK(a)->dxgi)
+		return fnl_atomic_load_bool(&a->vsync) ? "sync interval 1 (vsync)"
+											   : "sync interval 0";
 	/* The answer is a literal in .rodata, so only the enum crosses threads --
 	 * which is why that field is atomic. */
 	return present_mode_name(vk_present_mode(a));

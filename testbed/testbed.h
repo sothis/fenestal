@@ -18,6 +18,16 @@
 
 #include <stdbool.h>
 
+/* A thread's own static. cl.exe's C mode recognizes _Thread_local and does
+ * not implement it, so its own spelling is used there -- the library's
+ * compiler.h has FNL_THREAD_LOCAL for the same reason, and this program does
+ * not include it. */
+#if defined(_MSC_VER)
+#define TESTBED_TLS __declspec(thread)
+#else
+#define TESTBED_TLS _Thread_local
+#endif
+
 /* Authored in sRGB, which is what FnlColor takes -- the numbers a colour
  * picker gives. The library converts to whatever space the surface blends
  * in. A function and not a compound literal: cl.exe has no such literal.

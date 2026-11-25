@@ -266,6 +266,13 @@ struct RendererState {
 	/* Whether the overlay is being drawn, set around draw_overlay(): a flush
 	 * outside it draws nothing, as one outside a Vulkan recording does. */
 	bool overlay_on;
+	/* The core's scissor box for the overlay's deferred draws, as it last
+	 * asked through gl_overlay_scissor(): a caller may set a box of its own
+	 * with the context current in on_overlay, and every flush puts this one
+	 * back (overlay_own_state()). Cleared -- false -- is the whole image,
+	 * which is what draw() sets before the callback. */
+	bool    ovl_scissor_clip;
+	FnlRect ovl_scissor;
 
 	/* A surfaceless bridge's frame, read back for the backend: malloc'd,
 	 * not a GL name, grown to the largest window image and freed with the

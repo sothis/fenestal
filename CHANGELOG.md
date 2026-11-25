@@ -6,6 +6,40 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **The copy path sets its mode on a CRTC chosen at that moment.** The
+  open's guess could take a CRTC another output was lit on, or leave the
+  display driver's CRTC scanning out the same pair; the CRTC is chosen
+  under a host lock (what drives the connector now, else one the kernel
+  shows unlit), the flips follow it, and a CRTC still showing the retired
+  pair is darkened before the pair is released. The connector's property
+  ids are resolved once, so the cursor's CRTC probe and the HDR statement
+  no longer walk every property, and the outputs the windows hold are a
+  host mask rather than a walk of the window registry from any thread.
+
+- **Vulkan: a TAAU resize builds the scene target once**, with its depth
+  resident when the mode is on; the single-sampled pass stores the depth
+  only where TAAU reads it; and a live `fnl_set_vsync()` recomputes the
+  DXGI swapchain's tearing flag at the rebuild, so vsync off can tear and
+  vsync on stops paying the flag. The DXGI present closes its waitable
+  handle and labels its shown records by the interval it presented.
+
+- **X11: the SYNC counter is advertised only once the server confirmed
+  it**, and the opening cursor costs no round trip at 100% (the font's own
+  glyph cursor) and one readback rather than two for a scaled shape.
+
+- **A window is refused while a GPU move is landing**, and `on_overlay`'s
+  frame carries the scene's jitter, with `target` documented for MLAA at
+  the window's own size. The GPU ranking derives again when the GPU list
+  changes with no display fact, a running calibration reads the display
+  only when a publish moved it, the period line prints the display wait as
+  a fifth part, and the invalidation deadline is read under its lock.
+
+- **Win32: a DPI change publishes when no resize follows it**, a window's
+  `x_pt`/`y_pt` open at the density they are, fullscreen follows a display
+  change, a capture that cannot be taken leaves the previous one alone,
+  and a wheel step is suppressed as a raw echo only while the raw mouse is
+  the window's.
+
 - **A gradient runs along the axis it names, at any angle.** The ramp's
   extent was the diagonal's projection onto the axis -- zero on a square at
   45° and its reverse, which painted those flat, and short at most oblique

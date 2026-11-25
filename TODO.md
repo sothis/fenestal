@@ -387,6 +387,30 @@ Each needs a hand on the machine or hardware the two laptops do not have.
 - **Intel's swapchain stall** is prevented, not explained; the report is
   drafted in `docs/intel-swapchain-stall.md`, its last section what it owes.
 
+## Win32 and macOS, after the 2026-11-25 review
+
+- **The raw mouse registration is the host's.** `RegisterRawInputDevices` is
+  process-wide and last-writer-wins, and `raw_wheel_open()`/`raw_register()`
+  keep per-window flags: with two windows the second open re-targets the
+  mouse, the first window's capture then receives no `WM_INPUT`, and its
+  wheel echoes are suppressed for events that go elsewhere. The fix is one
+  registration in `BackendHostState` (target, the program's saved entry, and
+  ownership), pointed at the capturing or focused window by
+  `raw_point(a, target)` and given back by `raw_give(a)` when the last window
+  lets it go; `wheel_raw_here()`'s new registration test is its safety net.
+  Wants a two-window wine round.
+- **Cocoa's request-drain entries have no autorelease pool.** The drain runs
+  after `cocoa_pump()` pops its pool, and `fnl_init()`/`fnl_window_create()`
+  call `update_scale` and `apply_size_bounds` outside one, so every AppKit
+  object those paths autorelease leaks (and `_NSAutoreleaseNoPool` is
+  logged). Each of `cocoa_update_scale`, `cocoa_apply_size_bounds`,
+  `cocoa_request_size`, `cocoa_set_fullscreen`, `cocoa_set_maximized`,
+  `cocoa_minimize`, `cocoa_set_output`, `cocoa_begin_move`,
+  `cocoa_begin_resize`, `cocoa_release_pointer`, `cocoa_cursor_changed`,
+  `cocoa_text_input_changed` and `cocoa_clipboard_set` wants its own
+  `@autoreleasepool`, and so does `wake_cb`'s drain loop; `cocoa_set_title`
+  and `cocoa_clipboard_request` are the precedent.
+
 ## The output box under a window server
 
 Written by reading (DESIGN *The titlebar controls*); its stress check was

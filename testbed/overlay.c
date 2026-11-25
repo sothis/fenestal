@@ -693,7 +693,7 @@ static void footprint_log(FnlApp *app, double now)
 {
 	/* Per window-thread: every window's overlay runs this, and the line's
 	 * figures are the window's. */
-	static _Thread_local double at = -1.0;
+	static TESTBED_TLS double at = -1.0;
 	if (at >= 0.0 && now >= at && now - at < 0.5)
 		return;
 	at = now;
@@ -745,7 +745,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		footprint_log(app, f->time);
 	fnl_set_cost_sampling(app, g_footprint_log);
 	if (g_frame_cpu_log) {
-		static _Thread_local double at = -1.0;
+		static TESTBED_TLS double at = -1.0;
 		if (at < 0.0 || f->time - at >= 0.5) {
 			at = f->time;
 			fprintf(stderr, "frame cpu: %.2f ms, fps %d\n",
@@ -753,7 +753,7 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		}
 	}
 	if (g_reserve_log) {
-		static _Thread_local double at = -1.0;
+		static TESTBED_TLS double at = -1.0;
 		if (at < 0.0 || f->time - at >= 0.5) {
 			at = f->time;
 			int cx, cy, cw, ch, rx, ry, rw, rh;
@@ -776,11 +776,11 @@ void testbed_overlay_draw(FnlApp *app, const FnlFrame *f)
 		/* The window's own, like every instrument here: two windows draw on
 		 * two render threads, and one static apiece would be both threads'
 		 * counters. Each window turns its own app's stats on once. */
-		static _Thread_local double at = -1.0;
-		static _Thread_local FnlFrameSample rows[1024];
-		static _Thread_local unsigned long long n_rows, presented, rows_us,
+		static TESTBED_TLS double at = -1.0;
+		static TESTBED_TLS FnlFrameSample rows[1024];
+		static TESTBED_TLS unsigned long long n_rows, presented, rows_us,
 			lost_all;
-		static _Thread_local bool stats_on;
+		static TESTBED_TLS bool stats_on;
 		if (!stats_on) {
 			fnl_set_frame_stats(app, true);
 			stats_on = true;

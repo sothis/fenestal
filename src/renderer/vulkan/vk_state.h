@@ -299,6 +299,11 @@ struct RendererState {
 	 * extension that takes enabled on the device. */
 	bool                  dxgi;
 	bool                  dxgi_exts;
+	/* The DXGI present's live swapchain: whether it allows tearing, and
+	 * whether the factory offers it -- what vk_present_mode_matches()
+	 * compares the policy against, since there is no Vulkan swapchain to
+	 * ask (present_dxgi.c). */
+	bool                  dxgi_tear, dxgi_tear_ok;
 	void                 *dxgi_state;
 	/* The GPU list pick_device() drew up, published once choose_present
 	 * has decided how the frames go (create_device_objects()): the entry in
@@ -354,6 +359,11 @@ struct RendererState {
 	 * see DESIGN *A pipeline per target*. The scene image carries its own
 	 * depth, sized with it. */
 	VkRenderPass          scene_pass;      /* into the scene image, 1 sample */
+	/* The same, its depth never stored: the pass a single-sampled frame
+	 * records into when no mode reads the depth (MLAA, a pinned size).
+	 * Identical formats, samples and dependencies, so the caller's
+	 * FNL_TARGET_OFFSCREEN pipelines fit both. */
+	VkRenderPass          scene_pass_lazy;
 	VkRenderPass          scene_pass_ms;   /* multisampled, resolving to it  */
 	VkRenderPass          post_pass;       /* colour only: MLAA's output     */
 	VkPipelineLayout      blit_layout;     /* fetch: one sampler, no push    */

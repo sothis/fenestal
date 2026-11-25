@@ -55,8 +55,11 @@ typedef struct {
 	uint32_t             n;
 	int                  buf_w, buf_h;
 	bool                 acquire_failed_said;
-	/* Vsync off where the factory offers tearing: the swapchain made for
-	 * it, its flags kept for each resize, and every present tearing. */
+	/* The factory offers tearing, and the live swapchain was made with
+	 * ALLOW_TEARING -- a fact about the swapchain, not the policy: a live
+	 * fnl_set_vsync() is honoured by rebuilding with the flags it asks
+	 * for (vk_dxgi_own_images()). */
+	bool                 tear_ok;
 	bool                 tear;
 	UINT                 sc_flags;
 	PFN_vkGetMemoryWin32HandlePropertiesKHR handle_props;
@@ -100,6 +103,12 @@ static void dxgi_textures_release(VkDxgi *d)
 static void dxgi_partial_drop(VkDxgi *d)
 {
 	dxgi_textures_release(d);
+	/* The waitable object is a duplicate this process owns, and it names the
+	 * swapchain's: closed before the swapchain goes. */
+	if (d->wait) {
+		CloseHandle(d->wait);
+		d->wait = NULL;
+	}
 	if (d->sc) {
 		IDXGISwapChain2_Release(d->sc);
 		d->sc = NULL;
@@ -118,7 +127,6 @@ static void dxgi_partial_drop(VkDxgi *d)
 		FreeLibrary(d->d3d11);
 		d->d3d11 = NULL;
 	}
-	d->wait  = NULL;
 	d->buf_w = d->buf_h = 0;
 }
 
@@ -128,6 +136,10 @@ void vk_dxgi_end(App *a)
 	if (!d)
 		return;
 	dxgi_textures_release(d);
+	if (d->wait) {
+		CloseHandle(d->wait);
+		d->wait = NULL;
+	}
 	if (d->sc)
 		IDXGISwapChain2_Release(d->sc);
 	if (d->ctx) {
@@ -141,6 +153,17 @@ void vk_dxgi_end(App *a)
 		FreeLibrary(d->d3d11);
 	free(d);
 	VK(a)->dxgi_state = NULL;
+}
+
+/* The flags the policy asks for now -- the waitable object, and tearing
+ * where the factory offers it and vsync is off -- recomputed at every
+ * rebuild, since fnl_set_vsync() is live. */
+static UINT dxgi_flags(const App *a, const VkDxgi *d)
+{
+	return DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
+		   (d->tear_ok && !fnl_atomic_load_bool(&a->vsync)
+				? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+				: 0);
 }
 
 /* The Direct3D 11 device on the adapter the Vulkan device is, by LUID, and
@@ -205,22 +228,25 @@ static FnlResult dxgi_open(App *a, VkExtent2D e)
 		return fnl_fail(FNL_ERR_NO_DEVICE, "DXGI present: D3D11CreateDevice "
 						"0x%08lx", (unsigned long)hr);
 	}
-	/* Tearing only with vsync off, as on Direct3D 12 (surface_win32.c):
-	 * with vsync on the flag cost a refresh there. */
-	d->tear = false;
+	/* The capability, asked whichever way vsync stands now: a later change
+	 * is honoured at the next rebuild. Tearing only with vsync off, as on
+	 * Direct3D 12 (surface_win32.c): with vsync on the flag cost a refresh
+	 * there. */
+	d->tear_ok = false;
 	IDXGIFactory5 *f5 = NULL;
-	if (!fnl_atomic_load_bool(&a->vsync) &&
-		SUCCEEDED(IDXGIFactory2_QueryInterface(f, &IID_IDXGIFactory5,
+	if (SUCCEEDED(IDXGIFactory2_QueryInterface(f, &IID_IDXGIFactory5,
 											   (void **)&f5))) {
 		BOOL allow = FALSE;
 		if (SUCCEEDED(IDXGIFactory5_CheckFeatureSupport(
 				f5, DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow,
 				sizeof allow)))
-			d->tear = allow != FALSE;
+			d->tear_ok = allow != FALSE;
 		IDXGIFactory5_Release(f5);
 	}
-	d->sc_flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
-				  (d->tear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+	d->sc_flags = dxgi_flags(a, d);
+	d->tear     = (d->sc_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
+	VK(a)->dxgi_tear    = d->tear;
+	VK(a)->dxgi_tear_ok = d->tear_ok;
 	DXGI_SWAP_CHAIN_DESC1 sd = {
 		.Width = e.width, .Height = e.height,
 		.Format = DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -388,18 +414,27 @@ FnlResult vk_dxgi_own_images(App *a, VkExtent2D e, uint32_t n)
 	if (!d->dev)
 		FNL_TRY(dxgi_open(a, e));
 	dxgi_textures_release(d);
-	if ((int)e.width != d->buf_w || (int)e.height != d->buf_h) {
+	/* A same-size ResizeBuffers is the route for flags, and the only one
+	 * here: a policy change that moved them is a rebuild like any other. */
+	const UINT flags       = dxgi_flags(a, d);
+	const bool flags_moved = flags != d->sc_flags;
+	if ((int)e.width != d->buf_w || (int)e.height != d->buf_h ||
+		flags_moved) {
 		ID3D11DeviceContext_ClearState(d->ctx);
 		ID3D11DeviceContext_Flush(d->ctx);
 		const HRESULT hr = IDXGISwapChain2_ResizeBuffers(
 			d->sc, DXGI_BUFFERS, e.width, e.height, DXGI_FORMAT_B8G8R8A8_UNORM,
-			d->sc_flags);
+			flags);
 		if (FAILED(hr))
 			return fnl_fail(FNL_ERR_SYSTEM, "DXGI present: ResizeBuffers "
 							"0x%08lx", (unsigned long)hr);
-		d->buf_w = (int)e.width;
-		d->buf_h = (int)e.height;
+		d->sc_flags = flags;
+		d->tear     = (flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
+		d->buf_w    = (int)e.width;
+		d->buf_h    = (int)e.height;
 	}
+	VK(a)->dxgi_tear    = d->tear;
+	VK(a)->dxgi_tear_ok = d->tear_ok;
 	for (uint32_t i = 0; i < n; i++)
 		FNL_TRY(dxgi_image(a, e, i));
 	VK(a)->swap_fresh  = true;
@@ -445,9 +480,13 @@ static void shown_stamp(App *a, VkDxgi *d, double at)
 	if (FAILED(IDXGISwapChain2_GetFrameStatistics(d->sc, &st)) ||
 		!QueryPerformanceFrequency(&freq) || !freq.QuadPart)
 		return;
+	/* A flip at the vblank unless it is a present that may tear *and* the
+	 * policy asks it to: an interval-1 present on a swapchain that allows
+	 * tearing is still a vblank flip. */
 	app_present_number_shown(a, st.PresentCount,
 							 (double)st.SyncQPCTime.QuadPart /
-								 (double)freq.QuadPart, !d->tear);
+								 (double)freq.QuadPart,
+							 !(d->tear && fnl_atomic_load_bool(&a->vsync)));
 }
 
 /* The frame's image, once its submit has given it back at key 1: the
@@ -465,11 +504,11 @@ VkResult vk_dxgi_present(App *a, uint32_t img)
 	 * where the factory offers no tearing: a present then queues behind
 	 * the last, flipped at a refresh too, and with no wait the queue
 	 * fills -- 60 fps still, and 132 ms from latch to screen. Tearing,
-	 * the keyed mutex paces the frames. The swapchain's flags are the
-	 * open's, but the interval follows the policy as it is now: a wait
-	 * skipped only while the frames actually tear. */
-	const bool vsync = fnl_atomic_load_bool(&a->vsync);
-	if (d->wait && (vsync || !d->tear))
+	 * the keyed mutex paces the frames. The flags are the live swapchain's
+	 * and the interval the policy's; a rebuild reconciles the two. */
+	const bool vsync   = fnl_atomic_load_bool(&a->vsync);
+	const bool tearing = d->tear && !vsync;
+	if (d->wait && !tearing)
 		WaitForSingleObjectEx(d->wait, 100, TRUE);
 	HRESULT hr = IDXGIKeyedMutex_AcquireSync(d->km[img], 1, 2000);
 	if (hr != S_OK) {
@@ -497,9 +536,7 @@ VkResult vk_dxgi_present(App *a, uint32_t img)
 	 * asking for it on (fnl_set_vsync()) would present interval 1 with the
 	 * flag, which DXGI forbids. */
 	hr = IDXGISwapChain2_Present(d->sc, vsync ? 1 : 0,
-								 d->tear && !vsync
-									 ? DXGI_PRESENT_ALLOW_TEARING
-									 : 0);
+								 tearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
 	if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
 		return VK_ERROR_DEVICE_LOST;
 	if (SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED && a->counting)

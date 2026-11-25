@@ -500,7 +500,12 @@ typedef enum {
 /* What on_record and on_overlay are drawing for. `index` and `time` are
  * the frame this recording is made for, and a renderer that keeps its
  * recordings shows one on later frames too: neither is a clock the picture
- * follows. Anything that moves goes by scene_time, or by fnl_invalidate(). */
+ * follows. Anything that moves goes by scene_time, or by fnl_invalidate().
+ *
+ * `target` names the pass the callback records into. Under FNL_AA_MLAA at
+ * the window's own size the scene is drawn straight into the window while
+ * this reads FNL_TARGET_OFFSCREEN: the target is the size the scene was
+ * asked for, and MLAA at native size is the one mode that draws it direct. */
 typedef struct {
 	uint64_t index; /* presents, all time */
 	double time;    /* seconds since the window opened */
@@ -1000,7 +1005,9 @@ FNL_STATIC_ASSERT(sizeof(FnlEvent) == 48 || sizeof(FnlEvent) == 40,
  * so a handler need not be idempotent. The outermost pair -- the first
  * on_gpu_created and, on an ordinary close, the last on_gpu_lost -- runs on
  * the thread that called fnl_run(); every pair in between runs on the render
- * thread.
+ * thread. A device lost before the run begins is not handed over: the first
+ * on_gpu_created then comes from the recovery, on the render thread, as every
+ * later pair does.
  *
  * on_record is the seam. It runs on the render thread with the scene's pass
  * already begun and the viewport set, and what it records is the scene. Get
@@ -1063,6 +1070,10 @@ FNL_API FnlResult fnl_init(const FnlInitDesc *desc, FnlApp **out); /* [main] */
  * fnl_run(): pass NULL for a window with none, where the library's titlebar
  * is all that is drawn. A negative result leaves nothing open.
  *
+ * While a move to another GPU is landing -- between fnl_request_gpu() and
+ * its FNL_EVENT_GPU -- it is refused with a line: the renderer the new
+ * window would be built on is the one the move is leaving.
+ *
  * The window is open on return and draws from the next pump turn: before
  * fnl_run() its first frame comes when the run starts, and during a run as
  * soon as the host pumps again. The same [main] thread as fnl_init(), and
@@ -1102,7 +1113,7 @@ FNL_API FnlResult fnl_run(FnlApp *app, const FnlCallbacks *cb); /* [main] */
  * toolkit's, an engine's, a program that already pumps something:
  *
  *     if (fnl_start(app, &cb) < 0) ...
- *     while (my_loop_runs() && fnl_pump(app) == FNL_OK)
+ *     while (my_loop_runs() && fnl_pump(app, 100) == FNL_OK)
  *         ;
  *     fnl_stop(app);
  *

@@ -627,6 +627,19 @@ static void win32_capture(App *a)
 	if (a->pointer_captured)
 		return;
 
+	/* Where the raw input thread has the process's raw mouse, the motion is
+	 * handed on from there; otherwise registered here. One raw thread
+	 * serves every window on the host, so its reports go to this window:
+	 * the one that is taking the pointer now. Asked before any other
+	 * window's capture is given up: one that cannot be taken here must
+	 * leave the pointer where it was. */
+	const bool via_thread = p->rawin && rawin_has_mouse(p->rawin);
+	if (!via_thread && !raw_register(p)) {
+		fnl_log(FNL_LOG_WARN, "raw mouse input unavailable; the "
+							  "pointer cannot be captured");
+		return;
+	}
+
 	/* One capture, the program's: the host's raw thread forwards for one
 	 * window, so a second window taking it lets the first go -- its release
 	 * would otherwise stop the forwarding the new holder now relies on. */
@@ -634,18 +647,10 @@ static void win32_capture(App *a)
 		if (w != a && w->pointer_captured && w->backend_state)
 			win32_release(w);
 
-	/* Where the raw input thread has the process's raw mouse, the motion is
-	 * handed on from there; otherwise registered here. One raw thread
-	 * serves every window on the host, so its reports go to this window:
-	 * the one that is taking the pointer now. */
-	if (p->rawin && rawin_has_mouse(p->rawin)) {
+	if (via_thread) {
 		rawin_moves_spend(p->rawin);
 		rawin_target(p->rawin, p->hwnd);
 		rawin_forward(p->rawin, true);
-	} else if (!raw_register(p)) {
-		fnl_log(FNL_LOG_WARN, "raw mouse input unavailable; the "
-							  "pointer cannot be captured");
-		return;
 	}
 
 	/* The reticle starts at the click, and is published once the capture has
@@ -1264,10 +1269,20 @@ static void on_dpi_changed(App *a, HWND hwnd, WPARAM wp, LPARAM lp)
 	/* The suggested rectangle is not advice: refusing it leaves the window
 	 * at a physical size that no longer matches its logical one, and the
 	 * next drag snaps. */
-	a->backend_state->dpi = HIWORD(wp);
+	struct BackendState *p = a->backend_state;
+	const uint32_t serial  = p->size_serial;
+	p->dpi                = HIWORD(wp);
 	const RECT *sug       = (const RECT *)lp;
 	SetWindowPos(hwnd, NULL, sug->left, sug->top, sug->right - sug->left,
 				 sug->bottom - sug->top, SWP_NOZORDER | SWP_NOACTIVATE);
+	/* The rectangle may already be the window's -- a fullscreen one is held
+	 * at fs_rect, a maximized one filling the work area is put back where it
+	 * is -- and no WM_SIZE follows it. The scale moved anyway, and with it
+	 * the points, the output's and the floor's: the publish runs here, as
+	 * win32_set_fullscreen() runs it, unless the WM_SIZE above already
+	 * did. */
+	if (p->size_serial == serial)
+		on_size(a, hwnd, IsZoomed(hwnd) ? SIZE_MAXIMIZED : SIZE_RESTORED);
 }
 
 /* WM_SETFOCUS and WM_KILLFOCUS. */
@@ -1512,8 +1527,14 @@ static void wheel_publish(App *a, bool horizontal, int delta)
 static bool wheel_raw_here(const struct BackendState *p)
 {
 	POINT pt;
+	RAWINPUTDEVICE now;
 	return GetForegroundWindow() == p->hwnd && GetCursorPos(&pt) &&
-		   GetAncestor(WindowFromPoint(pt), GA_ROOT) == p->hwnd;
+		   GetAncestor(WindowFromPoint(pt), GA_ROOT) == p->hwnd &&
+		   /* And the process's raw mouse still points here: a program, or
+		    * another window, may have taken it since this window's last
+		    * raw step, and then no raw event is coming to suppress the
+		    * message for. */
+		   raw_mouse_registration(&now) && now.hwndTarget == p->hwnd;
 }
 
 /* A captured pointer's raw report: its movement, as the reticle's and the
@@ -1572,6 +1593,12 @@ static void raw_forwarded(App *a)
 	struct BackendState *p = a->backend_state;
 	RawForward got[32];
 	int n;
+	/* A wake posted to this window in the instant before another took the
+	 * capture would otherwise drain that window's reports out of the shared
+	 * ring and discard them: the wake is this window's only while it holds
+	 * the pointer. */
+	if (!a->pointer_captured)
+		return;
 	while ((n = rawin_forwarded(p->rawin, got, 32)) > 0) {
 		if (!a->pointer_captured || GetForegroundWindow() != p->hwnd)
 			continue;
@@ -2158,8 +2185,21 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 	case WM_MOVE: on_move(a, hwnd); return 0;
 
 	/* The monitor changed mode, or one was plugged in: same handle, different
-	 * numbers, so the re-read is forced. */
-	case WM_DISPLAYCHANGE: publish_output(a, true); return 0;
+	 * numbers, so the re-read is forced. A fullscreen window is held at the
+	 * monitor's rectangle, which the change just moved: the rectangle is
+	 * taken again before the hold re-imposes it. */
+	case WM_DISPLAYCHANGE:
+		if (a->is_fullscreen) {
+			MONITORINFO mi = { .cbSize = sizeof mi };
+			if (GetMonitorInfoW(
+					MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
+					&mi)) {
+				a->backend_state->fs_rect = mi.rcMonitor;
+				hold_fullscreen(a, hwnd);
+			}
+		}
+		publish_output(a, true);
+		return 0;
 
 	/* Back from a sleep. AUTOMATIC and not RESUMESUSPEND: the second comes
 	 * only once a hand has been on the machine, and a timer's wake has
@@ -2454,8 +2494,20 @@ static FnlResult win32_open(App *a)
 	RECT at = { 0, 0, 0, 0 };
 	GetWindowRect(p->hwnd, &at);
 	int x = at.left, y = at.top;
+	/* Created at 100%, where a point was a pixel (above), so the position the
+	 * caller asked for landed as so many pixels; at the density the window is
+	 * on it is scale_pt() of those points, the same open_s120 the size uses.
+	 * Converted before the fit, so one that now overhangs is brought back in
+	 * by the same clamp. */
+	if (placed) {
+		x = scale_pt(a->init_x_pt, open_s120);
+		y = scale_pt(a->init_y_pt, open_s120);
+	}
+	POINT pt       = { x, y };
 	MONITORINFO mi = { .cbSize = sizeof mi };
-	if (GetMonitorInfoW(MonitorFromWindow(p->hwnd, MONITOR_DEFAULTTONEAREST),
+	if (GetMonitorInfoW(placed ? MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+							   : MonitorFromWindow(p->hwnd,
+												   MONITOR_DEFAULTTONEAREST),
 						&mi)) {
 		const RECT work = monitor_work(&mi);
 		int min_w, min_h;

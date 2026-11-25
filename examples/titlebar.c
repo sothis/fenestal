@@ -54,13 +54,15 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 						 ink, "x");
 		/* Claimed, so a press there is an event and not a window drag. The
 		 * rest of the bar stays the drag strip. */
-		fnl_titlebar_claim(app, b->buttons_x, 0, 3 * BTN_W, bar_h);
+		fnl_titlebar_claim(app, b->buttons_x, BTN_MARGIN, 3 * BTN_W,
+						   bar_h - BTN_MARGIN);
 	}
 
 	FnlEvent ev;
 	while (fnl_poll_event(app, &ev)) {
+		/* The strip's top is an inset too: above it is the resize edge. */
 		if (ev.type != FNL_EVENT_BUTTON || !ev.button.pressed ||
-			ev.button.y >= bar_h)
+			ev.button.y < BTN_MARGIN || ev.button.y >= bar_h)
 			continue;
 		/* Division truncates toward zero, so a press just left of the
 		 * buttons would otherwise read as the first. */

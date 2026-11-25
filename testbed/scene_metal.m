@@ -25,6 +25,7 @@
 
 #include <fenestal/fnl_metal.h>
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -84,12 +85,30 @@ typedef struct {
 } Scene;
 static Scene g_scenes[SCENE_WINDOWS];
 
+/* Written on the main thread -- scene_open() and scene_metal_on_gpu_lost()
+ * run from on_gpu_created and on_gpu_lost -- and read on each window's render
+ * thread by scene_slot() (on_record), so one spinlock covers every scan and
+ * write, as the testbed's picture table has. */
+static atomic_flag g_scenes_lock;
+static void scenes_lock(void)
+{
+	while (atomic_flag_test_and_set(&g_scenes_lock))
+		;
+}
+static void scenes_unlock(void)
+{
+	atomic_flag_clear(&g_scenes_lock);
+}
+
 static Scene *scene_slot(FnlApp *app)
 {
-	for (int i = 0; i < SCENE_WINDOWS; i++)
+	Scene *s = NULL;
+	scenes_lock();
+	for (int i = 0; i < SCENE_WINDOWS && !s; i++)
 		if (g_scenes[i].app == app)
-			return &g_scenes[i];
-	return NULL;
+			s = &g_scenes[i];
+	scenes_unlock();
+	return s;
 }
 
 /* Let go of what the window's device made. Nil assignments, which ARC
@@ -108,14 +127,17 @@ static void scene_clear(Scene *s)
  * slot is taken, which is more windows than the testbed draws a scene in. */
 static Scene *scene_open(FnlApp *app)
 {
-	for (int i = 0; i < SCENE_WINDOWS; i++) {
+	Scene *s = NULL;
+	scenes_lock();
+	for (int i = 0; i < SCENE_WINDOWS && !s; i++) {
 		if (g_scenes[i].app == app || !g_scenes[i].app) {
 			g_scenes[i].app = app;
 			scene_clear(&g_scenes[i]);
-			return &g_scenes[i];
+			s = &g_scenes[i];
 		}
 	}
-	return NULL;
+	scenes_unlock();
+	return s;
 }
 
 /* One stage from MSL text; spirv-cross names every entry main0. */
@@ -203,11 +225,20 @@ void scene_metal_on_gpu_created(void *ud, FnlApp *app)
 void scene_metal_on_gpu_lost(void *ud, FnlApp *app)
 {
 	(void)ud;
-	Scene *s = scene_slot(app);
-	if (!s)
+	int at = -1;
+	scenes_lock();
+	for (int i = 0; i < SCENE_WINDOWS; i++)
+		if (g_scenes[i].app == app) {
+			at = i;
+			break;
+		}
+	scenes_unlock();
+	if (at < 0)
 		return;
-	scene_clear(s);
-	s->app = NULL;
+	scene_clear(&g_scenes[at]);
+	scenes_lock();
+	g_scenes[at].app = NULL;
+	scenes_unlock();
 }
 
 /* The scene itself, as in scene_vulkan.c: the pattern over one covering

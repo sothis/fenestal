@@ -182,9 +182,15 @@ static void record_scene_pass(App *a, VkCommandBuffer cb,
 		{ .depthStencil = { 1.0f, 0 } },
 		{ .color = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f } } },
 	};
+	/* The storing pass only where TAAU's resolve reads the depth: the
+	 * predicate is the same one that records the resolve, so the depth's
+	 * final layout is the one its barrier expects. */
+	const VkRenderPass pass = ms ? VK(a)->scene_pass_ms
+						: scene_taau(a, ds) ? VK(a)->scene_pass
+											: VK(a)->scene_pass_lazy;
 	VkRenderPassBeginInfo rp = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-		.renderPass = ms ? VK(a)->scene_pass_ms : VK(a)->scene_pass,
+		.renderPass = pass,
 		.framebuffer = ms ? VK(a)->scene_ms_fb : VK(a)->scene_fb,
 		.renderArea.extent = scene_vk_extent(a),
 		.clearValueCount = ms ? 3u : 2u,

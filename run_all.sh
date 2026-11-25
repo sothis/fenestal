@@ -157,10 +157,11 @@ rc=0
 for j in $running; do
     t=${j%%:*}
     # After a signal, a child that takes no TERM must not hang the wait: a
-    # watchdog kills it after a grace, and is itself killed the moment the
-    # wait returns -- a pid this shell has not reaped is still its child,
-    # so the kill can never fall on a reused one. Armed only while
-    # stopping: a child running normally is waited for as long as it runs.
+    # watchdog kills it after a grace, and is killed the moment the child is
+    # reaped, so it can only fall on the pid before that -- and while the
+    # child is unreaped its pid is not the system's to reuse. Armed only
+    # while stopping: a child running normally is waited for as long as it
+    # runs.
     dog=""
     if [ "$stopping" -ne 0 ]; then
         ( sleep 5; kill -9 "${j#*:}" 2>/dev/null ) >/dev/null 2>&1 &
@@ -168,6 +169,16 @@ for j in $running; do
     fi
     status=0
     wait "${j#*:}" || status=$?
+    if [ "$stopping" -ne 0 ]; then
+        # A trapped signal ends `wait` at once without reaping the child:
+        # wait again, under the dog (armed now if the signal came during the
+        # first), so the child is reaped or killed before its pid is dropped.
+        if [ -z "$dog" ]; then
+            ( sleep 5; kill -9 "${j#*:}" 2>/dev/null ) >/dev/null 2>&1 &
+            dog=$!
+        fi
+        wait "${j#*:}" 2>/dev/null || true
+    fi
     if [ -n "$dog" ]; then
         kill "$dog" 2>/dev/null || true
     fi

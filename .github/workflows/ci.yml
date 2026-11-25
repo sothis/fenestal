@@ -163,6 +163,10 @@ jobs:
             - name: win64 release
               id: win64
               if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+              # The checkout's source checks and zips are the linux release
+              # step's, on this same checkout.
+              env:
+                  FNL_NO_DIST: 1
               run: |
                   ./build.sh win64 release
                   .github/stage.sh win64
@@ -177,6 +181,8 @@ jobs:
             - name: linux-arm64 release
               id: arm64
               if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+              env:
+                  FNL_NO_DIST: 1
               run: |
                   ./build.sh linux-arm64 release
                   .github/stage.sh linux-arm64

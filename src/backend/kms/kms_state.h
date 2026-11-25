@@ -50,14 +50,30 @@ struct KmsAtomic;
 _Static_assert(KMS_MAX_MODES <= OUTPUT_MODES_MAX,
 			   "the seam's mode lists are read through a buffer that size");
 
+/* The connector properties this backend reads by name, as ids resolved once
+ * when the slot is read (output_props_read()) and never written again: an id
+ * is the connector object's for its life, a hotplug does not make a new one,
+ * and a slot the card stops listing is never read. */
+enum {
+	KMS_PROP_CRTC,       /* CRTC_ID: what drives it now */
+	KMS_PROP_DPMS,       /* DPMS: an output left dark */
+	KMS_PROP_HDR,        /* HDR_OUTPUT_METADATA: the PQ statement's blob */
+	KMS_PROP_EDID,       /* EDID: the blob output_hdr_probe() reads */
+	KMS_PROP_COLORSPACE, /* Colorspace: BT.2020 RGB for a PQ frame */
+	KMS_PROP_MAX_BPC,    /* max bpc: 10 for a 10-bit pair */
+	KMS_PROP_COUNT
+};
+
 /* One connected output of the card, read at open: the connector, the CRTC
  * the copy path sets its modes on -- the one that lit the console, else the
  * first an encoder of it can use -- and its modes, largest first and
  * fastest first within a size (modes_read()). Only a guess for an output
  * not lit at open, where Vulkan's driver chooses for itself, so what drives
- * an output now is asked of the kernel (connector_live_crtc()). */
+ * an output now is asked of the kernel (connector_live_crtc()). `prop` is
+ * that asking's cheap half. */
 typedef struct {
 	uint32_t     connector_id, crtc_id;
+	uint32_t     prop[KMS_PROP_COUNT];
 	char         name[32];          /* the kernel's name, "HDMI-A-1" */
 	struct drm_mode_modeinfo modes[KMS_MAX_MODES];
 	int          mode_count, mode_pref;
@@ -228,6 +244,19 @@ struct BackendHostState {
 	 * was late for it one decision. */
 	FnlMutex flip_lock;
 
+	/* The mode sets' one hand: a CRTC is chosen (scan_crtc_pick()) and set
+	 * under this, so a second window cannot choose the CRTC this one is
+	 * about to bind, nor darken one it has just bound. Holds before
+	 * flip_lock and KmsAtomic::lock, never after either. */
+	FnlMutex crtc_lock;
+	/* The outputs the windows hold, a bit each: each window's sel_want,
+	 * kept by the main thread when a selection is adopted and at a window's
+	 * open and close. Every thread reads it -- the titlebar's lists are
+	 * drawn on the render thread, and fnl_output_count() and
+	 * fnl_output_name_at() are [any] -- where Host::windows is the main
+	 * thread's alone to walk. */
+	FnlAtomicU32 outputs_held;
+
 	KmsInput     inputs[KMS_MAX_INPUTS];
 	int          input_count;
 
@@ -350,6 +379,11 @@ struct BackendState {
 	 * removed while a plane shows it (scan_free()). */
 	int          scan_sel;
 	uint32_t     scan_resets_seen;
+	/* [render] The CRTC the copy path's mode was last set on, 0 before the
+	 * first set: the flips go there, and a set made on another darkens the
+	 * CRTC left scanning out the retired pair. Written and read by the
+	 * render thread alone. */
+	uint32_t     scan_crtc;
 
 	KmsScan      scan, scan_old;
 	uint32_t     scan_gen;
@@ -368,10 +402,11 @@ struct BackendState {
 	 * where none was, and whether the connector's HDR properties are set
 	 * for it (scan_hdr_apply(), cleared when an 8-bit pair is shown). */
 	uint32_t     hdr_blob;
-	/* The connector it was attached to, while hdr_set: a move to another
-	 * output clears that one and tells the new one, rather than taking the
-	 * old statement for this connector's. */
-	uint32_t     hdr_connector;
+	/* The output slot it was attached to, while hdr_set, -1 for none: a
+	 * move to another output clears that one and tells the new one, rather
+	 * than taking the old statement for this connector's. A slot, because
+	 * the statement's property ids are the slot's cache. */
+	int          hdr_out;
 	bool         hdr_set;
 	/* The pending flip: whether one is in flight, whether it tears (no
 	 * vblank), the frame it carries, and how many completions were given up

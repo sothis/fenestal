@@ -330,6 +330,11 @@ static void display_now(App *a, char *out, size_t size)
 	snprintf(name, sizeof name, "%s", a->want_output[0] ? a->want_output : "-");
 	const int w_pt = a->want_out_w_pt, h_pt = a->want_out_h_pt;
 	const int mode_w = a->want_out_mode_w, mode_h = a->want_out_mode_h;
+	/* The pump's scale, which the points were published at; the drawn one
+	 * (fnl_scale120()) is a frame behind, and on a scale change it would key
+	 * the display at the old density's pixels -- a display nobody has, and
+	 * one the calibration reads as the window having moved. */
+	const int s120_pt = want_s120(a);
 	fnl_mutex_unlock(&a->lock);
 	FnlMode modes[OUTPUT_MODES_MAX];
 	int cur     = -1;
@@ -364,10 +369,9 @@ static void display_now(App *a, char *out, size_t size)
 		h   = mode_h;
 		mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
 	} else {
-		const int s = fnl_scale120(a);
-		w           = w_pt * s / 120;
-		h           = h_pt * s / 120;
-		mhz         = fnl_atomic_load_u32(&a->out_refresh_mhz);
+		w   = w_pt * s120_pt / 120;
+		h   = h_pt * s120_pt / 120;
+		mhz = fnl_atomic_load_u32(&a->out_refresh_mhz);
 	}
 	snprintf(out, size, "%s %dx%d@%u", name, w, h, (mhz + 500) / 1000);
 	/* A rate not said yet -- X11 reads it a pump turn after the window
@@ -1106,7 +1110,7 @@ static double time_left(const App *a, double now);
  * figures are used where they are kept, the window opens on the automatic
  * pick where they are not, and the box's last row measures on demand
  * (app_rank_recalibrate()). */
-static void check_missing(App *a)
+static void check_missing(App *a, const char *display)
 {
 	a->rank_dirty = false;
 	if (a->rank_mode != RANK_CALIBRATE)
@@ -1120,11 +1124,13 @@ static void check_missing(App *a)
 		a->rank_dirty = true;
 		return;
 	}
-	char display[RANK_DISPLAY_MAX];
-	display_now(a, display, sizeof display);
-	/* No output yet -- on Wayland none is known until the window is shown
-	 * -- is no display to measure: asked again once it enters one. */
-	if (strncmp(display, "- ", 2) == 0)
+	/* The caller's display, the one its rank_display and list hash stand
+	 * for -- derived once a turn, not again here, so a publish landing
+	 * between the two cannot key the calibration to one display and the
+	 * tick to another. No output yet -- on Wayland none is known until the
+	 * window is shown -- is no display to measure: asked again once it
+	 * enters one. */
+	if (!display[0] || strncmp(display, "- ", 2) == 0)
 		return;
 	const bool all = !a->rank_forced;
 	a->rank_forced = true;
@@ -1244,6 +1250,7 @@ static bool quiet(App *a, const char *display, double now)
 void app_rank_tick(App *a)
 {
 	const double now = now_seconds();
+	const uint32_t gen = fnl_atomic_load_u32(&a->display_gen);
 	/* A calibration under way when a window opens on the host ends here,
 	 * with what it measured: its moves between GPUs are refused from now on
 	 * (gpu_switch_owed()), and its window would take no input while it
@@ -1262,19 +1269,26 @@ void app_rank_tick(App *a)
 			return;
 		/* The window on another display: the list ordered for it, and
 		 * measured there where nothing is kept. A list with entries it
-		 * had not -- a GPU added -- is asked about the same way. The
-		 * display stamp gates the derivation: it moves on every publish
-		 * that can change the display, so a mode switch that keeps the
-		 * size moves it too, while a turn that changes nothing costs a
-		 * compare instead of two round trips through the backend. */
+		 * had not -- a GPU added -- is asked about the same way. Two
+		 * stamps gate the derivation: the display's, which moves on every
+		 * publish that can change the display (a mode switch that keeps
+		 * the size moves it too), and the list's, which moves wherever the
+		 * list gained or lost an entry with no display fact to say so. A
+		 * turn that changed neither costs a compare instead of two round
+		 * trips through the backend. */
 		char display[RANK_DISPLAY_MAX];
-		const uint32_t gen = fnl_atomic_load_u32(&a->display_gen);
-		if (a->rank_gen_seen != gen) {
-			a->rank_gen_seen = gen;
+		const uint32_t lgen = fnl_atomic_load_u32(&a->gpu_list_gen);
+		if (a->rank_gen_seen != gen || a->rank_list_gen_seen != lgen) {
+			/* Both stamps before the derivation: a publish that lands
+			 * between them and it is seen on the next turn, where a flag
+			 * read and cleared would lose it. */
+			a->rank_gen_seen      = gen;
+			a->rank_list_gen_seen = lgen;
 			display_now(a, display, sizeof display);
 			const unsigned long hash = list_hash(a);
-			if (strcmp(display, a->rank_display) != 0 ||
-				hash != a->rank_list_hash) {
+			const bool moved = a->rank_display[0] &&
+							   strcmp(display, a->rank_display) != 0;
+			if (moved || hash != a->rank_list_hash) {
 				/* Moved to another display, not opened on one: to its first
 				 * entry, or the caller's index, as the start would be -- once
 				 * anything missing there is measured, after which the
@@ -1282,8 +1296,6 @@ void app_rank_tick(App *a)
 				 * caller named. Not where the ranking is only kept, as a
 				 * harness round's is, whose own moves between displays are
 				 * checked as such. */
-				const bool moved =
-					a->rank_display[0] && strcmp(display, a->rank_display) != 0;
 				/* An aim the calibration just set is not overwritten: the
 				 * move to it waits until the window is settled here. */
 				if (moved && a->rank_mode == RANK_AUTO && !a->rank_land[0] &&
@@ -1295,7 +1307,11 @@ void app_rank_tick(App *a)
 				fnl_mutex_unlock(&a->lock);
 				a->rank_list_hash = hash;
 				a->rank_dirty     = true;
-				app_gpu_list_merge(a);
+				/* The list is merged already, and sorted for the display it
+				 * stands on when it has not moved: a merge always sorts for
+				 * the current one, so only a move asks for it again. */
+				if (moved)
+					app_gpu_list_merge(a);
 				/* Ordered for this display now: its numbers are said again. */
 				if (moved && a->rank_n > 0)
 					app_gpu_list_say(a);
@@ -1319,7 +1335,7 @@ void app_rank_tick(App *a)
 		if (!quiet(a, display, now))
 			return;
 		if (a->rank_dirty) {
-			check_missing(a);
+			check_missing(a, display);
 			if (fnl_atomic_load_bool(&a->calibrating))
 				return;
 		}
@@ -1378,20 +1394,26 @@ void app_rank_tick(App *a)
 	 * with what was measured where it was, and the display it is on now
 	 * is asked about afresh. A figure measured after would be the new
 	 * display's under the old one's name. */
-	char display[RANK_DISPLAY_MAX];
-	display_now(a, display, sizeof display);
-	if (strcmp(display, a->cal.display) != 0) {
-		fnl_log(FNL_LOG_INFO,
-				"GPU rank: the window left %s for %s with %d "
-				"of %d entries measured; those kept",
-				a->cal.display, display, a->cal.i, a->cal.n);
-		a->cal.n = a->cal.i;
-		finish(a);
-		/* And to the first entry on the display it is on now, once
-		 * settled there, not the one it was measuring when it moved --
-		 * or back to the GPU named, or the index asked for (aim()). */
-		aim(a, a->cal.back);
-		return;
+	if (a->rank_gen_seen != gen) {
+		char display[RANK_DISPLAY_MAX];
+		display_now(a, display, sizeof display);
+		if (strcmp(display, a->cal.display) != 0) {
+			fnl_log(FNL_LOG_INFO,
+					"GPU rank: the window left %s for %s with %d "
+					"of %d entries measured; those kept",
+					a->cal.display, display, a->cal.i, a->cal.n);
+			a->cal.n = a->cal.i;
+			finish(a);
+			/* And to the first entry on the display it is on now, once
+			 * settled there, not the one it was measuring when it moved --
+			 * or back to the GPU named, or the index asked for (aim()). */
+			aim(a, a->cal.back);
+			return;
+		}
+		/* The display the calibration is on: the stamp is consumed, so the
+		 * CAL_OFF path does not derive it again. A change is left
+		 * unconsumed, for that path to set rank_dirty, aim and say. */
+		a->rank_gen_seen = gen;
 	}
 	/* Only a turn that presented a frame may take a figure or advance a
 	 * span: a covered, minimized or uninvited window presents none, and

@@ -931,16 +931,23 @@ static void release_pointer_capture(App *a)
 	if (!a->pointer_captured)
 		return;
 
-	/* No hint here: relative_motion() set it, and a commit has latched it. */
+	/* The hint is wl_hint_flush()'s and is not re-sent here: one owed for this
+	 * lock can no longer apply, and sending it on another's object after a
+	 * re-capture would be a stale place. */
 	zwp_locked_pointer_v1_destroy(p->locked);
 	p->locked = NULL;
+	p->hint_owed = false;
 	if (p->relative) {
 		zwp_relative_pointer_v1_destroy(p->relative);
 		p->relative = NULL;
 	}
 	a->pointer_captured = false;
-	/* current_shape still says HIDDEN; the update below asks for another. */
-	pointer_update(a);
+	/* current_shape still says HIDDEN, and the shape is decided again only
+	 * where the pointer is: over another window it is that window's, sent
+	 * under that window's enter serial. */
+	struct BackendHostState *hs = p->host;
+	if (hs->pointer_inside && hs->ptr_window == a)
+		pointer_update(a);
 	app_reticle_publish(a);
 }
 
@@ -1743,9 +1750,14 @@ static void seat_extras(struct Host *h)
 	}
 	/* The manager may arrive after the seat has reported its pointer, when
 	 * seat_caps()' branch has already been passed. */
-	if (hs->pointer && hs->cursor_shape_manager && !hs->cursor_device)
+	if (hs->pointer && hs->cursor_shape_manager && !hs->cursor_device) {
 		hs->cursor_device = wp_cursor_shape_manager_v1_get_pointer(
 			hs->cursor_shape_manager, hs->pointer);
+		/* A capture taken before this device existed asked for HIDDEN and
+		 * was refused: the window the pointer is in decides again. */
+		if (hs->cursor_device && hs->ptr_window)
+			pointer_update(hs->ptr_window);
+	}
 }
 
 static void seat_caps(void *data, struct wl_seat *seat, uint32_t caps)
@@ -1946,14 +1958,20 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 		hs->shm = BIND(wl_shm, 1);
 	} else if (IS(xdg_wm_base)) {
 		/* v4 for xdg_toplevel.configure_bounds; nothing above that is used. */
-		hs->wm_base = BIND(xdg_wm_base, 4);
-		xdg_wm_base_add_listener(hs->wm_base, &wm_base_listener, data);
+		struct xdg_wm_base *wm = BIND(xdg_wm_base, 4);
+		if (wm) {
+			hs->wm_base = wm;
+			xdg_wm_base_add_listener(wm, &wm_base_listener, data);
+		}
 	} else if (IS(wl_seat) && !hs->seat) {
 		/* The first seat only. wl_seat is the one global here a compositor
 		 * may advertise more than once, and a second bound over the first
 		 * leaks a proxy whose listener still runs against this App. */
-		hs->seat = BIND(wl_seat, 5);
-		wl_seat_add_listener(hs->seat, &seat_listener, data);
+		struct wl_seat *seat = BIND(wl_seat, 5);
+		if (seat) {
+			hs->seat = seat;
+			wl_seat_add_listener(seat, &seat_listener, data);
+		}
 	} else if (IS(wp_cursor_shape_manager_v1)) {
 		hs->cursor_shape_manager = BIND(wp_cursor_shape_manager_v1, 1);
 	} else if (IS(zxdg_decoration_manager_v1)) {
@@ -1965,18 +1983,22 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 	} else if (IS(wp_viewporter) && !FNL_FAULT("no-viewporter")) {
 		hs->viewporter = BIND(wp_viewporter, 1);
 	} else if (IS(wp_presentation) && !hs->presentation) {
-		hs->presentation = BIND(wp_presentation, 1);
-		wp_presentation_add_listener(hs->presentation, &presentation_listener,
-									 data);
+		struct wp_presentation *pres = BIND(wp_presentation, 1);
+		if (pres) {
+			hs->presentation = pres;
+			wp_presentation_add_listener(pres, &presentation_listener, data);
+		}
 	} else if (IS(wp_fractional_scale_manager_v1)) {
 		hs->fractional_manager = BIND(wp_fractional_scale_manager_v1, 1);
 	} else if (IS(wl_output)) {
 		if (hs->output_count < WL_MAX_OUTPUTS) {
 			struct wl_output *o = BIND(wl_output, 4);
-			hs->outputs[hs->output_count] =
-				(WlOutput){ .handle = o, .global = name };
-			hs->output_count++;
-			wl_output_add_listener(o, &output_listener, data);
+			if (o) {
+				hs->outputs[hs->output_count] =
+					(WlOutput){ .handle = o, .global = name };
+				hs->output_count++;
+				wl_output_add_listener(o, &output_listener, data);
+			}
 		}
 	} else if (IS(wl_data_device_manager) && !hs->ddm) {
 		/* v1 is the selection; everything later is drag and drop. */
@@ -2301,8 +2323,10 @@ static void surface_frame_request(App *a)
 		if (p->frame_cb)
 			wl_callback_add_listener(p->frame_cb, &frame_listener, a);
 		/* Asked of a surface made at a renew, whose first frame this is:
-		 * answered, that frame is on screen (frame_done()). */
-		if (p->present_old || p->backing_owed)
+		 * answered, that frame is on screen (frame_done()). Without the
+		 * callback only frame_done() could ever answer it, so nothing is
+		 * marked. */
+		if (p->frame_cb && (p->present_old || p->backing_owed))
 			p->present_old_marked = true;
 	}
 	fnl_mutex_unlock(&a->lock);
@@ -2465,17 +2489,21 @@ static void request_window_size(App *a, int w, int h)
 	a->cur_w      = w;
 	a->cur_h      = h;
 
+	/* After cur_*: the device ceiling bounds this size times this scale.
+	 * Published with the size in one locked update, as a configure's is,
+	 * so the render thread never latches this size with the last one's
+	 * scale. */
+	const int s120 = resolve_scale120(a);
 	fnl_mutex_lock(&a->lock);
-	a->want_w = w;
-	a->want_h = h;
+	a->want_w        = w;
+	a->want_h        = h;
+	a->want_scale120 = s120;
 	fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
 
-	/* No configure follows a self-chosen size, so the two things one does
-	 * to what the size bounds are done here: the scale the new device
-	 * extent allows, and the captured reticle, which may now sit outside
-	 * the area (the same pair xdg_surface_configure runs). */
-	update_scale(a);
+	/* No configure follows a self-chosen size, so what one does to the
+	 * captured reticle -- which may now sit outside the area -- is done
+	 * here. */
 	app_reticle_clamp(a);
 }
 

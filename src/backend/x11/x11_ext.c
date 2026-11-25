@@ -57,9 +57,10 @@
 
 /* SYNC's opcodes: just what _NET_WM_SYNC_REQUEST needs, a counter of our
  * own and setting it. */
-#define SYNC_INITIALIZE      0
-#define SYNC_CREATE_COUNTER  2
-#define SYNC_SET_COUNTER     3
+#define SYNC_INITIALIZE       0
+#define SYNC_CREATE_COUNTER   2
+#define SYNC_SET_COUNTER      3
+#define SYNC_QUERY_COUNTER    5
 #define SYNC_DESTROY_COUNTER 6
 
 /* The Generic Event Extension's and Present's: their versions, and the
@@ -184,7 +185,16 @@ void x11_sync_open(struct BackendState *p)
 	const uint32_t id = xcb_generate_id(p->conn);
 	const SyncCounterValue cc = { id, 0, 0 };
 	(void)ext_send(p, &sync_ext, SYNC_CREATE_COUNTER, &cc, sizeof cc, false);
+	/* Confirmed before it is advertised, and behind the monitors' names so
+	 * the confirmation adds no wait: a refused CreateCounter leaves an id
+	 * the server knows nothing of, and the manager would wait on it for
+	 * every resize. A BadCounter is the refusal -- there is no reply to
+	 * read it in -- so a reply at all is the confirmation, and
+	 * x11_ext_take() clears the counter when there is none. */
+	const SyncCounterValue q = { id, 0, 0 };
 	p->sync_counter = id;
+	p->sync_query   = ext_send(p, &sync_ext, SYNC_QUERY_COUNTER, &q, sizeof q,
+							   true);
 }
 
 /* From the render thread, after a present: a write on the window's
@@ -883,6 +893,21 @@ void x11_ext_take(struct BackendState *p, const X11ExtAsk *ask)
 		monitors = NULL;
 	}
 	monitors_parse(p, monitors);
+
+	/* The SYNC counter's confirmation, taken after the monitors' (its
+	 * request went out before their names were asked for, so it is
+	 * answered by now). A NULL is a BadCounter, and the counter goes. */
+	if (p->sync_query) {
+		void *q      = ext_take(p, p->sync_query);
+		p->sync_query = 0;
+		if (!q && p->sync_counter) {
+			p->sync_counter = 0;
+			fnl_log(FNL_LOG_INFO,
+					"X11: the SYNC counter was refused; resizes are "
+					"shown without waiting for a frame");
+		}
+		free(q);
+	}
 }
 
 /* The most desktops' worth of _NET_WORKAREA that is read. The current desktop

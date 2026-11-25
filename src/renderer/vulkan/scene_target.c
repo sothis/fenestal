@@ -50,7 +50,14 @@ FnlResult create_scene_objects(App *a)
 		.format  = VK(a)->color_format,
 		.sampled = true
 	};
-	VK(a)->scene_pass = make_render_pass(a, &scene);
+	/* The scene's pass with the depth store given up: a frame whose mode
+	 * does not read the depth (MLAA, a pinned size) records into this one,
+	 * and a transient depth nothing stores costs nothing. Every field but
+	 * that one is the same, so the two are pipeline-compatible. */
+	PassDesc scene_lazy      = scene;
+	scene_lazy.depth_sampled = false;
+	VK(a)->scene_pass      = make_render_pass(a, &scene);
+	VK(a)->scene_pass_lazy = make_render_pass(a, &scene_lazy);
 	if (ms != VK_SAMPLE_COUNT_1_BIT)
 		VK(a)->scene_pass_ms = make_render_pass(a, &scene_ms);
 	VK(a)->post_pass = make_render_pass(a, &post);
@@ -58,6 +65,7 @@ FnlResult create_scene_objects(App *a)
 	 * multisampled pass is the one that may be absent: without it the device
 	 * simply has no FSAA. */
 	if (VK(a)->scene_pass == VK_NULL_HANDLE ||
+		VK(a)->scene_pass_lazy == VK_NULL_HANDLE ||
 		VK(a)->post_pass == VK_NULL_HANDLE)
 		return fnl_fail(FNL_ERR_SYSTEM,
 						"the scene's render passes did not build");
@@ -667,11 +675,31 @@ void scene_set_size(App *a, int w, int h)
 			return;
 		destroy_scene_target(a);
 	}
+	/* With TAAU in force the depth is built resident here: scene_ensure_aa()
+	 * would make it resident the same turn anyway, with a second drain and a
+	 * second target (DESIGN *Antialiasing*). The render thread's own last
+	 * draw says whether the mode is on; the turn it turns on is answered by
+	 * scene_depth_make_resident(). */
+	const bool want_depth = a->last_draw.aa == FNL_AA_TAAU;
+	bool built            = false;
+	if (w > 0 && h > 0 && want_depth) {
+		built = create_scene_target(a, (uint32_t)w, (uint32_t)h, true);
+		if (!built) {
+			/* A refusal leaves a part-built set; and asked once per target,
+			 * so the frame's ensure does not rebuild it the same turn. */
+			destroy_scene_target(a);
+			VK(a)->taau_refused = true;
+			fnl_log(FNL_LOG_WARN,
+					"no room for a %dx%d scene target with a depth to read; "
+					"TAAU is off at this size",
+					w, h);
+		}
+	}
 	/* A refusal leaves no target and says so; the loop reads scene_extent,
 	 * still zero, and draws the scene straight into the window. The request
 	 * stands. Not rate-limited: the loop calls this again only once the size
 	 * or the window changed (see draw_scene_w in core/frame.c). */
-	if (w > 0 && h > 0 &&
+	if (w > 0 && h > 0 && !built &&
 		!create_scene_target(a, (uint32_t)w, (uint32_t)h, false)) {
 		destroy_scene_target(a);
 		fnl_log(FNL_LOG_WARN,
@@ -841,6 +869,7 @@ void destroy_scene_objects(App *a)
 	vkDestroySampler(VK(a)->device, VK(a)->scene_sampler, NULL);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->post_pass, NULL);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->scene_pass_ms, NULL);
+	vkDestroyRenderPass(VK(a)->device, VK(a)->scene_pass_lazy, NULL);
 	vkDestroyRenderPass(VK(a)->device, VK(a)->scene_pass, NULL);
 	VK(a)->mlaa_win_pipeline = VK_NULL_HANDLE;
 	VK(a)->mlaa_pipeline = VK_NULL_HANDLE;

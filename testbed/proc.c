@@ -117,7 +117,7 @@ void testbed_proc_sample(double *cpu_pct, double *rss)
 {
 	/* Per thread: every window's overlay samples, on its own render thread,
 	 * and the figures are the process's either way. */
-	static _Thread_local double last_cpu = -1.0, last_wall, pct = -1.0,
+	static TESTBED_TLS double last_cpu = -1.0, last_wall, pct = -1.0,
 							   mib = -1.0;
 	double cpu, wall;
 	if (!times_now(&cpu, &wall)) {

@@ -472,6 +472,8 @@ FnlResult draw_overlay(App *a, const FnlDrawState *ds, uint32_t img)
 														   : FNL_TARGET_OFFSCREEN,
 						 .samples    = scene_samples,
 						 .scene_time = ds->scene_time,
+						 .jitter_x   = ds->jitter_x,
+						 .jitter_y   = ds->jitter_y,
 						 /* The window's colour, which is where this pass
 						  * draws: the same FnlFrame the scene's callbacks
 						  * are given, so a caller reading it in either

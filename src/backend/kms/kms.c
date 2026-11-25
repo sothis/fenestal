@@ -315,13 +315,13 @@ static int card_connectors(int fd, uint32_t ids[KMS_MAX_CONNECTORS])
 #define KMS_MAX_ENCODERS 8
 #define KMS_MAX_CRTCS 16
 
-/* The CRTC driving a connector now, or 0: what lit it, the console or a
- * mode set since, Vulkan's included -- which picks its own CRTC for a
- * display, so the one read at open is a guess for any output not lit then.
- * The connector's CRTC_ID property is asked first, which an atomic commit
- * sets and the encoder path may leave stale or zero; a driver that keeps no
- * property answers through the encoder it names. */
-static uint32_t connector_live_crtc(int fd, uint32_t connector_id)
+/* The connector's property ids this backend reads by name, resolved once when
+ * the slot is read and never again: an id belongs to the connector object for
+ * its life, so a hotplug on it does not invalidate one, and a slot the card
+ * stops listing is never read. One GETPROPERTY per property here; every later
+ * read by name -- the cursor's CRTC probe, the HDR statement, an output gone
+ * dark -- is then one OBJ_GETPROPERTIES. */
+static void output_props_read(int fd, KmsOutput *o)
 {
 	uint32_t ids[64];
 	uint64_t vals[64];
@@ -329,21 +329,61 @@ static uint32_t connector_live_crtc(int fd, uint32_t connector_id)
 		.props_ptr       = (uintptr_t)ids,
 		.prop_values_ptr = (uintptr_t)vals,
 		.count_props     = 64,
-		.obj_id          = connector_id,
+		.obj_id          = o->connector_id,
 		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
 	};
-	if (drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) == 0) {
+	if (drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) < 0)
+		return;
+	const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
+	for (uint32_t i = 0; i < n; i++) {
+		struct drm_mode_get_property prop = { .prop_id = ids[i] };
+		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &prop) < 0)
+			continue;
+		if (strcmp(prop.name, "CRTC_ID") == 0)
+			o->prop[KMS_PROP_CRTC] = ids[i];
+		else if (strcmp(prop.name, "DPMS") == 0)
+			o->prop[KMS_PROP_DPMS] = ids[i];
+		else if (strcmp(prop.name, "HDR_OUTPUT_METADATA") == 0)
+			o->prop[KMS_PROP_HDR] = ids[i];
+		else if (strcmp(prop.name, "EDID") == 0)
+			o->prop[KMS_PROP_EDID] = ids[i];
+		else if (strcmp(prop.name, "Colorspace") == 0)
+			o->prop[KMS_PROP_COLORSPACE] = ids[i];
+		else if (strcmp(prop.name, "max bpc") == 0)
+			o->prop[KMS_PROP_MAX_BPC] = ids[i];
+	}
+}
+
+/* The CRTC driving a connector now, or 0: what lit it, the console or a mode
+ * set since, Vulkan's included -- which picks its own CRTC for a display, so
+ * the one read at open is a guess for any output not lit then. The cached
+ * CRTC_ID is asked in one query, which an atomic commit sets and the encoder
+ * path may leave stale or zero; a driver that keeps no property, or names
+ * none, answers through the encoder it names. */
+static uint32_t connector_live_crtc(int fd, const KmsOutput *o)
+{
+	const uint32_t want = o->prop[KMS_PROP_CRTC];
+	uint32_t ids[64];
+	uint64_t vals[64];
+	struct drm_mode_obj_get_properties gp = {
+		.props_ptr       = (uintptr_t)ids,
+		.prop_values_ptr = (uintptr_t)vals,
+		.count_props     = 64,
+		.obj_id          = o->connector_id,
+		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
+	};
+	if (want && drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTIES, &gp) == 0) {
 		const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
-		for (uint32_t i = 0; i < n; i++) {
-			struct drm_mode_get_property prop = { .prop_id = ids[i] };
-			if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &prop) == 0 &&
-				strcmp(prop.name, "CRTC_ID") == 0 && vals[i])
-				return (uint32_t)vals[i];
-		}
+		for (uint32_t i = 0; i < n; i++)
+			if (ids[i] == want) {
+				if (vals[i])
+					return (uint32_t)vals[i];
+				break; /* bound to no CRTC: the encoder answers */
+			}
 	}
 	struct drm_mode_modeinfo one;
 	struct drm_mode_get_connector c = {
-		.connector_id = connector_id,
+		.connector_id = o->connector_id,
 		.count_modes  = 1,
 		.modes_ptr    = (uintptr_t)&one,
 	};
@@ -360,15 +400,15 @@ static uint32_t connector_live_crtc(int fd, uint32_t connector_id)
  * keeps the CRTC that already drives a connector, so the cursor is on the
  * CRTC Vulkan flips as well as on the one the copy path sets. A connector
  * read with room for one mode is not probed again. */
-static uint32_t connector_crtc(int fd, uint32_t connector_id)
+static uint32_t connector_crtc(int fd, KmsOutput *o)
 {
-	const uint32_t live = connector_live_crtc(fd, connector_id);
+	const uint32_t live = connector_live_crtc(fd, o);
 	if (live)
 		return live;
 	struct drm_mode_modeinfo one;
 	uint32_t enc[KMS_MAX_ENCODERS];
 	struct drm_mode_get_connector c = {
-		.connector_id   = connector_id,
+		.connector_id   = o->connector_id,
 		.count_modes    = 1,
 		.modes_ptr      = (uintptr_t)&one,
 		.count_encoders = KMS_MAX_ENCODERS,
@@ -399,8 +439,6 @@ static uint32_t connector_crtc(int fd, uint32_t connector_id)
 	return 0;
 }
 
-static uint32_t connector_prop(int fd, uint32_t connector_id,
-							   const char *name);
 /* Whether this output can scan out PQ, into KmsOutput::hdr_ok and max_lum
  * (defined with the other connector reads below). */
 static void output_hdr_probe(int fd, KmsOutput *o);
@@ -431,7 +469,8 @@ static bool output_read(int fd, uint32_t id, KmsOutput *o, uint32_t *type,
 	}
 	free(c.modes);
 	if (ok) {
-		o->crtc_id = connector_crtc(fd, o->connector_id);
+		output_props_read(fd, o);
+		o->crtc_id = connector_crtc(fd, o);
 		output_hdr_probe(fd, o);
 	}
 	return ok;
@@ -481,7 +520,7 @@ static void crtcs_save(struct BackendHostState *hs, int fd)
 	const int count = (int)fnl_atomic_load_u32(&hs->output_count);
 	for (int i = 0; i < count; i++) {
 		struct drm_mode_crtc c = {
-			.crtc_id = connector_live_crtc(fd, hs->outputs[i].connector_id),
+			.crtc_id = connector_live_crtc(fd, &hs->outputs[i]),
 		};
 		if (!c.crtc_id || drm_ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &c) < 0)
 			continue;
@@ -510,7 +549,7 @@ static void crtcs_restore(struct BackendState *p)
 	struct BackendHostState *hs = p->host;
 	uint32_t lit =
 		p->scan_sel >= 0
-			? connector_live_crtc(hs->card_fd, kms_connector(p, p->scan_sel))
+			? connector_live_crtc(hs->card_fd, kms_out(p, p->scan_sel))
 			: 0;
 	for (int i = 0; i < hs->saved_count; i++) {
 		const KmsCrtcSaved *s    = &hs->saved[i];
@@ -951,7 +990,7 @@ static void cursor_show(App *a, KmsGlyph g)
 		if (now - p->cursor_probe_at >= (double)CURSOR_RECHECK_MS * 1e-3) {
 			p->cursor_probe_at = now;
 			p->cursor_crtc     = connector_live_crtc(
-				p->host->card_fd, p->host->outputs[p->out_cur].connector_id);
+				p->host->card_fd, &p->host->outputs[p->out_cur]);
 		}
 	}
 	const uint32_t crtc =
@@ -1111,7 +1150,7 @@ static void cursor_recheck(App *a)
 	p->cursor_recheck_at = now;
 	p->cursor_recheck--;
 	const uint32_t live =
-		connector_live_crtc(hs->card_fd, hs->outputs[p->out_cur].connector_id);
+		connector_live_crtc(hs->card_fd, &hs->outputs[p->out_cur]);
 	if (!live)
 		return;
 	p->cursor_recheck = 0;
@@ -2319,32 +2358,29 @@ int kms_scan_begin(App *a)
  * The peak in the metadata is the panel's own where its EDID names one, so
  * a compositor or a TV need not assume the 1000-nit master the renderer's
  * PQ encode is written against. */
-static void scan_hdr_apply(App *a, uint32_t connector)
+static void scan_hdr_apply(App *a, int sel)
 {
-	struct BackendState *p = a->backend_state;
+	struct BackendState *p      = a->backend_state;
 	struct BackendHostState *hs = p->host;
-	const int fd                 = hs->card_fd;
+	const int fd                = hs->card_fd;
+	const KmsOutput *o          = kms_out(p, sel);
+	const uint32_t connector    = o->connector_id;
 	struct drm_mode_obj_set_property prop = {
 		.obj_id   = connector,
 		.obj_type = DRM_MODE_OBJECT_CONNECTOR,
 	};
-	prop.prop_id = connector_prop(fd, connector, "max bpc");
+	prop.prop_id = o->prop[KMS_PROP_MAX_BPC];
 	prop.value   = 10;
 	if (prop.prop_id)
 		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop);
-	prop.prop_id = connector_prop(fd, connector, "Colorspace");
+	prop.prop_id = o->prop[KMS_PROP_COLORSPACE];
 	prop.value   = KMS_COLORIMETRY_BT2020_RGB;
 	if (prop.prop_id &&
 		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop) < 0)
 		fnl_log(FNL_LOG_DEBUG, "KMS: Colorspace was refused (%s)",
 				strerror(errno));
 
-	unsigned max_lum = 1000;
-	const int n      = (int)fnl_atomic_load_u32(&hs->output_count);
-	for (int i = 0; i < n; i++)
-		if (hs->outputs[i].connector_id == connector &&
-			hs->outputs[i].max_lum)
-			max_lum = hs->outputs[i].max_lum;
+	unsigned max_lum = o->max_lum ? o->max_lum : 1000;
 
 	struct hdr_output_metadata md;
 	memset(&md, 0, sizeof md);
@@ -2374,8 +2410,7 @@ static void scan_hdr_apply(App *a, uint32_t connector)
 	}
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_CREATEPROPBLOB, &cb) == 0) {
 		p->hdr_blob  = cb.blob_id;
-		prop.prop_id = connector_prop(fd, connector,
-									  "HDR_OUTPUT_METADATA");
+		prop.prop_id = o->prop[KMS_PROP_HDR];
 		prop.value   = p->hdr_blob;
 		if (prop.prop_id &&
 			drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop) < 0)
@@ -2383,8 +2418,8 @@ static void scan_hdr_apply(App *a, uint32_t connector)
 					"KMS: the HDR metadata was refused (%s)",
 					strerror(errno));
 	}
-	p->hdr_set       = true;
-	p->hdr_connector = connector;
+	p->hdr_set = true;
+	p->hdr_out = KMS_SEL_OUT(sel);
 	fnl_log(FNL_LOG_INFO, "KMS: %s scans out 10-bit PQ, %u cd/m²",
 			kms_name(p, p->scan_sel), max_lum);
 }
@@ -2392,20 +2427,23 @@ static void scan_hdr_apply(App *a, uint32_t connector)
 /* The output back to no colour statement, which an 8-bit pair wants: the
  * metadata pulled, the colourimetry default (max bpc is left for the link's
  * own good). */
-static void scan_hdr_clear(App *a, uint32_t connector)
+static void scan_hdr_clear(App *a)
 {
 	struct BackendState *p      = a->backend_state;
 	struct BackendHostState *hs = p->host;
 	const int fd                = hs->card_fd;
+	const KmsOutput *o          = p->hdr_out >= 0 ? &hs->outputs[p->hdr_out]
+												  : NULL;
+	const uint32_t connector    = o ? o->connector_id : 0;
 	struct drm_mode_obj_set_property prop = {
 		.obj_id   = connector,
 		.obj_type = DRM_MODE_OBJECT_CONNECTOR,
 	};
-	prop.prop_id = connector_prop(fd, connector, "Colorspace");
+	prop.prop_id = o ? o->prop[KMS_PROP_COLORSPACE] : 0;
 	prop.value   = 0; /* DRM_MODE_COLORIMETRY_DEFAULT */
 	if (prop.prop_id)
 		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop);
-	prop.prop_id = connector_prop(fd, connector, "HDR_OUTPUT_METADATA");
+	prop.prop_id = o ? o->prop[KMS_PROP_HDR] : 0;
 	prop.value   = 0;
 	if (prop.prop_id)
 		drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &prop);
@@ -2414,8 +2452,85 @@ static void scan_hdr_clear(App *a, uint32_t connector)
 		drm_ioctl(fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
 		p->hdr_blob = 0;
 	}
-	p->hdr_set       = false;
-	p->hdr_connector = 0;
+	p->hdr_set = false;
+	p->hdr_out = -1;
+}
+
+/* [render] The CRTC the mode is set on, chosen when the set is made: what
+ * drives the connector now -- the console's, the display path driver's, or
+ * ours from before -- else a CRTC GETCRTC shows with no mode and no
+ * framebuffer and that no other output of the card is driven by -- else the
+ * open's guess, which the set then refuses through the same path as any mode
+ * that will not show. The caller holds BackendHostState::crtc_lock. */
+static uint32_t scan_crtc_pick(const struct BackendState *p,
+							   const KmsOutput *out)
+{
+	struct BackendHostState *hs = p->host;
+	const uint32_t live         = connector_live_crtc(hs->card_fd, out);
+	if (live)
+		return live;
+	uint32_t crtcs[KMS_MAX_CRTCS];
+	struct drm_mode_card_res r = { 0 };
+	r.count_crtcs = KMS_MAX_CRTCS;
+	r.crtc_id_ptr = (uintptr_t)crtcs;
+	if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
+		return out->crtc_id;
+	const uint32_t n = r.count_crtcs < KMS_MAX_CRTCS ? r.count_crtcs
+													 : KMS_MAX_CRTCS;
+	uint32_t busy    = 0;
+	const uint32_t count = fnl_atomic_load_u32(&hs->output_count);
+	for (uint32_t i = 0; i < count && i < KMS_MAX_OUTPUTS; i++) {
+		if (hs->outputs[i].connector_id == out->connector_id)
+			continue;
+		const uint32_t c = connector_live_crtc(hs->card_fd, &hs->outputs[i]);
+		for (uint32_t j = 0; c && j < n; j++)
+			if (crtcs[j] == c)
+				busy |= 1u << j;
+	}
+	for (uint32_t j = 0; j < n; j++) {
+		if (busy & (1u << j))
+			continue;
+		struct drm_mode_crtc c = { .crtc_id = crtcs[j] };
+		if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETCRTC, &c) == 0 &&
+			!c.mode_valid && !c.fb_id)
+			return crtcs[j];
+	}
+	return out->crtc_id;
+}
+
+/* [render] No CRTC but `keep` scans out one of `s`'s framebuffers: a mode set
+ * on another CRTC leaves the one it used to be on lit with the same frame
+ * (the display driver's, after kms_scanout_take()). The framebuffer test is
+ * the guard: a CRTC this window set and another window has since taken shows
+ * that window's framebuffer, not ours. Atomic where the table has the CRTC,
+ * the legacy off otherwise. The caller holds crtc_lock. */
+static void scan_dark_elsewhere(struct BackendState *p, const KmsScan *s,
+								uint32_t keep)
+{
+	if (!s->fb[0] && !s->fb[1])
+		return;
+	uint32_t crtcs[KMS_MAX_CRTCS];
+	struct drm_mode_card_res r = { 0 };
+	r.count_crtcs = KMS_MAX_CRTCS;
+	r.crtc_id_ptr = (uintptr_t)crtcs;
+	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
+		return;
+	const uint32_t n = r.count_crtcs < KMS_MAX_CRTCS ? r.count_crtcs
+													 : KMS_MAX_CRTCS;
+	for (uint32_t i = 0; i < n; i++) {
+		if (crtcs[i] == keep)
+			continue;
+		struct drm_mode_crtc c = { .crtc_id = crtcs[i] };
+		if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETCRTC, &c) < 0 ||
+			!c.fb_id || (c.fb_id != s->fb[0] && c.fb_id != s->fb[1]))
+			continue;
+		bool darkened = p->host->atomic &&
+						kms_atomic_crtc_off(p->host->atomic, crtcs[i]);
+		if (!darkened) {
+			struct drm_mode_crtc off = { .crtc_id = crtcs[i] };
+			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_SETCRTC, &off);
+		}
+	}
 }
 
 void kms_scan_show(App *a, int back)
@@ -2434,19 +2549,26 @@ void kms_scan_show(App *a, int back)
 		 * output clears the old statement and tells the new, and one that
 		 * goes 8-bit clears whichever connector was told. */
 		const bool pq = p->scan.fourcc == DRM_FORMAT_XRGB2101010;
-		if (pq && (!p->hdr_set || p->hdr_connector != out->connector_id)) {
+		if (pq && (!p->hdr_set || p->hdr_out != KMS_SEL_OUT(p->scan_sel))) {
 			if (p->hdr_set)
-				scan_hdr_clear(a, p->hdr_connector);
-			scan_hdr_apply(a, out->connector_id);
+				scan_hdr_clear(a);
+			scan_hdr_apply(a, p->scan_sel);
 		} else if (!pq && p->hdr_set) {
-			scan_hdr_clear(a, p->hdr_connector);
+			scan_hdr_clear(a);
 		}
 		const bool good = (int)fnl_atomic_load_u32(&p->sel_good) == p->scan_sel;
 		const bool forced = !good && FNL_FAULT("kms-mode-refused");
+		/* The CRTC is chosen here and not at the open: the open's guess can
+		 * be one another output is lit on, or one the display driver has
+		 * since left showing this pair (kms_scanout_take()). Under the lock
+		 * with the set, so a second window cannot choose the CRTC this one
+		 * is about to bind. */
+		fnl_mutex_lock(&hs->crtc_lock);
+		const uint32_t crtc = scan_crtc_pick(p, out);
 		bool set_ok = false;
-		if (hs->atomic && !forced && out->crtc_id)
-			set_ok = kms_atomic_set(hs->atomic, out->connector_id,
-									out->crtc_id, mode, p->scan.fb[back]);
+		if (hs->atomic && !forced && crtc)
+			set_ok = kms_atomic_set(hs->atomic, out->connector_id, crtc, mode,
+									p->scan.fb[back]);
 		/* The legacy set where the card has no atomic, and where one it
 		 * offered refused this commit: the same call the backend made before
 		 * atomic, so a mode it will not take is refused by both. */
@@ -2454,40 +2576,58 @@ void kms_scan_show(App *a, int back)
 			struct drm_mode_crtc set = {
 				.set_connectors_ptr = (uintptr_t)&out->connector_id,
 				.count_connectors   = 1,
-				.crtc_id            = out->crtc_id,
+				.crtc_id            = crtc,
 				.fb_id              = p->scan.fb[back],
 				.mode_valid         = 1,
 				.mode               = *mode,
 			};
-			set_ok = out->crtc_id && !forced &&
+			set_ok = crtc && !forced &&
 					 drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_SETCRTC, &set) == 0;
 		}
-		if (!set_ok && !good) {
-			/* A mode the output was switched to and will not take: the
-			 * last that did comes back at the next frame. */
-			kms_sel_refused(a, p->scan_sel, false);
-			return;
-		}
 		if (!set_ok) {
+			fnl_mutex_unlock(&hs->crtc_lock);
+			if (!good) {
+				/* A mode the output was switched to and will not take: the
+				 * last that did comes back at the next frame. */
+				kms_sel_refused(a, p->scan_sel, false);
+				return;
+			}
 			scan_refuse(p, "the mode would not set");
 			return;
 		}
+		p->scan_crtc = crtc;
 		events_drain(a);
+		/* Off the CRTC the pair was on if this set left it there, before
+		 * the pair is released: a buffer no plane shows may go. */
+		scan_dark_elsewhere(p, &p->scan, crtc);
+		scan_dark_elsewhere(p, &p->scan_old, crtc);
 		/* Off this plane now that this pair is on, and on no other's
 		 * unless an output gone dark still shows it (scan_release()). */
 		scan_release(p, &p->scan_old);
+		fnl_mutex_unlock(&hs->crtc_lock);
 		kms_sel_shown(a, p->scan_sel);
 		p->scan_front     = back;
 		p->scan_set_owed  = false;
 		p->flip_async_off = false;
 		return;
 	}
-	const bool async = !vsync && !p->flip_async_off;
-	bool async_now    = async;
+	const uint32_t crtc = p->scan_crtc ? p->scan_crtc : out->crtc_id;
+	const bool async    = !vsync && !p->flip_async_off;
+	bool async_now      = async;
 	bool flipped      = false;
 	int atomic_err    = 0;
+	/* Published before the flip is submitted: the kernel may deliver the
+	 * completion at once, and another window's thread read it before this
+	 * one returns from the ioctl -- one that found no pending flip would be
+	 * dropped as nobody's, leaving this window's flag set with no event
+	 * owed, which no later flip could clear. */
+	fnl_mutex_lock(&hs->flip_lock);
+	p->flip_async   = async_now;
+	p->flip_index   = a->presents;
+	p->flip_pending = true;
+	fnl_mutex_unlock(&hs->flip_lock);
 	if (hs->atomic) {
-		flipped = kms_atomic_flip(hs->atomic, out->crtc_id, p->scan.fb[back],
+		flipped = kms_atomic_flip(hs->atomic, crtc, p->scan.fb[back],
 								  async_now, (uint64_t)(uintptr_t)a);
 		if (!flipped && async_now && errno == EINVAL) {
 			p->flip_async_off = true;
@@ -2496,7 +2636,10 @@ void kms_scan_show(App *a, int back)
 					"vsync a frame that finds one pending is dropped",
 					kms_name(p, p->scan_sel));
 			async_now = false;
-			flipped = kms_atomic_flip(hs->atomic, out->crtc_id,
+			fnl_mutex_lock(&hs->flip_lock);
+			p->flip_async = false;
+			fnl_mutex_unlock(&hs->flip_lock);
+			flipped = kms_atomic_flip(hs->atomic, crtc,
 									  p->scan.fb[back], false,
 									  (uint64_t)(uintptr_t)a);
 		}
@@ -2513,7 +2656,7 @@ void kms_scan_show(App *a, int back)
 		 * window rides on it and comes back in its event (flip_complete());
 		 * the frame index is the window's own, kept until then. */
 		struct drm_mode_crtc_page_flip flip = {
-			.crtc_id = out->crtc_id,
+			.crtc_id = crtc,
 			.fb_id   = p->scan.fb[back],
 			.flags   = DRM_MODE_PAGE_FLIP_EVENT |
 					 (async_now ? DRM_MODE_PAGE_FLIP_ASYNC : 0u),
@@ -2528,12 +2671,19 @@ void kms_scan_show(App *a, int back)
 					"vsync a frame that finds one pending is dropped",
 					kms_name(p, p->scan_sel));
 			flip.flags = DRM_MODE_PAGE_FLIP_EVENT;
+			async_now  = false;
+			fnl_mutex_lock(&hs->flip_lock);
+			p->flip_async = false;
+			fnl_mutex_unlock(&hs->flip_lock);
 			flipped =
 				drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip) == 0;
-			async_now = false;
 		}
 	}
 	if (!flipped) {
+		/* Refused: the pending flip published above was never made. */
+		fnl_mutex_lock(&hs->flip_lock);
+		p->flip_pending = false;
+		fnl_mutex_unlock(&hs->flip_lock);
 		if (atomic_err)
 			errno = atomic_err;
 		/* A CRTC still busy -- the flip before it not yet complete, or a
@@ -2545,11 +2695,9 @@ void kms_scan_show(App *a, int back)
 		scan_refuse(p, "the flip was refused");
 		return;
 	}
-	fnl_mutex_lock(&hs->flip_lock);
-	p->flip_async   = async_now;
-	p->flip_index   = a->presents;
-	p->flip_pending = true;
-	fnl_mutex_unlock(&hs->flip_lock);
+	/* The pending flip was published with its index and whether it tears,
+	 * before the submit; a retry that turned async off updated the same
+	 * field under the same lock. */
 	p->scan_front = back;
 	/* A frame reached the output: a refusal from here on is a new one. */
 	p->scan_said = false;
@@ -2701,35 +2849,14 @@ void kms_sel_shown(App *a, int sel)
 	fnl_atomic_store_u32(&a->backend_state->sel_good, (uint32_t)sel);
 }
 
-/* A connector's property of this name, or 0. */
-static uint32_t connector_prop(int fd, uint32_t connector_id, const char *name)
-{
-	uint32_t ids[64];
-	uint64_t values[64];
-	struct drm_mode_obj_get_properties gp = {
-		.props_ptr       = (uintptr_t)ids,
-		.prop_values_ptr = (uintptr_t)values,
-		.count_props     = 64,
-		.obj_id          = connector_id,
-		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
-	};
-	if (drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) < 0)
-		return 0;
-	const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
-	for (uint32_t i = 0; i < n; i++) {
-		struct drm_mode_get_property prop = { .prop_id = ids[i] };
-		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &prop) == 0 &&
-			strcmp(prop.name, name) == 0)
-			return ids[i];
-	}
-	return 0;
-}
-
 /* The connector's EDID as its property blob holds it, into `edid`: the
  * bytes read, or 0. */
-static size_t edid_read(int fd, uint32_t connector, unsigned char *edid,
+static size_t edid_read(int fd, const KmsOutput *o, unsigned char *edid,
 						size_t cap)
 {
+	const uint32_t want = o->prop[KMS_PROP_EDID];
+	if (!want)
+		return 0;
 	uint32_t ids[64];
 	/* 64-bit, as the kernel writes them: `values` here was 32-bit once, and
 	 * a connector with more than 32 properties had the kernel write past
@@ -2739,19 +2866,16 @@ static size_t edid_read(int fd, uint32_t connector, unsigned char *edid,
 		.props_ptr       = (uintptr_t)ids,
 		.prop_values_ptr = (uintptr_t)values,
 		.count_props     = 64,
-		.obj_id          = connector,
+		.obj_id          = o->connector_id,
 		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
 	};
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) < 0)
 		return 0;
 	const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
 	uint32_t blob    = 0;
-	for (uint32_t i = 0; i < n && !blob; i++) {
-		struct drm_mode_get_property prop = { .prop_id = ids[i] };
-		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &prop) == 0 &&
-			strcmp(prop.name, "EDID") == 0)
+	for (uint32_t i = 0; i < n && !blob; i++)
+		if (ids[i] == want)
 			blob = (uint32_t)values[i];
-	}
 	if (!blob)
 		return 0;
 	struct drm_mode_get_blob gb = {
@@ -2807,10 +2931,9 @@ static bool edid_hdr_ok(const unsigned char *e, size_t n, unsigned *max_lum)
 static void output_hdr_probe(int fd, KmsOutput *o)
 {
 	unsigned char edid[1024];
-	const size_t n = edid_read(fd, o->connector_id, edid, sizeof edid);
+	const size_t n = edid_read(fd, o, edid, sizeof edid);
 	o->hdr_ok = edid_hdr_ok(edid, n, &o->max_lum) &&
-				connector_prop(fd, o->connector_id,
-							   "HDR_OUTPUT_METADATA") != 0;
+				o->prop[KMS_PROP_HDR] != 0;
 }
 
 /* [render] The CRTC driving an output the window left goes dark, so the
@@ -2833,11 +2956,14 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 	struct BackendState *p   = a->backend_state;
 	struct BackendHostState *hs = p->host;
 	const uint32_t connector = hs->outputs[out].connector_id;
-	const uint32_t crtc      = connector_live_crtc(hs->card_fd, connector);
+	fnl_mutex_lock(&hs->crtc_lock);
+	const uint32_t crtc = connector_live_crtc(hs->card_fd, &hs->outputs[out]);
 	const uint32_t keep =
-		connector_live_crtc(hs->card_fd, kms_connector(p, shown));
-	if (!crtc || crtc == keep)
+		connector_live_crtc(hs->card_fd, kms_out(p, shown));
+	if (!crtc || crtc == keep) {
+		fnl_mutex_unlock(&hs->crtc_lock);
 		return;
+	}
 	int r;
 	if (unbind) {
 		if (hs->atomic && kms_atomic_unbind(hs->atomic, crtc, connector))
@@ -2849,7 +2975,7 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 	} else {
 		struct drm_mode_obj_set_property dpms = {
 			.value    = DRM_MODE_DPMS_OFF,
-			.prop_id  = connector_prop(hs->card_fd, connector, "DPMS"),
+			.prop_id  = hs->outputs[out].prop[KMS_PROP_DPMS],
 			.obj_id   = connector,
 			.obj_type = DRM_MODE_OBJECT_CONNECTOR,
 		};
@@ -2857,6 +2983,7 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 				? drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_OBJ_SETPROPERTY, &dpms)
 				: -1;
 	}
+	fnl_mutex_unlock(&hs->crtc_lock);
 	if (r < 0)
 		fnl_log(FNL_LOG_WARN, "KMS: %s would not go dark (%s)",
 				hs->outputs[out].name, strerror(errno));
@@ -2909,13 +3036,16 @@ void kms_scanout_take(App *a)
 	struct BackendState *p = a->backend_state;
 	const int sel = p->surf_sel >= 0 ? p->surf_sel : kms_sel_to_show(p);
 	const uint32_t connector = kms_connector(p, sel);
+	fnl_mutex_lock(&p->host->crtc_lock);
 	struct drm_mode_crtc on  = {
-		 .crtc_id = connector_live_crtc(p->host->card_fd, connector),
+		 .crtc_id = connector_live_crtc(p->host->card_fd, kms_out(p, sel)),
 	};
 	if (!on.crtc_id ||
 		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETCRTC, &on) < 0 ||
-		!on.mode_valid || !on.fb_id)
+		!on.mode_valid || !on.fb_id) {
+		fnl_mutex_unlock(&p->host->crtc_lock);
 		return;
+	}
 	flip_wait(a, FLIP_WAIT_MS);
 	flip_give_up(a);
 	scan_retire(p, &on.mode, false);
@@ -2925,6 +3055,7 @@ void kms_scanout_take(App *a)
 		scan_free(p, &p->scan);
 		fnl_log(FNL_LOG_WARN, "KMS: no buffer to take %s back with (%s)",
 				kms_name(p, sel), strerror(errno));
+		fnl_mutex_unlock(&p->host->crtc_lock);
 		return;
 	}
 	const int back = p->scan_front == 0 ? 1 : 0;
@@ -2949,10 +3080,14 @@ void kms_scanout_take(App *a)
 				"KMS: %s could not be taken back from the "
 				"driver (%s)",
 				kms_name(p, sel), strerror(errno));
+		fnl_mutex_unlock(&p->host->crtc_lock);
 		return;
 	}
 	events_drain(a);
 	scan_release(p, &p->scan_old);
+	fnl_mutex_unlock(&p->host->crtc_lock);
+	/* The CRTC the driver left the pair on is this window's from now. */
+	p->scan_crtc     = on.crtc_id;
 	p->scan_front    = back;
 	p->scan_sel      = sel;
 	p->scan_set_owed = true;
@@ -2961,12 +3096,26 @@ void kms_scanout_take(App *a)
 /* Adopted and handed over, the surface asked for again, the size
  * published; the pointer kept where it was on an output it stays on, and
  * put in the middle of one it moves to. */
+/* [main] Output `now` is this window's from here and `was` is no longer: the
+ * host's held set follows the selection, after the selection itself, so a
+ * reader that sees the new one does not briefly hide the output moved to. */
+static void outputs_hold(struct BackendHostState *hs, int was, int now)
+{
+	uint32_t m = fnl_atomic_load_u32(&hs->outputs_held);
+	if (was >= 0 && was < KMS_MAX_OUTPUTS)
+		m &= ~(1u << (unsigned)was);
+	if (now >= 0 && now < KMS_MAX_OUTPUTS)
+		m |= 1u << (unsigned)now;
+	fnl_atomic_store_u32(&hs->outputs_held, m);
+}
+
 static void sel_set(App *a, int sel)
 {
 	struct BackendState *p = a->backend_state;
 	const int was          = p->out_cur;
 	mode_adopt(p, sel);
 	fnl_atomic_store_u32(&p->sel_want, (uint32_t)sel);
+	outputs_hold(p->host, was, p->out_cur);
 	app_surface_remake(a);
 	if (p->out_cur != was) {
 		p->ptr_x = p->mode_w / 2.0;
@@ -2996,6 +3145,7 @@ static void sel_refused_seen(App *a)
 	const int was = p->out_cur, was_w = p->mode_w, was_h = p->mode_h;
 	mode_adopt(p, (int)fnl_atomic_load_u32(&p->sel_good));
 	fnl_atomic_store_u32(&p->sel_want, fnl_atomic_load_u32(&p->sel_good));
+	outputs_hold(hs, was, p->out_cur);
 	if (p->out_cur != was)
 		cursor_moved(a);
 	p->ptr_x = clampd(p->ptr_x, 0.0, p->mode_w - 1.0);
@@ -3056,14 +3206,17 @@ static void output_pick(App *a, int o)
 /* The outputs a window other than `a` holds, a bit each: a second window is
  * a second output, never a second card, and no two windows share one
  * (DESIGN *A second window*). */
-static uint32_t held_by_others(const App *a)
+/* [any] The outputs other windows hold: the host's held set less `own`, the
+ * asking window's output (-1 for a window that holds none yet). The set is
+ * the host's, not the registry's: Host::windows is the main thread's to walk,
+ * and the titlebar's lists are drawn on the render thread while
+ * fnl_output_count() is [any]. */
+static uint32_t held_by_others(const App *a, int own)
 {
-	uint32_t held = 0;
-	for (const App *w = a->host->windows; w; w = w->next) {
-		const struct BackendState *q = w->backend_state;
-		if (w != a && q)
-			held |= 1u << KMS_SEL_OUT(fnl_atomic_load_u32(&q->sel_want));
-	}
+	const struct BackendHostState *hs = app_backend_host((App *)a);
+	uint32_t held = fnl_atomic_load_u32(&hs->outputs_held);
+	if (own >= 0 && own < KMS_MAX_OUTPUTS)
+		held &= ~(1u << (unsigned)own);
 	return held;
 }
 
@@ -3075,16 +3228,11 @@ static void kms_set_output(App *a, const char *name)
 	struct BackendState *p = a->backend_state;
 	const int count        = (int)fnl_atomic_load_u32(&p->host->output_count);
 	const uint32_t gone    = fnl_atomic_load_u32(&p->host->outputs_gone);
-	const uint32_t held    = held_by_others(a);
+	const uint32_t held    = held_by_others(a, p->out_cur);
 	for (int o = 0; o < count; o++) {
 		if (strcmp(p->host->outputs[o].name, name) != 0 || o == p->out_cur ||
 			((gone >> o) & 1u))
 			continue;
-		/* A request that names an output the window can act on replaces the
-		 * one owed; a name not in the list, or the output it is on, is the
-		 * no-op the header promises and does not. */
-		p->host->away_owed     = -1;
-		p->host->away_owed_app = NULL;
 		if ((held >> o) & 1u) {
 			fnl_log(FNL_LOG_INFO,
 					"KMS: %s is another window's; the window stays on %s",
@@ -3092,6 +3240,11 @@ static void kms_set_output(App *a, const char *name)
 					p->host->outputs[p->out_cur].name);
 			return;
 		}
+		/* A request that names an output this window can act on replaces the
+		 * one owed; a refused one -- another window's output -- is not the
+		 * owed window's to lose, whichever window asked. */
+		p->host->away_owed     = -1;
+		p->host->away_owed_app = NULL;
 		if ((p->host->outputs_away >> o) & 1u) {
 			p->host->away_owed     = o;
 			p->host->away_owed_app = a;
@@ -3443,11 +3596,15 @@ static void outputs_rescan(App *a)
 	fnl_atomic_store_u32(&hs->outputs_gone, gone);
 
 	if (owed >= 0) {
+		/* The window that asked is the one it was owed to; a window gone
+		 * since takes the move with it rather than giving it to whichever
+		 * window this pump was handed. */
 		App *tw = hs->away_owed_app;
 		bool live = false;
 		for (App *w = a->host->windows; w && !live; w = w->next)
 			live = w == tw && w->backend_state;
-		output_pick(live ? tw : a, owed);
+		if (live)
+			output_pick(tw, owed);
 	}
 	hs->away_owed_app = NULL;
 
@@ -3462,7 +3619,7 @@ static void outputs_rescan(App *a)
 			continue;
 		const int out = KMS_SEL_OUT(fnl_atomic_load_u32(&q->sel_want));
 		if ((gone >> out) & 1u) {
-			const int to = sel_elsewhere(q, gone | away | held_by_others(w));
+			const int to = sel_elsewhere(q, gone | away | held_by_others(w, out));
 			if (to >= 0)
 				sel_set(w, to);
 			else
@@ -3510,6 +3667,7 @@ static FnlResult kms_host_open(App *a)
 	hs->card_fd = hs->inotify_fd = hs->uevent_fd = -1;
 	hs->away_owed                               = -1;
 	fnl_mutex_init(&hs->flip_lock);
+	fnl_mutex_init(&hs->crtc_lock);
 
 	/* Every step conditional, and every failure unwinds through
 	 * kms_host_close() here: a NO_DISPLAY refusal (no output, a card held by
@@ -3577,7 +3735,7 @@ static FnlResult kms_window_open(App *a)
 	if (a->host->windows == a) {
 		out = hs->first_output;
 	} else {
-		const uint32_t held = held_by_others(a);
+		const uint32_t held = held_by_others(a, -1);
 		/* Away as well as gone: an output whose monitor is asleep is still
 		 * listed, and opening a window on it shows nothing for as long as
 		 * the away lasts. */
@@ -3616,6 +3774,8 @@ static FnlResult kms_window_open(App *a)
 	const int sel = KMS_SEL(out, hs->outputs[out].mode_pref);
 	fnl_atomic_store_u32(&p->sel_want, (uint32_t)sel);
 	fnl_atomic_store_u32(&p->sel_good, (uint32_t)sel);
+	/* The host's held set: this window's output from here. */
+	outputs_hold(hs, -1, out);
 	p->disp_out = p->surf_sel = p->scan_sel = -1;
 	mode_adopt(p, sel);
 	cursor_init(p);
@@ -3674,6 +3834,8 @@ static void kms_window_close(App *a)
 	bool joined = false;
 	for (const App *w = a->host->windows; w && !joined; w = w->next)
 		joined = w == a;
+	/* The output it held is the host's no longer, joined or not. */
+	outputs_hold(p->host, p->out_cur, -1);
 	/* The keyboard and pointer move to a window still open, before this
 	 * one's cursor and state go. */
 	if (p->host->focus == a) {
@@ -3707,8 +3869,8 @@ static void kms_window_close(App *a)
 		/* The output's colour statement goes with the window: left, it
 		 * outlives this program on a connector the console or the next
 		 * program now shows in. clear() destroys the blob with it. */
-		if (p->hdr_set && p->hdr_connector)
-			scan_hdr_clear(a, p->hdr_connector);
+		if (p->hdr_set)
+			scan_hdr_clear(a);
 		if (p->hdr_blob) {
 			struct drm_mode_destroy_blob db = { .blob_id = p->hdr_blob };
 			drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_DESTROYPROPBLOB, &db);
@@ -3754,6 +3916,7 @@ static void kms_host_close(App *a)
 		loop_wake_destroy(&hs->wake);
 	}
 	fnl_mutex_destroy(&hs->flip_lock);
+	fnl_mutex_destroy(&hs->crtc_lock);
 	free(hs);
 	a->host->backend_host = NULL;
 }
@@ -3781,8 +3944,18 @@ static void kms_present_window_renew(App *a)
 				"KMS: a flip's event did not come in %d ms; "
 				"a driver lent the node may read it",
 				FLIP_DRAIN_MS);
-	flip_give_up(a);
 	events_drain(a);
+	/* The node is lent to a driver next, which may read a completion still
+	 * owing: one given up on would never be reconciled -- the first flip
+	 * after the lend would be taken for it as stale, and the bookkeeping
+	 * would stay a flip behind for the window's life. So the pending flip
+	 * and any stale count go with the drain; the renew owes a mode set
+	 * (scan_resets), whose path drains again, and a completion arriving
+	 * after this names no pending flip and is dropped. */
+	fnl_mutex_lock(&p->host->flip_lock);
+	p->flip_pending = false;
+	p->flip_stale   = 0;
+	fnl_mutex_unlock(&p->host->flip_lock);
 }
 
 static void kms_pump(App *a, int timeout_ms)
@@ -3800,6 +3973,20 @@ static void kms_pump(App *a, int timeout_ms)
 	 * comment), and the host is shared. An output away is gone once its time is
 	 * up, with or without another uevent to say so, and that clock is the
 	 * host's. */
+	/* A second window taken away leaves the one that remains as a single
+	 * window was before it: the copy path was the pair's, and the display is
+	 * free again (kms_window_close() clears the owner). The count falls in
+	 * core, after the window's close, so the pump is what sees it; a window
+	 * still opening keeps the path until it joins. */
+	if (fnl_atomic_load_bool(&hs->force_copy) &&
+		fnl_atomic_load_u32(&hs->opening) == 0 &&
+		fnl_atomic_load_u32(&a->host->window_count) == 1) {
+		fnl_atomic_store_bool(&hs->force_copy, false);
+		for (App *w = a->host->windows; w; w = w->next)
+			if (w->backend_state)
+				app_surface_remake(w);
+	}
+
 	const double away_at = away_next(hs);
 	int wait_ms          = -1;
 	for (App *w = a->host->windows; w; w = w->next) {

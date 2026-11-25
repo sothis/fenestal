@@ -67,9 +67,9 @@ struct PartsState {
 	int         gpu_samples;
 
 	/* The display-period samples of the line's window (parts_period()):
-	 * how many, how many taken, and the sums of their parts. */
+	 * how many, how many taken, and the sums of their five parts. */
 	int         per_n, per_taken;
-	double      per_sum[4];
+	double      per_sum[5];
 
 	long        render_tid;
 	PartsThread th[PARTS_THREADS_MAX];
@@ -314,14 +314,14 @@ void parts_gpu(App *a, const char *const *names, const double *seconds,
 	p->gpu_samples++;
 }
 
-void parts_period(App *a, const double s[4], bool taken)
+void parts_period(App *a, const double s[5], bool taken)
 {
 	struct PartsState *p = a->parts;
 	if (!p)
 		return;
 	p->per_n++;
 	p->per_taken += taken;
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < 5; i++)
 		p->per_sum[i] += s[i];
 }
 
@@ -376,11 +376,12 @@ void parts_log(App *a)
 	if (p->per_n > 0) {
 		const double k = 1e3 / p->per_n;
 		fnl_log(FNL_LOG_INFO, "frame parts: period samples %d, %d taken, "
-				"mean %.2f ms = held %.2f + device %.2f + present %.2f + "
-				"cost %.2f", p->per_n, p->per_taken,
+				"mean %.2f ms = held %.2f + display %.2f + device %.2f + "
+				"present %.2f + cost %.2f", p->per_n, p->per_taken,
 				(p->per_sum[0] + p->per_sum[1] + p->per_sum[2] +
-				 p->per_sum[3]) * k, p->per_sum[0] * k, p->per_sum[1] * k,
-				p->per_sum[2] * k, p->per_sum[3] * k);
+				 p->per_sum[3] + p->per_sum[4]) * k, p->per_sum[0] * k,
+				p->per_sum[1] * k, p->per_sum[2] * k, p->per_sum[3] * k,
+				p->per_sum[4] * k);
 	}
 	threads_log(p, p->frames);
 	sums_clear(p);

@@ -232,18 +232,50 @@ have_tool() {
     return 1
 }
 
+# The LLVM tool the macOS toolchain file would take: FNL_LLVM_<NAME> from the
+# environment first, then the names its foreach probes -- llvm-<tool>-21 and
+# llvm-<tool>, with opt-21 for opt. That foreach in
+# cmake/macos-x86_64.cmake is the list; the two are kept together.
+have_llvm_tool() {
+    _var=$1
+    _tool=$2
+    eval "_path=\${FNL_LLVM_${_var}:-}"
+    if [ -n "$_path" ]; then
+        [ -x "$_path" ]
+        return
+    fi
+    if [ "$_tool" = opt ]; then
+        have_tool llvm-opt-21 llvm-opt opt-21
+    else
+        have_tool "llvm-${_tool}-21" "llvm-${_tool}"
+    fi
+}
+
 # Whether the macOS trees can be built here: Apple's SDK, copied once from a
-# Mac by tools/macos_sdk.py, and the LLVM tools their toolchain file names.
-# The configure refuses with a line naming what is missing; the sweep asks
-# the same things first, so a host without them skips the trees with a line
+# Mac by tools/macos_sdk.py, and the tools their toolchain file names -- the
+# compiler and the C++ driver it derives, the six LLVM tools it probes, and
+# ld64.lld, which its -fuse-ld=lld has clang drive for a Mach-O target. The
+# configure refuses with a line naming what is missing; the sweep asks the
+# same things first, so a host without them skips the trees with a line
 # instead of failing after the ones before it built.
 have_macos() {
     command -v python3 >/dev/null 2>&1 || return 1
     python3 tools/macos_sdk.py --path >/dev/null 2>&1 || return 1
-    have_tool "${FNL_CLANG:-clang-21}" || return 1
-    have_tool llvm-link-21 llvm-link || return 1
-    have_tool llvm-ar-21 llvm-ar || return 1
-    have_tool llvm-ranlib-21 llvm-ranlib || return 1
+    _c="${FNL_CLANG:-clang-21}"
+    command -v "$_c" >/dev/null 2>&1 || return 1
+    # The C++ driver, as the toolchain's regex derives it: clang-N ->
+    # clang++-N, clang -> clang++.
+    case $_c in
+    *clang-[0-9]*) _cxx="${_c%clang-*}clang++-${_c##*clang-}" ;;
+    *clang) _cxx="${_c%clang}clang++" ;;
+    *) _cxx=clang++ ;;
+    esac
+    command -v "$_cxx" >/dev/null 2>&1 || return 1
+    for _t in ar ranlib install-name-tool link opt nm; do
+        _v=$(printf '%s' "$_t" | tr 'a-z-' 'A-Z_')
+        have_llvm_tool "$_v" "$_t" || return 1
+    done
+    have_tool ld64.lld-21 ld64.lld || return 1
     return 0
 }
 
@@ -423,17 +455,21 @@ if [ $# -eq 0 ]; then
             have_freebsd || {
                 printf '\n==> freebsd skipped: not a FreeBSD host\n'
                 continue; } ;;
-        macos|macos-arm64)
+        macos|macos-arm64|macos-universal)
             have_macos || {
                 printf '\n==> %s skipped: no macOS SDK or LLVM tools' "$target"
                 printf ' (tools/macos_sdk.py --fetch)\n'
-                continue; } ;;
-        macos-universal)
-            have_macos || {
-                printf '\n==> macos-universal skipped: no macOS SDK or'
-                printf ' LLVM tools\n'
                 continue; }
-            find_lipo >/dev/null 2>&1 || {
+            # The trees take a Linux release tree's bake rather than making
+            # one (tools/mkfont runs during the build), and a Mac can make
+            # none: a sweep there skips them with the reason.
+            font_ready "$PWD/build/linux/release/generated" || {
+                printf '\n==> %s skipped: no Linux release bake to lend' \
+                       "$target"
+                printf ' (build/linux/release/generated)\n'
+                continue; }
+            [ "$target" = macos-universal ] &&
+                ! find_lipo >/dev/null 2>&1 && {
                 printf '\n==> macos-universal skipped: no lipo\n'
                 continue; } ;;
         esac

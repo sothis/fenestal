@@ -286,6 +286,7 @@ static FnlResult make_arenas(App *a, unsigned *bufs, size_t bytes, void **maps,
 							bytes);
 	}
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		gl_clear_errors();
 		gl.CreateBuffers(1, &bufs[i]);
 		if (GLS(a)->arenas_client) {
 			gl.NamedBufferStorage(bufs[i], (GLsizeiptr)bytes, NULL, 0);
@@ -294,6 +295,12 @@ static FnlResult make_arenas(App *a, unsigned *bufs, size_t bytes, void **maps,
 			gl.NamedBufferStorage(bufs[i], (GLsizeiptr)bytes, NULL, f);
 			maps[i] = gl.MapNamedBufferRange(bufs[i], 0, (GLsizeiptr)bytes, f);
 		}
+		/* The name is no store, and on the 4.1 shim the map is client
+		 * memory that would not say: a refused storage leaves a buffer
+		 * every flush writes into and no draw reads. */
+		if (!bufs[i] || gl.GetError() != GL_NO_ERROR)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"could not make a %zu-byte overlay arena", bytes);
 		if (!maps[i])
 			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
 							"could not map a %zu-byte overlay arena", bytes);
@@ -514,6 +521,13 @@ static void overlay_own_state(App *a)
 	gl_own_state(a);
 	gl.BindFramebuffer(GL_FRAMEBUFFER, GLS(a)->window.fbo);
 	gl.Viewport(0, 0, a->extent.w, a->extent.h);
+	/* The box as well as the test gl_own_state() enables: a caller's own
+	 * glScissor() in on_overlay would otherwise clip the library's draws. */
+	if (GLS(a)->ovl_scissor_clip)
+		gl.Scissor(GLS(a)->ovl_scissor.x, GLS(a)->ovl_scissor.y,
+				   GLS(a)->ovl_scissor.w, GLS(a)->ovl_scissor.h);
+	else
+		gl.Scissor(0, 0, a->extent.w, a->extent.h);
 }
 
 /* Draw the instances appended since this kind was last flushed: the arena
@@ -561,6 +575,9 @@ void gl_overlay_scissor(App *a, const FnlRect *r)
 {
 	if (!GLS(a)->overlay_on)
 		return;
+	GLS(a)->ovl_scissor_clip = r != NULL;
+	if (r)
+		GLS(a)->ovl_scissor = *r;
 	if (r)
 		gl.Scissor(r->x, r->y, r->w, r->h);
 	else

@@ -1579,7 +1579,7 @@ two frames in flight, where one would have made every other refresh; the
 latch to screen at 60 fps on a light frame: the hold is waiting, not
 work. The period sample counts the wait
 (`App::display_block`), or the period would read short with the acquire
-no longer blocking. Not while rebuilds keep arriving (`PACE_HOLDOVER`): a
+no longer blocking; the parts line prints it as a part of its own. Not while rebuilds keep arriving (`PACE_HOLDOVER`): a
 drag is held to the size handshake already, and the frame between two
 sizes waiting for the one before cost this desk's XWayland its border
 row, 44 fps where the shown waiter had made it 59; skipped there, 60 --
@@ -2946,10 +2946,12 @@ per-monitor figure to read and nothing to negotiate — the limitation is the
 protocol's, not a choice here.
 
 The pointer is the window server's, and its size is part of the scale. X11's
-shapes come from the core cursor font, whose glyphs are fixed-size: each is
-rendered once into a depth-1 pixmap, read back, and scaled by nearest
-neighbour to the scale in force, and cut again when the desktop's scale moves
-(`cursors_rebuild()`). The alternative was libXcursor or libxcb-cursor opened
+shapes come from the core cursor font, whose glyphs are fixed-size. At the
+font's own size the glyph cursor is the server's own, made in two void
+requests and costing no wait; at another scale the shape's two glyphs are
+drawn into one double-height pixmap, read back in one reply and scaled by
+nearest neighbour to the scale in force, and every shape is cut again when
+the desktop's scale moves (`cursors_rebuild()`). The alternative was libXcursor or libxcb-cursor opened
 at run time, and neither can be told a size without Xlib or a process-wide
 environment variable; scaling the font's own bitmap keeps the backend "core
 xcb and nothing beside it". Wayland's cursors are the compositor's and are
@@ -4040,7 +4042,10 @@ output whole. So:
   second swapchain share it, so a host of more than one window draws by the
   copy path (the frames into the backend's own buffers, which it flips), and a
   window already showing lets its display go (`surface_kms.c`). One window
-  keeps the display path it had.
+  keeps the display path it had, and a host that goes back to one window --
+  the second taken away -- takes it again: `kms_pump()` clears the flag once
+  the count is one and nothing is opening, and the remaining window's surface
+  is made again.
 
 **Many monitors, and they come and go.** The outputs are the card's, as many
 as it lists (32 slots, one per monitor ever seen), and each is a window's. A
@@ -4354,9 +4359,10 @@ because that is what it is being spaced to.
 **The period is measured** rather than given, out of figures the turn
 already holds: what it held, what it waited on the device's fences, what its
 present blocked for, what the frame itself cost, and on X11 what it waited
-for the server to show the frame before. On a throttled turn
-those partition the period — 11.29 + 0 + 5.27 + 0.07 against a 16.67 ms
-frame. Sampled only where each means what it says: not on a rebuild turn
+for the server to show the frame before -- printed as five parts of their
+own, `held`, `display`, `device`, `present` and `cost`, whose mean is the
+`period`. On a throttled turn those partition the period — 11.29 + 0 +
+5.27 + 0.07 against a 16.67 ms frame, the server wait nought on that one. Sampled only where each means what it says: not on a rebuild turn
 nor in the `LATE_SLACK_SETTLE` frames after one, where the present is not
 throttled and the sum is short; not on a turn the spacing itself held, for
 the reason above; not in a tearing mode, where nothing blocks; and not
@@ -5057,8 +5063,10 @@ which cell changes; the level does move between sittings, 250's 52.5 to
 
 ### Vsync and present modes
 
-A window is vsynced, on `FIFO`, for its whole life, and neither a caller
-nor a key changes it. Off is a diagnostic: `FNL_VSYNC=0` in the
+A window is vsynced, on `FIFO`, unless a caller changes it: `fnl_set_vsync()`
+is live, and a change lands at the next frame, which builds the swapchain
+again -- the DXGI present's swapchain with the tearing flag recomputed, not
+only its interval. Off is the diagnostic: `FNL_VSYNC=0` in the
 environment, read once at `fnl_init()` as `FNL_ECHO_EVENTS` is, or
 `--no-vsync` to the testbed and to `fenestal-dev pace`, which set it. Off asks
 for the fastest mode the surface offers — `MAILBOX`, which does not tear,
@@ -7945,10 +7953,14 @@ texture where it was a renderbuffer, Direct3D 12 views it as an SRV beside the
 pair, and Metal gives it `MTLTextureUsageShaderRead`. On those three the depth
 was already an object a shader could read, so nothing extra is allocated. On
 Vulkan it was a transient attachment -- stored by nothing, costing no memory --
-so it is made resident **only where the mode is in force**: the scene target is
-rebuilt at the first frame that wants TAAU, the one place this needs a queue
-drain, the target it replaces being one that exists, and a window that never
-asks for the mode pays nothing (TODO *Temporal upscaling, measured*).
+so it is made resident **only where the mode is in force**: a size change
+builds the target resident when the render thread's last draw says the mode
+is on, so a TAAU resize costs one build and one drain; the first frame that
+wants the mode on a target built without it rebuilds once, the one place
+this needs a queue drain; and a window that never asks for the mode pays
+nothing (TODO *Temporal upscaling, measured*). The single-sampled offscreen
+pass exists twice for the same reason, differing only in whether the depth
+is stored -- see *A pipeline per target*.
 
 FSR 2's and DLSS's answer -- motion vectors, depth *and* a jittered projection
 handed back by the caller, through an interop entry per renderer -- is the
@@ -8142,7 +8154,12 @@ happened, because the reporting calls ask the objects rather than the request.
 ### A pipeline per target
 
 The scene's shaders are built once for each of the three places the scene can be
-drawn — the window's pass, the offscreen pass, and the multisampled one. A
+drawn — the window's pass, the offscreen pass, and the multisampled one. The
+single-sampled offscreen pass is made twice, the same descriptor but for
+whether the depth is stored: a frame whose mode does not read the depth
+records into the one that does not store it, and the two are compatible with
+the same pipelines because their attachments and dependencies are identical
+— a change to either must change both. A
 pipeline may only be bound inside a render pass *compatible* with the one it was
 built against, and compatibility covers the sample count and — by the letter of
 the spec, and as the validation layer enforces it — the subpass dependencies,
@@ -9297,7 +9314,9 @@ drew -- stretched, or edged in black -- until the frame at the size lands,
 which is what a resize by the border looked like on every X11 build, and
 worst where frames land late. The backend advertises the protocol where
 the server has SYNC, with a counter of its own (`x11_ext.c`, encoded by
-hand; SyncInitialize's reply discarded unwaited). A request's value rides
+hand; SyncInitialize's reply discarded unwaited, and the counter confirmed
+by a SyncQueryCounter taken behind the monitors' names, so one the server
+refused is never advertised). A request's value rides
 the configure handshake the core already has for Wayland: published as the
 size's serial once the ConfigureNotify after the request has come, or 50 ms
 after it where none does (`SYNC_CONFIGURE_WAIT`: a size the window already
@@ -9587,7 +9606,12 @@ kernel refused every swapchain after ("Invalid CRTC for plane", then
 to HDMI and back by the list and then unplugged while the window was on
 it. Which CRTC drives an output is asked of the
 kernel at the time (`connector_live_crtc()`), not read from the open's
-guess: with only one output lit at open both guess the same CRTC, and
+guess, and the copy path's mode set chooses on the same terms under a host
+lock (`scan_crtc_pick()`): what drives the connector now, else a CRTC the
+kernel shows unlit and no other output is driven by -- and a CRTC other
+than the one set still scanning out the retired pair is darkened before the
+pair is released (`scan_dark_elsewhere()`), so two CRTCs never end up lit
+with one frame: with only one output lit at open both guess the same CRTC, and
 Vulkan's driver picks its own for a display it sets -- on schenker, HDMI
 came back on pipe A after the panel had held it, with B free. The cursor
 follows the same answer: after a switch the pump looks for the new

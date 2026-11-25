@@ -61,8 +61,10 @@ static void intern_atoms(struct BackendState *p)
 
 	/* Everything whose answer the second batch of requests is encoded from,
 	 * in one round trip: the atoms, whether the extensions are there, and
-	 * how long a request may be. The last is asked last because libxcb waits
-	 * in it, and by then everything before it has been answered. */
+	 * how long a request may be. The prefetch only queues the BIG-REQUESTS
+	 * ask; no wait is in it. Replies are taken last-sent first -- the name
+	 * below is interned after every atom -- because one reply's arrival
+	 * implies every request sent before it is answered. */
 	x11_ext_prefetch(p);
 	for (int i = 0; i < FNL_ATOM_COUNT; i++)
 		cookie[i] = xcb_intern_atom(p->conn, 0, (uint16_t)strlen(ATOM_NAMES[i]),
@@ -72,17 +74,21 @@ static void intern_atoms(struct BackendState *p)
 	const xcb_intern_atom_cookie_t cm_cookie =
 		xcb_intern_atom(p->conn, 0, (uint16_t)cm_len, cm);
 	xcb_prefetch_maximum_request_length(p->conn);
-	for (int i = 0; i < FNL_ATOM_COUNT; i++) {
-		xcb_intern_atom_reply_t *r =
-			xcb_intern_atom_reply(p->conn, cookie[i], NULL);
-		/* XCB_ATOM_NONE on failure; prop_get() refuses it. */
-		p->atom[i] = r ? r->atom : XCB_ATOM_NONE;
-		free(r);
-	}
+	/* Sent last among these: its reply implies the atoms' below. */
 	xcb_intern_atom_reply_t *r =
 		xcb_intern_atom_reply(p->conn, cm_cookie, NULL);
 	p->atom_cm = r ? r->atom : XCB_ATOM_NONE;
 	free(r);
+	for (int i = 0; i < FNL_ATOM_COUNT; i++) {
+		xcb_intern_atom_reply_t *a =
+			xcb_intern_atom_reply(p->conn, cookie[i], NULL);
+		/* XCB_ATOM_NONE on failure; prop_get() refuses it. */
+		p->atom[i] = a ? a->atom : XCB_ATOM_NONE;
+		free(a);
+	}
+	/* And the figure the clipboard asks for later: taken once here, where
+	 * the prefetch above has already queued it. */
+	(void)xcb_get_maximum_request_length(p->conn);
 }
 
 /* One property, or NULL; the caller frees the reply. `words` is in units of the
@@ -273,8 +279,11 @@ static void outputs_flush(App *a)
 		const int s    = scale_from_resource_manager(p, resources_ask(p));
 		if (s != p->xft_scale120) {
 			p->xft_scale120 = s;
-			set_size_hints(a);   /* the floor is in pixels */
-			cursors_rebuild(a, s); /* the shapes are cut for the old one */
+			set_size_hints(a); /* the floor is in pixels */
+			/* At the scale actually resolved, which a caller's override
+			 * may not let the desktop's change: rebuilding at the raw
+			 * one would cut every shape again for a scale that stands. */
+			cursors_rebuild(a, x11_resolve_scale120(a));
 			p->publish_pending = true;
 		}
 	}
@@ -409,6 +418,9 @@ static bool cursor_cell(struct BackendState *p)
 		h = r->max_bounds.ascent + r->max_bounds.descent;
 	if (h <= 0)
 		h = 1;
+	/* The two glyphs are read in one reply, whose height is a CARD16. */
+	if (h > 32767)
+		h = 32767;
 	p->cell_left   = left;
 	p->cell_ascent = r->font_ascent > 0 ? r->font_ascent : h;
 	p->cell_w      = w;
@@ -417,25 +429,27 @@ static bool cursor_cell(struct BackendState *p)
 	return true;
 }
 
-/* `glyph` drawn into the depth-1 pixmap `pix` and read back: the font's own
- * bitmap, one byte a row in `*stride`. `bits` is the caller's to free. */
-static bool cursor_glyph_bitmap(struct BackendState *p, xcb_pixmap_t pix,
-								xcb_gcontext_t gc, uint16_t glyph,
-								unsigned char **bits, int *stride)
+/* Both of the shape's glyphs -- the source and its mask, the font's own
+ * layout -- drawn into one double-height depth-1 pixmap and read back in one
+ * reply: `*sb` and `*mb`, a byte a row in their strides, the caller's to
+ * free. The ImageText8 requests are unchecked: a GetImage reply is proof the
+ * pixmap exists, and a refused put leaves a blank bitmap -- the fallback a
+ * check would ask for, at a wait each. */
+static bool cursor_glyph_pair(struct BackendState *p, xcb_pixmap_t pix,
+							  xcb_gcontext_t gc, uint16_t glyph,
+							  unsigned char **sb, int *sstride,
+							  unsigned char **mb, int *mstride)
 {
-	const uint8_t c = (uint8_t)glyph;
-	xcb_generic_error_t *err = xcb_request_check(
-		p->conn, xcb_image_text_8_checked(p->conn, 1, pix, gc,
-										  (int16_t)p->cell_left,
-										  (int16_t)p->cell_ascent,
-										  (const char *)&c));
-	if (err) {
-		free(err);
-		return false;
-	}
+	const uint8_t a = (uint8_t)glyph, b = (uint8_t)(glyph + 1);
+	xcb_image_text_8(p->conn, 1, pix, gc, (int16_t)p->cell_left,
+					 (int16_t)p->cell_ascent, (const char *)&a);
+	xcb_image_text_8(p->conn, 1, pix, gc, (int16_t)p->cell_left,
+					 (int16_t)(p->cell_h + p->cell_ascent), (const char *)&b);
+
+	xcb_generic_error_t *err = NULL;
 	xcb_get_image_cookie_t gk = xcb_get_image(
 		p->conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pix, 0, 0, (uint16_t)p->cell_w,
-		(uint16_t)p->cell_h, ~0u);
+		(uint16_t)(2 * p->cell_h), ~0u);
 	xcb_get_image_reply_t *r = xcb_get_image_reply(p->conn, gk, &err);
 	if (!r || err) {
 		free(r);
@@ -445,26 +459,36 @@ static bool cursor_glyph_bitmap(struct BackendState *p, xcb_pixmap_t pix,
 	/* A depth-1 pixmap's scanline pad is the server's, 32 bits on every
 	 * server measured; the reply's length says whether it was this one. A
 	 * reply shorter than the cell -- not one a conforming server sends -- is
-	 * no glyph at all, never a copy of the stride's worth out of it. */
+	 * no glyph at all. */
 	const int len  = xcb_get_image_data_length(r);
 	const int need = (p->cell_w + 7) / 8;
-	int row        = p->cell_h > 0 ? len / p->cell_h : 0;
-	if (row * p->cell_h != len || row < need) {
-		if (len < need * p->cell_h) {
-			free(r);
-			return false;
-		}
-		row = need;
+	const int rows = 2 * p->cell_h;
+	int row        = rows > 0 ? len / rows : 0;
+	if (row * rows != len || row < need) {
+		free(r);
+		return false;
 	}
-	unsigned char *out = malloc((size_t)row * (size_t)p->cell_h);
+	unsigned char *out = malloc((size_t)row * (size_t)rows);
 	if (!out) {
 		free(r);
 		return false;
 	}
-	memcpy(out, xcb_get_image_data(r), (size_t)row * (size_t)p->cell_h);
+	memcpy(out, xcb_get_image_data(r), (size_t)row * (size_t)rows);
 	free(r);
-	*bits   = out;
-	*stride = row;
+	*sb = malloc((size_t)row * (size_t)p->cell_h);
+	*mb = malloc((size_t)row * (size_t)p->cell_h);
+	if (!*sb || !*mb) {
+		free(*sb);
+		free(*mb);
+		*sb = *mb = NULL;
+		free(out);
+		return false;
+	}
+	memcpy(*sb, out, (size_t)row * (size_t)p->cell_h);
+	memcpy(*mb, out + (size_t)row * (size_t)p->cell_h,
+		   (size_t)row * (size_t)p->cell_h);
+	free(out);
+	*sstride = *mstride = row;
 	return true;
 }
 
@@ -508,27 +532,24 @@ static xcb_cursor_t cursor_scaled(struct BackendState *p, X11Cursor which,
 					   ? (p->cell_h * s120 + 60) / 120
 					   : 1;
 
-	xcb_pixmap_t sp   = xcb_generate_id(p->conn);
-	xcb_pixmap_t mp   = xcb_generate_id(p->conn);
+	xcb_pixmap_t bp   = xcb_generate_id(p->conn);
 	xcb_gcontext_t gc = xcb_generate_id(p->conn);
 	bool ok           = false;
 	unsigned char *sb = NULL, *mb = NULL, *ds = NULL, *dm = NULL;
 	int sstride = 0, mstride = 0, dstride = 0, mds = 0;
 	xcb_cursor_t cur = XCB_NONE;
 
-	xcb_create_pixmap(p->conn, 1, sp, p->root, (uint16_t)p->cell_w,
-					  (uint16_t)p->cell_h);
-	xcb_create_pixmap(p->conn, 1, mp, p->root, (uint16_t)p->cell_w,
-					  (uint16_t)p->cell_h);
+	/* One pixmap, two rows of cells: the shape's glyph over its mask's. */
+	xcb_create_pixmap(p->conn, 1, bp, p->root, (uint16_t)p->cell_w,
+					  (uint16_t)(2 * p->cell_h));
 	/* Foreground 1 and background 0 on a depth-1 pixmap: the glyph's coverage
 	 * as bits, everything else clear. The mask glyph is the shape's own plus
 	 * one, the cursor font's layout. */
 	const uint32_t gcvals[3] = { 1, 0, (uint32_t)p->cursor_font };
-	xcb_create_gc(p->conn, gc, sp,
+	xcb_create_gc(p->conn, gc, bp,
 				  XCB_GC_FOREGROUND | XCB_GC_BACKGROUND | XCB_GC_FONT, gcvals);
 
-	if (!cursor_glyph_bitmap(p, sp, gc, glyph, &sb, &sstride) ||
-		!cursor_glyph_bitmap(p, mp, gc, (uint16_t)(glyph + 1), &mb, &mstride))
+	if (!cursor_glyph_pair(p, bp, gc, glyph, &sb, &sstride, &mb, &mstride))
 		goto out;
 	ds = bitmap_scale(sb, sstride, p->cell_w, p->cell_h, dw, dh, &dstride);
 	dm = bitmap_scale(mb, mstride, p->cell_w, p->cell_h, dw, dh, &mds);
@@ -543,26 +564,21 @@ static xcb_cursor_t cursor_scaled(struct BackendState *p, X11Cursor which,
 	const xcb_pixmap_t dmp = xcb_generate_id(p->conn);
 	xcb_create_pixmap(p->conn, 1, dsp, p->root, (uint16_t)dw, (uint16_t)dh);
 	xcb_create_pixmap(p->conn, 1, dmp, p->root, (uint16_t)dw, (uint16_t)dh);
-	xcb_generic_error_t *e1 = xcb_request_check(
-		p->conn, xcb_put_image_checked(p->conn, XCB_IMAGE_FORMAT_XY_BITMAP,
-									   dsp, gc, (uint16_t)dw, (uint16_t)dh, 0,
-									   0, 0, 1, dstride * dh, ds));
-	xcb_generic_error_t *e2 = xcb_request_check(
-		p->conn, xcb_put_image_checked(p->conn, XCB_IMAGE_FORMAT_XY_BITMAP,
-									   dmp, gc, (uint16_t)dw, (uint16_t)dh, 0,
-									   0, 0, 1, mds * dh, dm));
-	if (!e1 && !e2) {
-		cur = xcb_generate_id(p->conn);
-		xcb_generic_error_t *e3 = xcb_request_check(
-			p->conn, xcb_create_cursor_checked(p->conn, cur, dsp, dmp, 0, 0, 0,
-											   0xffff, 0xffff, 0xffff, 0, 0));
-		if (e3) {
-			free(e3);
-			cur = XCB_NONE;
-		}
+	/* Unchecked: the CreateCursor below is the check that matters -- a
+	 * refused put leaves a blank bitmap it would refuse a pixmap for, and
+	 * not the request that is its parent. */
+	xcb_put_image(p->conn, XCB_IMAGE_FORMAT_XY_BITMAP, dsp, gc,
+				  (uint16_t)dw, (uint16_t)dh, 0, 0, 0, 1, dstride * dh, ds);
+	xcb_put_image(p->conn, XCB_IMAGE_FORMAT_XY_BITMAP, dmp, gc,
+				  (uint16_t)dw, (uint16_t)dh, 0, 0, 0, 1, mds * dh, dm);
+	cur = xcb_generate_id(p->conn);
+	xcb_generic_error_t *e3 = xcb_request_check(
+		p->conn, xcb_create_cursor_checked(p->conn, cur, dsp, dmp, 0, 0, 0,
+										   0xffff, 0xffff, 0xffff, 0, 0));
+	if (e3) {
+		free(e3);
+		cur = XCB_NONE;
 	}
-	free(e1);
-	free(e2);
 	xcb_free_pixmap(p->conn, dsp);
 	xcb_free_pixmap(p->conn, dmp);
 	ok = cur != XCB_NONE;
@@ -572,8 +588,7 @@ out:
 	free(ds);
 	free(dm);
 	xcb_free_gc(p->conn, gc);
-	xcb_free_pixmap(p->conn, sp);
-	xcb_free_pixmap(p->conn, mp);
+	xcb_free_pixmap(p->conn, bp);
 	return ok ? cur : XCB_NONE;
 }
 
@@ -602,6 +617,20 @@ static xcb_cursor_t cursor_load(App *a, X11Cursor which, int s120)
 		p->cursor_font = xcb_generate_id(p->conn);
 		xcb_open_font(p->conn, p->cursor_font,
 					  (uint16_t)(sizeof CURSOR_FONT - 1), CURSOR_FONT);
+	}
+
+	/* At the font's own size the glyph cursor is the cursor: the server
+	 * draws the same picture the readback would, scaled by nothing.
+	 * OpenFont and CreateGlyphCursor are void requests flushed with the map,
+	 * so opening and every shape on a 100% desktop cost no wait at all. */
+	if (s120 == 120) {
+		xcb_cursor_t cur = xcb_generate_id(p->conn);
+		xcb_create_glyph_cursor(p->conn, cur, p->cursor_font, p->cursor_font,
+								CURSOR_GLYPH[which],
+								(uint16_t)(CURSOR_GLYPH[which] + 1), 0, 0, 0,
+								0xffff, 0xffff, 0xffff);
+		p->cursors[which] = cur;
+		return cur;
 	}
 
 	xcb_cursor_t cur = cursor_scaled(p, which, s120);
@@ -1922,7 +1951,10 @@ static void on_button(App *a, const xcb_button_press_event_t *e, bool pressed)
 		case WHEEL_LEFT: dx = -1.0; break;
 		default: dx = 1.0; break;
 		}
-		app_pointer_scroll(a, a->ptr_x, a->ptr_y, dx, dy);
+		/* The event's own position, as press and release use: while
+		 * captured, ptr_x/y still hold where the capture began. */
+		app_pointer_scroll(a, px_to_ptf(e->event_x, s120),
+						   px_to_ptf(e->event_y, s120), dx, dy);
 		return;
 	}
 
@@ -1989,6 +2021,11 @@ static void on_client_message(App *a, const xcb_client_message_event_t *e)
 	 * where none does -- a size the window already has -- or the manager
 	 * would wait for a frame nothing asks for (x11_publish_size()). */
 	if (e->data.data32[0] == p->atom[FNL_ATOM_NET_WM_SYNC_REQUEST]) {
+		/* No counter to reach: one the server refused is advertised to
+		 * nobody, and a stray request would leave an unanswerable
+		 * configure waiting (x11_sync_open() confirms it). */
+		if (!p->sync_counter)
+			return;
 		p->sync_lo = e->data.data32[2];
 		fnl_atomic_store_u32(&p->sync_hi, e->data.data32[3]);
 		p->sync_asked      = true;
@@ -2504,11 +2541,18 @@ static void x11_frame_request(App *a)
 		p->present_n          = 0;
 		p->present_chain_seen = a->present_chain;
 		p->present_ord_next   = 0;
-		/* The new presenter numbers from 1, so nothing this chain sends
-		 * can match an ordinal from the old one: the latch that made a
-		 * mismatch a taken-back present goes with the queue, and a serial
-		 * that matches nothing falls back to in-order matching again. */
-		p->present_by_serial = false;
+		/* A move to another renderer restarts the numbering under a
+		 * presenter whose serials match no ordinal from now on, so the
+		 * latch that made a mismatch a taken-back present goes with the
+		 * queue. A same-renderer rebuild keeps it: Mesa's new swapchain
+		 * counts from 1 too, but the retired chain's last sent presents
+		 * still complete, and without the latch their old numbers would be
+		 * answered as the oldest new frame's. */
+		const FnlRendererVtbl *now = renderer_any(a);
+		if (now != p->present_renderer) {
+			p->present_by_serial = false;
+			p->present_renderer  = now;
+		}
 	}
 	if (p->present_n == X11_PRESENT_Q) {
 		p->present_head = (p->present_head + 1) % X11_PRESENT_Q;
@@ -2817,6 +2861,14 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	const xcb_get_selection_owner_cookie_t cm_cookie =
 		xcb_get_selection_owner(p->conn, p->atom_cm);
 
+	/* The selection owner was asked last, so its reply is the one whose
+	 * arrival implies every earlier reply: taken first, the rest below
+	 * wait for nothing. */
+	xcb_get_selection_owner_reply_t *cm =
+		xcb_get_selection_owner_reply(p->conn, cm_cookie, NULL);
+	p->composited = cm && cm->owner != XCB_WINDOW_NONE;
+	free(cm);
+
 	/* _NET_SUPPORTING_WM_CHECK is EWMH's own answer to whether anybody is
 	 * managing; everything asked of a manager has a manual path behind it. */
 	xcb_get_property_reply_t *wm =
@@ -2826,11 +2878,6 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	if (!p->ewmh)
 		fnl_log(FNL_LOG_WARN, "no EWMH window manager is running; the "
 							  "titlebar moves and resizes the window itself");
-
-	xcb_get_selection_owner_reply_t *cm =
-		xcb_get_selection_owner_reply(p->conn, cm_cookie, NULL);
-	p->composited = cm && cm->owner != XCB_WINDOW_NONE;
-	free(cm);
 
 	p->xft_scale120 = scale_from_resource_manager(p, resources_cookie);
 	x11_work_area_take(p, area_ask);
@@ -2869,15 +2916,17 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 		XCB_WINDOW_CLASS_INPUT_OUTPUT, p->screen->root_visual,
 		XCB_CW_BACK_PIXEL | XCB_CW_BIT_GRAVITY | XCB_CW_EVENT_MASK, values);
 
-	/* Before the properties, which advertise it. */
+	/* Before the properties, which advertise it; x11_ext_take() confirms
+	 * the counter. */
 	x11_sync_open(p);
 	x11_present_open(p);
-	set_window_properties(a);
 	set_cursor(a, X11_CURSOR_DEFAULT);
 
 	/* Last of the takes: reading the monitor list sends for the monitors'
-	 * names, and that wait is the third. */
+	 * names, and that wait is the third. The properties follow it, so the
+	 * SYNC counter is advertised only once it answered. */
 	x11_ext_take(p, &ext_ask);
+	set_window_properties(a);
 	/* The monitors are known from here, and a manager answers for itself. */
 	if (!p->ewmh)
 		fit_opening(a, s120);

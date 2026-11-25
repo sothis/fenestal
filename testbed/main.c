@@ -62,7 +62,7 @@ static float g_freeze_t = 0.6f; /* a pose with the wedges off the axes */
 static int g_fps;
 /* Each window's render thread paces its own window: one deadline shared by
  * two windows would present at N a second between them. */
-static _Thread_local double g_fps_next;
+static TESTBED_TLS double g_fps_next;
 /* The second window on this host: opened by --second-window, or by F10, which
  * shows and hides it. g_second is the app while it is open, NULL while it is
  * not. It draws a picture of its own -- its own scene, a joined part of the

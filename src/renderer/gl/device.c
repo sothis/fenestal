@@ -294,6 +294,13 @@ static void recover_from_loss(App *a)
 	BACKEND(a)->present_window_hold(a);
 	destroy_device_objects(a, false);
 
+	/* Paced before the attempt, not after it: a display or a surface that
+	 * will not come back returns from any of the branches below, and a loop
+	 * that only slept on its way through would retry at full speed -- a
+	 * core burned, and two log lines a turn, for the window's life. */
+	if (!remake && !a->gpu_switching)
+		fnl_sleep_seconds(0.2);
+
 	/* A display terminated under the renderer (RendererState::display_gone)
 	 * took its surface and every context not current with it: made again
 	 * from the display up, as after a move. */
@@ -329,9 +336,6 @@ static void recover_from_loss(App *a)
 		a->surface_lost = false;
 		a->device_lost  = true;
 	}
-
-	if (!remake && !a->gpu_switching)
-		fnl_sleep_seconds(0.2);
 
 	if (FNL_FAULT("recover-objects") || create_device_objects(a) < 0)
 		return;
