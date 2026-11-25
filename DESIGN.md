@@ -8117,7 +8117,12 @@ one (`FNL_COLOR_EXTENDED_LINEAR` or `FNL_COLOR_PQ`); `FNL_COLOR` in the
 environment names one and it is taken or the window fails; a renderer grants
 the space its output offers, another HDR space where that is the one it has,
 and SDR where it has none. `FnlFrame::color` and `fnl_output_color()` say what
-was granted, and a move to another is `FNL_EVENT_COLOR`.
+was granted, and a move to another is `FNL_EVENT_COLOR`. The frame's copy of
+it is latched where the palette is converted, and again at each swapchain
+rebuild: a first swapchain is the build's own, so the first frames are
+recorded before any rebuild has happened and a report left to the rebuild
+alone would be zero — a scene multiplying by `sdr_scale` draws black until
+the window is resized.
 
 What every HDR path shares is that **the scene's target holds linear light** —
 `linear_target`, the same flag an `_SRGB` surface sets — so a shader writes

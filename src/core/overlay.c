@@ -65,6 +65,17 @@ void app_palette_init(App *a)
 	fnl_mutex_lock(&a->lock);
 	const float scale =
 		a->pub_color.sdr_scale > 0.0f ? a->pub_color.sdr_scale : 1.0f;
+	/* The frame's own copy with it. The first swapchain is the build's, so
+	 * no swapchain_adopt() runs before the first frames are recorded, and a
+	 * latch left to that would be zero: a scene reading FnlFrame::color
+	 * multiplies what it writes by zero until a resize. Set here, the frame
+	 * already reports the colour the palette was converted at, and a build
+	 * that changes the colour re-latches both together. */
+	a->draw_color = a->pub_color;
+	if (!(a->draw_color.sdr_scale > 0.0f))
+		a->draw_color.sdr_scale = 1.0f;
+	if (!(a->draw_color.peak >= 1.0f))
+		a->draw_color.peak = 1.0f;
 	fnl_mutex_unlock(&a->lock);
 	for (int i = 0; i < COL_COUNT; i++) {
 		for (int c = 0; c < 3; c++)

@@ -1386,8 +1386,11 @@ static bool swapchain_adopt(App *a, const Latch *l, int m)
 	a->draw_h        = l->h;
 	a->draw_scale120 = l->s;
 	a->draw_margin   = m;
-	/* With the size and the scale: the overlay's colour conversion and the
-	 * frame's own report read it from here. */
+	/* With the size and the scale, which the overlay's colour conversion
+	 * and the frame's own report read from here. app_palette_init() seeds
+	 * it at each build, since the first swapchain is the build's own and
+	 * the first frames record before any adopt; this re-latches it
+	 * whenever one is made again. */
 	a->draw_color = l->color;
 	/* Glyphs are rasterised for a pixel size. A failure costs the text, not
 	 * the frame: none is drawn until a later scale change succeeds. */
