@@ -524,8 +524,9 @@ release)
     # Said rather than left to the option's default, so a tree configured
     # when native was the default comes back to x86-64-v2; native is
     # `./build.sh <target> release -DFNL_NATIVE_ARCH=ON`, which goes last
-    # and wins.
-    set -- -DFNL_NATIVE_ARCH=OFF "$@" ;;
+    # and wins. The build type too: CMake's MSVC platform defaults a
+    # single-config tree to Debug, and this variant is the release one.
+    set -- -DFNL_NATIVE_ARCH=OFF -DCMAKE_BUILD_TYPE=Release "$@" ;;
 clang)
     # Optimised, as release is, so clang's optimiser and its warnings see the
     # code gcc's do; -Werror because warning-clean under clang is a rule and
@@ -775,7 +776,11 @@ else
 fi
 
 cmake -S . -B "$DIR" "$@"
-cmake --build "$DIR" -j
+# A count beside -j: the FreeBSD tree builds with the base system's make,
+# whose -j takes an argument.
+JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null) || JOBS=
+[ -n "$JOBS" ] || JOBS=2
+cmake --build "$DIR" -j "$JOBS"
 # MoltenVK beside the macOS programs, which is what Vulkan is on a Mac
 # (tools/moltenvk.py). A fetch that fails fails the build, as a pack that
 # fails does.

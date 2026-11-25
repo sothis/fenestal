@@ -952,8 +952,12 @@ function(fnl_host_tool name)
     # C only: fuzz_text assembles the font stub, where a C warning draws a
     # "not valid for assembler" note (fenestal_objects' reason).
     if(MSVC)
-        target_compile_options(${name} PRIVATE /O2
-                               $<$<COMPILE_LANGUAGE:C>:${FNL_WARNINGS}>)
+        # No /O2 in Debug: cl refuses it beside the /RTC1 CMake's MSVC
+        # Debug flags carry, and the gc tree's host tools are meant to be
+        # unoptimised anyway.
+        target_compile_options(${name} PRIVATE
+            $<$<NOT:$<CONFIG:Debug>>:/O2>
+            $<$<COMPILE_LANGUAGE:C>:${FNL_WARNINGS}>)
     else()
         target_compile_options(${name} PRIVATE -O2
                                $<$<COMPILE_LANGUAGE:C>:${FNL_WARNINGS}>)
