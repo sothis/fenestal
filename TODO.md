@@ -389,27 +389,22 @@ Each needs a hand on the machine or hardware the two laptops do not have.
 
 ## Win32 and macOS, after the 2026-11-25 review
 
-- **The raw mouse registration is the host's.** `RegisterRawInputDevices` is
-  process-wide and last-writer-wins, and `raw_wheel_open()`/`raw_register()`
-  keep per-window flags: with two windows the second open re-targets the
-  mouse, the first window's capture then receives no `WM_INPUT`, and its
-  wheel echoes are suppressed for events that go elsewhere. The fix is one
-  registration in `BackendHostState` (target, the program's saved entry, and
-  ownership), pointed at the capturing or focused window by
-  `raw_point(a, target)` and given back by `raw_give(a)` when the last window
-  lets it go; `wheel_raw_here()`'s new registration test is its safety net.
-  Wants a two-window wine round.
-- **Cocoa's request-drain entries have no autorelease pool.** The drain runs
-  after `cocoa_pump()` pops its pool, and `fnl_init()`/`fnl_window_create()`
-  call `update_scale` and `apply_size_bounds` outside one, so every AppKit
-  object those paths autorelease leaks (and `_NSAutoreleaseNoPool` is
-  logged). Each of `cocoa_update_scale`, `cocoa_apply_size_bounds`,
-  `cocoa_request_size`, `cocoa_set_fullscreen`, `cocoa_set_maximized`,
-  `cocoa_minimize`, `cocoa_set_output`, `cocoa_begin_move`,
-  `cocoa_begin_resize`, `cocoa_release_pointer`, `cocoa_cursor_changed`,
-  `cocoa_text_input_changed` and `cocoa_clipboard_set` wants its own
-  `@autoreleasepool`, and so does `wake_cb`'s drain loop; `cocoa_set_title`
-  and `cocoa_clipboard_request` are the precedent.
+Written by reading; both changes are in, and each wants the round that
+proves it.
+
+- **A two-window wine round** for the raw mouse registration, which is the
+  host's now (`BackendHostState::raw_owned`, `raw_point()`/`raw_give()`,
+  `raw_wanted()`): a second window's open no longer re-points the process's
+  one registration away from the first window's capture, the registration
+  follows the window in front for the wheel, and the program gets its own
+  back when no window wants it (DESIGN *A second window*, *Wine on the bare
+  machine*). The round opens two windows under wine, captures in each in
+  turn, wheels over both, and closes one while the other holds the pointer.
+- **A Mac round** for Cocoa's per-entry autorelease pools: every
+  request-drain entry holds one now, and `wake_cb()`'s drain loop a pool a
+  window, so a round that reads the program's stderr should show no
+  `_NSAutoreleaseNoPool` from a title set every frame or an input-latency
+  run, and the resident set should stay flat across them.
 
 ## The output box under a window server
 
@@ -1151,15 +1146,11 @@ and headers through the cache. Owed:
 
 ## The ABI baseline
 
-- **Direct3D 12's and Metal's interop structs are not in the dump.**
-  `tools/abidump.c` includes `fenestal.h`, `fnl_gl.h` and, under
-  `FNL_ABI_VULKAN`, `fnl_vulkan.h`; `fnl_d3d12.h`'s and `fnl_metal.h`'s
-  structs (`FnlD3D12*`, `FnlMetal*`) are in no baseline, so a field added,
-  moved or reordered in one of them passes every tree's comparison. Metal's
-  header is portable C and can join every dump; Direct3D 12's wants an
-  `FNL_ABI_D3D12` define in the sets that have it, and a layout baseline per
-  set as the export lists already have. Both want a build to regenerate
-  `tools/abi/*.abi`, which is why the dump and its baselines go in together.
+- **The Direct3D 12 baselines were dumped under wine**, by a mingw build of
+  `tools/abidump` (the layout is the same on both 64-bit ABIs), and the
+  Metal lines in every baseline natively on this desktop. The native trees'
+  own dumps check them, so the Windows runner's and the Mac's release builds
+  are the first to say so for theirs; a difference fails that tree's check.
 
 ## OpenGL on macOS
 

@@ -1380,11 +1380,10 @@ list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/headers_checked.stamp)
 # do about a difference. A cross build cannot run the dump; the layout is the
 # same on both 64-bit ABIs the project targets, and the native trees hold it.
 # A baseline per renderer set: the interop headers and the exports differ. The
-# layout holds fenestal.h's, fnl_gl.h's whatever the build, and Vulkan's where
-# the set has it -- one of two (fenestal-0 with Vulkan's, fenestal-0-gl
-# without). Direct3D 12's and Metal's interop structs are in none of them
-# (TODO *The ABI baseline*), so a change to one of those is checked by no
-# tree;
+# layout holds fenestal.h's, fnl_gl.h's and Metal's whatever the build,
+# Vulkan's where the set has it and Direct3D 12's where it has that -- one of
+# four (fenestal-0 with Vulkan's, -gl with Metal's alone, -d3d12 with Direct3D
+# 12's and not Vulkan's, -d3d12-vulkan with both);
 # the exports are one list per set -- fenestal-0 for Vulkan alone, -gl,
 # -d3d12 and -metal for one each, and -<set> for a system's several
 # (vulkan-gl, d3d12-vulkan, metal-vulkan-gl). The portable part is in each,
@@ -1397,6 +1396,20 @@ if(NOT FNL_GENERATED_DIR)
         target_include_directories(abidump SYSTEM PRIVATE
             $<TARGET_PROPERTY:Vulkan::Vulkan,INTERFACE_INCLUDE_DIRECTORIES>)
         target_compile_definitions(abidump PRIVATE FNL_ABI_VULKAN)
+    endif()
+    if(d3d12 IN_LIST FNL_RENDERERS)
+        target_compile_definitions(abidump PRIVATE FNL_ABI_D3D12)
+    endif()
+    # The layout baseline is keyed by what the dump holds: Metal's structs
+    # are in every one, Vulkan's where the set has it, Direct3D 12's where
+    # it has that. The exports are one list per set, as below.
+    if(d3d12 IN_LIST FNL_RENDERERS)
+        if(vulkan IN_LIST FNL_RENDERERS)
+            set(_abi_layout fenestal-0-d3d12-vulkan)
+        else()
+            set(_abi_layout fenestal-0-d3d12)
+        endif()
+    elseif(vulkan IN_LIST FNL_RENDERERS)
         set(_abi_layout fenestal-0)
     else()
         set(_abi_layout fenestal-0-gl)

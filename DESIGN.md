@@ -292,8 +292,8 @@ there passed on 2026-11-25, library and programs: `/experimental:c11atomics`
 took the testbed's and `fenestal-dev`'s atomics, the `/GL` objects linked
 with `/LTCG` that the linker starts on its own, the DLL's exports are the
 `/DEF:` list, and the archive and import library came out named apart. The
-ABI dump's layout is the baseline's; the export list is a baseline per
-renderer set, Windows' `d3d12-vulkan` among them.
+ABI dump's layout is its set's baseline, as the export list is, Windows'
+`d3d12-vulkan` among them.
 
 Four things differ from every other compiler's tree:
 
@@ -3424,20 +3424,22 @@ nothing typed into another program reaches the library. A program that
 registers raw input of its own after the window opened takes the device
 from the thread, as it took it from the window before: its inputs then
 keep the tick's age, and a capture, which asks the process who holds the
-mouse, registers on the window as it did before the thread -- taking the
-program's mouse for the capture, one registration a device being all a
-process has, and giving it back at the release (`raw_unregister()`; at
-the close under wine, whose wheel keeps it). Seen on aspire (2026-10-31,
-a probe of the library's that registers both devices on a window of its
-own, before `fnl_init()` and after): a key typed into another program in
-front reaches no report and counts no input; registered before, the
-library leaves both devices to the program; after, the program takes
-them from the thread; and the capture works in both. Before the give-back
-the program's mouse ended at the first capture, for the life of the
-process. Not under
-wine: its tick is a millisecond already, and its wheel
-is read from raw input on the window (*Wine on the bare machine*), which
-the thread would take.
+mouse, reads its motion from the process's registration pointed at the
+window. One registration a device is all a process has and the last made
+wins, so it is the host's and not a window's: `raw_point()` points it at
+the capturing window, else at the one in front -- which under wine is
+where the wheel is read -- and `raw_give()` puts back the program's own,
+what it had when it last held the device, when no window wants it, so a
+window opening, closing or taking the focus cannot take another's capture
+or wheel echo away. Seen on aspire (2026-10-31, a probe of the library's
+that registers both devices on a window of its own, before `fnl_init()`
+and after): a key typed into another program in front reaches no report
+and counts no input; registered before, the library leaves both devices
+to the program; after, the program takes them from the thread; and the
+capture works in both. Before the give-back the program's mouse ended at
+the first capture, for the life of the process. Not under wine: its tick
+is a millisecond already, and its wheel is read from raw input on the
+window (*Wine on the bare machine*), which the thread would take.
 
 Measured on schenker under Windows, the testbed on Vulkan on the GTX 1050
 Ti, 60 Hz, driven by the agent's `SendInput` (which Windows hands to raw
@@ -3875,7 +3877,8 @@ The window position (`x_pt`/`y_pt`) is honoured by X11, Win32 and Cocoa, and
 ignored by Wayland (the compositor places) and KMS (a window is an output).
 Built and exercised on this desktop (release, 2026-11-23): the single-window
 rounds and the two-window check pass on `x11-vulkan`, `x11-gl`, `win64-vulkan`
-and `win64-d3d12`, Win32's two desktop-global pointer calls are the host's,
+and `win64-d3d12`, Win32's process-global pointer calls -- the clip, the
+show count and the raw mouse registration -- are the host's,
 both windows draw the scene (the
 testbed's scene state is per window, keyed by the app), and `find_window()`
 picks between a process's several windows (an `index` into them, and
@@ -3982,7 +3985,8 @@ read at its site; what is *not* in this table was looked for and not found.
 | `app.c`, `frame.c` | `this_thread`, `app_renderer_state_ours()` | "the render thread" is a process-wide label; with one render thread per window each would read the other's as its own, and `fnl_vulkan_gpu()` and its twins would hand a caller `App::renderer_state` that is not its window's |
 | `win32.c` | `RegisterClassExW(FNL_WNDCLASS)` | fails with `ERROR_CLASS_ALREADY_EXISTS`, so the second window's `open()` returns `FNL_ERR_NO_DISPLAY` and `fnl_init()` unwinds. `RAWIN_CLASS` already tolerates the error; `FNL_PRESENT_CLASS` logs and goes on |
 | `win32.c` | the pump is a window's, and it ends on `WM_QUIT` | `WM_QUIT` is the thread's, not a window's, so one pump a window cannot end for one of them; and one message queue serving N windows wants a dispatch that finds each window's app by its `HWND`, which `wnd_proc()` already does |
-| `win32_rawin.c` | one raw-input registration a usage, "the last made wins" | N windows starting a raw thread leave one holding the mouse and N−1 `has_mouse == false`, and the removal at one close is the process's |
+| `win32_rawin.c` | one raw-input registration a usage, "the last made wins" | N windows starting a raw thread leave one holding the mouse and N−1 `has_mouse == false`, and the removal at one close is the process's. One thread a host is the answer, started by the first window |
+| `win32.c` | `RegisterRawInputDevices` (one a device, the last made wins) | each window's open and capture re-points the process's mouse: the first window's capture then receives no `WM_INPUT` and its wheel echo is suppressed for events that go elsewhere. The registration is the host's now (`BackendHostState::raw_owned`), pointed at the capturing or frontmost window and given back to the program when no window wants it |
 | `win32.c` | `ShowCursor` (a counter), `ClipCursor` (global) | two captures fight: the second `capture_apply(p, false)` gives back the first's confinement |
 | `cocoa.m` | `NSApp.delegate` | the second window's delegate replaces the first's, and the first loses Command-Q, the Dock's Quit and `applicationDidHide`; one delegate that asks the frontmost window is the fix, `windowWillClose:` being where a window leaves it |
 | `cocoa.m` | `left_held`, `left_down`, `pump_waiting`, `iso_swap` | window-drag and pump state at file scope: `pump_waiting` sends a wakeup to whichever app checks it, and `left_down` is whichever window's press was last |
@@ -10930,8 +10934,10 @@ done about each:
   (`BackendState::wheel_raw`): raw mouse input is asked for at open, and
   a wheel step is taken from `WM_INPUT`, which wine queues ahead of the
   step's message and never merges, wherever the window has the focus and
-  the pointer; the `WM_MOUSEWHEEL` that follows is dropped as its echo,
-  and anywhere else -- an inactive window under the pointer -- the
+  the pointer; the process's one registration follows the focus
+  (`raw_follow()`), so a second window's opening does not take the first
+  one's echo away; the `WM_MOUSEWHEEL` that follows is dropped as its
+  echo, and anywhere else -- an inactive window under the pointer -- the
   message is the step, as on Windows, which this changes nothing of. On
   the thinkpad under weston, 120 pairs from `wheelpairs.py`'s timing with
   four busy loops on the CPU: 7 lost before, none after; idle, 1 and

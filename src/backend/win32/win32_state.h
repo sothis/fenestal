@@ -32,10 +32,11 @@
 struct RawIn;
 
 /* What the host owns, beside the windows: the process module, the window
- * class every window is made from, the presentation child's class, and the
- * raw-input thread that serves the process. The connection a window server
- * would own is here the process's message queue, which is the pump's thread's
- * already; there is nothing to open. The host's state is in Host::backend_host,
+ * class every window is made from, the presentation child's class, the
+ * raw-input thread that serves the process, and the process's raw mouse
+ * registration. The connection a window server would own is here the
+ * process's message queue, which is the pump's thread's already; there is
+ * nothing to open. The host's state is in Host::backend_host,
  * and the window's own in App::backend_state. See DESIGN *A second window*. */
 struct BackendHostState {
 	HINSTANCE instance;
@@ -56,6 +57,19 @@ struct BackendHostState {
 	 * them back, and a window releasing while another still holds it leaves
 	 * that one's confinement on the pointer rather than taking it. [main] */
 	int cursor_confined;
+
+	/* The process's raw mouse registration, one a process has: the last
+	 * window to want it owns it, since RegisterRawInputDevices is
+	 * last-writer-wins, and a per-window flag cannot say whose the process
+	 * has now. raw_target is the window it is pointed at -- the capturing
+	 * one, else the one in front, whose wheel is read from raw input under
+	 * wine -- and raw_saved the program's own registration, as raw_point()
+	 * last found the program holding it, put back by raw_give() when no
+	 * window wants it. [main] */
+	bool raw_owned;
+	HWND raw_target;
+	RAWINPUTDEVICE raw_saved;
+	bool raw_saved_valid;
 };
 
 struct BackendState {
@@ -98,13 +112,8 @@ struct BackendState {
 
 	/* Pointer capture, whose flag is App::pointer_captured. The cursor is
 	 * clipped and hidden, and relative motion comes from raw input:
-	 * differences of position stop at the clip edge. */
-	bool raw_registered;
-	/* The process's mouse registration before raw_register() took it --
-	 * a program's own -- and whether there was one: put back by
-	 * raw_unregister() when the capture ends or the window closes. */
-	RAWINPUTDEVICE raw_saved;
-	bool raw_saved_valid;
+	 * differences of position stop at the clip edge. The registration
+	 * itself is the host's (BackendHostState::raw_owned). */
 	/* Under wine the wheel is read from raw input as well, which wine's
 	 * server never merges: a WM_MOUSEWHEEL it merges a step into after
 	 * handing the message out loses that step (DESIGN *Wine on the bare
@@ -115,8 +124,8 @@ struct BackendState {
 	bool wheel_raw_seen;
 	/* The raw input thread (win32_rawin.c), on Windows and not under wine,
 	 * or NULL: when each input reached the process, for
-	 * fnl_input_latency_ms(), and where it holds the process's raw mouse,
-	 * a capture forwarded from it instead of registered here. */
+	 * fnl_input_latency_ms(), and while it holds the process's raw mouse, a
+	 * capture's motion forwarded from it instead of read from a window. */
 	struct RawIn *rawin;
 	/* Whether this backend has taken one off ShowCursor's process-wide
 	 * display count. */

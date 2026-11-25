@@ -29,10 +29,16 @@
 
 #include <fenestal/fenestal.h>
 #include <fenestal/fnl_gl.h>
-/* Only where Vulkan's headers are: each renderer's tree compares against a
- * baseline of its own (tools/abi/fenestal-0.* for Vulkan, -gl for GL). */
+/* Metal's header is plain C outside Objective-C, so its structs are in every
+ * dump; Vulkan's are only where the tree has Vulkan's headers, and Direct3D
+ * 12's only where the build has that renderer (FNL_ABI_D3D12), each set
+ * compared against a baseline of its own (tools/abi/). */
+#include <fenestal/fnl_metal.h>
 #ifdef FNL_ABI_VULKAN
 #include <fenestal/fnl_vulkan.h>
+#endif
+#ifdef FNL_ABI_D3D12
+#include <fenestal/fnl_d3d12.h>
 #endif
 
 #include <stddef.h>
@@ -227,6 +233,34 @@ int main(int argc, char **argv)
 	F(FnlGlSceneLayout, samples);
 	F(FnlGlSceneLayout, color_format);
 	F(FnlGlSceneLayout, depth_format);
+	S(FnlMetalGpu);
+	F(FnlMetalGpu, device);
+	F(FnlMetalGpu, queue);
+	S(FnlMetalSceneLayout);
+	F(FnlMetalSceneLayout, samples);
+	F(FnlMetalSceneLayout, color_format);
+	F(FnlMetalSceneLayout, depth_format);
+	S(FnlMetalScene);
+	F(FnlMetalScene, encoder);
+	F(FnlMetalScene, command_buffer);
+	F(FnlMetalScene, x);
+	F(FnlMetalScene, y);
+	F(FnlMetalScene, w);
+	F(FnlMetalScene, h);
+#ifdef FNL_ABI_D3D12
+	S(FnlD3D12Gpu);
+	F(FnlD3D12Gpu, device);
+	F(FnlD3D12Gpu, queue);
+	S(FnlD3D12SceneLayout);
+	F(FnlD3D12SceneLayout, samples);
+	F(FnlD3D12SceneLayout, color_format);
+	F(FnlD3D12SceneLayout, depth_format);
+	S(FnlD3D12Scene);
+	F(FnlD3D12Scene, list);
+	F(FnlD3D12Scene, rtv);
+	F(FnlD3D12Scene, dsv);
+	F(FnlD3D12Scene, rect);
+#endif
 	E(FNL_OK);
 	E(FNL_SKIPPED);
 	E(FNL_ERR_UNSUPPORTED);

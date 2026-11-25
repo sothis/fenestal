@@ -6,6 +6,25 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **The ABI check covers the Metal and Direct3D 12 interop structs.**
+  `tools/abidump` now dumps `FnlMetalGpu`, `FnlMetalSceneLayout`,
+  `FnlMetalScene`, `FnlD3D12Gpu`, `FnlD3D12SceneLayout` and `FnlD3D12Scene`,
+  and the layout baseline is keyed by the renderer set (`fenestal-0`,
+  `-gl`, `-d3d12`, `-d3d12-vulkan`), so a build is held to the interop
+  headers it has and to nothing it has not.
+
+- **Win32: the process's raw mouse registration is the host's.** With
+  several windows, a second window's open no longer points the one
+  registration away from the first window's capture, the wheel's raw echo
+  under wine follows the window in front as the focus moves, and the
+  program's own registration is put back when no window wants it.
+
+- **Cocoa: every request-drain entry holds an autorelease pool**, and so
+  does `wake_cb()`'s drain loop for each window it serves. The drain runs
+  after `cocoa_pump()`'s pool has been popped, and `fnl_init()` and
+  `fnl_window_create()` call some of these entries outside one, so what
+  AppKit autoreleases there is no longer left for the frame.
+
 - **The copy path sets its mode on a CRTC chosen at that moment.** The
   open's guess could take a CRTC another output was lit on, or leave the
   display driver's CRTC scanning out the same pair; the CRTC is chosen

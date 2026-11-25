@@ -553,65 +553,156 @@ static void capture_follow(App *a, HWND hwnd)
 		capture_apply(a, true);
 }
 
-/* The process's registration for the generic-desktop mouse, into `out`;
- * false where there is none or the list cannot be read. */
-static bool raw_mouse_registration(RAWINPUTDEVICE *out)
+/* The process's registration for the generic-desktop mouse, into `out`: 1
+ * where it has one, 0 where it has none, -1 where the list cannot be read. */
+static int raw_mouse_registration(RAWINPUTDEVICE *out)
 {
 	RAWINPUTDEVICE got[32];
 	UINT n       = sizeof got / sizeof got[0];
 	const UINT c = GetRegisteredRawInputDevices(got, &n, sizeof got[0]);
 	if (c == (UINT)-1)
-		return false;
+		return -1;
 	for (UINT i = 0; i < c; i++)
 		if (got[i].usUsagePage == 0x01 && got[i].usUsage == 0x02) {
 			*out = got[i];
-			return true;
+			return 1;
 		}
-	return false;
+	return 0;
 }
 
-/* The generic-desktop mouse (usage page 1, usage 2) as raw input, once per
- * window. No INPUTSINK: raw input is wanted only while this window has the
- * focus, for a captured pointer's motion and under wine for the wheel. A
- * process has one registration a device, so a program's own is taken from
- * it meanwhile: kept here, and put back by raw_unregister(). */
-static bool raw_register(struct BackendState *p)
+/* Whether the raw thread has the process's mouse now: a capture's motion is
+ * forwarded from it, and the registration is the thread's to give back, not
+ * this host's to move. */
+static bool raw_thread_holds(App *a)
 {
-	if (p->raw_registered)
+	struct BackendHostState *hs = app_backend_host(a);
+	return hs && hs->rawin && rawin_has_mouse(hs->rawin);
+}
+
+/* The generic-desktop mouse (usage page 1, usage 2) as raw input, the
+ * process's one registration, pointed at `target`. A process has one
+ * registration a device and RegisterRawInputDevices is last-writer-wins, so
+ * the registration is the host's and not a window's: a program's own is
+ * saved -- what the program has when it loses the device, not what it had
+ * when it first did -- and put back by raw_give() when the last window lets
+ * it go. No INPUTSINK: reports reach the process only while it is in front,
+ * the filter a window's own registration had. */
+static bool raw_point(App *a, HWND target)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs || !target)
+		return false;
+	RAWINPUTDEVICE now = { 0 };
+	const int listed   = raw_mouse_registration(&now);
+	if (hs->raw_owned && hs->raw_target == target && listed > 0 &&
+		now.hwndTarget == target)
 		return true;
-	p->raw_saved_valid = raw_mouse_registration(&p->raw_saved) &&
-						 p->raw_saved.hwndTarget != p->hwnd;
-	RAWINPUTDEVICE rid = {
+	/* What the program is owed back: what the process has now, none where it
+	 * has none, and what was taken where the list cannot be read. The
+	 * host's own, moved, keeps the entry it took. */
+	if (listed == 0) {
+		hs->raw_saved_valid = false;
+	} else if (listed > 0 &&
+			   !(hs->raw_owned && now.hwndTarget == hs->raw_target)) {
+		hs->raw_saved_valid = now.hwndTarget != target;
+		if (hs->raw_saved_valid)
+			hs->raw_saved = now;
+	}
+	const RAWINPUTDEVICE rid = {
 		.usUsagePage = 0x01,
 		.usUsage     = 0x02,
-		.dwFlags     = 0,
-		.hwndTarget  = p->hwnd,
+		.hwndTarget  = target,
 	};
-	p->raw_registered = RegisterRawInputDevices(&rid, 1, sizeof rid) != 0;
-	return p->raw_registered;
+	if (!RegisterRawInputDevices(&rid, 1, sizeof rid))
+		return false;
+	hs->raw_owned  = true;
+	hs->raw_target = target;
+	return true;
 }
 
-/* The mouse given back: the registration raw_register() found, or none
- * where there was none. Only while the registration is still this
- * window's -- one the program made since is the program's to keep. */
-static void raw_unregister(struct BackendState *p)
+/* The mouse given back: the program's own registration as raw_point() last
+ * found it, or none where it had none. Only while the process's registration
+ * is still this host's -- one the program made since is the program's to
+ * keep. */
+static void raw_give(App *a)
 {
-	if (!p->raw_registered)
+	struct BackendHostState *hs = app_backend_host(a);
+	if (!hs || !hs->raw_owned)
 		return;
-	p->raw_registered = false;
-	RAWINPUTDEVICE now;
-	if (!raw_mouse_registration(&now) || now.hwndTarget != p->hwnd)
+	hs->raw_owned = false;
+	RAWINPUTDEVICE now = { 0 };
+	const int listed   = raw_mouse_registration(&now);
+	/* Gone, or one the program made since: nothing to give back. */
+	if (listed <= 0 || now.hwndTarget != hs->raw_target) {
+		hs->raw_target      = NULL;
+		hs->raw_saved_valid = false;
 		return;
+	}
 	const RAWINPUTDEVICE remove_dev = { .usUsagePage = 0x01,
 										.usUsage     = 0x02,
 										.dwFlags     = RIDEV_REMOVE };
-	RAWINPUTDEVICE rid = p->raw_saved_valid ? p->raw_saved : remove_dev;
+	const RAWINPUTDEVICE rid = hs->raw_saved_valid ? hs->raw_saved : remove_dev;
 	if (!RegisterRawInputDevices(&rid, 1, sizeof rid))
 		fnl_log(FNL_LOG_WARN,
 				"the raw mouse could not be given back to "
 				"the program (%lu)",
 				GetLastError());
-	p->raw_saved_valid = false;
+	hs->raw_target      = NULL;
+	hs->raw_saved_valid = false;
+}
+
+/* The window the process's raw mouse is for: the one capturing the pointer,
+ * whose motion is read from raw input, else the one in front -- under wine a
+ * wheel step is read there (BackendState::wheel_raw) -- else any window that
+ * still wants it, so that the registration leaves a window that is closing.
+ * NULL where no window wants it. This window counts whether or not it is on
+ * the host's registry yet: its ShowWindow sends the focus, and the answer is
+ * asked for at its WM_SETFOCUS before the registry has it. */
+static HWND raw_wanted(App *a)
+{
+	struct BackendState *self = a->backend_state;
+	HWND wheel                = NULL;
+	if (self && self->hwnd) {
+		if (a->pointer_captured)
+			return self->hwnd;
+		if (self->wheel_raw) {
+			if (GetForegroundWindow() == self->hwnd)
+				return self->hwnd;
+			wheel = self->hwnd;
+		}
+	}
+	for (App *w = a->host->windows; w; w = w->next) {
+		struct BackendState *q = w->backend_state;
+		if (!q || !q->hwnd)
+			continue;
+		if (w->pointer_captured)
+			return q->hwnd;
+		if (q->wheel_raw) {
+			if (GetForegroundWindow() == q->hwnd)
+				return q->hwnd;
+			if (!wheel)
+				wheel = q->hwnd;
+		}
+	}
+	return wheel;
+}
+
+/* The registration follows what wants it now, and goes back to the program
+ * when nothing does. */
+static void raw_follow(App *a)
+{
+	if (raw_thread_holds(a))
+		return;
+	const HWND want = raw_wanted(a);
+	if (!want) {
+		raw_give(a);
+		return;
+	}
+	if (!raw_point(a, want))
+		fnl_log(FNL_LOG_WARN,
+				"raw mouse input unavailable to the window in "
+				"front (%lu)",
+				GetLastError());
 }
 
 static void win32_release(App *a);
@@ -628,17 +719,21 @@ static void win32_capture(App *a)
 		return;
 
 	/* Where the raw input thread has the process's raw mouse, the motion is
-	 * handed on from there; otherwise registered here. One raw thread
-	 * serves every window on the host, so its reports go to this window:
-	 * the one that is taking the pointer now. Asked before any other
-	 * window's capture is given up: one that cannot be taken here must
-	 * leave the pointer where it was. */
-	const bool via_thread = p->rawin && rawin_has_mouse(p->rawin);
-	if (!via_thread && !raw_register(p)) {
+	 * handed on from there; otherwise the process's registration is pointed
+	 * here. One raw thread serves every window on the host, so its reports
+	 * go to this window: the one that is taking the pointer now. Asked
+	 * before any other window's capture is given up: one that cannot be
+	 * taken here must leave the pointer where it was. */
+	const bool via_thread = raw_thread_holds(a);
+	if (!via_thread && !raw_point(a, p->hwnd)) {
 		fnl_log(FNL_LOG_WARN, "raw mouse input unavailable; the "
 							  "pointer cannot be captured");
 		return;
 	}
+
+	/* Taken before the others are let go: raw_wanted() reads it, so their
+	 * releases leave the registration where this window just put it. */
+	a->pointer_captured = true;
 
 	/* One capture, the program's: the host's raw thread forwards for one
 	 * window, so a second window taking it lets the first go -- its release
@@ -656,7 +751,6 @@ static void win32_capture(App *a)
 	/* The reticle starts at the click, and is published once the capture has
 	 * been taken. */
 	app_reticle_start(a);
-	a->pointer_captured = true;
 	capture_apply(a, true);
 	app_reticle_publish(a);
 }
@@ -689,11 +783,11 @@ static void win32_release(App *a)
 		rawin_forward(p->rawin, false);
 		rawin_target(p->rawin, NULL);
 	}
-	/* Registered for the capture alone, the mouse goes back now; under
-	 * wine the wheel keeps it to the close. */
-	if (!p->wheel_raw)
-		raw_unregister(p);
 	a->pointer_captured = false;
+	/* Done with it, the process's raw mouse follows what wants it now --
+	 * another window's capture, the one in front under wine, or the
+	 * program. The raw thread's own registration is the thread's. */
+	raw_follow(a);
 	app_reticle_publish(a);
 }
 
@@ -1302,6 +1396,10 @@ static void on_focus(App *a, bool in)
 		capture_apply(a, in);
 	app_publish_focus(a, in);
 	app_post_focus(a, in);
+	/* Under wine raw input reaches the window in front, and the wheel is read
+	 * there: the registration follows the focus, the capturing window
+	 * outranking it. */
+	raw_follow(a);
 }
 
 /* WM_KEYDOWN and WM_SYSKEYDOWN. A repeat is never a press: it reaches the
@@ -1527,14 +1625,14 @@ static void wheel_publish(App *a, bool horizontal, int delta)
 static bool wheel_raw_here(const struct BackendState *p)
 {
 	POINT pt;
-	RAWINPUTDEVICE now;
+	RAWINPUTDEVICE now = { 0 };
 	return GetForegroundWindow() == p->hwnd && GetCursorPos(&pt) &&
 		   GetAncestor(WindowFromPoint(pt), GA_ROOT) == p->hwnd &&
 		   /* And the process's raw mouse still points here: a program, or
 		    * another window, may have taken it since this window's last
 		    * raw step, and then no raw event is coming to suppress the
 		    * message for. */
-		   raw_mouse_registration(&now) && now.hwndTarget == p->hwnd;
+		   raw_mouse_registration(&now) > 0 && now.hwndTarget == p->hwnd;
 }
 
 /* A captured pointer's raw report: its movement, as the reticle's and the
@@ -1657,12 +1755,17 @@ static void raw_wheel_open(App *a)
 	struct BackendState *p = a->backend_state;
 	if (!win32_host(a)[0])
 		return;
-	if (FNL_FAULT("win32-no-raw-wheel") || !raw_register(p)) {
+	/* The window is not shown yet and so not the one in front; the
+	 * registration goes where raw_wanted() says -- another window that
+	 * captures the pointer or is in front keeps it -- and follows this one
+	 * at its WM_SETFOCUS. */
+	p->wheel_raw    = true;
+	const HWND want = raw_wanted(a);
+	if (FNL_FAULT("win32-no-raw-wheel") || !raw_point(a, want)) {
+		p->wheel_raw = false;
 		fnl_log(FNL_LOG_WARN, "raw mouse input unavailable; under wine a "
 							  "wheel step can be lost");
-		return;
 	}
-	p->wheel_raw = true;
 }
 
 /* The six button messages. The window holds the mouse capture while any
@@ -2372,6 +2475,9 @@ static void win32_host_close(App *a)
 		rawin_stop(hs->rawin);
 		hs->rawin = NULL;
 	}
+	/* Each window gave the process's raw mouse back as it closed; one left
+	 * here would outlive the window it points at. */
+	raw_give(a);
 	if (hs->wndclass_ours)
 		UnregisterClassW(FNL_WNDCLASS, hs->instance);
 	if (hs->present_class_ours)
@@ -2579,8 +2685,13 @@ static void win32_close(App *a)
 	if (!p)
 		return;
 
+	/* This window wants nothing of the process's raw mouse any more: while
+	 * it does, raw_wanted() counts it whether or not the registry has it,
+	 * and the registration must leave before the window it points at is
+	 * destroyed. */
+	p->wheel_raw = false;
 	win32_release(a);
-	raw_unregister(p);
+	raw_follow(a);
 	if (p->rawin && a->frame_times) {
 		uint32_t matched, missed;
 		rawin_tally(p->rawin, &matched, &missed);

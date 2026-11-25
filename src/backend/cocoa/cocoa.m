@@ -493,24 +493,26 @@ static void cocoa_release(App *a)
 	struct BackendState *p = a->backend_state;
 	if (!a->pointer_captured)
 		return;
-	int cx, cy;
-	app_content_px_rect(a, &cx, &cy, NULL, NULL);
-	const int s120 = want_s120(a);
-	const double x_pt = px_to_ptf(cx + a->cur_px, s120);
-	const double y_pt = px_to_ptf(cy + a->cur_py, s120);
-	const NSPoint in_view = NSMakePoint(from_pt(a, x_pt), from_pt(a, y_pt));
-	const NSPoint in_win = [VIEW(p) convertPoint:in_view toView:nil];
-	const NSPoint on_screen = [WIN(p) convertPointToScreen:in_win];
-	const CGFloat top = NSScreen.screens.firstObject.frame.size.height;
-	if (p->cursor_hidden)
-		CGWarpMouseCursorPosition(CGPointMake(on_screen.x,
-											  top - on_screen.y));
-	capture_apply(p, false);
-	a->pointer_captured = false;
-	a->ptr_x = x_pt;
-	a->ptr_y = y_pt;
-	app_reticle_publish(a);
-	[WIN(p) invalidateCursorRectsForView:VIEW(p)];
+	@autoreleasepool {
+		int cx, cy;
+		app_content_px_rect(a, &cx, &cy, NULL, NULL);
+		const int s120 = want_s120(a);
+		const double x_pt = px_to_ptf(cx + a->cur_px, s120);
+		const double y_pt = px_to_ptf(cy + a->cur_py, s120);
+		const NSPoint in_view = NSMakePoint(from_pt(a, x_pt), from_pt(a, y_pt));
+		const NSPoint in_win = [VIEW(p) convertPoint:in_view toView:nil];
+		const NSPoint on_screen = [WIN(p) convertPointToScreen:in_win];
+		const CGFloat top = NSScreen.screens.firstObject.frame.size.height;
+		if (p->cursor_hidden)
+			CGWarpMouseCursorPosition(CGPointMake(on_screen.x,
+												  top - on_screen.y));
+		capture_apply(p, false);
+		a->pointer_captured = false;
+		a->ptr_x = x_pt;
+		a->ptr_y = y_pt;
+		app_reticle_publish(a);
+		[WIN(p) invalidateCursorRectsForView:VIEW(p)];
+	}
 }
 
 /* ---- the pointer's shape ------------------------------------------------- */
@@ -1397,9 +1399,14 @@ static void wake_cb(CFFileDescriptorRef f, CFOptionFlags flags, void *info)
 		/* Nobody is waiting: a tracking loop, AppKit's menu or a drag, so
 		 * this drains, as Win32's FNL_WM_WAKEUP does inside its modal
 		 * loops. Every window's requests, since the byte may have been any
-		 * of them. */
-		for (App *w = h->windows; w; w = w->next)
-			app_drain_requests(w);
+		 * of them. A pool an entry, since this runs after cocoa_pump()'s
+		 * has been popped and the entry's AppKit work would otherwise be
+		 * left for the frame. */
+		for (App *w = h->windows; w; w = w->next) {
+			@autoreleasepool {
+				app_drain_requests(w);
+			}
+		}
 	}
 }
 
@@ -1917,19 +1924,22 @@ static bool cocoa_window_on_screen(const App *a)
 static void cocoa_update_scale(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	NSWindow *w = WIN(p);
-	const double backing = w.backingScaleFactor > 0.0 ? w.backingScaleFactor
-													  : 1.0;
-	const bool moved = backing != p->backing;
-	p->backing = backing;
-	LAYER(p).contentsScale = backing;
-	(void)app_publish_scale(a, resolve_scale120(a, backing));
-	hold_floor(a);
-	/* The output is reported in points, so a scale change restates it; and
-	 * the size, whose points the backing just moved under. */
-	publish_output(a, true);
-	if (moved)
-		publish_size(a);
+	@autoreleasepool {
+		NSWindow *w = WIN(p);
+		double backing = w.backingScaleFactor;
+		if (!(backing > 0.0))
+			backing = 1.0;
+		const bool moved = backing != p->backing;
+		p->backing = backing;
+		LAYER(p).contentsScale = backing;
+		(void)app_publish_scale(a, resolve_scale120(a, backing));
+		hold_floor(a);
+		/* The output is reported in points, so a scale change restates it;
+		 * and the size, whose points the backing just moved under. */
+		publish_output(a, true);
+		if (moved)
+			publish_size(a);
+	}
 }
 
 /* The window asked for, in the library's points: app_request_size() has
@@ -1937,12 +1947,14 @@ static void cocoa_update_scale(App *a)
  * bottom-left origin does not do by itself. */
 static void cocoa_request_size(App *a, int w_pt, int h_pt)
 {
-	NSWindow *w = WIN(a->backend_state);
-	NSRect f = w.frame;
-	const CGFloat top = NSMaxY(f);
-	f.size = NSMakeSize(from_pt(a, w_pt), from_pt(a, h_pt));
-	f.origin.y = top - f.size.height;
-	[w setFrame:f display:YES animate:NO];
+	@autoreleasepool {
+		NSWindow *w = WIN(a->backend_state);
+		NSRect f = w.frame;
+		const CGFloat top = NSMaxY(f);
+		f.size = NSMakeSize(from_pt(a, w_pt), from_pt(a, h_pt));
+		f.origin.y = top - f.size.height;
+		[w setFrame:f display:YES animate:NO];
+	}
 }
 
 /* Inside AppKit's animation a toggle is ignored, and the caller -- told
@@ -1955,18 +1967,22 @@ static void cocoa_set_fullscreen(App *a, bool on)
 		p->fs_owed = on ? 1 : 2;
 		return;
 	}
-	NSWindow *w = WIN(p);
-	const bool now = (w.styleMask & NSWindowStyleMaskFullScreen) != 0;
-	if (on != now)
-		[w toggleFullScreen:nil];
+	@autoreleasepool {
+		NSWindow *w = WIN(p);
+		const bool now = (w.styleMask & NSWindowStyleMaskFullScreen) != 0;
+		if (on != now)
+			[w toggleFullScreen:nil];
+	}
 }
 
 static void cocoa_set_maximized(App *a, bool on)
 {
-	NSWindow *w = WIN(a->backend_state);
-	if (a->is_fullscreen || on == (bool)w.zoomed)
-		return;
-	[w zoom:nil];
+	@autoreleasepool {
+		NSWindow *w = WIN(a->backend_state);
+		if (a->is_fullscreen || on == (bool)w.zoomed)
+			return;
+		[w zoom:nil];
+	}
 }
 
 /* A frame in the y-down points app_place_on_output() works in: AppKit's
@@ -1989,38 +2005,42 @@ static FnlRect rect_down(NSRect r)
 static void cocoa_set_output(App *a, const char *name)
 {
 	struct BackendState *p = a->backend_state;
-	NSWindow *w = WIN(p);
-	NSArray<NSScreen *> *screens = NSScreen.screens;
-	char names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
-	const int n = screens_named(screens, names, OUTPUTS_MAX);
-	NSScreen *to = nil;
-	for (int i = 0; i < n && !to; i++)
-		if (strcmp(names[i], name) == 0)
-			to = screens[i];
-	NSScreen *from = w.screen;
-	if (!to || !from || screen_id(to) == screen_id(from))
-		return;
-	if (a->is_fullscreen) {
-		fnl_log(FNL_LOG_INFO, "a fullscreen window is a Space of its own "
-				"and stays where it is: not moved to %s", name);
-		return;
+	@autoreleasepool {
+		NSWindow *w = WIN(p);
+		NSArray<NSScreen *> *screens = NSScreen.screens;
+		char names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
+		const int n = screens_named(screens, names, OUTPUTS_MAX);
+		NSScreen *to = nil;
+		for (int i = 0; i < n && !to; i++)
+			if (strcmp(names[i], name) == 0)
+				to = screens[i];
+		NSScreen *from = w.screen;
+		if (!to || !from || screen_id(to) == screen_id(from))
+			return;
+		if (a->is_fullscreen) {
+			fnl_log(FNL_LOG_INFO, "a fullscreen window is a Space of its own "
+					"and stays where it is: not moved to %s", name);
+			return;
+		}
+		if (w.zoomed) {
+			[w setFrame:to.visibleFrame display:YES animate:NO];
+			return;
+		}
+		const NSRect f = w.frame;
+		const FnlRect fr = rect_down(from.visibleFrame);
+		const FnlRect tr = rect_down(to.visibleFrame);
+		const FnlRect wr = rect_down(f);
+		int nx, ny;
+		app_place_on_output(wr.x, wr.y, wr.w, wr.h, &fr, &tr, &nx, &ny);
+		[w setFrameOrigin:NSMakePoint(nx, -ny - f.size.height)];
 	}
-	if (w.zoomed) {
-		[w setFrame:to.visibleFrame display:YES animate:NO];
-		return;
-	}
-	const NSRect f = w.frame;
-	const FnlRect fr = rect_down(from.visibleFrame);
-	const FnlRect tr = rect_down(to.visibleFrame);
-	const FnlRect wr = rect_down(f);
-	int nx, ny;
-	app_place_on_output(wr.x, wr.y, wr.w, wr.h, &fr, &tr, &nx, &ny);
-	[w setFrameOrigin:NSMakePoint(nx, -ny - f.size.height)];
 }
 
 static void cocoa_minimize(App *a)
 {
-	[WIN(a->backend_state) miniaturize:nil];
+	@autoreleasepool {
+		[WIN(a->backend_state) miniaturize:nil];
+	}
 }
 
 /* ---- the seam's move and resize ------------------------------------------ */
@@ -2031,10 +2051,13 @@ static void cocoa_minimize(App *a)
 static void cocoa_begin_move(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	NSEvent *e = p && p->left_held ? (__bridge NSEvent *)p->left_down : nil;
-	if (!e || !(NSEvent.pressedMouseButtons & 1))
-		return;
-	[WIN(a->backend_state) performWindowDragWithEvent:e];
+	@autoreleasepool {
+		NSEvent *e = p && p->left_held ? (__bridge NSEvent *)p->left_down
+									   : nil;
+		if (!e || !(NSEvent.pressedMouseButtons & 1))
+			return;
+		[WIN(a->backend_state) performWindowDragWithEvent:e];
+	}
 }
 
 /* No AppKit call resizes a window from an edge it does not draw, so the
@@ -2050,70 +2073,74 @@ static void cocoa_begin_resize(App *a, Edge edge)
 	if (edge <= EDGE_NONE || edge >= EDGE_COUNT || p->resizing ||
 		a->is_fullscreen || !(NSEvent.pressedMouseButtons & 1))
 		return;
-	NSWindow *w = WIN(p);
-	const NSRect start = w.frame;
-	const NSPoint m0 = NSEvent.mouseLocation;
-	const NSSize least = floor_size(a);
-	const bool L = edge == EDGE_L || edge == EDGE_TL || edge == EDGE_BL;
-	const bool R = edge == EDGE_R || edge == EDGE_TR || edge == EDGE_BR;
-	const bool T = edge == EDGE_T || edge == EDGE_TL || edge == EDGE_TR;
-	const bool B = edge == EDGE_B || edge == EDGE_BL || edge == EDGE_BR;
+	@autoreleasepool {
+		NSWindow *w = WIN(p);
+		const NSRect start = w.frame;
+		const NSPoint m0 = NSEvent.mouseLocation;
+		const NSSize least = floor_size(a);
+		const bool L = edge == EDGE_L || edge == EDGE_TL || edge == EDGE_BL;
+		const bool R = edge == EDGE_R || edge == EDGE_TR || edge == EDGE_BR;
+		const bool T = edge == EDGE_T || edge == EDGE_TL || edge == EDGE_TR;
+		const bool B = edge == EDGE_B || edge == EDGE_BL || edge == EDGE_BR;
 
-	p->resizing = true;
-	for (;;) {
-		@autoreleasepool {
-			NSEvent *e = [NSApp
-				nextEventMatchingMask:NSEventMaskLeftMouseDragged |
-									  NSEventMaskLeftMouseUp
-							untilDate:NSDate.distantFuture
-							   inMode:NSEventTrackingRunLoopMode
-							  dequeue:YES];
-			if (!e || e.type == NSEventTypeLeftMouseUp)
-				break;
-			const NSPoint m = NSEvent.mouseLocation;
-			const CGFloat dx = m.x - m0.x, dy = m.y - m0.y;
-			NSRect f = start;
-			/* Screen y counts up, so the top edge is the frame's far end. */
-			if (R)
-				f.size.width = fmax(start.size.width + dx, least.width);
-			if (L) {
-				f.size.width = fmax(start.size.width - dx, least.width);
-				f.origin.x = NSMaxX(start) - f.size.width;
+		p->resizing = true;
+		for (;;) {
+			@autoreleasepool {
+				NSEvent *e = [NSApp
+					nextEventMatchingMask:NSEventMaskLeftMouseDragged |
+										  NSEventMaskLeftMouseUp
+								untilDate:NSDate.distantFuture
+								   inMode:NSEventTrackingRunLoopMode
+								  dequeue:YES];
+				if (!e || e.type == NSEventTypeLeftMouseUp)
+					break;
+				const NSPoint m = NSEvent.mouseLocation;
+				const CGFloat dx = m.x - m0.x, dy = m.y - m0.y;
+				NSRect f = start;
+				/* Screen y counts up: the top edge is the far end. */
+				if (R)
+					f.size.width = fmax(start.size.width + dx, least.width);
+				if (L) {
+					f.size.width = fmax(start.size.width - dx, least.width);
+					f.origin.x = NSMaxX(start) - f.size.width;
+				}
+				if (T)
+					f.size.height = fmax(start.size.height + dy, least.height);
+				if (B) {
+					f.size.height = fmax(start.size.height - dy, least.height);
+					f.origin.y = NSMaxY(start) - f.size.height;
+				}
+				if (!NSEqualRects(f, w.frame))
+					[w setFrame:f display:YES animate:NO];
 			}
-			if (T)
-				f.size.height = fmax(start.size.height + dy, least.height);
-			if (B) {
-				f.size.height = fmax(start.size.height - dy, least.height);
-				f.origin.y = NSMaxY(start) - f.size.height;
-			}
-			if (!NSEqualRects(f, w.frame))
-				[w setFrame:f display:YES animate:NO];
 		}
+		p->resizing = false;
+		/* The release was this loop's, and the caller saw the press. */
+		const NSPoint end =
+			[VIEW(p) convertPoint:w.mouseLocationOutsideOfEventStream
+						 fromView:nil];
+		left_release(a, NSMakePoint(to_pt(a, end.x), to_pt(a, end.y)));
 	}
-	p->resizing = false;
-	/* The release was this loop's, and the caller saw the press. */
-	const NSPoint end =
-		[VIEW(p) convertPoint:w.mouseLocationOutsideOfEventStream
-					 fromView:nil];
-	left_release(a, NSMakePoint(to_pt(a, end.x), to_pt(a, end.y)));
 }
 
 /* The floor moved: a custom bar asked for more room than the window has. */
 static void cocoa_apply_size_bounds(App *a)
 {
-	hold_floor(a);
-	NSWindow *w = WIN(a->backend_state);
-	if (a->is_fullscreen || a->is_maximized || w.miniaturized)
-		return;
-	const NSSize least = floor_size(a);
-	NSRect f = w.frame;
-	if (f.size.width >= least.width && f.size.height >= least.height)
-		return;
-	const CGFloat top = NSMaxY(f);
-	f.size.width = fmax(f.size.width, least.width);
-	f.size.height = fmax(f.size.height, least.height);
-	f.origin.y = top - f.size.height;
-	[w setFrame:f display:YES animate:NO];
+	@autoreleasepool {
+		hold_floor(a);
+		NSWindow *w = WIN(a->backend_state);
+		if (a->is_fullscreen || a->is_maximized || w.miniaturized)
+			return;
+		const NSSize least = floor_size(a);
+		NSRect f = w.frame;
+		if (f.size.width >= least.width && f.size.height >= least.height)
+			return;
+		const CGFloat top = NSMaxY(f);
+		f.size.width = fmax(f.size.width, least.width);
+		f.size.height = fmax(f.size.height, least.height);
+		f.origin.y = top - f.size.height;
+		[w setFrame:f display:YES animate:NO];
+	}
 }
 
 /* ---- the clipboard ----------------------------------------------------------
@@ -2123,14 +2150,16 @@ static void cocoa_apply_size_bounds(App *a)
 
 static void cocoa_clipboard_set(App *a)
 {
-	NSString *s = [[NSString alloc] initWithBytes:a->clip_out
-										   length:a->clip_out_len
-										 encoding:NSUTF8StringEncoding];
-	if (!s)
-		return;
-	NSPasteboard *pb = NSPasteboard.generalPasteboard;
-	[pb clearContents];
-	[pb setString:s forType:NSPasteboardTypeString];
+	@autoreleasepool {
+		NSString *s = [[NSString alloc] initWithBytes:a->clip_out
+											   length:a->clip_out_len
+											 encoding:NSUTF8StringEncoding];
+		if (!s)
+			return;
+		NSPasteboard *pb = NSPasteboard.generalPasteboard;
+		[pb clearContents];
+		[pb setString:s forType:NSPasteboardTypeString];
+	}
 }
 
 /* Delivered even when there was nothing, because a request always gets its
@@ -2163,13 +2192,15 @@ static void cocoa_set_title(App *a, const char *utf8)
 static void cocoa_cursor_changed(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	const NSPoint m = [WIN(p) mouseLocationOutsideOfEventStream];
-	const NSPoint v = [VIEW(p) convertPoint:m fromView:nil];
-	if (!NSPointInRect(v, VIEW(p).bounds))
-		return;
-	Edge edge;
-	const Zone z = deco_hit(a, to_pt(a, v.x), to_pt(a, v.y), &edge);
-	cursor_apply(a, z, edge);
+	@autoreleasepool {
+		const NSPoint m = [WIN(p) mouseLocationOutsideOfEventStream];
+		const NSPoint v = [VIEW(p) convertPoint:m fromView:nil];
+		if (!NSPointInRect(v, VIEW(p).bounds))
+			return;
+		Edge edge;
+		const Zone z = deco_hit(a, to_pt(a, v.x), to_pt(a, v.y), &edge);
+		cursor_apply(a, z, edge);
+	}
 }
 
 /* Text entry went off with a composition up, or the caret moved: the input
@@ -2177,9 +2208,11 @@ static void cocoa_cursor_changed(App *a)
 static void cocoa_text_input_changed(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	if (!app_text_input(a))
-		compose_discard(a);
-	[VIEW(p).inputContext invalidateCharacterCoordinates];
+	@autoreleasepool {
+		if (!app_text_input(a))
+			compose_discard(a);
+		[VIEW(p).inputContext invalidateCharacterCoordinates];
+	}
 }
 
 const FnlBackendVtbl fnl_backend_cocoa = {

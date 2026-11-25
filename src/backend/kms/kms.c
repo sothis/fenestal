@@ -372,7 +372,7 @@ static uint32_t connector_live_crtc(int fd, const KmsOutput *o)
 		.obj_id          = o->connector_id,
 		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
 	};
-	if (want && drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPERTIES, &gp) == 0) {
+	if (want && drm_ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &gp) == 0) {
 		const uint32_t n = gp.count_props < 64 ? gp.count_props : 64;
 		for (uint32_t i = 0; i < n; i++)
 			if (ids[i] == want) {
@@ -3290,7 +3290,7 @@ static int kms_outputs(const App *a, char (*names)[OUTPUT_NAME_MAX], int max,
 	const uint32_t refused = fnl_atomic_load_u32(&p->outputs_refused) |
 							 fnl_atomic_load_u32(&p->host->outputs_gone);
 	/* The outputs no other window holds, and this window's own. */
-	const uint32_t held = held_by_others(a);
+	const uint32_t held = held_by_others(a, now);
 	const int count = (int)fnl_atomic_load_u32(&p->host->output_count);
 	int n           = 0;
 	*current        = -1;
@@ -3979,7 +3979,7 @@ static void kms_pump(App *a, int timeout_ms)
 	 * core, after the window's close, so the pump is what sees it; a window
 	 * still opening keeps the path until it joins. */
 	if (fnl_atomic_load_bool(&hs->force_copy) &&
-		fnl_atomic_load_u32(&hs->opening) == 0 &&
+		fnl_atomic_load_u32(&a->host->opening) == 0 &&
 		fnl_atomic_load_u32(&a->host->window_count) == 1) {
 		fnl_atomic_store_bool(&hs->force_copy, false);
 		for (App *w = a->host->windows; w; w = w->next)
