@@ -760,6 +760,10 @@ gc)
     # The linker named again: these flags take the place of the toolchain
     # file's _INIT ones, which are what choose lld.
     macos|macos-arm64) GC_C=; GC_LINK="-fuse-ld=lld -Wl,-dead_strip" ;;
+    # And the same on FreeBSD: clang told a FreeBSD target still drives the
+    # host's GNU ld unless lld is named, and lld is what reads a FreeBSD
+    # image's notes. Native, base's lld is already the default.
+    freebsd) GC_LINK="-fuse-ld=lld -Wl,--gc-sections$GC_PRINT" ;;
     esac
     set -- -DCMAKE_BUILD_TYPE=Debug -DFNL_NATIVE_ARCH=OFF \
            "-DCMAKE_C_FLAGS=$GC_C" \
