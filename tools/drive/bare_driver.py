@@ -174,6 +174,37 @@ VT_SAVED_FILE = "vt-saved"
 # says why /tmp. Its parent must be the account's own for wine to make it,
 # which /tmp is not, so the directory is made first.
 WINE_PREFIX = "/tmp/fenestal-wine-%s"
+# The wine to run the Windows trees under there: FNL_DRIVE_BARE_WINE. Unset,
+# the machine's own `wine` on its path, which the bare rounds were measured
+# with. A word names WineHQ's build of that branch (`stable`, `devel`,
+# `staging`) under /opt there, as FNL_DRIVE_WINE names one here; a path names
+# the directory holding wine and its helpers, the prefix above one
+# (`/opt/wine-devel`) or its bin/ (`/opt/wine-devel/bin`), or the wine binary
+# itself. A wine 11 will not open a prefix a wine 10 made, so a named wine
+# gets a prefix of its own beside the machine's (wine_prefix()).
+WINE_ENV = "FNL_DRIVE_BARE_WINE"
+WINE_OPT = "/opt/wine-%s"
+
+
+def wine_bin():
+    """The directory holding the wine to run there and its helpers, or ""
+    for the machine's own."""
+    named = os.environ.get(WINE_ENV, "").strip()
+    if not named:
+        return ""
+    if os.sep not in named:
+        return WINE_OPT % named + "/bin"
+    path = named.rstrip("/")
+    if os.path.basename(path) == "wine":
+        path = os.path.dirname(path)
+    return path if path.endswith("/bin") else path + "/bin"
+
+
+def wine_path():
+    """`PATH=<the named wine>:$PATH ` for a shell there, or "" for the
+    machine's own on whatever path it has."""
+    b = wine_bin()
+    return "PATH=%s:$PATH " % shlex.quote(b) if b else ""
 # Under the account's home, so that nothing the round leaves needs root to
 # clear: the binaries, the server's cookie, the suppressions file.
 DRIVE_DIR = "fenestal-drive"
@@ -366,14 +397,27 @@ if ! test -f "$WINEPREFIX/system.reg"; then
     mkdir -p -m 700 "$WINEPREFIX" || exit 1
     env -u DISPLAY -u WAYLAND_DISPLAY WINEDLLOVERRIDES='mscoree,mshtml=' \
         wineboot -i >/dev/null 2>&1
-    wineserver -w
+    # wineboot returns before its server has written the prefix's registry
+    # (wine 11 on Ubuntu 26.04: some five seconds), and wineserver is not on
+    # every path to wait on. Wait for the file itself, bounded.
+    n=0
+    while ! test -f "$WINEPREFIX/system.reg"; do
+        n=$((n + 1))
+        test "$n" -gt 120 && break
+        sleep 0.5
+    done
     test -f "$WINEPREFIX/system.reg" || { echo "wineboot made none"; exit 1; }
     made=made
 fi
 if ! grep -q '^"Managed"="N"' "$WINEPREFIX/user.reg"; then
     env -u DISPLAY -u WAYLAND_DISPLAY wine reg add \
         'HKCU\Software\Wine\X11 Driver' /v Managed /d N /f >/dev/null 2>&1
-    wineserver -w
+    n=0
+    while ! grep -q '^"Managed"="N"' "$WINEPREFIX/user.reg"; do
+        n=$((n + 1))
+        test "$n" -gt 120 && break
+        sleep 0.25
+    done
     grep -q '^"Managed"="N"' "$WINEPREFIX/user.reg" ||
         { echo "Managed=N was not written"; exit 1; }
 fi
@@ -1473,7 +1517,15 @@ class Bare:
     def cage_down(self):
         """cage stopped, and the outputs it had unplugged plugged back."""
         f = "%s/%s" % (shlex.quote(self.there), CAGE_FORCED_FILE)
-        _ssh(as_root(self.dest), "systemctl stop %s" % CAGE_UNIT)
+        # The cgroup killed first: cage holds its session open with the
+        # sleep a kiosk is started with, and a plain stop waits the unit's
+        # 90 s before SIGKILL -- longer than a round's ssh will wait, and
+        # the next KMS round found the unit still deactivating (2026-11-26).
+        _ssh(
+            as_root(self.dest),
+            "systemctl kill -s KILL --kill-who=all %s 2>/dev/null; "
+            "systemctl stop %s" % (CAGE_UNIT, CAGE_UNIT),
+        )
         # Each tried whatever the one before did, and the record kept of
         # those still off, for the next cage_down() to plug back.
         failed, why = [], []
@@ -1989,7 +2041,12 @@ done""",
         return there
 
     def wine_prefix(self):
-        return WINE_PREFIX % self.uid
+        """The prefix the machine's wine runs in, or the named wine's own:
+        a prefix one wine has opened is upgraded past another's, so
+        WINE_ENV's wine gets a name beside the machine's."""
+        b = wine_bin()
+        name = os.path.basename(os.path.dirname(b)) if b else ""
+        return WINE_PREFIX % self.uid + ("-" + name if name else "")
 
     def _install_wine(self, exe, name):
         """The program and every .dll beside it, into the directory `name`
@@ -1997,7 +2054,7 @@ done""",
         which a Vulkan round must not load, so each has its own, and its
         .dll files are cleared before the copy all the same -- and
         the prefix made if this boot has not got one (WINE_PREFIX_UP)."""
-        if not self.has("wine"):
+        if not self.sh(wine_path() + "command -v wine", check=False).strip():
             raise Unreachable(
                 "no wine on %s -- bare_driver.py --setup "
                 "installs it" % self.name
@@ -2028,15 +2085,23 @@ done""",
                 "copying to %s: %s" % (self.name, res.stderr.strip())
             )
         pfx = shlex.quote(self.wine_prefix())
-        out = self.sh(
-            WINE_PREFIX_UP % {"pfx": pfx}, timeout=300, check=False
-        ).strip()
+        up = WINE_PREFIX_UP % {"pfx": pfx}
+        if wine_bin():
+            up = "export PATH=%s:$PATH\n%s" % (shlex.quote(wine_bin()), up)
+        out = self.sh(up, timeout=300, check=False).strip()
         if out == "made":
             print("  made the wine prefix %s" % self.wine_prefix(), flush=True)
         elif out != "there":
             raise Unreachable(
                 "wineboot made no prefix on %s: %s" % (self.name, out)
             )
+        # What the round runs under, for the ledger: only a wine WINE_ENV
+        # names, since the machine's own is not a fact about this tree.
+        self.wine_said = (
+            self.sh(wine_path() + "wine --version", check=False).strip()
+            if wine_bin()
+            else ""
+        )
         self.runtimes = self.sanitizers = []
         return "%s/%s" % (dst, os.path.basename(exe))
 
@@ -2168,6 +2233,10 @@ done""",
             " ".join(map(shlex.quote, args)),
         )
         if wine:
+            # The named wine's helpers ahead of whatever the ssh session's
+            # path has: wine, wineboot and wineserver are one build's.
+            command = wine_path() + command
+        if wine:
             # Waited for and not exec'd. The wine server and the helpers the
             # program starts (services.exe, explorer.exe and the rest) are
             # handed its stderr, which is this ssh's, and outlive it by the
@@ -2227,16 +2296,21 @@ done""",
         for, which would otherwise hand the next program its display."""
         names = "|".join(PROGRAMS)
         pfx = shlex.quote(self.wine_prefix())
-        self.sh(
+        wire = (
             "pkill -x '%s'; for i in 1 2 3 4 5 6 7 8 9 10; do "
             "pgrep -x '%s' >/dev/null && { sleep 0.3; continue; }; break; "
             "done; pkill -9 -x '%s'; "
             "if test -d %s && command -v wineserver >/dev/null; then "
             "WINEPREFIX=%s wineserver -k 2>/dev/null; "
             "WINEPREFIX=%s timeout 10 wineserver -w; fi; true"
-            % (names, names, names, pfx, pfx, pfx),
-            check=False,
+            % (names, names, names, pfx, pfx, pfx)
         )
+        if wine_bin():
+            wire = "export PATH=%s:$PATH; %s" % (
+                shlex.quote(wine_bin()),
+                wire,
+            )
+        self.sh(wire, check=False)
 
     def cpu_seconds(self, pid):
         raw = self.sh("cat /proc/%d/stat" % pid, check=False)
@@ -2726,7 +2800,11 @@ for lib in sorted(libs):
 
 
 # As root, after the packages: the account into group input, which the KMS
-# backend reads the devices as, and uinput loaded now and at every boot,
+# backend reads the devices as; into video and render where the distribution
+# has them, so that the DRM nodes stay reachable when Xorg's VT makes the
+# seat's session inactive and logind takes their ACLs away (a desktop that
+# keeps the user out of both -- Debian's installer puts them in video); and
+# uinput loaded now and at every boot,
 # which the hands are made with. And the kernel's messages sent to VT 12
 # (kbd's setlogcons), now and at every boot: nouveau on aspire's GM107
 # logs an MMIO read fault at error level each time the GPU wakes, which
@@ -2750,6 +2828,13 @@ SETUP_ROOT = r"""
 # is otherwise the last thing it ran, and --setup would report success with
 # the account still out of `input`.
 usermod -aG input %(user)s || exit 1
+# A VT switch to Xorg's leaves the seat with no active session, and logind
+# then removes the DRM nodes' ACLs; a group is what a desktop that keeps the
+# user out of video and render has not got (Ubuntu 26.04, 2026-11-26).
+for g in video render; do
+    getent group "$g" >/dev/null || continue
+    usermod -aG "$g" %(user)s || exit 1
+done
 modprobe uinput || exit 1
 echo uinput > /etc/modules-load.d/fenestal-uinput.conf || exit 1
 if grep -qs 0x10de /sys/bus/pci/devices/*/vendor; then
@@ -2978,7 +3063,7 @@ def _main(argv):
                     "wpfx": box.wine_prefix(),
                     "wine": "false"
                     if "wine" in NOT_OFFERED.get(box.arch, ())
-                    else "true",
+                    else wine_path() + "command -v wine",
                     "gpudrv": GPU_DRIVER_THERE,
                     "gpusock": GPU_DRIVER_SOCKET,
                     "gpugroup": GPU_DRIVER_GROUP,

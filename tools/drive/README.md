@@ -845,7 +845,11 @@ the output's modes in the titlebar (`display-modes`) -- and not
 `resizable`, so the round's size sections are skipped there.
 `--setup` also installs weston and xkeyboard-config's files (`xkb-data`;
 the KMS backend reads its layout from them, with no tool), puts the
-account in group `input`, loads `uinput` now and at every boot, sends the
+account in group `input` and, where the distribution has them, `video` and
+`render` -- Xorg's VT switch leaves the seat with no active session and
+logind then removes the DRM nodes' ACLs, which a desktop that keeps the user
+out of those groups has nothing else to fall back on -- and loads `uinput`
+now and at every boot, sends the
 kernel's messages to VT 12, installs `tools/gpu-driver.sh` for the
 library's own move between kernel drivers, and fetches the debug info of
 the installed Vulkan drivers and layers and of Mesa's OpenGL, so that a
@@ -1055,8 +1059,12 @@ which still hold (DESIGN *Wine 11 on this desktop*).
 `FNL_DRIVE_VKD3D=wine` runs the Direct3D 12 environments, here and on the
 bare machine, on wine's own vkd3d and not on vkd3d-proton. The ledger has
 the wine as it gives its version (`wine`) and `vkd3d` where either was
-named, and `status.py` a row for each. The bare machine's wine is its own
-and none of this chooses it. `tools/probe/keytwice.c`, with `keytwice.py`
+named, and `status.py` a row for each. `FNL_DRIVE_BARE_WINE` is the bare
+machine's own: unset, its `wine` on its path; a branch word, WineHQ's build
+of that branch under `/opt` there (as `FNL_DRIVE_WINE` names one here); or a
+path to its directory or `bin/`. A named wine gets a prefix of its own
+beside the machine's, since a wine 11 will not open a prefix a wine 10
+made. `tools/probe/keytwice.c`, with `keytwice.py`
 to type into it, is a window that prints every key message wine sends it.
 
 **What the guest's frame costs is set by its desktop, not by the window.**

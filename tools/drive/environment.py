@@ -3950,26 +3950,42 @@ class WaylandBare(_OnBare, Wayland):
         The pointer pushed into the corner is at a place weston's layout
         names, and the motion here is unaccelerated: a point reached from
         the corner is a known place, and the echo says where in the window
-        it is. A few in the round's output are tried, for a window that
-        does not cover the middle."""
-        _name, mx, my, mw, mh = self.target_monitor()
+        it is. A few in each output are tried, for a window that does not
+        cover the middle and for one weston opened on another output than
+        the round's -- its shell places a new window where the pointer was
+        when it opened, and a round that follows a window on the other
+        output can find the next one there (2026-11-26)."""
         s = (self.state() or {"scale": 120})["scale"] / 120.0
-        for fx, fy in ((0.5, 0.5), (0.25, 0.25), (0.75, 0.25),
-                       (0.25, 0.75), (0.75, 0.75)):
-            cx, cy = self._corner(self.portal)
-            sx, sy = mx + int(mw * fx), my + int(mh * fy)
-            m = self.mark()
-            self.portal.rel(sx - cx, sy - cy)
-            self.quiet()
-            seen = self.since(m, "motion")
-            if seen:
-                parts = seen[-1]["parts"]
-                wx, wy = float(parts[1]), float(parts[2])
-                self.drv.at = (wx, wy)
-                return (sx - wx * s, sy - wy * s)
+        tgt = self.target_monitor()
+        # _mons is weston's layout, (name, primary, x, y, w, h); target_monitor
+        # is (name, x, y, w, h).
+        mons = [(m[0], m[2], m[3], m[4], m[5]) for m in (self._mons or [])]
+        if tgt not in mons:
+            mons.append(tgt)
+        mons.sort(key=lambda m: m[0] != tgt[0])
+        # A grid, not five points: weston's shell puts a new window where
+        # the pointer was when it opened, and a 1280x720 window can sit
+        # between the quarters of a 4K output.
+        fracs = (0.125, 0.375, 0.625, 0.875)
+        for _name, mx, my, mw, mh in mons:
+            for fx in fracs:
+                for fy in fracs:
+                    cx, cy = self._corner(self.portal)
+                    sx, sy = mx + int(mw * fx), my + int(mh * fy)
+                    m = self.mark()
+                    self.portal.rel(sx - cx, sy - cy)
+                    self.quiet()
+                    seen = self.since(m, "motion")
+                    if seen:
+                        parts = seen[-1]["parts"]
+                        wx, wy = float(parts[1]), float(parts[2])
+                        self.drv.at = (wx, wy)
+                        return (sx - wx * s, sy - wy * s)
         self.drv.at = None
-        raise RuntimeError("the window covers none of five points of %dx%d"
-                           % (mw, mh))
+        raise RuntimeError(
+            "the window covers none of the points tried on any output (%s)"
+            % ", ".join(m[0] for m in mons)
+        )
 
     def placed(self, still=False):
         """Found by the pointer (_origin()) on the output weston put the
@@ -4294,12 +4310,17 @@ class _WineOnBare:
         # asked of the machine's loader and not the library (wine_layer_env).
         return {**self.ENV, **wine_layer_env(self.RENDERER)}
 
-    @classmethod
-    def wine_version(cls):
-        # The machine's own wine runs it, which FNL_DRIVE_WINE does not
-        # choose: the desk's answer (_DeskWine), which the Wayland ones
-        # inherit, would be about another wine.
-        return ""
+    def wine_version(self):
+        # The machine's own wine runs it unless FNL_DRIVE_BARE_WINE names
+        # one, which FNL_DRIVE_WINE does not choose: the desk's answer
+        # (_DeskWine), which the Wayland ones inherit, would be about
+        # another wine. A named wine's version is the machine's answer,
+        # asked when its prefix was made (Bare._install_wine).
+        import bare_driver as D
+
+        if not D.wine_bin():
+            return ""
+        return getattr(getattr(self, "box", None), "wine_said", "")
 
     def install_dir(self, tree):
         # One a renderer, and not the tree's: what is copied is not the same
@@ -4335,10 +4356,16 @@ class Win32Bare(_WineOnBare, X11Bare):
 
     Less "wm-props": the hints and WM_CLASS are wine's. Less "remap-key":
     wine reads the keymap into a layout of its own once, and a keysym put
-    on a spare key afterwards is no key of that layout."""
+    on a spare key afterwards is no key of that layout. Less
+    "multi-output" and "output-pick": wine's X11 driver takes the X
+    server's monitors once, and a bare Xorg -- one screen, no Xinerama
+    heads -- gives it one, so the window is moved to the second output and
+    the program is never told (Wine 11 on black's console, 2026-11-26).
+    The Linux environments keep the section; the library reads RandR."""
     NAME = "win64-vulkan-bare"
     TREE = "win64"
-    CAN = X11Bare.CAN - {"wm-props", "remap-key"}
+    CAN = X11Bare.CAN - {"wm-props", "remap-key", "multi-output",
+                         "output-pick"}
     on_output = Win32.on_output
     COMPOSED_ELSEWHERE = ("wine composes, by Xlib's Compose table: "
                           "an accent and a space is an apostrophe, and an "

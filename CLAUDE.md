@@ -476,7 +476,10 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   root), devices the kernel offers like any others -- the Wayland and bare
   display's XTEST, allowed for the same reason: it reaches that machine
   and nothing of this one. `--weston <name>` starts weston by hand;
-  `--setup` also puts the account in group `input`, loads `uinput` at
+  `--setup` also puts the account in group `input` and, where the
+  distribution has them, `video` and `render` -- an Xorg round's VT switch
+  leaves no active seat session, and logind then takes the DRM nodes' ACLs
+  away -- and loads `uinput` at
   boot, sends the kernel's messages to VT 12 (`setlogcons`; nouveau on
   aspire logs a fault each time the GPU wakes), quiets nouveau's bus
   subdev on a machine with an NVIDIA GPU (`debug=bus=fatal`, by

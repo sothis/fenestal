@@ -933,6 +933,17 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   weston by `bare_run.py --weston`) the next time it happens, before the
   round is run again. The NVK losses of 2026-10-16 were the harness's
   sweep (DESIGN *The startup inventory*).
+- **Weston's move between monitors stalls under the harness** (2026-11-26):
+  black in `fenestal-console`, weston 14.0.2 on DP-1 3840x2160 and DVI-D-1
+  1920x1200. Both Linux weston rounds find, centre and run their window
+  (66 checks), but `cross_monitors()` fails its three: the drag carries the
+  window part-way across the boundary and further drags do not advance it,
+  so the program keeps reporting `DP-1 ... + DVI-D-1 ...`. The drag is the
+  harness's open-loop one (`wayland_driver.Driver.drag()`, the uinput
+  hand's units against weston's shell); the same section passes on the
+  thinkpad's weston. Owed: what weston 14 does with the motion once the
+  window's edge has crossed the output, and either a weston-specific move
+  or the section declared for a bare weston, with the measurement.
 - **nouveau's runtime suspend garbles tiled images in VRAM** (DESIGN
   *The startup inventory*): reproduced alone by `tools/probe/nvkatlas.c`
   (`NVKATLAS_IDLE=12`, half the texels wrong; never with runtime PM `on`).
