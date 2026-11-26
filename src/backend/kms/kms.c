@@ -2884,6 +2884,34 @@ void kms_scan_show(App *a, int back)
 		 * transient EBUSY would end every frame for the window's life. */
 		if (errno == EBUSY)
 			return;
+		/* A CRTC switched off under the window, or an output that has just
+		 * left and whose window has not moved off yet, is not a refusal
+		 * either: EINVAL with no mode on the CRTC, with a connector the
+		 * kernel says is no longer connected (a forced unplug counts as
+		 * gone only after its away time, and flips to it are refused
+		 * meanwhile), with no connector bound, or with the scan's output
+		 * away or in outputs_gone, is that, and the next frame moves the
+		 * window or sets the mode again. */
+		const int e = errno;
+		const int sout = KMS_SEL_OUT(p->scan_sel);
+		bool away = false;
+		if (e == EINVAL) {
+			struct drm_mode_get_connector gc = {
+				.connector_id = hs->outputs[sout].connector_id,
+			};
+			away =
+				drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETCONNECTOR, &gc) == 0 &&
+				gc.connection != 1; /* DRM_MODE_CONNECTED */
+		}
+		if (e == EINVAL &&
+			(away ||
+			 ((fnl_atomic_load_u32(&hs->outputs_away) >> (unsigned)sout) &
+			  1u) ||
+			 !crtc_lit(hs->card_fd, crtc) ||
+			 !connector_live_crtc(hs->card_fd, &hs->outputs[sout]) ||
+			 ((fnl_atomic_load_u32(&hs->outputs_gone) >> (unsigned)sout) &
+			  1u)))
+			return;
 		scan_refuse(p, "the flip was refused");
 		return;
 	}
@@ -3209,7 +3237,6 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 {
 	struct BackendState *p   = a->backend_state;
 	struct BackendHostState *hs = p->host;
-	const uint32_t connector = hs->outputs[out].connector_id;
 	fnl_mutex_lock(&hs->crtc_lock);
 	const uint32_t crtc = connector_live_crtc(hs->card_fd, &hs->outputs[out]);
 	const uint32_t keep =
@@ -3218,9 +3245,22 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 		fnl_mutex_unlock(&hs->crtc_lock);
 		return;
 	}
+	/* Every connector the kernel still has on that CRTC, not only the
+	 * output's: a commit that switches a CRTC off while any connector is
+	 * still on it is refused (EINVAL, drm_atomic_helper_check_modeset), and
+	 * Mesa's WSI leaves a connector bound as the window takes another's
+	 * mode. */
+	uint32_t conns[KMS_MAX_OUTPUTS];
+	int nconn = 0;
+	const uint32_t nout = fnl_atomic_load_u32(&hs->output_count);
+	for (uint32_t i = 0; i < nout && i < KMS_MAX_OUTPUTS; i++)
+		if (hs->outputs[i].connector_id &&
+			connector_live_crtc(hs->card_fd, &hs->outputs[i]) == crtc)
+			conns[nconn++] = hs->outputs[i].connector_id;
 	int r;
 	if (unbind) {
-		if (hs->atomic && kms_atomic_unbind(hs->atomic, crtc, connector))
+		if (hs->atomic &&
+			kms_atomic_unbind(hs->atomic, crtc, conns, nconn))
 			r = 0;
 		else {
 			struct drm_mode_crtc off = { .crtc_id = crtc };
@@ -3230,7 +3270,7 @@ void kms_output_off(App *a, int out, int shown, bool unbind)
 		struct drm_mode_obj_set_property dpms = {
 			.value    = DRM_MODE_DPMS_OFF,
 			.prop_id  = hs->outputs[out].prop[KMS_PROP_DPMS],
-			.obj_id   = connector,
+			.obj_id   = hs->outputs[out].connector_id,
 			.obj_type = DRM_MODE_OBJECT_CONNECTOR,
 		};
 		r = dpms.prop_id
@@ -3499,7 +3539,7 @@ static void kms_set_output(App *a, const char *name)
 		 * owed window's to lose, whichever window asked. */
 		p->host->away_owed     = -1;
 		p->host->away_owed_app = NULL;
-		if ((p->host->outputs_away >> o) & 1u) {
+		if ((fnl_atomic_load_u32(&p->host->outputs_away) >> o) & 1u) {
 			p->host->away_owed     = o;
 			p->host->away_owed_app = a;
 			fnl_log(FNL_LOG_INFO,
@@ -3690,7 +3730,7 @@ static double away_next(const struct BackendHostState *hs)
 {
 	double next = 0.0;
 	for (int s = 0; s < KMS_MAX_OUTPUTS; s++)
-		if (((hs->outputs_away >> s) & 1u) &&
+		if (((fnl_atomic_load_u32(&hs->outputs_away) >> s) & 1u) &&
 			(next == 0.0 || hs->away_until[s] < next))
 			next = hs->away_until[s];
 	return next;
@@ -3734,7 +3774,7 @@ static void outputs_rescan(App *a)
 		n = 0;
 	uint32_t gone           = fnl_atomic_load_u32(&hs->outputs_gone);
 	const uint32_t was_gone = gone;
-	uint32_t away           = hs->outputs_away;
+	uint32_t away           = fnl_atomic_load_u32(&hs->outputs_away);
 	/* Slots that left and came back with the modes they had: the CRTC may
 	 * have gone dark with the monitor, as a gone output's has, so the
 	 * window on one sets its mode again below. */
@@ -3831,7 +3871,7 @@ static void outputs_rescan(App *a)
 			fnl_log(FNL_LOG_INFO, "KMS: %s unplugged", hs->outputs[s].name);
 		}
 	}
-	hs->outputs_away = away;
+	fnl_atomic_store_u32(&hs->outputs_away, away);
 	/* A move owed to an output away: made now it is back, dropped if it is
 	 * gone instead. The window that asked is the one it was owed to. */
 	int owed = -1;
@@ -3997,8 +4037,9 @@ static FnlResult kms_window_open(App *a)
 		/* Away as well as gone: an output whose monitor is asleep is still
 		 * listed, and opening a window on it shows nothing for as long as
 		 * the away lasts. */
-		const uint32_t gone = fnl_atomic_load_u32(&hs->outputs_gone) |
-							  hs->outputs_away;
+		const uint32_t gone =
+			fnl_atomic_load_u32(&hs->outputs_gone) |
+			fnl_atomic_load_u32(&hs->outputs_away);
 		const int n         = (int)fnl_atomic_load_u32(&hs->output_count);
 		out                 = -1;
 		for (int o = 0; o < n && out < 0; o++)
@@ -4284,7 +4325,8 @@ static void kms_pump(App *a, int timeout_ms)
 #else
 	const double rescan_at = hs->rescan_due;
 #endif
-	const int ms = loop_wait_ms(hs->outputs_away ? away_at : -1.0,
+	const int ms =
+		loop_wait_ms(fnl_atomic_load_u32(&hs->outputs_away) ? away_at : -1.0,
 								rescan_at);
 	if (ms >= 0 && (wait_ms < 0 || ms < wait_ms))
 		wait_ms = ms;
@@ -4298,7 +4340,7 @@ static void kms_pump(App *a, int timeout_ms)
 		if (q && q->cursor_recheck > 0)
 			cursor_recheck(w);
 	}
-	if (hs->outputs_away && now_seconds() >= away_at)
+	if (fnl_atomic_load_u32(&hs->outputs_away) && now_seconds() >= away_at)
 		outputs_rescan(a);
 #if !defined(__linux__)
 	/* No uevent socket and no inotify: a monitor or a keyboard that came or

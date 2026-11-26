@@ -53,10 +53,14 @@ bool kms_atomic_set(struct KmsAtomic *at, uint32_t connector, uint32_t crtc,
 bool kms_atomic_flip(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
 					 bool async, uint64_t stamp);
 
-/* An output the window left, the copy path's: its CRTC switched off and the
- * connector unbound, one commit -- what SETCRTC with no framebuffer did, and
- * what frees the CRTC for the next output. */
-bool kms_atomic_unbind(struct KmsAtomic *at, uint32_t crtc, uint32_t connector);
+/* An output the window left, the copy path's: its CRTC switched off with its
+ * mode cleared, its planes emptied and unbound, and every connector the
+ * caller found still on the CRTC unbound -- one commit, what SETCRTC with no
+ * framebuffer did. A CRTC's enable must match whether it has any connector
+ * (`drm_atomic_helper_check_modeset`), and one switched off with its old
+ * MODE_ID still named is refused too (EINVAL, amdgpu 7.0, 2026-11-26). */
+bool kms_atomic_unbind(struct KmsAtomic *at, uint32_t crtc,
+					   const uint32_t *connectors, int nconn);
 
 /* A CRTC switched off with its primary plane emptied and its connectors left
  * as they are: the console's where it will not come back, and a CRTC the open

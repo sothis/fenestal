@@ -194,7 +194,7 @@ struct BackendHostState {
 	 * each with the time on now_seconds()'s clock at which it is
 	 * (outputs_rescan()). An output asked for while away is `away_owed`,
 	 * -1 for none, and the window moves there when it is back. */
-	uint32_t     outputs_away;
+	FnlAtomicU32 outputs_away;
 	double       away_until[KMS_MAX_OUTPUTS];
 	int          away_owed;
 	App         *away_owed_app;  /* the window that asked for it */

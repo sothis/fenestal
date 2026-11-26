@@ -44,6 +44,9 @@
 #define AT_MAX_CRTCS  16
 #define AT_MAX_PLANES 32
 #define AT_MAX_PROPS  64
+/* Connectors an unbind names: KMS_MAX_OUTPUTS (kms_state.h), and this layer
+ * names no state type. */
+#define AT_MAX_CONNS  32
 
 /* One CRTC, the primary plane that drives it and the cursor plane over it. */
 typedef struct {
@@ -414,25 +417,57 @@ bool kms_atomic_flip(struct KmsAtomic *at, uint32_t crtc, uint32_t fb,
 	return at_commit(at, flags, stamp, objs, counts, props, vals, 1);
 }
 
-bool kms_atomic_unbind(struct KmsAtomic *at, uint32_t crtc, uint32_t connector)
+bool kms_atomic_unbind(struct KmsAtomic *at, uint32_t crtc,
+					   const uint32_t *connectors, int nconn)
 {
 	AtCrtc *c = at_crtc(at, crtc);
-	if (!c)
+	if (!c || nconn < 0 || nconn > AT_MAX_CONNS)
 		return false;
-	uint64_t cv;
-	const uint32_t conn_crtc =
-		at_prop(at->fd, connector, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID", &cv);
-	/* The CRTC off, its plane emptied and unbound from it, and the connector
-	 * unbound -- the last left out where the connector has no CRTC_ID
-	 * property. */
-	const uint32_t objs[3]   = { crtc, c->plane_id, connector };
-	const uint32_t counts[3] = { 1, 2, 1 };
-	const uint32_t props[4]  = { c->active, c->p_crtc_id, c->p_fb_id,
-								 conn_crtc };
-	const uint64_t vals[4]   = { 0, 0, 0, 0 };
-	const int nobj           = conn_crtc ? 3 : 2;
+	/* The CRTC off with its mode cleared -- the kernel refuses a CRTC
+	 * switched off while its old MODE_ID is still named (EINVAL, amdgpu
+	 * 7.0, 2026-11-26) -- its primary and cursor planes emptied and
+	 * unbound, and every connector still on it unbound, a connector
+	 * without the CRTC_ID property left out. A CRTC's enable must match
+	 * whether it has any connector (drm_atomic_helper_check_modeset), so
+	 * one left bound refuses the commit, and a CRTC here can have more
+	 * than one: Mesa's WSI leaves a connector bound as the window takes
+	 * another's mode. A plane left on a CRTC the commit switches off is
+	 * refused for the same reason, and the cursor's hide runs on the pump
+	 * thread, which may not have got there first. */
+	uint32_t objs[3 + AT_MAX_CONNS], counts[3 + AT_MAX_CONNS];
+	uint32_t props[5 + AT_MAX_CONNS];
+	uint64_t vals[5 + AT_MAX_CONNS] = { 0 };
+	int n = 0, p = 0;
+	objs[n]    = crtc;
+	counts[n]  = 2;
+	props[p++] = c->active;
+	props[p++] = c->mode_id;
+	n++;
+	objs[n]    = c->plane_id;
+	counts[n]  = 2;
+	props[p++] = c->p_crtc_id;
+	props[p++] = c->p_fb_id;
+	n++;
+	if (c->cursor_plane && c->c_crtc_id && c->c_fb_id) {
+		objs[n]    = c->cursor_plane;
+		counts[n]  = 2;
+		props[p++] = c->c_crtc_id;
+		props[p++] = c->c_fb_id;
+		n++;
+	}
+	for (int i = 0; i < nconn; i++) {
+		uint64_t cv;
+		const uint32_t conn_crtc = at_prop(
+			at->fd, connectors[i], DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID", &cv);
+		if (!conn_crtc)
+			continue; /* a connector without the property is left out */
+		objs[n]    = connectors[i];
+		counts[n]  = 1;
+		props[p++] = conn_crtc;
+		n++;
+	}
 	return at_commit(at, DRM_MODE_ATOMIC_ALLOW_MODESET, 0, objs, counts, props,
-					 vals, nobj);
+					 vals, n);
 }
 
 bool kms_atomic_crtc_off(struct KmsAtomic *at, uint32_t crtc)
