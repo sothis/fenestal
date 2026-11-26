@@ -291,6 +291,29 @@ options that name one set it.
 | `FNL_D3D12_DXGI11=1` / `0` | Windows: Direct3D 12's frames go through a Direct3D 11 swapchain, copied there, or never do; by default they do where DWM is measured composing the window at rest, with vsync on |
 | `FNL_VK_VALIDATION=1` | Khronos' validation layer in the library's Vulkan instance alone, and so in a caller's scene drawn on it, not in vkd3d-proton's; a loader without the layer makes the instance without it and says so |
 | `FNL_FAULT=<name>` | a Debug tree: force the named fallback path (DESIGN *Forcing the paths that never run*) |
+| `FNL_MCP=1` / `<path>` | open an MCP server in the program, on `$XDG_RUNTIME_DIR/fenestal-<pid>.sock` or that path, for an agent to drive the window (*Driving it from an agent*); `0`, `false`, `off` and `no` are off |
+
+## Driving it from an agent
+
+A program of any built on Fenestal can be driven by an MCP client -- Claude
+Code, an IDE, a script -- with no help from the window server:
+
+    FNL_MCP=1 ./fenestal-testbed     # logs "mcp: serving on <path>"
+
+The server speaks MCP's stdio framing on a Unix socket, so a client that
+starts a command reaches it through `socat`; in a project's `.mcp.json`:
+
+    { "mcpServers": { "fenestal": {
+        "command": "socat",
+        "args": ["-", "UNIX-CONNECT:/run/user/1000/fenestal-1234.sock"] } } }
+
+(`FNL_MCP=/some/fixed.sock` names the path, which suits a `.mcp.json`.) Its
+tools are `state`, `events`, `key`, `text`, `pointer`, `capture` (a PNG of
+the frame as drawn, not as composited), `controls` (where the library's
+titlebar controls are), `window` (the knobs the titlebar drives) and, in a
+Debug tree, `fault`; `tools/list` says what each takes. One client at a
+time, the socket is the user's alone, and nothing is open unless asked
+for. DESIGN *Driven from inside* has what it is and is not for.
 
 ## The API reference
 

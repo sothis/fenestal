@@ -12,7 +12,9 @@
  *
  * A spec is a name and how often: bare is every time it is reached, @N the
  * Nth time only, %N every Nth, *N the first N. Read by the process's first
- * fnl_init(), and counted across every lifetime after it.
+ * fnl_init(), and counted across every lifetime after it. The MCP port's
+ * `fault` arms the same grammar while the program runs (fault_arm()), and
+ * `-name` disarms.
  *
  * Debug trees only. Under NDEBUG FNL_FAULT() is the constant false and none
  * of this is compiled, so a release build has no fault path a variable in
@@ -75,15 +77,18 @@ static const char *const SITES[] = {
 
 typedef enum { EVERY, NTH, PERIOD, FIRST } FaultMode;
 
+/* How a site fires, in one word so that arming it while another thread asks
+ * is no race: 0 is disarmed, else the mode above N_BITS and N below. */
+#define N_BITS 28u
+#define N_MASK ((1u << N_BITS) - 1u)
+
 typedef struct {
-	bool         armed;
-	FaultMode    mode;
-	uint32_t     n;
+	FnlAtomicU32 spec;
 	FnlAtomicU32 hits;
 } Fault;
 
-/* By site index. Written by fault_init() on the main thread before any
- * other thread exists, and only the counters move afterwards. */
+/* By site index. Armed by fault_init() and by fault_arm(), from any thread;
+ * a site reads its word once a hit. */
 static Fault faults[SITE_COUNT];
 
 static int site_index(const char *name, size_t len)
@@ -158,6 +163,55 @@ bool fault_selftest(const char *name)
 	return what && !strcmp(what, name);
 }
 
+/* The list, armed in turn; false where a name in it is no site or a count
+ * is no count. A '-' before a name disarms it. The count starts again, so
+ * @N counts from here. `dry` only checks: the port's `fault` answers for the
+ * whole list or for none of it. */
+static bool arm_list(const char *spec, bool dry)
+{
+	bool all = true;
+	while (*spec) {
+		const bool off = *spec == '-';
+		if (off)
+			spec++;
+		const char *end = strchr(spec, ',');
+		const size_t len = end ? (size_t)(end - spec) : strlen(spec);
+		size_t name_len = strcspn(spec, "@%*,");
+		if (name_len > len)
+			name_len = len;
+
+		const int i = site_index(spec, name_len);
+		const long v = name_len < len ? strtol(spec + name_len + 1, NULL, 10)
+									  : 1;
+		if (i < 0) {
+			fnl_log(FNL_LOG_WARN, "FNL_FAULT: no fault site '%.*s'",
+					(int)name_len, spec);
+			all = false;
+		} else if (v < 1 || v > 1000000) {
+			fnl_log(FNL_LOG_WARN, "FNL_FAULT: '%.*s' wants a count of 1 to "
+								  "1000000", (int)len, spec);
+			all = false;
+		} else if (!dry) {
+			FaultMode mode = EVERY;
+			const uint32_t n = (uint32_t)v;
+			if (name_len < len) {
+				const char op = spec[name_len];
+				mode = op == '@' ? NTH : op == '%' ? PERIOD : FIRST;
+			}
+			fnl_atomic_store_u32(&faults[i].hits, 0);
+			fnl_atomic_store_u32(&faults[i].spec,
+								 off ? 0u
+									 : (((uint32_t)mode + 1u) << N_BITS) | n);
+			fnl_log(FNL_LOG_WARN, "FNL_FAULT: '%s' %s", SITES[i],
+					off ? "disarmed" : "armed");
+		}
+		spec += len;
+		if (*spec == ',')
+			spec++;
+	}
+	return all;
+}
+
 /* Once per process, as the table is: a count such as @3 runs across every
  * lifetime the process has, which is what lets a fault land in the third. */
 void fault_init(void)
@@ -169,54 +223,35 @@ void fault_init(void)
 	selftest();
 
 	const char *spec = getenv("FNL_FAULT");
-	if (!spec || !*spec)
-		return;
+	if (spec)
+		(void)arm_list(spec, false);
+}
 
-	while (*spec) {
-		const char *end = strchr(spec, ',');
-		const size_t len = end ? (size_t)(end - spec) : strlen(spec);
-		size_t name_len = strcspn(spec, "@%*,");
-		if (name_len > len)
-			name_len = len;
-
-		const int i = site_index(spec, name_len);
-		if (i < 0) {
-			fnl_log(FNL_LOG_WARN, "FNL_FAULT: no fault site '%.*s'",
-					(int)name_len, spec);
-		} else {
-			Fault *f = &faults[i];
-			f->armed = true;
-			f->mode  = EVERY;
-			f->n     = 1;
-			if (name_len < len) {
-				const char op = spec[name_len];
-				const long n = strtol(spec + name_len + 1, NULL, 10);
-				f->n    = n > 0 && n <= 1000000 ? (uint32_t)n : 1u;
-				f->mode = op == '@' ? NTH : op == '%' ? PERIOD : FIRST;
-			}
-			fnl_log(FNL_LOG_WARN, "FNL_FAULT: '%s' armed", SITES[i]);
-		}
-		spec += len;
-		if (*spec == ',')
-			spec++;
-	}
+bool fault_arm(const char *spec)
+{
+	return spec && *spec && arm_list(spec, true) && arm_list(spec, false);
 }
 
 bool fault_hit(const char *name)
 {
 	const int i = site_index(name, strlen(name));
 	FNL_ASSERT(i >= 0);
-	if (i < 0 || !faults[i].armed)
+	if (i < 0)
+		return false;
+	Fault *f = &faults[i];
+	const uint32_t spec = fnl_atomic_load_u32(&f->spec);
+	if (!spec)
 		return false;
 
-	Fault *f = &faults[i];
+	const FaultMode mode = (FaultMode)((spec >> N_BITS) - 1u);
+	const uint32_t  n    = spec & N_MASK;
 	const uint32_t hit = fnl_atomic_add_u32(&f->hits, 1) + 1;
 	bool fire;
-	switch (f->mode) {
-	case NTH:    fire = hit == f->n;     break;
-	case PERIOD: fire = hit % f->n == 0; break;
-	case FIRST:  fire = hit <= f->n;     break;
-	default:     fire = true;            break;
+	switch (mode) {
+	case NTH:    fire = hit == n;     break;
+	case PERIOD: fire = hit % n == 0; break;
+	case FIRST:  fire = hit <= n;     break;
+	default:     fire = true;         break;
 	}
 	if (fire)
 		fnl_log(FNL_LOG_WARN, "FNL_FAULT: '%s' fired (hit %u)", name,

@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pointer","arguments":{"action":"click","x":120.5,"y":-3e1,"button":"left","count":2,"dx":0,"dy":1.25E+0}}}

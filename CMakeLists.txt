@@ -1443,10 +1443,12 @@ if(FNL_CHECKS_BUILT)
     set(_fuzz_font_src   tools/fuzz/fuzz_font.c)
     set(_fuzz_text_src   tools/fuzz/fuzz_text.c src/core/text_measure.c
                          src/core/error.c ${FNL_FONT_STUB})
+    set(_fuzz_json_src   tools/fuzz/fuzz_json.c src/core/json.c)
     set(_fuzz_keymap_runs 3000)
     set(_fuzz_rules_runs  3000)
     set(_fuzz_font_runs   10000)
     set(_fuzz_text_runs   20000)
+    set(_fuzz_json_runs   20000)
 
     set(_fuzz_lf FALSE)
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -1463,9 +1465,13 @@ if(FNL_CHECKS_BUILT)
         set(_fuzz_lf ${FNL_HAS_LIBFUZZER_MAIN})
     endif()
 
-    foreach(_h keymap rules font text)
+    foreach(_h keymap rules font text json)
         fnl_host_tool(fuzz_${_h} SANITIZED ${_fuzz_${_h}_src}
                       tools/fuzz/replay.c)
+        if(_h STREQUAL json AND NOT MSVC)
+            # json_num() asks isfinite(), which FreeBSD's libc has in libm.
+            target_link_libraries(fuzz_json PRIVATE m)
+        endif()
         set(_targets fuzz_${_h})
         if(_fuzz_lf)
             add_executable(fuzz_${_h}_lf ${_fuzz_${_h}_src})
@@ -1635,7 +1641,8 @@ set(FNL_CORE_SOURCES
     src/core/overlay.c src/core/api_overlay.c src/core/api_state.c
     src/core/events.c src/core/controls.c src/core/echo.c
     src/core/fault.c src/core/drivers.c src/core/rank.c
-    src/core/parts.c src/core/metrics.c)
+    src/core/parts.c src/core/metrics.c src/core/json.c
+    src/core/mcp.c)
 
 set(FNL_SOURCES
     ${FNL_CORE_SOURCES} ${FNL_BACKEND_SOURCES} ${FNL_RENDERER_SOURCES}
@@ -1710,8 +1717,8 @@ endif()
 # so a machine missing one still loads the program and steps past the
 # backend or the renderer that wanted it. What a consumer links is the system's
 # own: libc's dlopen (CMAKE_DL_LIBS: nothing from glibc 2.34, libdl before
-# it), m and pthread on Linux; user32, gdi32 and Direct3D 12's DLLs, part
-# of every Windows 10, on Windows; the frameworks on macOS.
+# it), m and pthread on Linux; user32, gdi32, ws2_32 and Direct3D 12's DLLs,
+# part of every Windows 10, on Windows; the frameworks on macOS.
 function(fnl_headers_of target)
     target_include_directories(fenestal_objects SYSTEM PRIVATE
         $<TARGET_PROPERTY:${target},INTERFACE_INCLUDE_DIRECTORIES>)
@@ -1777,8 +1784,9 @@ elseif(FNL_BACKEND STREQUAL cocoa)
                           "-framework Cocoa" "-framework QuartzCore")
 else()
     # user32 for the window, the message loop and the DPI calls; gdi32
-    # because a window class wants a cursor. No pthread: see core/thread.h.
-    target_link_libraries(fenestal_usage INTERFACE user32 gdi32)
+    # because a window class wants a cursor; ws2_32 for the MCP port's
+    # AF_UNIX socket (src/core/mcp.c). No pthread: see core/thread.h.
+    target_link_libraries(fenestal_usage INTERFACE user32 gdi32 ws2_32)
     if(FNL_MSVC_CRT AND FNL_MSVC_SDK)
         # The CRT's and the SDK's own, when the tree is cross-compiled by
         # clang-cl (cmake/windows-msvc-x86_64.cmake). A consumer gets them

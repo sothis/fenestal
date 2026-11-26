@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"text","arguments":{"text":"\u00e4\ud83d\ude00\ud800x\"\\\/\b\f\n\r\t"}}}

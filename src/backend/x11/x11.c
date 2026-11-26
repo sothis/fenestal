@@ -3243,6 +3243,7 @@ const FnlBackendVtbl fnl_backend_x11 = {
 	.present_window_hold  = backend_noop,
 	.frame_wait           = backend_frame_wait_shown,
 	.window_on_screen     = x11_window_on_screen,
+	.pointer_warp         = backend_noop_pointer_warp,
 	.apply_scale          = backend_noop_apply_scale,
 	.request_size         = x11_request_size,
 	.nudge_size           = x11_nudge_size,

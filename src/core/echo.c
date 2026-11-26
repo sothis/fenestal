@@ -12,6 +12,8 @@
  * view. An event the application never polls is never echoed, which is the
  * property a drain check rests on.
  *
+ * The MCP port (mcp.c) is handed the same lines, when it is open.
+ *
  * Straight to stderr and not through the log sink, which is the caller's.
  * Fields are space-separated and the prefix is "EV "; flushed per line,
  * because anything reading it is reading it live.
@@ -231,8 +233,13 @@ static void echo(const App *app, const char *fmt, ...)
 		n += (size_t)w < sizeof line - n ? (size_t)w : sizeof line - n - 1;
 	/* n is at most sizeof line - 1 here, so the newline always has room. */
 	line[n++] = '\n';
-	fwrite(line, 1, n, stderr);
-	fflush(stderr);
+	if (app->echo_events) {
+		fwrite(line, 1, n, stderr);
+		fflush(stderr);
+	}
+	/* The same line to the MCP port, which is the same reader inside. */
+	if (app->mcp)
+		mcp_event_line(app, line, n);
 }
 
 /* Somebody else's text, on a line a reader parses by shape: a newline in a

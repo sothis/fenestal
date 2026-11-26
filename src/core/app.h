@@ -140,6 +140,10 @@ bool app_signals_installed(const App *a); /* app.c */
 #else
 void fault_init(void); /* fault.c */
 bool fault_hit(const char *name);
+/* The FNL_FAULT grammar, armed while the program runs (the MCP port's
+ * `fault`); a name with '-' before it is disarmed. False where a name in it
+ * is no site. Any thread. */
+bool fault_arm(const char *spec);
 bool fault_selftest(const char *name);
 #define FNL_FAULT(name) fault_hit(name)
 #define FNL_FAULT_INIT() fault_init()
@@ -1318,6 +1322,10 @@ struct FnlApp {
 
 	/* FnlInitDesc::echo_events, or FNL_ECHO_EVENTS in the environment. */
 	bool echo_events;
+	/* The MCP port (mcp.c), from FNL_MCP; NULL for none. Set by fnl_init()
+	 * before any thread of the window's exists and cleared in its teardown
+	 * after the render thread is joined. */
+	struct Mcp *mcp;
 	/* FnlInitDesc::content_is_ui: the presentable area is the caller's own
 	 * interface, so a press in it is the caller's event and takes no pointer
 	 * (deco_hit()). Read by the pump alone; written once at fnl_init. */
@@ -3031,6 +3039,40 @@ bool echo_wanted_by_env(void);
  * follow the enum for. Any thread. */
 bool echo_key_known(FnlKey k);
 
+/* ---- mcp.c and json.c ---------------------------------------------------
+ * The MCP port: a Model Context Protocol server on a local socket, for an
+ * agent that drives the window from inside -- see src/core/mcp.c and DESIGN
+ * *Driven from inside*. */
+
+/* Opened from fnl_init() where FNL_MCP asks for it, closed in the window's
+ * teardown. Main thread. */
+void mcp_open(App *a);
+void mcp_close(App *a);
+/* The input the port asked for, handed to the pump's own entry points.
+ * Main thread, from app_drain_requests(). */
+void mcp_drain(App *a);
+/* An echoed line (echo.c), `n` bytes and a newline, for the port's events.
+ * The polling thread. */
+void mcp_event_line(const App *a, const char *line, size_t n);
+/* The frame read back (App::snap_owed), or none, for a capture the port is
+ * waiting on. Render thread. */
+void mcp_frame(const App *a, const void *px, int w, int h, size_t pitch,
+			   bool bgra);
+void mcp_frame_declined(const App *a);
+/* The events waiting in the queue, for the port's `text`, which paces what it
+ * types to the queue's room. Any thread. */
+int app_events_pending(App *a);
+
+/* One JSON text in memory, NUL-terminated (json.c). A value is a pointer
+ * into it. json_skip() is past one value and its white space, json_get() an
+ * object's member, NULL for either where the text says otherwise; the three
+ * after decode a value and say whether it was one. */
+const char *json_skip(const char *p);
+const char *json_get(const char *obj, const char *key);
+bool json_str(const char *v, char *dst, size_t cap);
+bool json_num(const char *v, double *out);
+bool json_bool(const char *v, bool *out);
+
 /* ---- api_overlay.c ------------------------------------------------------ */
 
 /* Put a caller's titlebar in force, on the pump's thread: the height and floor
@@ -3125,6 +3167,17 @@ FNL_MUST_USE FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds,
  * CTL_CHECK_COUNT for the size box, one past it for the output box, two
  * past it for the GPU box. */
 int ctl_hit(const App *a, int win_w, int x, int y);
+/* One control, window button or row of the open drop-down, for
+ * ctl_describe(): its name, rectangle in window points, whether it acts, and
+ * a checkbox's tick (-1 for none) or a row's pick. */
+typedef struct {
+	const char *name;
+	int x, y, w, h;
+	bool enabled;
+	int on;
+	char label[64]; /* a row of an open drop-down: its text */
+} CtlInfo;
+int ctl_describe(const App *a, int win_w, CtlInfo *out, int max);
 /* Which row of the open drop-down is at a point *anywhere in the window*, or
  * -1. Asked by deco_press() and ctl_motion(), and made modal by deco_hit()
  * ahead of the resize and content tests, because an open list floats over

@@ -522,6 +522,16 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   shown. `x11_driver.focus()` sends `_NET_ACTIVE_WINDOW` and nothing else: a
   `SetInputFocus` beside it makes the X server say "focused" about a window
   the compositor sends no key to, which is what the lost keys were.
+- **And from inside, by MCP** (`src/core/mcp.c`): `FNL_MCP=1` (or a socket
+  path; `0`, `false`, `off`, `no` are off, any other word refused) opens a
+  Model Context Protocol server in the program on
+  `$XDG_RUNTIME_DIR/fenestal-<pid>.sock` (`socat - UNIX-CONNECT:<path>`
+  bridges a stdio client) with `state`, `events`, `key`, `text`,
+  `pointer`, `capture`, `controls`, `window` and, Debug, `fault`. Input goes
+  in where the backend's would -- KMS's cursor follows it -- so it is no
+  check on the window server's side. One client at a time; what it left
+  pressed is released when it goes. Windows too, on Winsock's `AF_UNIX`
+  (`ws2_32`). DESIGN *Driven from inside*.
 - **The event echo is the library's** (`src/core/echo.c`, inside
   `fnl_poll_event()`): `FnlInitDesc::echo_events`, or `FNL_ECHO_EVENTS=1` in
   the environment for a program with no flag. The harness sets the variable
@@ -677,8 +687,8 @@ finding not on it is new.
 
 - **A consumer links `fenestal` plus the system's own libraries, and nothing
   else** — `m`+`pthread` (and `CMAKE_DL_LIBS`, nothing from glibc 2.34) on
-  Linux, `user32`+`gdi32`+`d3d12`+`dxgi`+`dxguid` (a static library of interface
-  ids) on Windows, AppKit (`-framework Cocoa`)+QuartzCore+Metal on macOS. Every
+  Linux, `user32`+`gdi32`+`ws2_32`+`d3d12`+`dxgi`+`dxguid` (a static library
+  of interface ids) on Windows, AppKit (`-framework Cocoa`)+QuartzCore+Metal on macOS. Every
   runtime that is not the system's -- the Vulkan loader, `libwayland-client`,
   `libxcb` -- is opened at run time through `src/core/dynlib.h`, its entry
   points reached through pointers that a `#define` puts in each name's place

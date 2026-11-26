@@ -1,0 +1,1 @@
+[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pointer","arguments":{"action":"drag","x":1,"y":2,"to_x":3,"to_y":4,"modifiers":["Shift","Ctrl"]}}}]

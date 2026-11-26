@@ -3553,6 +3553,7 @@ const FnlBackendVtbl fnl_backend_wayland = {
 	.present_window_hold     = backend_noop,
 	.frame_wait              = surface_frame_wait,
 	.window_on_screen        = wl_window_on_screen,
+	.pointer_warp         = backend_noop_pointer_warp,
 	.apply_scale             = wl_apply_scale,
 	.request_size            = request_window_size,
 	.nudge_size              = backend_noop,

@@ -277,6 +277,9 @@ static void app_teardown(App *a)
 	}
 
 	render_thread_stop(a);
+	/* After the join, which is the last frame that could hand the port a
+	 * line or a picture; before the backend goes, which its wakeup reaches. */
+	mcp_close(a);
 	parts_close(a);
 
 	/* The frame kept for a move's cover, which nothing paints from now:
@@ -348,6 +351,10 @@ void app_request_size_nudge(App *a)
 void app_drain_requests(App *a)
 {
 	FNL_ASSERT_THREAD(APP_THREAD_MAIN);
+	/* First: a binding the port's input sets off records a request, spent
+	 * below on this same turn. */
+	if (a->mcp)
+		mcp_drain(a);
 	fnl_mutex_lock(&a->lock);
 	const PendingReq r = a->req;
 	memset(&a->req, 0, sizeof a->req);
@@ -1971,6 +1978,13 @@ void backend_noop_set_title(App *a, const char *utf8)
 	(void)utf8;
 }
 
+void backend_noop_pointer_warp(App *a, double x_pt, double y_pt)
+{
+	(void)a;
+	(void)x_pt;
+	(void)y_pt;
+}
+
 void backend_noop_set_mode(App *a, const FnlMode *mode)
 {
 	(void)a;
@@ -3330,6 +3344,9 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	 * it only from here on (see clamp_device_scale120). The render thread
 	 * rebuilds on its first turn if the answer moved. */
 	BACKEND(a)->update_scale(a);
+
+	/* Last, so that nothing it serves can find the window half built. */
+	mcp_open(a);
 
 	*out = a;
 	return FNL_OK;

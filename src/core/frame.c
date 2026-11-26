@@ -742,8 +742,13 @@ bool app_veil_gate(App *a)
 void app_snapshot_set(App *a, const void *px, int w, int h, size_t pitch,
 					  bool bgra)
 {
+	/* The MCP port's capture rides the same readback (mcp.c): with no veil
+	 * up the frame was read for it alone, and is not kept as a cover
+	 * nobody asked for. */
+	if (a->mcp)
+		mcp_frame(a, px, w, h, pitch, bgra);
 	a->snap_owed = false;
-	if (!px || w <= 0 || h <= 0)
+	if (!px || w <= 0 || h <= 0 || a->veil_phase == VEIL_NONE)
 		return;
 	const size_t row = (size_t)w * 4u;
 	if ((size_t)h > SIZE_MAX / row)
@@ -786,6 +791,8 @@ void app_snapshot_set(App *a, const void *px, int w, int h, size_t pitch,
 
 void app_snapshot_decline(App *a)
 {
+	if (a->mcp)
+		mcp_frame_declined(a);
 	a->snap_owed = false;
 }
 

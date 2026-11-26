@@ -981,6 +981,95 @@ int ctl_hit(const App *a, int win_w, int x, int y)
 	return x >= ctl_size_x(a, win_w, rx) ? CTL_HIT_SIZE : -1;
 }
 
+/* The bar's controls and window buttons as the MCP port reports them: name,
+ * rectangle in window points, whether it acts, and a checkbox's tick (-1 for
+ * what has none). The same functions as the draw and the hit test, so a
+ * rectangle is where a press lands. Empty where the library draws no bar
+ * (fullscreen, a caller's own). Any thread. */
+int ctl_describe(const App *a, int win_w, CtlInfo *out, int max)
+{
+	static const char *const CHECK_NAME[CTL_CHECK_COUNT] = {
+		"fsaa", "mlaa", "taau", "fs_upsample"
+	};
+	int n = 0;
+	if (!deco_client(fnl_is_fullscreen(a)) || fnl_titlebar_owned(a))
+		return 0;
+
+#define PUT(nm, X, Y, W, H, EN, ON)                                           \
+	do {                                                                      \
+		if (n < max)                                                          \
+			out[n++] = (CtlInfo){ .name = (nm), .x = (X), .y = (Y), .w = (W),   \
+								  .h = (H), .enabled = (EN), .on = (ON) };     \
+	} while (0)
+
+	int min_x, max_x, full_x, close_x, by;
+	bool btn_vis;
+	deco_button_rects(a, win_w, &min_x, &max_x, &full_x, &close_x, &by,
+					  &btn_vis);
+	if (btn_vis) {
+		PUT("fullscreen", full_x, by, DECO_BTN_W, DECO_BTN_H, true, -1);
+		if (min_x >= 0) {
+			PUT("minimize", min_x, by, DECO_BTN_W, DECO_BTN_H, true, -1);
+			PUT("maximize", max_x, by, DECO_BTN_W, DECO_BTN_H, true, -1);
+		}
+		PUT("close", close_x, by, DECO_BTN_W, DECO_BTN_H, true, -1);
+	}
+
+	int rx, ry, rw, rh;
+	if (!ctl_run_rect(a, win_w, &rx, &ry, &rw, &rh))
+		return n;
+	CtlRes opts[CTL_MAX_ITEMS];
+	int now;
+	const int n_sizes = ctl_options(a, opts, CTL_MAX_ITEMS, &now);
+	const FnlAntialias aa = fnl_antialias(a);
+	int x = rx;
+	for (int i = 0; i < CTL_CHECK_COUNT; i++) {
+		if (!ctl_check_shown(a, i))
+			continue;
+		const bool on = i == CTL_CHECK_FSAA   ? aa == FNL_AA_MSAA
+						: i == CTL_CHECK_MLAA ? aa == FNL_AA_MLAA
+						: i == CTL_CHECK_TAAU ? aa == FNL_AA_TAAU
+											  : CTL_CHECKED(a, i);
+		PUT(CHECK_NAME[i], x, ry, ctl_check_w(a, i) - CTL_CHECK_PAD, rh,
+			ctl_check_enabled(a, i, n_sizes), on);
+		x += ctl_check_w(a, i);
+	}
+	if (ctl_output_w(a, win_w) > 0)
+		PUT("output", ctl_output_x(a, rx), ry, ctl_output_w(a, win_w), rh,
+			ctl_output_count(a) > 1, -1);
+	if (ctl_gpu_w(a) > 0)
+		PUT("gpu", ctl_gpu_x(a, win_w, rx), ry, ctl_gpu_w(a), rh,
+			ctl_gpu_count(a) > 1, -1);
+	if (ctl_combo_w(a) > 0)
+		PUT("size", ctl_size_x(a, win_w, rx), ry, ctl_combo_w(a), rh,
+			n_sizes > 0, -1);
+#undef PUT
+
+	/* The open list floats over the window and owns every press
+	 * (ctl_modal()), so its rows are what there is to hit while it is up. */
+	static FNL_THREAD_LOCAL CtlList l;
+	if (CTL_OPEN(a) != CTL_SHUT && ctl_list(a, win_w, &l)) {
+		static const char *const ROW[] = { "", "size_row", "output_row",
+										   "gpu_row" };
+		for (int i = 0; i < l.n && n < max; i++) {
+			CtlInfo *o = &out[n++];
+			*o = (CtlInfo){ .name = ROW[l.which], .x = l.x,
+							.y = l.y + i * CTL_ITEM_H, .w = l.w,
+							.h = CTL_ITEM_H, .enabled = true,
+							.on = i == l.now };
+			if (l.which == CTL_OPEN_OUTPUT)
+				snprintf(o->label, sizeof o->label, "%.*s", (int)sizeof o->label - 1,
+						 l.name[i]);
+			else if (l.which == CTL_OPEN_GPU)
+				snprintf(o->label, sizeof o->label, "%.*s", (int)sizeof o->label - 1,
+						 l.gpu[i]);
+			else
+				ctl_size_name(o->label, sizeof o->label, &l.size[i]);
+		}
+	}
+	return n;
+}
+
 /* An open list holds the pointer only while the library's bar it drops
  * from is shown: under fnl_titlebar_custom() or in fullscreen it is not
  * drawn (ctl_draw_popup()), and a press must not land on rows nobody

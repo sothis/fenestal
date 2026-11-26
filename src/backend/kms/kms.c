@@ -4412,21 +4412,13 @@ static void kms_capture(App *a)
 	app_reticle_publish(a);
 }
 
-/* The pointer comes back where the reticle is. */
-static void kms_release(App *a)
+/* The desktop point follows the window's own: the host's names where the
+ * pointer was last routed, and a relative report after a move that only the
+ * window's point knew would put the pointer back there. */
+static void host_point_follow(App *a)
 {
 	struct BackendState *p      = a->backend_state;
 	struct BackendHostState *hs = p->host;
-	if (!p->captured)
-		return;
-	int cx, cy;
-	app_content_px_rect(a, &cx, &cy, NULL, NULL);
-	p->ptr_x            = clampd(cx + a->cur_px, 0.0, p->mode_w - 1.0);
-	p->ptr_y            = clampd(cy + a->cur_py, 0.0, p->mode_h - 1.0);
-	/* The desktop point follows the released reticle. Captured motion kept
-	 * only the window's position, so the host's still names where the
-	 * capture began, and the first relative report after this would put the
-	 * pointer back there. */
 	double ox = 0.0, tw, th;
 	for (App *o = a->host->windows; o && o != a; o = o->next) {
 		const struct BackendState *q = o->backend_state;
@@ -4434,8 +4426,41 @@ static void kms_release(App *a)
 			ox += q->mode_w;
 	}
 	desktop_size(a, &tw, &th);
-	hs->gx              = clampd(ox + p->ptr_x, 0.0, tw - 1.0);
-	hs->gy              = clampd(p->ptr_y, 0.0, th - 1.0);
+	hs->gx = clampd(ox + p->ptr_x, 0.0, tw - 1.0);
+	hs->gy = clampd(p->ptr_y, 0.0, th - 1.0);
+}
+
+/* The MCP port put the pointer here: the cursor plane, the desktop point
+ * and the shape under it follow, as for a device's motion. The port itself
+ * delivers the motion event and the titlebar's drag. A captured pointer is
+ * the reticle's, and does not warp. */
+static void kms_pointer_warp(App *a, double x_pt, double y_pt)
+{
+	struct BackendState *p = a->backend_state;
+	if (p->captured)
+		return;
+	const int s120 = want_s120(a);
+	p->ptr_x       = clampd(x_pt * s120 / 120.0, 0.0, p->mode_w - 1.0);
+	p->ptr_y       = clampd(y_pt * s120 / 120.0, 0.0, p->mode_h - 1.0);
+	a->ptr_x       = px_to_ptf(p->ptr_x, s120);
+	a->ptr_y       = px_to_ptf(p->ptr_y, s120);
+	host_point_follow(a);
+	kms_cursor_changed(a);
+}
+
+/* The pointer comes back where the reticle is. */
+static void kms_release(App *a)
+{
+	struct BackendState *p      = a->backend_state;
+	if (!p->captured)
+		return;
+	int cx, cy;
+	app_content_px_rect(a, &cx, &cy, NULL, NULL);
+	p->ptr_x            = clampd(cx + a->cur_px, 0.0, p->mode_w - 1.0);
+	p->ptr_y            = clampd(cy + a->cur_py, 0.0, p->mode_h - 1.0);
+	/* Captured motion kept only the window's position, so the host's still
+	 * names where the capture began. */
+	host_point_follow(a);
 	p->captured         = false;
 	a->pointer_captured = false;
 	for (int i = 0; i < p->host->input_count; i++)
@@ -4527,6 +4552,7 @@ const FnlBackendVtbl fnl_backend_kms = {
 	.present_window_hold  = backend_noop,
 	.frame_wait           = backend_frame_wait_shown,
 	.window_on_screen     = kms_window_on_screen,
+	.pointer_warp         = kms_pointer_warp,
 	.apply_scale          = backend_noop_apply_scale,
 	.request_size         = kms_request_size,
 	.nudge_size           = backend_noop,

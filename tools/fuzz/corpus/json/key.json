@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":"k-7","method":"tools/call","params":{"name":"key","arguments":{"key":"F11","action":"tap"}}}

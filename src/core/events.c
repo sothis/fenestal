@@ -131,6 +131,14 @@ static bool queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	return true;
 }
 
+int app_events_pending(App *a)
+{
+	fnl_mutex_lock(&a->ev_lock);
+	const int n = queue_count(a);
+	fnl_mutex_unlock(&a->ev_lock);
+	return n;
+}
+
 /* ---- what the backends call ---------------------------------------------- */
 
 /* What fnl_input_latency_ms() counts: what a hand did, once. Not a repeat,
@@ -490,7 +498,7 @@ bool fnl_poll_event(App *a, FnlEvent *out)
 			out->lost.count = a->ev_lost;
 			a->ev_lost = 0;
 			fnl_mutex_unlock(&a->ev_lock);
-			if (a->echo_events)
+			if (a->echo_events || a->mcp)
 				echo_event(a, out);
 			return true;
 		}
@@ -514,7 +522,7 @@ bool fnl_poll_event(App *a, FnlEvent *out)
 	fnl_mutex_unlock(&a->ev_lock);
 	/* After the unlock: the echo writes to a pipe, and a reader that has
 	 * stopped reading must not be able to stall the producers. */
-	if (a->echo_events)
+	if (a->echo_events || a->mcp)
 		echo_event(a, out);
 	return true;
 }

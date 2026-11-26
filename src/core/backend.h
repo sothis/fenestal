@@ -245,6 +245,14 @@ typedef struct FnlBackendVtbl {
 	 * FnlRendererVtbl::occluded. */
 	bool (*window_on_screen)(const App *a);
 
+	/* A pointer put at (x_pt, y_pt) in the window, window points, by a caller
+	 * that is not the window server: the MCP port. A backend that keeps a
+	 * pointer of its own -- KMS, which draws the cursor -- moves it there, so
+	 * that what is on screen is where the program acts; where the window
+	 * server owns the pointer it cannot be moved from here, and this is
+	 * backend_noop_pointer_warp. Pump thread. */
+	void (*pointer_warp)(App *a, double x_pt, double y_pt);
+
 	/* A frame's pixels, for a backend that shows them itself: the copy
 	 * path, where no device can present to the output and the frame is
 	 * drawn on a headless surface (RendererState::present_copy). Called once
@@ -503,6 +511,7 @@ int      backend_published_outputs(const App *a,
 								   char (*names)[OUTPUT_NAME_MAX], int max,
 								   int *current);
 void     backend_noop_set_title(App *a, const char *utf8);
+void     backend_noop_pointer_warp(App *a, double x_pt, double y_pt);
 FNL_MUST_USE FnlResult backend_noop_check_error(App *a);
 bool     backend_frame_wait_shown(App *a, bool break_on_urgent);
 /* absent() where there is nothing to choose: NULL. */

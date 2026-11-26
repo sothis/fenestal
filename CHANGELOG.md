@@ -6,6 +6,24 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **An MCP server inside the program, for an agent to drive the window.**
+  `FNL_MCP=1` in the environment (or `FNL_MCP=<socket path>`; `0`, `false`,
+  `off` and `no` are off, any other word refused) opens a Model Context
+  Protocol server on a local socket, `$XDG_RUNTIME_DIR/fenestal-<pid>.sock`
+  by default, speaking the stdio transport's framing, batches included
+  (`socat - UNIX-CONNECT:<path>` bridges it). Tools: `state` (with the GPU,
+  output and mode lists, title, clipboard and composition), `events` (the
+  event echo's lines, the newest 256, `until` a text), `key` (names listed
+  in its schema, aliases, repeat, modifiers), `text` (paced to the queue,
+  counted), `pointer` (click, drag, relative for a captured pointer,
+  modifiers; KMS's cursor follows it), `capture` (a compressed PNG, `region`
+  crop, a move waited out), `controls` (the titlebar's rectangles), `window`
+  (fullscreen, antialias, GPU, mode, ...) and, in Debug trees, `fault`. Off
+  unless asked for; one client at a time, and what a client left pressed is
+  released when it goes. No API changes -- `FnlBackendVtbl` gains
+  `pointer_warp`; on Windows a consumer now links `ws2_32` as well, for the
+  socket, which `fenestal::static` carries. DESIGN *Driven from inside*.
+
 - **OpenGL is gone.** The renderer, `fnl_gl.h` (`fnl_gl_proc()`,
   `fnl_gl_version()`, `fnl_gl_scene_layout()`, `fnl_gl_scene_framebuffer()`),
   `FNL_RENDERER=gl` and the GL scenes of the testbed, the examples and the

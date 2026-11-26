@@ -3227,6 +3227,7 @@ const FnlBackendVtbl fnl_backend_win32 = {
 	.present_window_hold  = win32_present_window_hold,
 	.frame_wait           = backend_frame_wait_shown,
 	.window_on_screen     = win32_window_on_screen,
+	.pointer_warp         = backend_noop_pointer_warp,
 	.apply_scale          = backend_noop_apply_scale,
 	.request_size         = win32_request_size,
 	.nudge_size           = backend_noop,

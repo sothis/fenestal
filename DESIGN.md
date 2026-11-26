@@ -1943,8 +1943,8 @@ nothing else:
 - **Linux**: `m`, `pthread` and `CMAKE_DL_LIBS` (nothing from glibc 2.34,
   where `dlopen` is libc's; `libdl` before it). `libvulkan.so.1`,
   `libwayland-client.so.0` and `libxcb.so.1` by `dlopen`.
-- **Windows**: `user32`, `gdi32`, `d3d12`, `dxgi` and `dxguid`, all part
-  of the system from Windows 10. `vulkan-1.dll` by
+- **Windows**: `user32`, `gdi32`, `ws2_32`, `d3d12`, `dxgi` and `dxguid`,
+  all part of the system from Windows 10. `vulkan-1.dll` by
   `LoadLibraryEx`, from the program's directory or System32 and never the
   current one.
 - **macOS**: AppKit, QuartzCore and Metal; MoltenVK by `dlopen` from beside
@@ -11575,15 +11575,16 @@ time, so the sixth reaches the scaled MLAA image.
 | no input method composition reported (Win32) | `FNL_FAULT=win32-no-imm32`, a Debug `win64` tree, a dead key typed under wine on X11 | `no input method composition (FNL_FAULT): the system shows it in a window of its own`, once; the accent shown in wine's own box at the window's bottom-left and no `FNL_EVENT_COMPOSE`, the letter after it typed accented as before. Run 2026-11-03: `win64-vulkan` under wine, `gc`, the line once and the round's typing, dead keys included, clean |
 | any one of the out-of-memory unwinds | `LD_PRELOAD` a `malloc` that fails the *n*th allocation whose caller `dladdr` places inside `libfenestal`, and sweep *n* | a clean `FNL_ERR_OUT_OF_MEMORY` out of `fnl_init()`, or one of the documented tolerances — `vk_find_present_queue()`, at each of its four call sites, and the pipeline cache's read-back and write-out. Never a crash, and nothing left behind across repeated lifetimes |
 
-Four parsers are worth fuzzing rather than reading, each load-bearing on
+Five parsers are worth fuzzing rather than reading, each load-bearing on
 input this program does not author, and each has a harness in `tools/fuzz/`
 behind libFuzzer's entry point: a compositor's keymap (`fuzz_keymap`), the
 rules and console files KMS resolves a layout through (`fuzz_rules`), the
-atlas streams (`fuzz_font`) and the strings drawn (`fuzz_text`). Every native
+atlas streams (`fuzz_font`), the strings drawn (`fuzz_text`) and the MCP
+port's requests (`fuzz_json`). Every native
 tree builds them against `replay.c` and runs them on every build: the
 committed corpus, then a fixed-seed run of damaged copies -- 3,000 keymaps,
-3,000 rules files, 10,000 streams and 20,000 strings, a few seconds together
-under ASan. The clang trees also build each
+3,000 rules files, 10,000 streams, 20,000 strings and 20,000 requests, a
+few seconds together under ASan. The clang trees also build each
 against libFuzzer (`fuzz_keymap_lf` and the rest) for a campaign, which the
 build never runs:
 
@@ -11627,6 +11628,102 @@ campaigns that came before the harnesses, and what they established:
   points, truncated sequences and lone continuation bytes installed into
   `gpu_name` and the output list so they reach `text_draw()` for real. Malformed
   input draws U+FFFD, which is what it is for.
+* **`json_get()` and the rest** (`src/core/json.c`), the MCP port's requests
+  (*Driven from inside*, below): another program's bytes on a socket.
+  `fuzz_json` looks up and decodes every member the port asks for, at the
+  top and one level down; the nesting is a count and not a recursion, so no
+  depth of brackets reaches the stack.
+
+### Driven from inside
+
+`FNL_MCP=1` (or `true`, `on`, `yes`) in a program's environment opens a Model
+Context Protocol server inside it, on a socket of its own:
+`$XDG_RUNTIME_DIR/fenestal-<pid>.sock` (else `$TMPDIR`, else `/tmp`; `%TEMP%`
+on Windows), or the path `FNL_MCP` names -- a value with a `/` or `\` in it.
+`0`, `false`, `off`, `no` and nothing are off; any other word is refused
+with a line in the log, since taking it for a path would make a file of that
+name in whatever directory the program started in. The framing is MCP's stdio
+transport, a JSON-RPC message a line (or a batch of them, a JSON array), so a
+client that speaks stdio reaches it through a bridge, `socat -
+UNIX-CONNECT:<path>`; README has the `.mcp.json` line. A request before
+`initialize` is answered with -32002 (`ping` apart), and `jsonrpc` must be
+`"2.0"`. Its tools:
+
+| tool | what it is |
+|---|---|
+| `state` | the public getters, as one JSON object: backend, renderer, GPU, the window, the content's rectangle and the titlebar in points, the content and the scene in pixels, scale, output, the flags, the keys held, where the port last put the pointer, the title, the clipboard and the composition, the GPUs, outputs and modes the drop-downs list, frame rate and costs (`live` keeps them measured) |
+| `events` | the event echo's lines (`src/core/echo.c`) for what the program polled since the last call: the newest 256, the older counted, none from before the client connected; `wait_ms` waits for the first line and then for its frame's batch, `until` for the first line that holds a text |
+| `key` | a key by name (the schema lists them, aliases such as `Esc`, `Return`, `Ctrl` are taken): tap, press, release or `repeat`, with `modifiers` held round it |
+| `text` | up to 4095 bytes of committed characters, paced to the queue's room, and the reply says how many arrived |
+| `pointer` | move, press, release, click (`count` 2 or 3), scroll, `drag` (to_x, to_y, in steps), `relative` (a captured pointer's only motion), with `modifiers` |
+| `capture` | the next frame presented, read back from the GPU, as a PNG shrunk to `max_width` after a `region` crop; a move to another GPU is waited out |
+| `controls` | the library's titlebar controls and window buttons as rectangles in points, and the rows of an open drop-down: what to click |
+| `window` | the knobs the titlebar and a caller have: fullscreen, maximized, minimize, antialias, title, vsync, metrics panel, text entry, GPU, output, mode, size, release the pointer, close |
+| `fault` | `FNL_FAULT`'s grammar, armed while the program runs, the whole list or none of it; Debug trees (the tool is not listed in the others) |
+
+What it is for: the harness reaches a window from outside, through the
+portal, XTEST on another machine's server, an agent on a laptop, and much
+of `tools/drive/` is that crossing. From inside, a frame can be taken where
+no screenshot can be had (the native Wayland window, KMS), input arrives
+with no consent dialog and no question of focus, and a fault is armed at
+the moment it is wanted rather than at start. An agent driving the testbed
+needs nothing beside the program.
+
+What it is not: the window server's side. Input put in where the backend
+would put it never passed through the compositor, its focus or its keymap
+-- `key` makes no character, which is the layout's and the backend's, and a
+titlebar drag asks the window server for a move with no real press behind
+it, which it may refuse -- and the picture is the frame as drawn, not as
+composited, and has no cursor plane in it (`tools/drive/kms_grab.py` is the
+scanout, run as root there). Only the KMS backend keeps a pointer of its own
+that the port can move (`FnlBackendVtbl::pointer_warp`): there the cursor
+follows; under a window server the pointer is the server's, and the program
+is told of a position the cursor does not show. `stress.py` stays the check on
+all of that; the port is the check on what the library does with what it is
+handed, and the oracle beside a round that drives from outside.
+
+How it stays out of the way: one thread of its own, which touches nothing
+either of the window's threads own. Input goes into a mailbox that
+`app_drain_requests()` empties on the pump's turn, after an
+`app_wakeup()`, through the entries a backend would call: a motion is
+`app_pointer_motion()` and `deco_drag()` after the backend's `pointer_warp`,
+a captured pointer's `relative` is `app_pointer_relative()` and the
+reticle's move. The capture is a `fnl_post()` that sets `App::snap_owed`,
+the readback a move already takes, on every renderer, and the frame comes
+back through `app_snapshot_set()`, which keeps it as a cover only when a
+veil is up; the events are copied as the program polls them, into a ring of
+256 that drops its oldest, which is what a client that reads late wants.
+A move under way is waited out up to 8 s; an HDR swapchain or one whose
+images cannot be copied from is a capture refused with the reason. A call
+waits two seconds at most for the pump or for a frame. The PNG is Sub
+filtered and deflated with fixed Huffman codes and a hash chain (no zlib on
+the link line): a 1080p screen of this library's is under 200 KiB where
+the stored form was 8 MB.
+
+`text` is cut into chunks of 100 code points, each posted when the queue
+has half its room free: the queue drops what it cannot hold (*The event
+queue*), and a call that answered "typed" over characters that never arrived
+was the first thing the port's hardware run found. A client that goes away
+leaves nothing held: the port knows what it pressed, and releases it where
+it was pressed. One client is served at a time, and one that has asked
+nothing for 30 s gives way to one that is waiting. A click that is not a
+double-click waits out `DECO_DBLCLICK_MS` after the last, since two calls
+close together are the next of a run; `count` is how a double is asked for.
+
+It is a remote control of the window, so it is shut unless asked for, the
+socket is the user's alone (mode 0600, set before `listen()`, in a
+directory that is the user's where there is one), and a socket at the path
+is taken over only when nothing answers a connect on it: one a program is
+listening on is refused, and the exit removes the file this program made,
+not one that has since taken its place. On Windows the socket is Winsock's
+`AF_UNIX`, there since 1803 and so on every Windows this runs on, which is
+why `ws2_32` is on a consumer's link line; the file has no mode there,
+`%TEMP%`, the default directory, is the user's by its ACL, and the exit's
+check is that something is at the path. One per `fnl_init()`, on the window
+it made: a program that opens a window for each run (`--bench`) has a port
+for each, a client reconnects between them, and a capture during a run
+costs the run what a readback does. A window from `fnl_window_create()` has
+none.
 
 ## Invariants
 
