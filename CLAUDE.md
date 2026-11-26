@@ -68,14 +68,16 @@ and the questions left open for them. A question it lists is answered in
                                   # KMS, drawn with Vulkan and OpenGL
 ./build.sh win64                  # that target: Win32 on the UCRT, drawn
                                   # with Direct3D 12 and Vulkan
-./build.sh win64-msvc             # the same, native on Windows with cl.exe
+./build.sh win64-msvc             # the same: cl.exe on Windows, or clang-cl
+                                  # cross here against the CRT and the SDK
 ./build.sh macos                  # that target: Cocoa, drawn with Metal,
                                   # Vulkan on MoltenVK and OpenGL 4.1
 ./build.sh macos-arm64            # the macos tree for Apple's own
                                   # processors, cross-compiled; release
                                   # and gc
 ./build.sh macos-universal        # the two macOS trees joined by lipo
-./build.sh freebsd                # FreeBSD, native: Wayland, X11 and KMS
+./build.sh freebsd                # FreeBSD: Wayland, X11 and KMS --
+                                  # natively, or cross here on a sysroot
 ./build.sh linux-arm64            # the linux tree for the Raspberry Pi 4,
                                   # cross-compiled; release, asan, tsan
                                   # and gc
@@ -132,8 +134,9 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   the *device*.
 - A bare `./build.sh` sweeps every valid target/variant pair this host can
   build: on Linux `linux`, `linux-arm64` (where its compiler is), `win64`
-  (where a UCRT compiler is), `macos`, `macos-arm64` and
-  `macos-universal`; on FreeBSD `freebsd`; on Windows `win64` and
+  (where a UCRT compiler is), `win64-msvc` (where clang-cl and the MSVC SDK
+  are), `macos`, `macos-arm64`, `macos-universal` and `freebsd` (against the
+  sysroot); on FreeBSD `freebsd`; on Windows `win64` and
   `win64-msvc`; on a Mac the macOS three, where a Linux release tree's bake
   has been placed for them to lend (CI stages one; a bare Mac checkout
   builds none and says so). `release` comes first within
@@ -166,16 +169,28 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   so the archive's one object needs binutils' PE `ld` and `objcopy` beside
   it (`FNL_MINGW_LD`, `FNL_MINGW_OBJCOPY`, found by `build.sh`), and that
   tree has no LTO: binutils' ld cannot run it.
-- **`win64-msvc` is the same system built natively by cl.exe**, with Ninja
-  and the Visual Studio environment set; it takes `release` and `gc`. MSVC
-  has no assembler for the `.incbin` stubs (`tools/bin2c.c` makes C arrays),
-  no relocatable link and no objcopy, so `fenestal::static` keeps its
-  internal symbols global there; the DLL still exports the API alone through
-  the same `.def`. Its static archive is `libfenestal-static.lib`, its import
-  library `fenestal.lib`. It is built in CI on `windows-latest`.
+- **`win64-msvc` is the same system built by MSVC's own toolchain** -- by
+  cl.exe natively on Windows with Ninja and the Visual Studio environment
+  set, and from Linux by **clang-cl**, `lld-link`, `llvm-lib`, `llvm-rc`
+  and `llvm-mt`, against the CRT and the Windows SDK that
+  `tools/msvc_sdk.py --fetch` splats once through xwin
+  (`~/.local/state/fenestal/msvc-sdk/`, pinned by SHA-256). It takes
+  `release` and `gc`. MSVC has no assembler for the `.incbin` stubs
+  (C arrays instead), no relocatable link and no objcopy, so
+  `fenestal::static` keeps its internal symbols global there; the DLL still
+  exports the API alone through the same `.def`. Its static archive is
+  `libfenestal-static.lib`, its import library `fenestal.lib`. The debug CRT
+  is not redistributable and is not in the splat, so **every configuration
+  links the release runtime** (`CMAKE_MSVC_RUNTIME_LIBRARY`), and a cross
+  tree `#embed`s its font and licence stubs rather than run a PE `bin2c`
+  (`FNL_EMBED_C`). The SDK's headers and libraries reach clang-cl by
+  `INCLUDE`/`LIB` and, for the build itself, through `fenestal_usage`.
+  DESIGN *Building Windows with MSVC*, *Cross-compiling the MSVC tree*. CI
+  builds the native one on `windows-latest`.
 - Counts: `linux` six variants, `linux-arm64` four where its compiler is,
-  `win64` three, `win64-msvc` two, `freebsd` four, each macOS tree two, and
-  `macos-universal` two joins. A sweep builds the ones its host has.
+  `win64` three, `win64-msvc` two, `freebsd` four natively and two cross,
+  each macOS tree two, and `macos-universal` two joins. A sweep builds the
+  ones its host has.
 - **The macOS tree is cross-compiled here**, by clang-21 and `ld64.lld`
   (`lld-21`) against Apple's SDK, which `tools/macos_sdk.py --fetch` copies once
   from the Mac (schenker's stick, `ssh schenker-mac`) into
@@ -196,15 +211,23 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   `build/macos-universal/<variant>` (`tools/macos_universal.py`); CI packs
   that tree as app bundles (`.github/stage.sh`). `build/macos` stays the
   tree the harness drives on the Mac.
-- **FreeBSD is native**, with the base system's clang: Wayland, X11 and
-  KMS, Vulkan and OpenGL. libdrm's headers are made to the `drm/` spelling
-  the sources use; its evdev is the input (`src/backend/evdev_input.h`);
-  its event loop is `poll()` and a pipe (`src/backend/loop_bsd.c`), not
-  epoll and eventfd. There is no netlink uevent socket and no inotify, so
-  KMS rescans its outputs and `/dev/input` on a deadline, and the
-  NVIDIA/nouveau move is Linux's alone. It takes `release`, `asan`, `tsan`
-  and `gc` and is built in CI in a FreeBSD VM; the harness has no FreeBSD
-  environment yet (TODO *FreeBSD*).
+- **FreeBSD is native on that system and cross-compiled from this one**,
+  with the base system's clang either way -- natively, and here by
+  clang-21 told the target by its triple plus `ld.lld`
+  (`cmake/freebsd-x86_64.cmake`) against a sysroot
+  `tools/freebsd_sysroot.py --fetch` unpacks once from the 15.1 release's
+  `base.txz` and its own package repository, both pinned by SHA-256
+  (`~/.local/state/fenestal/freebsd-sysroot/`). It has Wayland, X11 and
+  KMS, Vulkan and OpenGL. libdrm's headers are made to the `drm/`
+  spelling the sources use; its evdev is the input
+  (`src/backend/evdev_input.h`); its event loop is `poll()` and a pipe
+  (`src/backend/loop_bsd.c`), not epoll and eventfd. There is no netlink
+  uevent socket and no inotify, so KMS rescans its outputs and
+  `/dev/input` on a deadline, and the NVIDIA/nouveau move is Linux's
+  alone. **Native it takes `release`, `asan`, `tsan` and `gc`; cross,
+  `release` and `gc`**, the sysroot having no sanitizer runtime. CI builds
+  the native tree in a FreeBSD VM; the harness has no FreeBSD environment
+  yet (TODO *FreeBSD*). DESIGN *Cross-compiling for FreeBSD*.
 - **`clang` is the release build compiled by clang** (`clang-21`, or
   `FNL_CLANG`), optimised, with `-Wthread-safety` and `-Werror`
   (`FNL_WERROR`). It is what makes warning-clean under clang a check.

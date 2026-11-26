@@ -76,14 +76,14 @@ static void nap(double s)
 
 typedef HANDLE BenchThread;
 static SRWLOCK g_log_lock = SRWLOCK_INIT;
-static void log_lock(void)
-{
-	AcquireSRWLockExclusive(&g_log_lock);
-}
-static void log_unlock(void)
-{
-	ReleaseSRWLockExclusive(&g_log_lock);
-}
+/* Macros and not functions: FreeBSD's <pthread.h> makes a pthread mutex a
+ * capability, and clang's -Wthread-safety (which the clang trees build
+ * with) then reads a lock taken in one function and released in another as
+ * a lock held to the end of the first. At the call site the pair balances
+ * where the work is, and both systems' spellings sit here and nowhere
+ * else. */
+#define LOG_LOCK()   AcquireSRWLockExclusive(&g_log_lock)
+#define LOG_UNLOCK() ReleaseSRWLockExclusive(&g_log_lock)
 
 static void set_env(const char *name, const char *value)
 {
@@ -126,14 +126,9 @@ static void nap(double s)
 
 typedef pthread_t BenchThread;
 static pthread_mutex_t g_log_lock = PTHREAD_MUTEX_INITIALIZER;
-static void log_lock(void)
-{
-	pthread_mutex_lock(&g_log_lock);
-}
-static void log_unlock(void)
-{
-	pthread_mutex_unlock(&g_log_lock);
-}
+/* The Windows branch's pair, and the same reason. */
+#define LOG_LOCK()   pthread_mutex_lock(&g_log_lock)
+#define LOG_UNLOCK() pthread_mutex_unlock(&g_log_lock)
 
 static void set_env(const char *name, const char *value)
 {
@@ -272,7 +267,7 @@ static void bench_log(void *ud, FnlLogLevel lvl, const char *msg)
 		atomic_store(&R.calibrating, false);
 	}
 
-	log_lock();
+	LOG_LOCK();
 	if (R.logging && R.r && n > 0) {
 		BenchResult *r = R.r;
 		const size_t len =
@@ -287,7 +282,7 @@ static void bench_log(void *ud, FnlLogLevel lvl, const char *msg)
 			}
 		}
 	}
-	log_unlock();
+	LOG_UNLOCK();
 }
 
 /* ---- what is measured ---------------------------------------------------- */
@@ -936,9 +931,9 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	R.sample_cpu = -1.0;
 	R.scene_scale = bench_opt_num(c, OPT_SCENE_SCALE);
 	atomic_store(&R.phase, (int)PH_WAIT);
-	log_lock();
+	LOG_LOCK();
 	R.logging = true;
-	log_unlock();
+	LOG_UNLOCK();
 
 	r->user_s = r->sys_s = r->cpu_pct_mean = BENCH_NAN;
 	r->cond.process_nice = r->cond.load_nice = INT_MIN;
@@ -951,9 +946,9 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	if (rc < 0) {
 		fprintf(stderr, "bench: %s: %s\n", fnl_result_str(rc),
 				fnl_last_error());
-		log_lock();
+		LOG_LOCK();
 		R.logging = false;
-		log_unlock();
+		LOG_UNLOCK();
 		bench_process_restore(&r->cond);
 		return false;
 	}
@@ -1027,9 +1022,9 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	r->peak_rss_mib = testbed_proc_peak_rss_mib();
 	r->threads = testbed_proc_threads();
 	fnl_shutdown(app);
-	log_lock();
+	LOG_LOCK();
 	R.logging = false;
-	log_unlock();
+	LOG_UNLOCK();
 	bench_process_restore(&r->cond);
 	r->finished_utc = utc_now();
 	/* What the system refused of the conditions asked. */

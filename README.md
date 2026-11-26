@@ -80,19 +80,23 @@ MSVC), and:
 | pthreads | the render thread |
 | a UCRT mingw-w64 (`FNL_MINGW_PREFIX`) | Windows cross only: MSYS2's UCRT64 or llvm-mingw's UCRT release; Ubuntu's mingw is msvcrt's and is refused |
 | binutils' PE `ld` and `objcopy` | the clang UCRT tree only: llvm-mingw links with lld, which has no relocatable link; Linux's `binutils-mingw-w64`, or MSYS2's `binutils` |
-| MSVC 19.27+ | native Windows, with the Windows SDK and Ninja (`./build.sh win64-msvc`) |
+| MSVC 19.27+ | the MSVC tree on Windows, with the Windows SDK and Ninja (`./build.sh win64-msvc`): `cl.exe` natively, or `clang-cl` and `lld` from Linux |
+| the MSVC CRT and the Windows SDK | the MSVC tree on Linux: fetched once by `tools/msvc_sdk.py` (through xwin, pinned), and the debug CRT is not in it |
 | `clang-21`, `lld-21` and Apple's SDK | macOS only, cross: the SDK copied once from a Mac by `tools/macos_sdk.py` |
 | `gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu` | ARM Linux only, cross (the Raspberry Pi 4); Ubuntu's, with their own glibc |
+| a FreeBSD sysroot | FreeBSD only, cross: `base.txz` and the ports' headers, fetched once by `tools/freebsd_sysroot.py`; on FreeBSD itself, its own base system |
 
 ```sh
 ./build.sh linux                  # one target, release: Wayland, X11, KMS
 ./build.sh linux asan             # one target under a checker
 ./build.sh win64                  # cross build on UCRT; needs linux first
-./build.sh win64-msvc             # native Windows; needs cl on PATH
+./build.sh win64-msvc             # MSVC's tree: cl on Windows, else clang-cl
+                                  # here against the CRT and the SDK
 ./build.sh macos                  # cross build for macOS; needs linux
 ./build.sh macos-arm64            # the same for Apple's own processors
 ./build.sh macos-universal        # the two macOS trees, joined by lipo
-./build.sh freebsd                # native FreeBSD: Wayland, X11, KMS
+./build.sh freebsd                # FreeBSD: Wayland, X11, KMS -- natively,
+                                  # or cross from here against a sysroot
 ./build.sh linux-arm64            # cross build for ARM Linux; needs linux
 ./build.sh                        # every target this host can build
 ./build.sh dist                   # the source zips alone, no build
@@ -111,17 +115,19 @@ Every tree lands under `build/<target>/<variant>`. The targets are one
 per operating system, plus the native-Windows and universal
 builds: `linux` (Wayland, X11 and KMS, drawn with Vulkan or OpenGL 4.5),
 `win64` (mingw-w64 on the Universal CRT, Win32 drawn with Direct3D 12 or
-Vulkan) and `win64-msvc` (the same, built natively by cl.exe), `macos`
+Vulkan) and `win64-msvc` (the same, built by cl.exe on Windows and by
+clang-cl here), `macos`
 (Cocoa drawn with Metal, Vulkan on MoltenVK or OpenGL 4.1), `macos-arm64`
 for Apple's own processors, `macos-universal` the two joined by lipo,
-and `freebsd` (native; Wayland, X11 and KMS, drawn with Vulkan or
-OpenGL), with `linux-arm64` the `linux` tree cross-compiled for the
-Raspberry Pi 4. Variants are `release`, `clang`, `asan`, `tsan`,
+and `freebsd` (Wayland, X11 and KMS, drawn with Vulkan or OpenGL; natively
+or cross from Linux), with `linux-arm64` the `linux` tree cross-compiled for
+the Raspberry Pi 4. Variants are `release`, `clang`, `asan`, `tsan`,
 `analyzer` and `gc`: `linux` takes all six, `linux-arm64` release, asan,
 tsan and gc where its cross compiler is, `win64` release, analyzer and
 gc, `win64-msvc` release and gc, `freebsd` release, asan, tsan and gc,
 and the macOS trees release and gc. `macos-universal` takes release and
-gc, and joins the two slices of its variant. A Linux or FreeBSD program
+gc, and joins the two slices of its variant. Cross-compiled, `freebsd` takes
+release and gc: a checker tree needs runtimes a sysroot has none of. A Linux or FreeBSD program
 opens the backend its session has -- Wayland, else X11, else, with
 neither, KMS on the console -- and says which in its log;
 `FNL_BACKEND=wayland`, `x11` or `kms` in its environment opens that one

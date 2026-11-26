@@ -6,6 +6,21 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **The MSVC tree builds on Linux too, and so does FreeBSD's.** Both are
+  trees for a system this one is not; neither needs that system to be
+  compiled. `./build.sh win64-msvc` takes clang-cl, `lld-link`, `llvm-lib`,
+  `llvm-rc` and `llvm-mt` against the MSVC CRT and the Windows SDK, which
+  `tools/msvc_sdk.py --fetch` splats once through xwin; `./build.sh
+  freebsd` takes clang-21 and `ld.lld` against a FreeBSD sysroot that
+  `tools/freebsd_sysroot.py --fetch` unpacks once from the 15.1 release.
+  Cross-compiled, the FreeBSD tree takes `release` and `gc`, its sysroot
+  having no sanitizer runtime.
+
+- **The Windows mingw tree finds llvm-mingw where CI and a machine keep
+  it**, `/opt/llvm-mingw` and `~/.local/opt/llvm-mingw`, so that
+  `FNL_MINGW_PREFIX` is no longer needed on a machine that has the UCRT
+  release unpacked there.
+
 - **Overlay images: drawn at the rectangle asked for, and the image calls
   are the render thread's.** A picture whose rectangle runs past the window
   is no longer squashed into the visible part; the rasteriser cuts it.

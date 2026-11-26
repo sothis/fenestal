@@ -7,8 +7,10 @@ this list.
 ## FreeBSD, MSVC and the UCRT
 
 Written on 2026-11-25, the day the targets were added. The FreeBSD and
-MSVC trees are compiled in CI; the UCRT one has been driven on this
-desktop under wine, the other two not.
+MSVC trees are compiled in CI, and since 2026-11-26 both are compiled on
+this desktop too -- cross, as the Mac's are (DESIGN *Cross-compiling for
+FreeBSD*, *Cross-compiling the MSVC tree*); neither is run here, and the
+UCRT one is driven on this desktop under wine.
 
 - **The bake's filter.** Ubuntu's FreeType is built with
   `FT_CONFIG_OPTION_SUBPIXEL_RENDERING` and filters LCD coverage with the

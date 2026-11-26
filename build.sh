@@ -132,8 +132,41 @@ have_freebsd() {
     [ "$(uname -s)" = FreeBSD ]
 }
 
+# Whether this host can build the FreeBSD tree at all: on the system
+# itself, or from Linux with a sysroot.
+have_freebsd_x() {
+    have_freebsd && return 0
+    find_freebsd_sysroot >/dev/null 2>&1
+}
+
+# The sysroot the FreeBSD tree links against from a Linux host, fetched
+# once by tools/freebsd_sysroot.py -- base.txz and the ports' headers and
+# .pc files. --path's fetch is the Mac SDK's: a machine without one gets
+# it, and one with no way to get it says so instead of building.
+find_freebsd_sysroot() {
+    command -v python3 >/dev/null 2>&1 || return 1
+    [ -f tools/freebsd_sysroot.py ] || return 1
+    python3 tools/freebsd_sysroot.py --path 2>/dev/null || return 1
+}
+
 have_msvc() {
     command -v cl >/dev/null 2>&1 || command -v cl.exe >/dev/null 2>&1
+}
+
+# The MSVC CRT and the Windows SDK, splatted once by tools/msvc_sdk.py:
+# what clang-cl needs of Visual Studio on a machine that has none.
+find_msvc_sdk() {
+    command -v python3 >/dev/null 2>&1 || return 1
+    [ -f tools/msvc_sdk.py ] || return 1
+    python3 tools/msvc_sdk.py --path 2>/dev/null || return 1
+}
+
+# Whether the MSVC tree can be built at all here: by cl on Windows, and
+# from Linux by clang-cl, which wants a clang and that SDK.
+have_msvc_x() {
+    have_msvc && return 0
+    find_clang >/dev/null 2>&1 || return 1
+    find_msvc_sdk >/dev/null 2>&1
 }
 
 # The mingw tree links the Universal CRT, not msvcrt.dll: a compiler built
@@ -148,20 +181,48 @@ find_ucrt_gcc() {
     if [ -n "${FNL_MINGW_PREFIX:-}" ]; then
         p="${FNL_MINGW_PREFIX}gcc"
         [ -x "$p" ] || return 1
-        "$p" -E -dM -include _mingw.h -x c /dev/null 2>/dev/null |
-            grep -qE '^#define (_UCRT|__MSVCRT_VERSION__ 0x[Ee]00)' &&
-            { printf '%s\n' "$p"; return 0; }
+        ucrt_compiler "$p" && { printf '%s\n' "$p"; return 0; }
         return 1
     fi
     for c in x86_64-w64-mingw32ucrt-gcc x86_64-w64-mingw32-gcc; do
         p=$(command -v "$c" 2>/dev/null) || continue
-        if "$p" -E -dM -include _mingw.h -x c /dev/null 2>/dev/null |
-           grep -qE '^#define (_UCRT|__MSVCRT_VERSION__ 0x[Ee]00)'; then
-            printf '%s\n' "$p"
-            return 0
-        fi
+        ucrt_compiler "$p" && { printf '%s\n' "$p"; return 0; }
+    done
+    # Neither of the names PATH takes: llvm-mingw's UCRT release, where CI
+    # unpacks it (/opt) and where a machine keeps its own (~/.local/opt).
+    # The system prefix's compiler is refused by ucrt_compiler, as it must
+    # be: Ubuntu's mingw is msvcrt's.
+    llvm_mingw="${HOME:-/nonexistent}/.local/opt/llvm-mingw/bin/x86_64-w64-mingw32-gcc"
+    for c in /opt/llvm-mingw/bin/x86_64-w64-mingw32-gcc "$llvm_mingw"; do
+        [ -x "$c" ] || continue
+        ucrt_compiler "$c" && { printf '%s\n' "$c"; return 0; }
     done
     return 1
+}
+
+# Whether a mingw-w64 compiler targets the Universal CRT, which is a
+# header's answer: see find_ucrt_gcc.
+ucrt_compiler() {
+    "$1" -E -dM -include _mingw.h -x c /dev/null 2>/dev/null |
+        grep -qE '^#define (_UCRT|__MSVCRT_VERSION__ 0x[Ee]00)'
+}
+
+# The prefix a compiler is named by, as the toolchain file takes it:
+# /path/x86_64-w64-mingw32-gcc -> /path/x86_64-w64-mingw32-.
+mingw_prefix_of() {
+    printf '%s\n' "${1%gcc}"
+}
+
+# A compiler that is not the distribution's own has a sysroot of its own
+# (llvm-mingw keeps its here), and the configure is told which by its
+# prefix: the toolchain file looks for the two usual names on PATH, which
+# this one need not be on. A /usr/bin one is named by CMake's own search,
+# and its root is /usr/<prefix> as the toolchain file says.
+say_mingw_prefix() {
+    case $1 in
+    /usr/bin/*) ;;
+    *) FNL_MINGW_PREFIX=$(mingw_prefix_of "$1"); export FNL_MINGW_PREFIX ;;
+    esac
 }
 
 have_ucrt() {
@@ -427,11 +488,13 @@ if [ "${1:-}" = dist ]; then
 fi
 
 # ---- no arguments: every tree this host can build --------------------------
-# A Linux host builds the cross trees, the two macOS ones and their
-# universal join; a FreeBSD host builds its own tree; a Windows host builds
-# the mingw UCRT64 tree and the MSVC one; a macOS host builds the two
-# macOS trees and the universal join. A target whose compiler is not here
-# is skipped with one line, never a failure -- as linux-arm64 has been.
+# A Linux host builds every cross tree -- the ARM one, both Windows ones,
+# the two macOS ones and their universal join, and FreeBSD against its
+# sysroot; a FreeBSD host builds its own tree; a Windows host builds the
+# mingw UCRT64 tree and the MSVC one; a macOS host builds the two macOS
+# trees and the universal join. A target whose compiler or sysroot is not
+# here is skipped with one line, never a failure -- as linux-arm64 has
+# been.
 #
 # The order is load-bearing. Release comes first within a target because the
 # checker trees and the clang tree take its baked font, and linux comes
@@ -452,7 +515,8 @@ if [ $# -eq 0 ]; then
     Darwin)
         targets="macos macos-arm64 macos-universal" ;;
     *)
-        targets="linux linux-arm64 win64 macos macos-arm64 macos-universal" ;;
+        targets="linux linux-arm64 win64 win64-msvc macos macos-arm64\
+ macos-universal freebsd" ;;
     esac
     for target in $targets; do
         case $target in
@@ -466,12 +530,16 @@ if [ $# -eq 0 ]; then
                 printf ' compiler (FNL_MINGW_PREFIX)\n'
                 continue; } ;;
         win64-msvc)
-            have_msvc || {
-                printf '\n==> win64-msvc skipped: no cl on PATH\n'
+            have_msvc_x || {
+                printf '\n==> win64-msvc skipped: no cl, and no MSVC SDK'
+                printf ' for clang-cl (tools/msvc_sdk.py --fetch)\n'
                 continue; } ;;
         freebsd)
-            have_freebsd || {
-                printf '\n==> freebsd skipped: not a FreeBSD host\n'
+            # Native where it is the host, and cross-compiled from a Linux
+            # one, which is what the sysroot and clang are for.
+            have_freebsd || have_freebsd_x || {
+                printf '\n==> freebsd skipped: not a FreeBSD host and no'
+                printf ' sysroot (tools/freebsd_sysroot.py --fetch)\n'
                 continue; } ;;
         macos|macos-arm64|macos-universal)
             have_macos || {
@@ -493,6 +561,15 @@ if [ $# -eq 0 ]; then
         esac
         for variant in release clang asan tsan analyzer gc; do
             refused "$target" "$variant" && continue
+            # A cross tree links the sysroot's libraries and has none of
+            # the runtimes a checker needs, and the analyser's findings are
+            # the Linux tree's.
+            if [ "$target" = freebsd ] && ! have_freebsd &&
+               { [ "$variant" = asan ] || [ "$variant" = tsan ]; }; then
+                printf '\n==> freebsd %s skipped: no FreeBSD runtime here\n' \
+                       "$variant"
+                continue
+            fi
             if [ "$target" = win64 ] && [ "$variant" = analyzer ] &&
                ucrt_is_clang; then
                 printf '\n==> win64 analyzer skipped: the UCRT compiler'
@@ -718,6 +795,7 @@ win64)
             echo "          compiler: MSYS2's UCRT64, llvm-mingw's UCRT" >&2
             echo "          release, or FNL_MINGW_PREFIX" >&2
             exit 1; }
+        say_mingw_prefix "$UCRT"
         # CMake is a native program here, and an MSYS path is not one it
         # reads.
         if command -v cygpath >/dev/null 2>&1; then
@@ -742,11 +820,12 @@ win64)
                "-DCMAKE_ASM_COMPILER=$UCRT" \
                -DFNL_RENDERER=all "$@"
     else
-        have_ucrt || {
+        UCRT=$(find_ucrt_gcc) || {
             echo "build.sh: win64 needs a UCRT-targeted mingw-w64" >&2
             echo "          compiler: MSYS2's UCRT64, llvm-mingw's UCRT" >&2
             echo "          release, or FNL_MINGW_PREFIX" >&2
             exit 1; }
+        say_mingw_prefix "$UCRT"
         # mkfont links FreeType and runs *during* the build; compiled for
         # Windows it would not run. The cross tree takes the host release
         # tree's bake, on the terms a native checker tree does: there, and
@@ -779,38 +858,101 @@ win64)
 win64-msvc)
     # A native Windows build with cl: no ASM stubs (tools/bin2c.c makes C
     # arrays), no partial link (fenestal::static keeps its globals), and
-    # Ninja, so build/<target>/<variant> stays one flat directory.
-    if ! host_windows; then
-        echo "build.sh: win64-msvc builds on Windows, where cl runs;" >&2
-        echo "          on Linux the cross tree is ./build.sh win64" >&2
-        exit 1
-    fi
-    if ! have_msvc; then
-        echo "build.sh: win64-msvc needs cl on PATH (vcvars64 or the" >&2
-        echo "          Visual Studio developer prompt)" >&2
-        exit 1
-    fi
-    if want_d3d12 "$@"; then
-        DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
-        set -- "-DFNL_DXC=$DXC" "$@"
-    fi
-    set -- -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
-           -DFNL_RENDERER=all "$@" ;;
+    # Ninja, so build/<target>/<variant> stays one flat directory. From a
+    # Linux host: clang-cl with lld against the MSVC CRT and the Windows
+    # SDK, which is the same tree -- MSVC's front end, MSVC's runtime --
+    # built by LLVM's tools.
+    if host_windows; then
+        if ! have_msvc; then
+            echo "build.sh: win64-msvc needs cl on PATH (vcvars64 or the" >&2
+            echo "          Visual Studio developer prompt)" >&2
+            exit 1
+        fi
+        if want_d3d12 "$@"; then
+            DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+            set -- "-DFNL_DXC=$DXC" "$@"
+        fi
+        set -- -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+               -DFNL_RENDERER=all "$@"
+    else
+        MSVC_SDK=$(find_msvc_sdk) || {
+            echo "build.sh: $TARGET cross-compiles against the MSVC CRT" \
+                 "and the" >&2
+            echo "          Windows SDK, and there is none:" >&2
+            echo "          python3 tools/msvc_sdk.py --fetch" >&2
+            exit 1; }
+        find_clang >/dev/null 2>&1 || {
+            echo "build.sh: the MSVC tree cross-compiles with clang-cl," \
+                 "and no clang is here (clang-21 or FNL_CLANG)" >&2
+            exit 1; }
+        # The same borrowed bake as every cross tree, and for its reason:
+        # mkfont runs during the build and this one would compile it for
+        # Windows.
+        WIN64_CROSS=1
+        HOST_GEN="$PWD/build/linux/release/generated"
+        if ! font_ready "$HOST_GEN"; then
+            echo "build.sh: $TARGET needs the host build first, for a" >&2
+            echo "          baked font no older than what it is baked from" >&2
+            echo "          and checked by verifyfont (FNL_VERIFY_FONT on):" >&2
+            echo "          ./build.sh linux release -DFNL_VERIFY_FONT=ON" >&2
+            exit 1
+        fi
+        if want_d3d12 "$@"; then
+            DXC=${FNL_DXC:-$(python3 tools/dxc.py --path)}
+            set -- "-DFNL_DXC=$DXC" "$@"
+        fi
+        set -- -DCMAKE_TOOLCHAIN_FILE=cmake/windows-msvc-x86_64.cmake \
+               "-DFNL_MSVC_ROOT=$MSVC_SDK" -DFNL_RENDERER=all \
+               "-DFNL_GENERATED_DIR=$HOST_GEN" "$@"
+    fi ;;
 freebsd)
-    # Native, with the base system's clang and LLVM's objcopy: the archive's
-    # --keep-global-symbols is not in elftoolchain's.
-    if ! have_freebsd; then
-        echo "build.sh: freebsd builds on FreeBSD; the other systems'" \
-             "trees are theirs" >&2
-        exit 1
-    fi
-    OBJCOPY=$(find_llvm_objcopy) || {
-        echo "build.sh: the FreeBSD archive needs llvm-objcopy" >&2
-        echo "          (devel/llvm, or FNL_OBJCOPY)" >&2
-        exit 1; }
-    set -- -DCMAKE_C_COMPILER=clang -DCMAKE_ASM_COMPILER=clang \
-           -DCMAKE_CXX_COMPILER=clang++ "-DCMAKE_OBJCOPY=$OBJCOPY" \
-           -DFNL_BACKEND=freebsd -DFNL_RENDERER=all "$@" ;;
+    # On FreeBSD itself: the base system's clang and LLVM's objcopy, the
+    # archive's --keep-global-symbols not being elftoolchain's. From a Linux
+    # host: the same clang by triple, lld, and a sysroot fetched once.
+    if have_freebsd; then
+        OBJCOPY=$(find_llvm_objcopy) || {
+            echo "build.sh: the FreeBSD archive needs llvm-objcopy" >&2
+            echo "          (devel/llvm, or FNL_OBJCOPY)" >&2
+            exit 1; }
+        set -- -DCMAKE_C_COMPILER=clang -DCMAKE_ASM_COMPILER=clang \
+               -DCMAKE_CXX_COMPILER=clang++ "-DCMAKE_OBJCOPY=$OBJCOPY" \
+               -DFNL_BACKEND=freebsd -DFNL_RENDERER=all "$@"
+    else
+        case $VARIANT in
+        release|gc) ;;
+        *)
+            echo "build.sh: cross-compiled, the FreeBSD tree takes release" \
+                 "and gc: no FreeBSD sanitizer runtime or analyser here." >&2
+            echo "          On a FreeBSD machine the native tree takes" \
+                 "release, asan, tsan and gc." >&2
+            exit 1 ;;
+        esac
+        SYSROOT=$(find_freebsd_sysroot) || {
+            echo "build.sh: $TARGET needs a FreeBSD sysroot, and there is" \
+                 "none:" >&2
+            echo "          python3 tools/freebsd_sysroot.py --fetch" >&2
+            exit 1; }
+        OBJCOPY=$(find_llvm_objcopy) || {
+            echo "build.sh: the FreeBSD archive needs llvm-objcopy" >&2
+            echo "          (llvm-21's tools, or FNL_OBJCOPY)" >&2
+            exit 1; }
+        # The same borrowed bake as the other cross trees, and for the same
+        # reason: mkfont runs during the build and this one would compile
+        # it for FreeBSD.
+        HOST_GEN="$PWD/build/linux/release/generated"
+        if ! font_ready "$HOST_GEN"; then
+            echo "build.sh: $TARGET needs the host build first, for a" >&2
+            echo "          baked font no older than what it is baked from" >&2
+            echo "          and checked by verifyfont (FNL_VERIFY_FONT on):" >&2
+            echo "          ./build.sh linux release -DFNL_VERIFY_FONT=ON" >&2
+            exit 1
+        fi
+        set -- -DCMAKE_TOOLCHAIN_FILE=cmake/freebsd-x86_64.cmake \
+               "-DFNL_FREEBSD_SYSROOT=$SYSROOT" \
+               "-DCMAKE_OBJCOPY=$OBJCOPY" \
+               -DFNL_BACKEND=freebsd -DFNL_RENDERER=all \
+               "-DFNL_GENERATED_DIR=$HOST_GEN" "$@"
+    fi ;;
 macos|macos-arm64)
     # The same borrowed bake as the Windows trees, for the same reason, and
     # Apple's SDK, copied once from a Mac (tools/macos_sdk.py). One toolchain
@@ -867,7 +1009,7 @@ borrow=false
 case $TARGET:$VARIANT in
 macos:*|macos-arm64:*|linux-arm64:*|*:release|*:analyzer)
     borrow=false ;;
-win64:*)
+win64:*|win64-msvc:*)
     # The cross tree borrows FNL_GENERATED_DIR's bake; the native UCRT64
     # tree on Windows is a native checker's, and takes its own release.
     [ "${WIN64_CROSS:-}" = 1 ] && borrow=false || borrow=true ;;

@@ -63,7 +63,9 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 | pthreads | the render thread |
 | `libdrm` (FreeBSD) | the KMS backend's DRM headers; FreeBSD names them under `libdrm/`, and the build makes the `drm/` spelling Linux's sources use |
 | a UCRT mingw-w64 | the Windows cross build: MSYS2's UCRT64 or llvm-mingw's UCRT release. Ubuntu's is msvcrt's and is refused, as is a configure that names one |
-| MSVC 19.27+, the Windows SDK and Ninja | the native Windows build (`win64-msvc`) |
+| MSVC 19.27+, the Windows SDK and Ninja | the MSVC tree on Windows (`win64-msvc`), built natively by cl.exe |
+| `clang-21`, `lld-21`, `llvm-rc`/`llvm-mt` and the MSVC CRT and Windows SDK | the same tree cross-compiled here by clang-cl, the SDK splatted once by `tools/msvc_sdk.py` (*Cross-compiling the MSVC tree*) |
+| a FreeBSD sysroot | the FreeBSD tree cross-compiled here: `base.txz` and the ports' headers, fetched once by `tools/freebsd_sysroot.py` (*Cross-compiling for FreeBSD*); on FreeBSD itself, its own base system |
 
 ```sh
 ./build.sh                        # every tree this host can build
@@ -71,9 +73,9 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 ./build.sh linux asan             # that target, that checker
 ./build.sh linux clang            # that target, built by clang
 ./build.sh win64                  # Windows, cross, on the UCRT
-./build.sh win64-msvc             # Windows, native, cl.exe
+./build.sh win64-msvc             # the MSVC tree: cl.exe, or clang-cl here
 ./build.sh macos-universal        # the two macOS trees joined by lipo
-./build.sh freebsd                # FreeBSD, native
+./build.sh freebsd                # FreeBSD, natively or cross
 ./build.sh linux release -DFNL_NATIVE_ARCH=ON  # for this CPU only
 ./build/linux/release/fenestal-testbed       # the platform it finds
 FNL_BACKEND=x11 FNL_RENDERER=gl ./build/linux/release/fenestal-testbed
@@ -89,7 +91,8 @@ six, `linux-arm64` four where its cross compiler is, `win64` three
 (release, analyzer and gc: mingw-w64 ships no sanitizer runtime, and clang
 against it would want a sysroot of its own), `win64-msvc` two (release and
 gc), `freebsd` four (release, asan, tsan and gc: its release already uses
-clang), and each macOS one two (release and gc). `macos-universal` takes
+clang -- and two, release and gc, cross-compiled, whose sysroot has no
+sanitizer runtime), and each macOS one two (release and gc). `macos-universal` takes
 release and gc and joins the two slices of its variant; it is a tree of
 joined binaries, not a third compilation. The `clang` tree is the release
 build compiled by `clang-21` (or `FNL_CLANG`) with `-Wthread-safety` and
@@ -99,8 +102,9 @@ the check.
 The target and the optional variant are positional and come first; anything
 after them is forwarded to the configure step, so a flag on the command line
 beats one the script chose. A bare `./build.sh` sweeps every tree this host
-can build -- the cross set on Linux, `freebsd` on FreeBSD, the two Windows
-trees on Windows, the macOS trees and their join on a Mac -- host target
+can build -- on Linux every cross tree, the two Windows ones and `freebsd`
+with the macOS trees and their join; `freebsd` on FreeBSD; the two Windows
+trees on Windows; the macOS trees and their join on a Mac -- host target
 first and `release` first within it. The cross tree borrows the host release
 tree's baked atlases, so that order is what keeps the sweep self-sufficient;
 a target whose compiler is not installed is skipped with one line. It stops
@@ -285,18 +289,21 @@ ordinary thing to want.
 
 ### Building Windows with MSVC
 
-`./build.sh win64-msvc` is the same tree built natively by Microsoft's
-compiler, from a Windows shell with the Visual Studio environment set and
-Ninja on `PATH`; CMake is driven with `-DCMAKE_C_COMPILER=cl`. CI builds it
-on every push (`windows-latest`), which is where it is compiled at all -- no
-MSVC runs on the Linux machine this tree is developed on. Its first compile
-there passed on 2026-11-25, library and programs: `/experimental:c11atomics`
-took the testbed's and `fenestal-dev`'s atomics, the DLL's exports are the
-`/DEF:` list, and the archive and import library came out named apart. LTO
-is off there now: the archive is the objects themselves, which another cl
-must link, and `/GL` objects link only with the same one, so the DLL gives
-up LTCG with them. The ABI dump's layout is its set's baseline, as the
-export list is, Windows' `d3d12-vulkan` among them.
+`./build.sh win64-msvc` is the same tree built by Microsoft's own
+compiler: natively by cl.exe from a Windows shell with the Visual Studio
+environment set and Ninja on `PATH`; and, since the CRT and the SDK are
+fetchable, on Linux by clang-cl. CMake is driven with
+`-DCMAKE_C_COMPILER=cl` there and with clang-cl here
+(*Cross-compiling the MSVC tree*). CI builds the native one on every push
+(`windows-latest`), which is where cl.exe compiles it at all. Its first
+compile there passed on 2026-11-25, library and programs:
+`/experimental:c11atomics` took the testbed's and `fenestal-dev`'s atomics,
+the DLL's exports are the `/DEF:` list, and the archive and import library
+came out named apart. LTO is off there now: the archive is the objects
+themselves, which another cl must link, and `/GL` objects link only with
+the same one, so the DLL gives up LTCG with them. The ABI dump's layout is
+its set's baseline, as the export list is, Windows' `d3d12-vulkan` among
+them.
 
 Four things differ from every other compiler's tree:
 
@@ -319,6 +326,56 @@ Four things differ from every other compiler's tree:
 The testbed's entry is `main`, and the linker's GUI subsystem asks for
 `WinMain`; `/ENTRY:mainCRTStartup` is the one line mingw's `crt2.o` answers
 for free.
+
+### Cross-compiling the MSVC tree
+
+```sh
+./build.sh linux                     # the host tree first, release first
+python3 tools/msvc_sdk.py --fetch    # once: the CRT and the Windows SDK
+./build.sh win64-msvc                # the MSVC tree, built by clang-cl
+```
+
+The MSVC tree is what MSVC's runtime, headers and linker flags make it --
+/x64, the Universal CRT, `/guard:cf`, `/OPT:REF` in a gc tree, the `.def`
+exports -- and none of that needs cl.exe to produce it. clang-cl is the same
+compiler as the clang trees' in Microsoft's front end, and `lld-link`,
+`llvm-lib`, `llvm-rc` and `llvm-mt` answer for link.exe, lib.exe, rc.exe
+and mt.exe; what is Microsoft's alone is the CRT and the Windows SDK, which
+are not redistributable in any other form than their own installer's.
+`tools/msvc_sdk.py` reads Microsoft's manifest through xwin -- pinned by its
+archive's SHA-256, as `tools/dxc.py` pins dxc -- and splats the two under
+`~/.local/state/fenestal/msvc-sdk/splat`, in the layout cl.exe installs
+them in: `crt/` and `sdk/`, each with its `include/` and `lib/x64/`. The
+debug CRT is not redistributable and so is not in it: this tree links the
+release runtime in every configuration (`CMAKE_MSVC_RUNTIME_LIBRARY` in
+`cmake/windows-msvc-x86_64.cmake`), which is also what a gc tree's
+`/OPT:REF` then reads. That is the one thing a Debug tree here does not
+have; the checkers are the Linux and macOS trees' anyway.
+
+Four things differ from the native cl tree:
+
+- **The paths.** cl.exe is installed with the SDK, and finds it; clang-cl
+  is told, by `INCLUDE` and `LIB`, which is what it and lld-link read as cl
+  and link do. The toolchain file sets both -- the configure's own compiler
+  test reads them -- and CMakeLists.txt hands the same directories to
+  `fenestal_usage`, so a build run after a configure by hand has them too;
+  a `-DCMAKE_C_FLAGS`, which the gc tree passes, replaces a flag but not
+  this.
+- **The blobs.** `tools/bin2c.c` runs on the machine that compiles it, and
+  here that would be a PE the host cannot execute. The font and licence
+  stubs are `#embed`ded instead, as the Mac's are, which clang-cl takes;
+  bin2c is not built in this tree at all.
+- **The debug CRT.** None in the splat, so the release runtime in every
+  configuration (*above*).
+- **`/experimental:c11atomics`.** cl needs it for the testbed's and
+  `fenestal-dev`'s C11 atomics; clang's front end has them already and does
+  not know the switch, so the flag is cl's alone.
+
+It is the same tree down to the archive: no relocatable link and no
+objcopy, so `fenestal::static` is the objects themselves with its internals
+global, which is the MSVC relaxation a native cl tree already takes
+(*Building Windows with MSVC*, and the exception DESIGN records). Measured
+here: 141 exports, every one `fnl_*`, in both variants.
 
 ### Cross-compiling for macOS
 
@@ -468,6 +525,56 @@ The first build of both trees, on its first day, came out warning-free:
 library's own, beside the protocol records of AppKit's own protocols, which
 every Objective-C program carries the same copy of; the testbed links
 AppKit, QuartzCore and Metal (or MoltenVK) and libSystem.
+
+### Cross-compiling for FreeBSD
+
+```sh
+./build.sh linux                       # the host tree first, release first
+python3 tools/freebsd_sysroot.py --fetch   # once: base.txz and the ports
+./build.sh freebsd                     # Wayland, X11 and KMS, Vulkan and GL
+```
+
+The FreeBSD tree is built here as the macOS one is, and FreeBSD only runs
+what it makes. The compiler is `clang-21` told the target by its triple
+(`cmake/freebsd-x86_64.cmake`), the linker `ld.lld`, and the archive's
+objcopy LLVM's, as the native tree's is: base's elftoolchain one takes no
+`--keep-global-symbols`. What neither a Linux machine nor a distribution
+has is the base system the tree links against and the ports whose headers
+and `.pc` files it reads, so `tools/freebsd_sysroot.py` fetches both once
+from the release's own distribution servers -- `base.txz` for 15.1, and the
+packages `wayland`, `libxcb`, `libdrm`, `mesa-libs`, `libglvnd` and
+`vulkan-headers` with every dependency -- pinned by SHA-256 all the way
+down, the repository's index included, and kept under
+`~/.local/state/fenestal/freebsd-sysroot`, which survives `rm -rf build`.
+Of `base.txz` only what a compile and a link read is unpacked: the headers,
+the libraries, the compiler's own and the C++ standard library, and not
+`/usr/bin`, the kernel or the man pages, which are four fifths of the
+download.
+
+The variant set is the point of the split: on FreeBSD itself the tree takes
+release, asan, tsan and gc, and has the runtimes those need; cross-compiled
+it takes release and gc, and a checker tree there would be linked against a
+sysroot with no sanitizer runtime in it. `./build.sh freebsd asan` from
+Linux says so rather than failing at a link. So the GC tree is the one that
+proves this is a Debug tree -- `FNL_ASSERT` and the fault sites on -- and the
+checkers stay where they run.
+
+Two things differ from the native FreeBSD build:
+
+- **`pkg-config`.** The ports' `.pc` files are the target's, and the prefix
+  they name is the sysroot's: the toolchain sets `PKG_CONFIG_SYSROOT_DIR`
+  and a `PKG_CONFIG_LIBDIR` of the four directories they live in (the
+  architecture-independent `share/pkgconfig` among them) so that neither
+  this machine's Wayland nor glibc's headers can be offered to a FreeBSD
+  binary.
+- **`wayland.xml`.** It is read from the ports' wayland with the header the
+  same package installs, and its `pkgdatadir` is the target's, so the build
+  resolves that one path against the sysroot.
+
+Nothing built here runs here: a tree is copied to a FreeBSD machine
+(`tools/drive/bare_driver.py` drives one) rather than launched, and
+`CMAKE_SKIP_BUILD_RPATH` keeps this machine's directories out of every
+program's `RUNPATH`.
 
 ### Cross-compiling for ARM Linux
 
