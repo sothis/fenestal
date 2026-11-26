@@ -1072,6 +1072,15 @@ desktop*. Owed:
   clipboard and the layout under 11.0 and 11.21 are *Wine 11 on this
   desktop*'s owed rounds. Wine's own vkd3d runs DXIL from 11.0
   (`FNL_DRIVE_VKD3D=wine`).
+- **The corner after a corner resize, with more than one output.** Under
+  10.0 and 11.0 stable (measured 2026-11-26) the grown part of the window
+  takes no pointer input: motion stops at the old surface's edge and a
+  press there is never delivered, so the round cannot drag its corner
+  again. With one output the same drags pass. The round leaves them out
+  where `REGROW_UNHELD` holds (tools/drive/environment.py). Owed: the
+  rounds under 11.21 and 11.22, which the declaration is lifted for, and
+  a report to wine; the declaration comes off when its own round passes
+  without it.
 
 ## Wine on the bare machine
 

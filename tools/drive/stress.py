@@ -1752,32 +1752,39 @@ def sizes_after_move(r, area):
             "%s -> %s" % (area, st["area"]),
         )
     if r.can("edge-resize"):
-        gx, gy = room_to_grow(r, 120, 80)
-        w, h = area[0], area[1] + BAR_H
-        m = b.mark()
-        b.drag(w - 2, h - 2, w - 2 + gx, h - 2 + gy, steps=12)
-        b.settle("resize", m, 1.5)
-        b.quiet(PAUSE)
-        grown = b.refresh()["area"]
-        # Grown both ways, by however much the screen had room for.
-        check(
-            "after the move, the bottom-right edge resizes",
-            grown[0] > area[0] and grown[1] > area[1],
-            "%dx%d -> %dx%d" % (area + grown),
-        )
-        if r.can("read-pixels"):
-            black = b.content_black_pct()
-            if black is None:
-                r.skip(
-                    "and the frame fills the window", "no picture of the window"
-                )
-            else:
-                check(
-                    "and the frame fills the window",
-                    black < 40.0,
-                    "%.0f%% black" % black,
-                )
-        area = grown
+        regrow = getattr(b, "REGROW_UNHELD", "")
+        if regrow and len(b.monitors()) > 1:
+            r.skip("after the move, the bottom-right edge resizes", regrow)
+            if r.can("read-pixels"):
+                r.skip("and the frame fills the window", regrow)
+        else:
+            gx, gy = room_to_grow(r, 120, 80)
+            w, h = area[0], area[1] + BAR_H
+            m = b.mark()
+            b.drag(w - 2, h - 2, w - 2 + gx, h - 2 + gy, steps=12)
+            b.settle("resize", m, 1.5)
+            b.quiet(PAUSE)
+            grown = b.refresh()["area"]
+            # Grown both ways, by however much the screen had room for.
+            check(
+                "after the move, the bottom-right edge resizes",
+                grown[0] > area[0] and grown[1] > area[1],
+                "%dx%d -> %dx%d" % (area + grown),
+            )
+            if r.can("read-pixels"):
+                black = b.content_black_pct()
+                if black is None:
+                    r.skip(
+                        "and the frame fills the window",
+                        "no picture of the window",
+                    )
+                else:
+                    check(
+                        "and the frame fills the window",
+                        black < 40.0,
+                        "%.0f%% black" % black,
+                    )
+            area = grown
     return area
 
 
@@ -2345,29 +2352,42 @@ def run(r):
         # "alive" is also true of a window showing an image from three sizes
         # ago.
         area = grown
-        for i in range(8):
-            w, h = area[0], area[1] + BAR_H
-            d = 40 if i % 2 == 0 else -40
-            m = b.mark()
-            b.drag(w - 2, h - 2, w - 2 + d, h - 2 + d, steps=6, settle=0.25)
-            # The next one aims at the corner the application reports now.
-            area = sized(m, QUIET)
-        # The frames for the last one presented.
-        b.quiet(PAUSE)
-        check("alive after eight drag-resizes", b.alive(), "%dx%d" % area)
-        if r.can("read-pixels"):
-            black = b.content_black_pct()
-            if black is None:
-                r.skip(
-                    "the frame still fills the window after a resize",
-                    "no picture of the window",
-                )
-            else:
-                check(
-                    "the frame still fills the window after a resize",
-                    black < 40.0,
-                    "%.0f%% black" % black,
-                )
+        regrow = getattr(b, "REGROW_UNHELD", "")
+        if regrow and len(b.monitors()) > 1:
+            # The corner is in the part of the window the driver shows no
+            # pointer to (REGROW_UNHELD): aiming there again is the
+            # driver's fault, and the round cannot make it.
+            r.skip("alive after eight drag-resizes", regrow)
+            if r.can("read-pixels"):
+                r.skip("the frame still fills the window after a resize",
+                       regrow)
+        else:
+            for i in range(8):
+                w, h = area[0], area[1] + BAR_H
+                d = 40 if i % 2 == 0 else -40
+                m = b.mark()
+                b.drag(w - 2, h - 2, w - 2 + d, h - 2 + d, steps=6,
+                       settle=0.25)
+                # The next one aims at the corner the application reports
+                # now.
+                area = sized(m, QUIET)
+            # The frames for the last one presented.
+            b.quiet(PAUSE)
+            check("alive after eight drag-resizes", b.alive(),
+                  "%dx%d" % area)
+            if r.can("read-pixels"):
+                black = b.content_black_pct()
+                if black is None:
+                    r.skip(
+                        "the frame still fills the window after a resize",
+                        "no picture of the window",
+                    )
+                else:
+                    check(
+                        "the frame still fills the window after a resize",
+                        black < 40.0,
+                        "%.0f%% black" % black,
+                    )
 
         # The floor from below: the corner carried to the window's own left
         # edge, inside the window so that no screen has to have room for

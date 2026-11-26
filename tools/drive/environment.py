@@ -2195,6 +2195,16 @@ class Win32Wayland(_DeskWine, Wayland):
     # steer.
     PIN_UNHELD = ("wine's Wayland driver opens the window on a monitor of "
                   "its own choosing, not the pointer's")
+    # Measured on this desktop, 2026-11-26, under 10.0 and 11.0 stable with
+    # DVI-D-1 beside DP-1: after the corner resize the grown part of the
+    # window takes no pointer input -- motion stops at the old surface's
+    # edge and a press there is never delivered -- so the round cannot aim
+    # at its corner again. The same drags pass with DVI-D-1 off, which is
+    # why the round leaves them out only where the driver is shown more
+    # than one output.
+    REGROW_UNHELD = ("wine's Wayland driver leaves the grown window's "
+                     "corner with no pointer input, with more than one "
+                     "output shown to it")
     # The floor and the opening monitor measured again under 11.0, and as
     # 10.0 had them: 119 points wide, and DVI-D-1 for DP-1. 11.0's driver
     # says the window changed monitor, and with a size that is neither
@@ -2203,6 +2213,7 @@ class Win32Wayland(_DeskWine, Wayland):
     WINE_HELD = {"NO_MOVE_TO": ({}, WINE_10),
                  "FLOOR_UNHELD": ("", wines("10.0", "11.0")),
                  "PIN_UNHELD": ("", wines("10.0", "11.0")),
+                 "REGROW_UNHELD": ("", wines("10.0", "11.0")),
                  "CAN": (CAN | {"multi-output", "desk-layout"}, WINE_10)}
 
     # The library's bar and its resize margin, in points (DECO_TITLEBAR_H,
