@@ -62,6 +62,7 @@ generated file.
 | `cursor-shape-v1.xml` | 2018 The Chromium Authors; 2023 Simon Ser | MIT |
 | `fractional-scale-v1.xml` | 2022 Kenny Levinsen | MIT |
 | `pointer-constraints-unstable-v1.xml` | 2014 Jonas Ådahl; 2015 Red Hat Inc. | MIT |
+| `pointer-warp-v1.xml` | 2024 Neal Gompa; 2024 Xaver Hugl; 2024 Matthias Klumpp; 2024 Vlad Zahorodnii | MIT |
 | `presentation-time.xml` | 2013-2014 Collabora, Ltd. | MIT |
 | `relative-pointer-unstable-v1.xml` | 2014 Jonas Ådahl; 2015 Red Hat Inc. | MIT |
 | `text-input-unstable-v3.xml` | 2012, 2013 Intel Corporation; 2015, 2016 Jan Arne Petersen; 2017, 2018 Red Hat, Inc.; 2018 Purism SPC | HPND-sell-variant |

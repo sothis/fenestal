@@ -292,7 +292,7 @@ options that name one set it.
 | `FNL_VK_VALIDATION=1` | Khronos' validation layer in the library's Vulkan instance alone, and so in a caller's scene drawn on it, not in vkd3d-proton's; a loader without the layer makes the instance without it and says so |
 | `FNL_FAULT=<name>` | a Debug tree: force the named fallback path (DESIGN *Forcing the paths that never run*) |
 | `FNL_MCP=1` / `<path>` | open an MCP server in the program, on `$XDG_RUNTIME_DIR/fenestal-<pid>.sock` or that path, for an agent to drive the window (*Driving it from an agent*); `0`, `false`, `off` and `no` are off |
-| `FNL_MCP_WARP=1` | with the MCP port: put the window server's real cursor where the port's pointer goes (KMS's own cursor always follows) |
+| `FNL_MCP_WARP=1` | with the MCP port: put the window server's real cursor where the port's pointer goes (KMS's own cursor always follows; on Wayland only where the compositor has `wp_pointer_warp_v1` and allows it) |
 
 ## Driving it from an agent
 

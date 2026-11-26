@@ -19,6 +19,7 @@
 #include "xdg-shell-client-protocol.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "pointer-warp-v1-client-protocol.h"
 #include "viewporter-client-protocol.h"
 #include "presentation-time-client-protocol.h"
 #include "fractional-scale-v1-client-protocol.h"
@@ -116,6 +117,9 @@ struct BackendHostState {
 	struct zwp_pointer_constraints_v1 *pointer_constraints;
 	struct zwp_relative_pointer_manager_v1 *relative_manager;
 	struct wp_viewporter *viewporter;
+	/* Where the compositor has it (KWin does, weston does not): the MCP
+	 * port's request for the pointer to be put somewhere in the window. */
+	struct wp_pointer_warp_v1 *pointer_warp;
 	/* Presentation time: bound, and its clock CLOCK_MONOTONIC, the frame
 	 * clock's, which is the one a stamp is taken from as it comes. */
 	struct wp_presentation *presentation;

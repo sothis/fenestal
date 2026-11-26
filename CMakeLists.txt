@@ -617,6 +617,7 @@ if(wayland IN_LIST FNL_BACKENDS)
     wayland_protocol(fractional-scale-v1)
     wayland_protocol(pointer-constraints-unstable-v1)
     wayland_protocol(relative-pointer-unstable-v1)
+    wayland_protocol(pointer-warp-v1)
     wayland_protocol(text-input-unstable-v3)
     wayland_protocol(presentation-time)
 

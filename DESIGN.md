@@ -11683,8 +11683,12 @@ follows. Under a window server the pointer is a person's, and the program is
 told of a position the cursor does not show -- unless `FNL_MCP_WARP=1`, which
 puts the real cursor there too (`xcb_warp_pointer`, `SetCursorPos`,
 `CGWarpMouseCursorPosition`; read back on Windows and macOS by the agents'
-`pointer_pos`) and so is for a desktop nobody is using. Wayland has no
-request for it, and does nothing.
+`pointer_pos`) and so is for a desktop nobody is using. Wayland has a request
+for it only where the compositor offers `wp_pointer_warp_v1` (mutter and KWin
+do, weston does not), and the compositor decides: GNOME 50 ignored it for a
+window that had had no input, and honoured it -- the pointer read back where
+it was put -- once the window had been clicked, under the enter's serial, with
+the pointer inside the window and the point inside its surface.
 
 A display that is off or locked -- KDE's idle blank -- sends a window no
 frame callbacks, so nothing is drawn, `capture` and a waiting `events` time out

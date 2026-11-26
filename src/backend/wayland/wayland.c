@@ -977,6 +977,27 @@ static void pointer_update(App *a)
  * shape while the pointer is elsewhere would wear it over the one it is in.
  * Elsewhere no enter serial is in force to send it under, and ptr_enter()
  * decides afresh. */
+/* The MCP port asks (FNL_MCP_WARP=1) for the pointer to be put at a point of
+ * the window: a request the compositor may honour -- when the pointer is in
+ * the window, under the enter's serial, and the point is in the surface --
+ * and that it answers with a motion like a hand's. A compositor without the
+ * global (weston's) leaves the pointer where it is. A captured pointer is
+ * the lock's. */
+static void wl_pointer_warp(App *a, double x_pt, double y_pt)
+{
+	struct BackendHostState *hs = app_backend_host(a);
+	struct BackendState *p      = a->backend_state;
+	if (!hs->pointer_warp || !hs->pointer || !hs->pointer_inside ||
+		hs->ptr_window != a || a->pointer_captured)
+		return;
+	const int m = deco_margin(a, a->is_fullscreen);
+	wp_pointer_warp_v1_warp_pointer(hs->pointer_warp, p->surface, hs->pointer,
+									wl_fixed_from_double(x_pt + m),
+									wl_fixed_from_double(y_pt + m),
+									hs->pointer_serial);
+	wl_display_flush(hs->display);
+}
+
 static void wl_cursor_changed(App *a)
 {
 	struct BackendHostState *hs = app_backend_host(a);
@@ -2007,6 +2028,8 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name,
 		hs->relative_manager = BIND(zwp_relative_pointer_manager_v1, 1);
 	} else if (IS(zwp_pointer_constraints_v1)) {
 		hs->pointer_constraints = BIND(zwp_pointer_constraints_v1, 1);
+	} else if (IS(wp_pointer_warp_v1)) {
+		hs->pointer_warp = BIND(wp_pointer_warp_v1, 1);
 	} else if (IS(wp_viewporter) && !FNL_FAULT("no-viewporter")) {
 		hs->viewporter = BIND(wp_viewporter, 1);
 	} else if (IS(wp_presentation) && !hs->presentation) {
@@ -3396,6 +3419,8 @@ static void wl_host_close(App *a)
 		wp_fractional_scale_manager_v1_destroy(hs->fractional_manager);
 	if (hs->viewporter)
 		wp_viewporter_destroy(hs->viewporter);
+	if (hs->pointer_warp)
+		wp_pointer_warp_v1_destroy(hs->pointer_warp);
 	if (hs->presentation)
 		wp_presentation_destroy(hs->presentation);
 	if (hs->cursor_device)
@@ -3553,7 +3578,7 @@ const FnlBackendVtbl fnl_backend_wayland = {
 	.present_window_hold     = backend_noop,
 	.frame_wait              = surface_frame_wait,
 	.window_on_screen        = wl_window_on_screen,
-	.pointer_warp         = backend_noop_pointer_warp,
+	.pointer_warp         = wl_pointer_warp,
 	.apply_scale             = wl_apply_scale,
 	.request_size            = request_window_size,
 	.nudge_size              = backend_noop,

@@ -63,17 +63,18 @@ UCRT one is driven on this desktop under wine.
 
 Run, with `tools/drive/mcp_check.py` and by hand, on schenker's KDE Wayland,
 KMS (release, asan, tsan), Xorg and weston, on Windows 11 with Vulkan and
-Direct3D 12 (the mingw and the clang-cl trees), on macOS with Metal and Vulkan
-and on the Pi 4's KMS, Xorg and weston (2026-11-26); DESIGN *Driven from
-inside*. Owed:
+Direct3D 12 (the mingw and the clang-cl trees), on macOS with Metal and
+Vulkan, on the Pi 4's KMS, Xorg and weston and on FreeBSD 15.1's X11 in a
+VirtualBox guest (2026-11-26); DESIGN *Driven from inside*. Owed:
 
-- **FreeBSD** compiles and has never run it: `vt(4)`'s console and the
-  system's own `poll()` on a socket are the first places the port meets a
-  system the check has not. There is no FreeBSD machine here; CI builds the
-  tree and runs nothing.
-- **Under Wayland the pointer cannot be moved**, and `FNL_MCP_WARP=1`
-  does nothing there: a client has no request for it short of the
-  pointer-constraints protocol's lock, which is the capture's.
+- **KWin's `wp_pointer_warp_v1`** is untried: schenker's KDE session was
+  lost to the reboots, and the request was only read back under mutter
+  (DESIGN *Driven from inside*).
+- **FreeBSD's KMS and Wayland** under the port, and the sanitizers there:
+  the guest (`fenestal-freebsd`, a clone of bovnar's with its disk repaired
+  and `xorg-vfbserver`, `mesa-dri` and `vulkan-loader` installed; root by the
+  key in `~/ws/vm-freebsd`, ssh on port 2222) draws on lavapipe behind Xvfb
+  and has no DRM driver for the machine's own GPUs.
 
 ## HDR
 
