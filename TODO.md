@@ -63,28 +63,17 @@ UCRT one is driven on this desktop under wine.
 
 Run, with `tools/drive/mcp_check.py` and by hand, on schenker's KDE Wayland,
 KMS (release, asan, tsan), Xorg and weston, on Windows 11 with Vulkan and
-Direct3D 12 and on macOS with Metal and Vulkan (2026-11-26); DESIGN *Driven
-from inside*. Owed:
+Direct3D 12 (the mingw and the clang-cl trees), on macOS with Metal and Vulkan
+and on the Pi 4's KMS, Xorg and weston (2026-11-26); DESIGN *Driven from
+inside*. Owed:
 
-- **FreeBSD, `linux-arm64` and the MSVC tree** compile and have never run
-  it: the Pi 4's KMS (`bare_run.py` there), FreeBSD's `vt(4)` console and a
-  native cl.exe build are the first places the socket, `fenestal-mcp` and
-  `pointer_warp` meet a system the check has not.
-- **Under a window server the pointer cannot be moved**
-  (`backend_noop_pointer_warp`): the program is told of a position the cursor
-  does not show. X11's `xcb_warp_pointer`, Win32's `SetCursorPos` and Cocoa's
-  `CGWarpMouseCursorPosition` could, at the cost of moving a hand's cursor
-  on a desktop somebody is using; left out until an agent on a desktop
-  asks for it.
-- **A display that is off or locked** sends a window no frame callbacks
-  (KDE's idle blank, found 2026-11-26): `capture` and `events` then time out,
-  and `state.shown` is still true. The library has no way to ask a
-  compositor whether it is drawing.
-- **The Windows agent wedges after a `native_run.py` that was killed**: the
-  next run says "the program's output stopped without its exit code" until
-  the `fenestal-agent` task is ended and run again (`schtasks /end`, `/run`,
-  then ~30 s), and the first run after a boot does too. The relay's port
-  and the agent's one-run-at-a-time are the places to look.
+- **FreeBSD** compiles and has never run it: `vt(4)`'s console and the
+  system's own `poll()` on a socket are the first places the port meets a
+  system the check has not. There is no FreeBSD machine here; CI builds the
+  tree and runs nothing.
+- **Under Wayland the pointer cannot be moved**, and `FNL_MCP_WARP=1`
+  does nothing there: a client has no request for it short of the
+  pointer-constraints protocol's lock, which is the capture's.
 
 ## HDR
 

@@ -11679,8 +11679,18 @@ it, which it may refuse -- and the picture is the frame as drawn, not as
 composited, and has no cursor plane in it (`tools/drive/kms_grab.py` is the
 scanout, run as root there). Only the KMS backend keeps a pointer of its own
 that the port can move (`FnlBackendVtbl::pointer_warp`): there the cursor
-follows; under a window server the pointer is the server's, and the program
-is told of a position the cursor does not show. `stress.py` stays the check on
+follows. Under a window server the pointer is a person's, and the program is
+told of a position the cursor does not show -- unless `FNL_MCP_WARP=1`, which
+puts the real cursor there too (`xcb_warp_pointer`, `SetCursorPos`,
+`CGWarpMouseCursorPosition`; read back on Windows and macOS by the agents'
+`pointer_pos`) and so is for a desktop nobody is using. Wayland has no
+request for it, and does nothing.
+
+A display that is off or locked -- KDE's idle blank -- sends a window no
+frame callbacks, so nothing is drawn, `capture` and a waiting `events` time out
+with a line that says so, and `state.shown` is still true: the library has no
+way to ask a compositor whether it is drawing, and the port reports what the
+library knows. `stress.py` stays the check on
 all of that; the port is the check on what the library does with what it is
 handed, and the oracle beside a round that drives from outside.
 

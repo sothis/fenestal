@@ -3193,6 +3193,22 @@ static void x11_begin_resize(App *a, Edge edge)
 		p->manual_drag = (int)edge + 1;
 }
 
+/* The MCP port asks (FNL_MCP_WARP=1) for the real pointer to be put at a
+ * point of the window. The server's motion event for it comes back through
+ * pointer_at() like a hand's, which is what keeps ptr_root_x right for a
+ * move that begins from here. A captured pointer is the reticle's. */
+static void x11_pointer_warp(App *a, double x_pt, double y_pt)
+{
+	struct BackendState *p = a->backend_state;
+	if (p->captured)
+		return;
+	const int s120 = want_s120(a);
+	xcb_warp_pointer(p->conn, XCB_NONE, p->window, 0, 0, 0, 0,
+					 (int16_t)lround(pt_to_pxf(x_pt, s120)),
+					 (int16_t)lround(pt_to_pxf(y_pt, s120)));
+	xcb_flush(p->conn);
+}
+
 /* The manager holds the floor, so one that moved is restated. */
 static void x11_apply_size_bounds(App *a)
 {
@@ -3243,7 +3259,7 @@ const FnlBackendVtbl fnl_backend_x11 = {
 	.present_window_hold  = backend_noop,
 	.frame_wait           = backend_frame_wait_shown,
 	.window_on_screen     = x11_window_on_screen,
-	.pointer_warp         = backend_noop_pointer_warp,
+	.pointer_warp         = x11_pointer_warp,
 	.apply_scale          = backend_noop_apply_scale,
 	.request_size         = x11_request_size,
 	.nudge_size           = x11_nudge_size,

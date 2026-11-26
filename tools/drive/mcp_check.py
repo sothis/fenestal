@@ -284,8 +284,15 @@ def run(port, gpu=True, fullscreen=True):
     return ok.results
 
 
+def command_words(command):
+    """The words of --command, with a Windows path's backslashes left alone
+    (posix=False) and the quotes that kept words together taken off."""
+    return [w.strip("\"'") for w in shlex.split(command or "", posix=False)]
+
+
 def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(
+        description="the MCP port's check, against a running testbed")
     ap.add_argument("name", help="the environment, as the ledger names it")
     ap.add_argument("--socket")
     ap.add_argument("--command", help="a command that speaks the port on its "
@@ -295,7 +302,7 @@ def main():
     a = ap.parse_args()
     if bool(a.socket) == bool(a.command):
         ap.error("one of --socket and --command")
-    port = Port(a.socket, shlex.split(a.command or "") or None)
+    port = Port(a.socket, command_words(a.command) or None)
     try:
         results = run(port, not a.no_gpu, not a.no_fullscreen)
     finally:

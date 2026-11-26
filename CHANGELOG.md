@@ -23,7 +23,9 @@ promised: before 1.0, nothing between minor releases.
   released when it goes. No API changes -- `FnlBackendVtbl` gains
   `pointer_warp`; on Windows a consumer now links `ws2_32` as well, for the
   socket, which `fenestal::static` carries. `fenestal-mcp`, built in every
-  tree, is a socat for where there is none. DESIGN *Driven from inside*.
+  tree, is a socat for where there is none. `FNL_MCP_WARP=1` puts the real
+  cursor where the port's pointer goes under X11, Win32 and Cocoa. DESIGN
+  *Driven from inside*.
 
 - **OpenGL is gone.** The renderer, `fnl_gl.h` (`fnl_gl_proc()`,
   `fnl_gl_version()`, `fnl_gl_scene_layout()`, `fnl_gl_scene_framebuffer()`),

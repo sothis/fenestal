@@ -18,6 +18,7 @@ window is closed at the end and not killed, and what it had still to say
 arrives then.
 """
 import os
+import signal
 import subprocess
 import sys
 
@@ -39,6 +40,11 @@ def main():
     if not N.hosts():
         sys.exit("no laptop is named: FNL_DRIVE_NATIVE, or native_driver.py "
                  "--setup <name>")
+    # A kill is a way to end a run too, and the finally below is what tells
+    # the agent to stop the program: left unsaid, the agent stays inside that
+    # run and answers nothing until it ends -- the next run's "output stopped
+    # without its exit code".
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     try:
         desk = N.Native(N.hosts()[0])
     except N.Unreachable as e:

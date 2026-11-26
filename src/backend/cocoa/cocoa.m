@@ -2116,6 +2116,26 @@ static void cocoa_minimize(App *a)
 /* AppKit's own drag, which snaps and tiles as a titlebar's does, handed the
  * press that is still held: the move is asked for past the slop, a turn or
  * more after the mouse-down, and AppKit takes that one as late as this. */
+/* The MCP port asks (FNL_MCP_WARP=1) for the desktop's cursor to be put at a
+ * point of the window, in the display space's coordinates, whose origin is
+ * the top left of the main display. The move comes back as a mouseMoved like
+ * a hand's. A captured pointer is the reticle's. */
+static void cocoa_pointer_warp(App *a, double x_pt, double y_pt)
+{
+	struct BackendState *p = a->backend_state;
+	if (a->pointer_captured)
+		return;
+	@autoreleasepool {
+		const NSPoint in_view = NSMakePoint(from_pt(a, x_pt), from_pt(a, y_pt));
+		const NSPoint in_win = [VIEW(p) convertPoint:in_view toView:nil];
+		const NSPoint on_screen = [WIN(p) convertPointToScreen:in_win];
+		const CGFloat top = NSScreen.screens.firstObject.frame.size.height;
+		CGWarpMouseCursorPosition(CGPointMake(on_screen.x, top - on_screen.y));
+		/* The warp suppresses local events for a moment by default. */
+		CGAssociateMouseAndMouseCursorPosition(true);
+	}
+}
+
 static void cocoa_begin_move(App *a)
 {
 	struct BackendState *p = a->backend_state;
@@ -2321,7 +2341,7 @@ const FnlBackendVtbl fnl_backend_cocoa = {
 	.present_window_hold  = backend_noop,
 	.frame_wait         = backend_frame_wait_shown,
 	.window_on_screen   = cocoa_window_on_screen,
-	.pointer_warp         = backend_noop_pointer_warp,
+	.pointer_warp         = cocoa_pointer_warp,
 	.apply_scale        = backend_noop_apply_scale,
 	.request_size       = cocoa_request_size,
 	.nudge_size         = backend_noop,

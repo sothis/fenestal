@@ -2961,6 +2961,21 @@ static void win32_drag(App *a, WPARAM ht)
 	SendMessageW(a->backend_state->hwnd, WM_NCLBUTTONDOWN, ht, (LPARAM)pos);
 }
 
+/* The MCP port asks (FNL_MCP_WARP=1) for the desktop's cursor to be put at a
+ * point of the window; the move it makes comes back as a WM_MOUSEMOVE like a
+ * hand's. A captured pointer is the reticle's. */
+static void win32_pointer_warp(App *a, double x_pt, double y_pt)
+{
+	struct BackendState *p = a->backend_state;
+	if (a->pointer_captured)
+		return;
+	const int s120 = want_s120(a);
+	POINT at = { (LONG)lround(pt_to_pxf(x_pt, s120)),
+				 (LONG)lround(pt_to_pxf(y_pt, s120)) };
+	ClientToScreen(p->hwnd, &at);
+	SetCursorPos(at.x, at.y);
+}
+
 static void win32_begin_move(App *a)
 {
 	win32_drag(a, HTCAPTION);
@@ -3227,7 +3242,7 @@ const FnlBackendVtbl fnl_backend_win32 = {
 	.present_window_hold  = win32_present_window_hold,
 	.frame_wait           = backend_frame_wait_shown,
 	.window_on_screen     = win32_window_on_screen,
-	.pointer_warp         = backend_noop_pointer_warp,
+	.pointer_warp         = win32_pointer_warp,
 	.apply_scale          = backend_noop_apply_scale,
 	.request_size         = win32_request_size,
 	.nudge_size           = backend_noop,

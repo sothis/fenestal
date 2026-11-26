@@ -296,6 +296,7 @@ struct Mcp {
 	Sock   cur;             /* the client being served */
 	bool   initialized;     /* it has sent `initialize` */
 	bool   live;            /* it asked for the figures to be kept measured */
+	bool   warp;            /* FNL_MCP_WARP: the window server's cursor follows */
 	uint32_t key_held[KEY_HELD_WORDS];
 	unsigned button_held;   /* bit per FnlButton */
 	double   ptr_x, ptr_y;  /* where the port last put the pointer */
@@ -424,7 +425,11 @@ static void pointer_to(App *a, double x, double y)
 		return;
 	a->ptr_x = x;
 	a->ptr_y = y;
-	BACKEND(a)->pointer_warp(a, x, y);
+	/* Where the window is the output the cursor is the program's own, and
+	 * follows; under a window server it is a person's, and moves only for
+	 * FNL_MCP_WARP=1. */
+	if (a->mcp->warp || BACKEND(a)->is_output)
+		BACKEND(a)->pointer_warp(a, x, y);
 	app_pointer_motion(a, x, y);
 	deco_drag(a, a->ptr_x, a->ptr_y);
 }
@@ -2578,6 +2583,8 @@ void mcp_open(App *a)
 		return;
 	}
 	m->app       = a;
+	m->warp      = want_of(getenv("FNL_MCP_WARP") ? getenv("FNL_MCP_WARP")
+												  : "0") == MCP_DEFAULT;
 	m->listen_fd = SOCK_NONE;
 	m->cur       = SOCK_NONE;
 	m->addr.sun_family = AF_UNIX;

@@ -428,9 +428,22 @@ class Native(Desk):
         self.pending = None
         # One string, quoted as the C runtime there will split it.
         line = subprocess.list2cmdline(args)
-        self.ask(verb, self.relay_port, _b64(exe),
-                 _b64(line) if line else "-",
-                 *[_b64("%s=%s" % kv) for kv in sorted(env.items())])
+        # The agent answers once the program has started, and a program that
+        # was just copied over starts slowly -- 16 s measured, for a 12 MB
+        # testbed that nothing had run yet -- where a question gets 20 s. An
+        # answer that came late is no answer (ask() hangs up), and the run
+        # that was begun is lost with it.
+        sock = self.sock
+        was = sock.gettimeout() if sock else None
+        if sock:
+            sock.settimeout(90.0)
+        try:
+            self.ask(verb, self.relay_port, _b64(exe),
+                     _b64(line) if line else "-",
+                     *[_b64("%s=%s" % kv) for kv in sorted(env.items())])
+        finally:
+            if self.sock:
+                self.sock.settimeout(was)
 
     def spawn(self, exe, args=(), log=None):
         """Start a program on the desktop and leave it there: its two
