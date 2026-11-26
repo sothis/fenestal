@@ -13,15 +13,10 @@
  *
  *   cc -std=gnu11 -O2 -Iinclude tools/probe/drivermove.c \
  *      build/linux/release/libfenestal.a -lm -lpthread -ldl -o drivermove
- *   FNL_BACKEND=kms FNL_GPU_DRIVER=switch ./drivermove [moves] [gl]
- *                                                    [land-gl]
+ *   FNL_BACKEND=kms FNL_GPU_DRIVER=switch ./drivermove [moves]
  *
  * The list has a move entry for each renderer; the one asked for is
- * Vulkan's, or with `land-gl` OpenGL's, which lands on NVIDIA's own OpenGL
- * or on Zink's on nouveau. With `gl`, before each move the window is put
- * on OpenGL on the NVIDIA GPU, by the OpenGL entry that names it, so every
- * move starts from OpenGL, and OpenGL's entries are seen listed again
- * after each.
+ * Vulkan's.
  *
  * Exit status 0 when every move landed on another driver's GPU, 1 when one
  * did not or the window stopped drawing for MOVE_LIMIT.
@@ -37,9 +32,8 @@
 #define MOVE_LIMIT  30.0    /* a move not done in this is a failure */
 
 typedef struct {
-	int    moves, done, frames, gl_switches;
-	bool   printed, moving, failed, gl, to_gl;
-	FnlRenderer land;
+	int    moves, done, frames;
+	bool   printed, moving, failed;
 	double asked_at, settled_at, last_frame, gap;
 	char   before[256], target[256];
 } Probe;
@@ -55,27 +49,10 @@ static void print_list(FnlApp *app, double t)
 	fflush(stdout);
 }
 
-/* The OpenGL entry that names the NVIDIA GPU, or -1. */
-static int gl_entry(FnlApp *app)
+static int move_entry(FnlApp *app)
 {
 	for (int i = 0; i < fnl_gpu_count(app); i++)
-		if (fnl_gpu_renderer_at(app, i) == FNL_RENDERER_OPENGL &&
-			strstr(fnl_gpu_name_at(app, i), "NVIDIA") &&
-			!strstr(fnl_gpu_name_at(app, i), ", on "))
-			return i;
-	return -1;
-}
-
-static bool on_gl_nvidia(FnlApp *app)
-{
-	return strcmp(fnl_renderer_name(app), "OpenGL") == 0 &&
-		   strstr(fnl_gpu_name(app), "NVIDIA") != NULL;
-}
-
-static int move_entry(FnlApp *app, FnlRenderer land)
-{
-	for (int i = 0; i < fnl_gpu_count(app); i++)
-		if (fnl_gpu_renderer_at(app, i) == land &&
+		if (fnl_gpu_renderer_at(app, i) == FNL_RENDERER_VULKAN &&
 				strstr(fnl_gpu_name_at(app, i), ", on "))
 			return i;
 	return -1;
@@ -100,25 +77,9 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		print_list(app, t);
 	}
 
-	if (p->to_gl) {
-		if (on_gl_nvidia(app)) {
-			printf("%7.3f  on OpenGL in %.2f s: \"%s\"\n", t,
-				   t - p->asked_at, fnl_gpu_name(app));
-			fflush(stdout);
-			p->to_gl = false;
-			p->gl_switches++;
-			p->settled_at = t;
-		} else if (t - p->asked_at > MOVE_LIMIT) {
-			printf("%7.3f  not on OpenGL on the NVIDIA GPU after %.0f s\n",
-				   t, MOVE_LIMIT);
-			p->failed = true;
-			fnl_quit(app);
-		}
-		return;
-	}
 	if (p->moving) {
 		/* Landed: a frame drawn on the GPU the entry named, under a name
-		 * other than before -- Zink's holds it within its own. The GPU
+		 * other than before. The GPU
 		 * drawn on while the move is made has a name of its own, and is
 		 * no landing. */
 		const char *now = fnl_gpu_name(app);
@@ -147,27 +108,7 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 		fnl_quit(app);
 		return;
 	}
-	/* OpenGL first, once its entries are listed again after a move. */
-	if (p->gl && !on_gl_nvidia(app)) {
-		const int k = gl_entry(app);
-		if (k < 0) {
-			if (t - p->settled_at > MOVE_LIMIT) {
-				printf("%7.3f  no OpenGL entry for the NVIDIA GPU after "
-					   "%.0f s\n", t, MOVE_LIMIT);
-				p->failed = true;
-				fnl_quit(app);
-			}
-			return;
-		}
-		printf("%7.3f  asking for %d: %s (OpenGL)\n", t, k,
-			   fnl_gpu_name_at(app, k));
-		fflush(stdout);
-		p->asked_at = t;
-		p->to_gl = true;
-		fnl_request_gpu(app, k);
-		return;
-	}
-	const int i = move_entry(app, p->land);
+	const int i = move_entry(app);
 	if (i < 0) {
 		printf("%7.3f  no \"<GPU>, on <driver>\" entry: FNL_GPU_DRIVER "
 			   "unset, or not the KMS backend\n", t);
@@ -201,13 +142,6 @@ int main(int argc, char **argv)
 	Probe p;
 	memset(&p, 0, sizeof p);
 	p.moves = argc > 1 ? atoi(argv[1]) : 2;
-	p.land = FNL_RENDERER_VULKAN;
-	for (int i = 2; i < argc; i++) {
-		if (strcmp(argv[i], "gl") == 0)
-			p.gl = true;
-		else if (strcmp(argv[i], "land-gl") == 0)
-			p.land = FNL_RENDERER_OPENGL;
-	}
 
 	FnlInitDesc desc;
 	memset(&desc, 0, sizeof desc);
@@ -227,7 +161,6 @@ int main(int argc, char **argv)
 	cb.on_overlay = on_overlay;
 	const FnlResult rc = fnl_run(app, &cb);
 	fnl_shutdown(app);
-	printf("%d moves of %d, %d onto OpenGL\n", p.done, p.moves,
-		   p.gl_switches);
+	printf("%d moves of %d\n", p.done, p.moves);
 	return rc < 0 || p.failed || p.done < p.moves;
 }

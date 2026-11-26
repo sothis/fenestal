@@ -36,8 +36,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HEADERS = ('include/fenestal/fenestal.h', 'include/fenestal/fnl_vulkan.h',
-           'include/fenestal/fnl_gl.h', 'include/fenestal/fnl_d3d12.h',
-           'include/fenestal/fnl_metal.h')
+           'include/fenestal/fnl_d3d12.h', 'include/fenestal/fnl_metal.h')
 # What a program is written in here: C, and Objective-C where Metal is.
 SOURCES = ('.c', '.m')
 SNIPPETS = 'examples'
@@ -328,7 +327,7 @@ def render(all_sections, snips, version):
     nav, body = [], []
     body.append('<h1>Fenestal %s API reference</h1>' % version)
     body.append('<p class="mute">Generated from <code>fenestal.h</code>, '
-                '<code>fnl_vulkan.h</code>, <code>fnl_gl.h</code>, '
+                '<code>fnl_vulkan.h</code>, '
                 '<code>fnl_d3d12.h</code> and <code>fnl_metal.h</code> by '
                 '<code>tools/mkapidoc.py</code>;'
                 ' the headers are the authority. Every example below is a '

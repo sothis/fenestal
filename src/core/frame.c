@@ -83,7 +83,7 @@
 /* Samples in a row that an estimate under PACE_UNTHROTTLED of the refresh
  * drops as missed cycles, agreeing to PERIOD_EARLY_TOL, that replace it: a
  * missed cycle is one sample, and this many alike is a swap that blocks
- * after all. Mesa's OpenGL on schenker's Xorg lets the first half second
+ * after all. Mesa on schenker's Xorg lets the first half second
  * through unthrottled, 254 fps, and blocks for the refresh ever after; the
  * first settled sample was the burst's 1.06 ms. DESIGN *Late latching*. */
 #define PERIOD_RELEARN_RUN 8
@@ -874,7 +874,7 @@ static void device_recover(App *a)
 	 * move as the way there was, the surface made again with the rest
 	 * (gpu_switch_owed()): one that failed after its surface was made has
 	 * left only the device's loss raised, and a recovery from that alone
-	 * keeps the GPU that failed, on OpenGL whose display is one device's. */
+	 * keeps the GPU that failed. */
 	if (a->gpu_switching && !a->gpu_switch_back) {
 		fnl_log(FNL_LOG_WARN,
 				"the GPU asked for would not draw here (%s); "
@@ -1157,11 +1157,11 @@ static bool pace_space(App *a, double period, bool every)
  * Where the present is the only throttle, the graphics API keeps what it
  * likes waiting ahead of the screen: Mesa's X11 Vulkan WSI three frames,
  * 54 ms from a frame's latch to the screen on schenker's Xorg and this
- * desk's XWayland, where OpenGL's swap keeps one, 21 ms. So the frame is
+ * desk's XWayland. So the frame is
  * held ahead of its latch until the window server says the one before it
  * is on the screen (app_frame_answered()), and is latched, drawn and
- * presented in the refresh that follows: 16.4 to 16.5 ms there for Vulkan,
- * OpenGL and NVIDIA's own driver alike, the rate unchanged. Not by the
+ * presented in the refresh that follows: 16.4 to 16.5 ms there for Vulkan with
+ * Mesa's and NVIDIA's own driver alike, the rate unchanged. Not by the
  * graphics API's own wait for a present: asked every frame, Mesa's X11
  * WSI stalled the loop under ThreadSanitizer, and NVIDIA's driver has
  * none. That leaves the frame no overlap with the one before; one whose
@@ -1248,7 +1248,7 @@ static void display_hold(App *a)
 		a->display_misses = 0;
 	}
 	/* pace_period()'s, floored at the refresh: an estimate taken while the
-	 * swapchain did not throttle (Mesa GL's first half second, vblank_mode=0)
+	 * swapchain did not throttle (Mesa's first half second, vblank_mode=0)
 	 * would cap each wait at a millisecond and read every frame as missed. */
 	bool every;
 	const double period = pace_period(a, &every);

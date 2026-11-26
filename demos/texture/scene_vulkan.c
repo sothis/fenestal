@@ -12,7 +12,7 @@
  * Every entry point is asked of the library's loader
  * (FnlVulkanGpu::get_instance_proc_addr), never linked: a program that
  * imports the loader does not start on a machine without one, where the
- * library would have drawn with OpenGL instead.
+ * library would have drawn with another renderer instead.
  */
 
 /* No Vulkan prototypes: a call to an entry SCENE_VK_FNS does not name is a

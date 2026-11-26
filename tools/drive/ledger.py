@@ -55,8 +55,8 @@ IN_USE = "GPU in use: "
 # Where the opening is over: the first move to another GPU (frame.c), and
 # the other renderers' GPUs listed beside the first frame (app.c), whose
 # lines are no longer the starting renderer's inventory. Such a listing
-# also comes ahead of that inventory where GL draws or the backend shares
-# a driver (gpu_list_early()): only one after the inventory ends it, and
+# also comes ahead of that inventory where the backend shares a driver
+# (gpu_list_early()): only one after the inventory ends it, and
 # there, where none follows, a second run of GPU lines does (device()).
 OPENED = re.compile(r"^(moving to |\S.* lists \d+ GPUs? here)")
 
@@ -145,8 +145,7 @@ def layer():
 def record(instrument, env, variant, **what):
     """Append a line. A ledger that cannot be written costs one line of
     output and never the round. `layer` is the environment's (layer()) unless
-    the caller says otherwise: a program that draws with OpenGL loads no
-    Vulkan layer whatever the environment asks."""
+    the caller says otherwise."""
     if not PATH:
         return
     head, dirty = commit()

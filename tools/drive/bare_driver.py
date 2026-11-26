@@ -341,9 +341,7 @@ EXIT_TAG = "FNL_REMOTE_EXIT "
 # connection is reported (schenker, not aspire), which lsan.supp keys on.
 # And Mesa's EGL, which NVIDIA's Vulkan driver loads through glvnd to find
 # its GPU and the loader unloads with it: its device list, drmGetDevices2's,
-# is otherwise lost at every instance (4 KB, aspire). The library keeps
-# Mesa's EGL itself after its own spells (static TLS, DESIGN *OpenGL, and
-# glvnd closed between its spells*); it holds no device. Where each is, is
+# is otherwise lost at every instance (4 KB, aspire). Where each is, is
 # DISTROS'. Where such a round starts on NVIDIA's driver no leak is looked
 # for at all: NVIDIA's Vulkan driver, opened and unloaded with nothing of it
 # kept, leaves blocks whose every frame is in a module gone by exit (two of
@@ -376,8 +374,8 @@ ALSO_PINNED = ("/usr/lib/libvulkan_broadcom.so",)
 # --setup fetches (DEBUGINFO), never NVIDIA's closed one. Not the
 # validation layer: it exports the loader's own entry points
 # (vkGetInstanceProcAddr, vkEnumerateInstanceExtensionProperties), which
-# preloaded take the loader's place for every caller -- Zink's instance
-# then failed at its first call -- where a driver exports only the
+# preloaded take the loader's place for every caller -- another library's
+# instance then failed at its first call -- where a driver exports only the
 # vk_icd* names the loader looks up in it alone.
 TSAN_PRELOADED = ("libvulkan_*.so", "libgallium*.so", "libEGL_mesa.so.0")
 
@@ -902,13 +900,12 @@ class Bare:
         """NVIDIA's userspace in place (`wanted`), or where this boot puts
         it, as root; said where anything moved. A round on a kernel driver
         wants it: on the keys' nouveau boot it is aside, and a move onto
-        NVIDIA's module would land on no Vulkan driver, NVIDIA's OpenGL
-        not be there at all, and the program would draw on the integrated
-        GPU. Every other round asks for the boot's, so one cut short
-        leaves it in place for no later round; the boot's unit is that
-        rule's own, run again. A machine without the unit has no boot that
-        puts it aside, so there it is put back either way: only
-        nvidia_userspace_aside() moved it."""
+        NVIDIA's module would land on no Vulkan driver, and the program
+        would draw on the integrated GPU. Every other round asks for the
+        boot's, so one cut short leaves it in place for no later round; the
+        boot's unit is that rule's own, run again. A machine without the
+        unit has no boot that puts it aside, so there it is put back either
+        way: only nvidia_userspace_aside() moved it."""
         files = " ".join(NVIDIA_FILES)
         # Every move that fails ends the shell: the closing count below would
         # otherwise make the status 0 and the round go on with the files
@@ -2715,8 +2712,8 @@ fi
 # DEBUGINFO_WHY: the distributions strip their Vulkan drivers, so a
 # checker's report names no frame inside one, and an entry in tsan.supp can
 # only key on the whole library -- which every Vulkan call of ours passes
-# through. The same holds for Mesa's OpenGL (libgallium, which Zink,
-# iris and llvmpipe all are, and the EGL vendor library in front of it)
+# through. The same holds for Mesa's libgallium (which iris and llvmpipe
+# are, and the EGL vendor library in front of it)
 # and for the Vulkan layers, whose own locks a report can name. With the
 # debug info where libbacktrace looks for it (/usr/lib/debug/.build-id/),
 # GCC's sanitizers name the driver's own functions, and an entry can key

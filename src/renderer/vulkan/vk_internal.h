@@ -153,7 +153,7 @@ typedef struct VkBridge {
 	/* Whether the window server has said the window is covered, where it
 	 * says so and a present there is one to skip
 	 * (FnlRendererVtbl::occluded): AppKit's occlusion state on a Mac, read
-	 * as Metal's and OpenGL's bridges read it. NULL elsewhere, where the
+	 * as Metal's bridge reads it. NULL elsewhere, where the
 	 * answer is no. */
 	bool (*occluded)(const App *a);
 } VkBridge;
@@ -267,8 +267,8 @@ _Static_assert(offsetof(TextPush, texel_u) == 12, "TextPush layout drifted");
  * and the extent its shader divides by. Not OverlayPush's: an image is placed
  * rather than instanced, so the rectangle travels with the draw. std430 puts
  * the vec4 first at 0 and the vec2 at 16, and rounds the block to 16, which
- * is what the trailing pad holds -- the same offsets the GL renderer's std140
- * uniform block gets, which is what lets one shader serve both. */
+ * is what the trailing pad holds -- the same offsets Direct3D 12's cbuffer
+ * and Metal's constant block get, which is what lets one shader serve all. */
 typedef struct {
 	float rect[4];      /* x, y, w, h -- pixels */
 	float screen[2];    /* framebuffer size, pixels */

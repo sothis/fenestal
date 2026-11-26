@@ -5,8 +5,8 @@
  *
  * The KMS backend's state, behind App::backend_state: no window server, so
  * this is the display's DRM node, the one output a window has whole, and the
- * evdev devices it reads itself. For kms.c, kms_driver.c and the two bridges
- * onto KMS, Vulkan's and OpenGL's, alone.
+ * evdev devices it reads itself. For kms.c, kms_driver.c and the bridge
+ * onto KMS, Vulkan's, alone.
  */
 
 #ifndef FNL_KMS_STATE_H
@@ -85,13 +85,11 @@ typedef struct {
 	unsigned     max_lum;
 } KmsOutput;
 
-/* A pair of dumb buffers of one mode's size: the copy path's scanout, the
- * OpenGL bridge's, which the GPU draws into (kms_scan_export()), and the
+/* A pair of dumb buffers of one mode's size: the copy path's scanout and the
  * backend's own frame on an output a driver let go (kms_scanout_take()).
- * Shown one while the other is written. `gen` names each buffer apart
- * from every other made (BackendState::scan_gen). */
+ * Shown one while the other is written. */
 typedef struct {
-	uint32_t      handle[2], fb[2], gen[2];
+	uint32_t      handle[2], fb[2];
 	unsigned char *map[2];
 	size_t        size;
 	uint32_t      pitch;
@@ -405,7 +403,6 @@ struct BackendState {
 	uint32_t     scan_crtc;
 
 	KmsScan      scan, scan_old;
-	uint32_t     scan_gen;
 	/* Pairs let go while a CRTC still showed one: an output gone dark keeps
 	 * the backend's frame on its plane (kms_output_off(), DPMS). Freed once
 	 * nothing shows them, and at close (scan_release()). */
@@ -534,24 +531,6 @@ void kms_sel_shown(App *a, int sel);
 void kms_output_off(App *a, int out, int shown, bool unbind);
 void kms_scanout_take(App *a);
 
-/* [render] In kms.c. The scanout pair for a bridge that draws into it on
- * the GPU (egl_kms.c): the buffer the frame goes into, -1 where this frame
- * shows nothing (dropped, or refused, as the copy path's would be); one of
- * the pair as a dma-buf, -1 where the kernel will not export it, and the
- * key naming it without the export; and the buffer put on the screen,
- * waited out under vsync. The format is a DRM fourcc and the layout
- * linear, so the bridge names nothing of DRM's. */
-typedef struct {
-	int      w, h;
-	uint32_t pitch, fourcc, key;
-} KmsScanBuf;
-int kms_scan_begin(App *a);
-int kms_scan_export(App *a, int i, KmsScanBuf *out);
-uint32_t kms_scan_key(App *a, int i);
-/* And what buffer `i` holds at its first and its last pixel, read through
- * the backend's own mapping: whether a GPU's writes reach it. */
-bool kms_scan_peek(App *a, int i, uint32_t *first, uint32_t *last);
-void kms_scan_show(App *a, int back);
 /* Whether the output the copy path will scan out can take HDR, and the light
  * it says it has: the EDID's HDR static metadata block and the connector's
  * HDR_OUTPUT_METADATA property, read afresh with the output list. `max_lum`

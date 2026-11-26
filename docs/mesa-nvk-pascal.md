@@ -26,7 +26,7 @@ before, Mesa #16729, "NVK: Textures corrupted after runtime
 suspend/resume on Quadro K3100M (GK104)" (opened 2026-10-30, label NVK,
 no comments): Mesa 26.2.5 and main, kernel 7.2.12, `power/control=auto`
 at 5000 ms; `vkcube --use_staging` reproduces it, linear textures and
-`power/control=on` do not, nouveau's OpenGL does not; and fprobe traces
+`power/control=on` do not; and fprobe traces
 show the suspend moving the buffers from VRAM to system memory with their
 page kind (0xfe) kept, and nothing moved back after resume. So the first
 place is now **a comment on #16729** (section 3), which adds Pascal,

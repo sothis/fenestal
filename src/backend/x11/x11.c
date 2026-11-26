@@ -2654,16 +2654,14 @@ static void x11_frame_cancel(App *a)
 static void x11_flush(App *a)
 {
 	struct BackendState *p = a->backend_state;
-	/* Only after a present since the ack: app_surface_sync() can flush
-	 * between the two. Not while the renderer still waits for that
-	 * present's frame to be shown (App::ack_held): x11_ack_release() is
-	 * then the one that sets it. Where it does not wait -- OpenGL, whose
-	 * eglSwapBuffers returns before the server has the frame, as Mesa's
-	 * Vulkan present does -- the value is kept for Present's completion of
-	 * this frame (x11_sync_answered()), which the pump's turn bounds, so
-	 * the manager sees it only once the frame is shown (DESIGN *X11: xcb,
-	 * not Xlib*). Not where the window's presents go unanswered
-	 * (present_live). */
+	/* Only after a present since the ack: app_surface_sync() can flush between
+	 * the two. Not while the renderer still waits for that present's frame to
+	 * be shown (App::ack_held): x11_ack_release() is then the one that sets it.
+	 * Where it does not wait -- Mesa's Vulkan present returns before the server
+	 * has the frame -- the value is kept for Present's completion of this frame
+	 * (x11_sync_answered()), which the pump's turn bounds, so the manager sees
+	 * it only once the frame is shown (DESIGN *X11: xcb, not Xlib*). Not where
+	 * the window's presents go unanswered (present_live). */
 	bool kept = false, sent = false;
 	fnl_mutex_lock(&p->sync_lock);
 	if (a->presents > p->sync_presents && !fnl_atomic_load_bool(&a->ack_held) &&

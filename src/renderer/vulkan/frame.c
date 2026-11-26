@@ -663,7 +663,7 @@ static bool record_command_buffer(App *a, VkCommandBuffer cb, uint32_t img,
 		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, parts,
 							4 * img + 3);
 	/* The copy path's readback is work every frame on that path costs, so
-	 * the GPU's time on the frame holds it, as OpenGL's holds its own; a
+	 * the GPU's time on the frame holds it; a
 	 * snapshot's copy, once a move, is no part of drawing the frame and
 	 * comes after the end stamp (DESIGN *What a frame costs, compared*). */
 	if (VK(a)->present_copy)

@@ -1129,7 +1129,7 @@ _Static_assert(RENDERER_COUNT <= GPU_SPAN_MAX,
 static int gpu_slot(App *a, const FnlRendererVtbl *r) FNL_REQUIRES(a->lock);
 static void gpu_merge(App *a) FNL_REQUIRES(a->lock);
 
-/* "d3d12, vulkan, gl": what a refusal says the build has. */
+/* "d3d12, vulkan": what a refusal says the build has. */
 static void renderer_keys(char *out, size_t size)
 {
 	out[0] = '\0';
@@ -1388,16 +1388,14 @@ static bool gpu_spanned(App *a, const FnlRendererVtbl *r)
 }
 
 /* A move to another kernel driver drawn across (DESIGN *Drawn across the
- * move*): Vulkan built on the drivers that open nothing of the GPU moved
- * -- Mesa's for Intel's and AMD's GPUs and its CPU rasteriser, every
- * instance made meanwhile of them alone (App::gpu_cross) -- shown to hold
- * nothing of it, and the move started on a thread of its own. Vulkan
- * whichever renderer the move lands on: OpenGL's glvnd loads NVIDIA's EGL
- * beside Mesa's for every display, and that holds the GPU. True where all
- * three are done; false with nothing built and the choice as it was, the
- * move then made with the frames paused, and every later move with them,
- * since what would not cross once will not the next time -- or this one
- * alone, for a caller with no Vulkan scene to draw across with. */
+ * move*): Vulkan built on the drivers that open nothing of the GPU moved --
+ * Mesa's for Intel's and AMD's GPUs and its CPU rasteriser, every instance made
+ * meanwhile of them alone (App::gpu_cross) -- shown to hold nothing of it, and
+ * the move started on a thread of its own. Vulkan whichever renderer the move
+ * lands on. True where all three are done; false with nothing built and the
+ * choice as it was, the move then made with the frames paused, and every later
+ * move with them, since what would not cross once will not the next time -- or
+ * this one alone, for a caller with no Vulkan scene to draw across with. */
 static bool renderer_cross(App *a, const GpuDriver *g)
 {
 	const FnlRendererVtbl *to = renderer_of_api(FNL_RENDERER_VULKAN);
@@ -1479,9 +1477,7 @@ static void gpu_list_early(App *a, uint32_t scenes,
 /* The GPU on another driver and the renderer not yet built on it: what the
  * other renderers listed before is the old driver's, so it is dropped, and
  * listed again here where gpu_list_early() would have listed it at the
- * window's start -- for an OpenGL landing, since a Vulkan instance made
- * beside NVIDIA's live EGL display terminates it, and the listing after
- * the first frame (app_gpu_list_others()) would be that. */
+ * window's start, as gpu_list_early() would have listed it. */
 static void gpu_relist_landing(App *a, const FnlRendererVtbl *to)
 {
 	uint32_t scenes = 0;
@@ -1498,14 +1494,11 @@ void renderer_swap(App *a)
 	const FnlRendererVtbl *from = a->renderer;
 	const FnlRendererVtbl *to   = a->renderer_next;
 	a->renderer_next            = NULL;
-	/* With the moves offered, the listing ends first: OpenGL torn down
-	 * while it lists Vulkan's GPUs closes glvnd with NVIDIA's Vulkan
-	 * driver mapped, which the close then keeps for the process's life
-	 * (egl_dyn.c), where a move rests on each instance starting it
-	 * afresh. And before the GPUs are listed again after one came or went
-	 * (gpu_relist_landing()): that rewrites what a listing still running
-	 * reads, and the listing after it is started over this one's handle,
-	 * which nothing would join then. */
+	/* With the moves offered, the listing ends first, and before the GPUs
+	 * are listed again after one came or went (gpu_relist_landing()): that
+	 * rewrites what a listing still running reads, and the listing after
+	 * it is started over this one's handle, which nothing would join
+	 * then. */
 	if ((a->gpu_drivers_on || a->gpu_hotplug_relist) && a->lister_started) {
 		fnl_thread_join(a->lister);
 		a->lister_started = false;
@@ -1577,8 +1570,7 @@ void renderer_swap(App *a)
 		/* The other renderers' GPUs listed again once a GPU is on another
 		 * driver, or a GPU came or went: what it is called, and who can
 		 * draw on it, are the driver's. Not on the way back, where the
-		 * list stands -- and a listing's Vulkan instance beside OpenGL's
-		 * display would terminate it (gpu_list_early()). */
+		 * list stands. */
 		if (relist)
 			a->gpu_others_listed = false;
 		a->gpu_driver_moved = false;
@@ -1633,7 +1625,9 @@ static uint32_t renderer_scenes(const FnlInitDesc *d)
 		return (unsigned)d->renderer < 32 ? FNL_RENDERER_BIT(d->renderer) : 0;
 	if (d->renderers)
 		return d->renderers;
-	return (RENDERER_COUNT == 1) ? FNL_RENDERER_BIT(RENDERERS[0]->api) : 0;
+	if ((RENDERER_COUNT == 1))
+		return FNL_RENDERER_BIT(RENDERERS[0]->api);
+	return 0;
 }
 
 /* Whether renderer `i` of the build is one the list spans: the caller has
@@ -1717,22 +1711,16 @@ static int gpu_listed(App *a, const FnlRendererVtbl *r, GpuEntry *out,
 }
 
 /* Where the renderers share one driver underneath (FnlBackendVtbl::
- * shared_driver), and wherever OpenGL is the renderer to draw, every
- * renderer the list spans but `drawing` is listed before `drawing` is
- * built, and what each said is what app_gpu_list_others() publishes.
- * Listed after the first frame, beside it, a Vulkan instance made and
- * destroyed while vkd3d-proton waits on a present took NVIDIA's Wayland
- * driver down with a null call; and one made and destroyed beside
- * NVIDIA's live EGL display leaves that display terminated -- every
- * eglMakeCurrent after it EGL_NOT_INITIALIZED, the frames going on only
- * while the context stays current (tools/probe/eglmove.c, 580.196.07, no
- * window server) -- so Vulkan's drivers are asked before OpenGL opens
- * one. One that fails to build is listed before the next is tried, so
- * each is listed once. */
+ * shared_driver), every renderer the list spans but `drawing` is listed before
+ * `drawing` is built, and what each said is what app_gpu_list_others()
+ * publishes. Listed after the first frame, beside it, a Vulkan instance made
+ * and destroyed while vkd3d-proton waits on a present took NVIDIA's Wayland
+ * driver down with a null call. One that fails to build is listed before the
+ * next is tried, so each is listed once. */
 static void gpu_list_early(App *a, uint32_t scenes,
 						   const FnlRendererVtbl *drawing)
 {
-	if (!BACKEND(a)->shared_driver(a) && drawing->api != FNL_RENDERER_OPENGL)
+	if (!BACKEND(a)->shared_driver(a))
 		return;
 	for (size_t i = 0; i < RENDERER_COUNT; i++) {
 		const FnlRendererVtbl *r = RENDERERS[i];
@@ -1771,7 +1759,7 @@ static const FnlRendererVtbl *hardware_in(App *a, const FnlRendererVtbl **cand,
 
 /* The order's correction (DESIGN *The choice is an order*): a renderer
  * that built on a software rasteriser gives way to a later one that lists
- * hardware -- Vulkan with lavapipe alone where OpenGL has the GPU. Asked
+ * hardware -- Direct3D 12 on WARP where Vulkan has the GPU. Asked
  * only then, so a machine whose first renderer found hardware lists
  * nothing at startup; and only where no GPU was named, which a software
  * one may be on purpose. Where the other will not build, the first is
@@ -2571,7 +2559,7 @@ const char *app_gpu_short(char *out, size_t size, const char *name)
 {
 	size_t i = at(name, 0, "Mesa ") ? 5 : 0, o = 0;
 	/* Up to the driver's detail, which is the first " (" -- or NVIDIA's
-	 * "/PCIe/SSE2" behind its GL renderer, cut at "/PCI" and not at any
+	 * "/PCIe/SSE2" behind NVIDIA's name, cut at "/PCI" and not at any
 	 * slash, which a model name may have ("280/280X"). "(R)" and "(TM)"
 	 * follow a word with no space, and are left out as they come. */
 	while (name[i] && o + 1 < size) {
@@ -3036,12 +3024,11 @@ static void *gpu_lister(void *arg)
 	return NULL;
 }
 
-/* Off the render thread: listing loads drivers, which took up to 456 ms
- * on the laptops' Windows, a frame held that long just after the window
- * opened; and a driver loaded there may leave that thread's context to
- * itself -- Vulkan's, NVIDIA's 580 among them, left OpenGL's not current.
- * Joined in render_thread_stop(), before anything it reads is torn down.
- * Where no thread will start, listed here and the renderer entered again. */
+/* Off the render thread: listing loads drivers, which took up to 456 ms on the
+ * laptops' Windows, a frame held that long just after the window opened; and a
+ * driver loaded there may leave that thread's context to itself. Joined in
+ * render_thread_stop(), before anything it reads is torn down. Where no thread
+ * will start, listed here and the renderer entered again. */
 void app_gpu_list_start(App *a)
 {
 	a->gpu_others_listed = true;
@@ -3774,13 +3761,12 @@ static FnlResult window_start(App *a)
 		RENDERER(a)->thread_enter(a);
 	app_aa_settle(a);
 	a->in_run = true;
-	/* A device that did not survive the enter -- a display terminated between
-	 * fnl_init() and here, which the GL renderer meets as a refused
-	 * eglMakeCurrent -- is not handed to the caller: the loop's
-	 * device_recover() makes one and delivers the first on_gpu_created
-	 * itself, on the render thread, as it does after every later loss. Nor
-	 * is a window still owed a renderer (a swap that failed both ways): its
-	 * first on_gpu_created comes with renderer_owed_retry()'s build. */
+	/* A device that did not survive the enter is not handed to the caller:
+	 * the loop's device_recover() makes one and delivers the first
+	 * on_gpu_created itself, on the render thread, as it does after every
+	 * later loss. Nor is a window
+	 * still owed a renderer (a swap that failed both ways): its first
+	 * on_gpu_created comes with renderer_owed_retry()'s build. */
 	const bool created = a->renderer && a->renderer_ready &&
 						 !RENDERER(a)->lost(a);
 	if (created) {

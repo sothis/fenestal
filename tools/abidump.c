@@ -28,7 +28,6 @@
  */
 
 #include <fenestal/fenestal.h>
-#include <fenestal/fnl_gl.h>
 /* Metal's header is plain C outside Objective-C, so its structs are in every
  * dump; Vulkan's are only where the tree has Vulkan's headers, and Direct3D
  * 12's only where the build has that renderer (FNL_ABI_D3D12), each set
@@ -229,10 +228,6 @@ int main(int argc, char **argv)
 	F(FnlVulkanSceneLayout, color_format);
 	F(FnlVulkanSceneLayout, depth_format);
 #endif
-	S(FnlGlSceneLayout);
-	F(FnlGlSceneLayout, samples);
-	F(FnlGlSceneLayout, color_format);
-	F(FnlGlSceneLayout, depth_format);
 	S(FnlMetalGpu);
 	F(FnlMetalGpu, device);
 	F(FnlMetalGpu, queue);
@@ -277,7 +272,6 @@ int main(int argc, char **argv)
 	E(FNL_LOG_DEBUG);
 	E(FNL_RENDERER_DEFAULT);
 	E(FNL_RENDERER_VULKAN);
-	E(FNL_RENDERER_OPENGL);
 	E(FNL_RENDERER_D3D12);
 	E(FNL_RENDERER_METAL);
 	/* A macro and not an enum, but a value a compiled caller passes. */

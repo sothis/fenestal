@@ -4,10 +4,9 @@
  * Copyright (c) 2026 Janos Sonntag
  *
  * Everything about the Cocoa backend that no other file may see, and what
- * the three bridges -- src/renderer/metal/surface_cocoa.m,
- * src/renderer/vulkan/surface_cocoa.c and src/renderer/gl/cgl.m -- read of
- * it: the layer the frame is presented into, and whether the window is
- * covered.
+ * the two bridges -- src/renderer/metal/surface_cocoa.m and
+ * src/renderer/vulkan/surface_cocoa.c -- read of it: the layer the frame is
+ * presented into, and whether the window is covered.
  *
  * C as well as Objective-C, because the Vulkan bridge is a .c file: every
  * AppKit object is held here as a `void *` owning one reference

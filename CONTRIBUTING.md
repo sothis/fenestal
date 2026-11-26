@@ -120,8 +120,8 @@ Some changes are a row in several places, and each is listed in one spot:
 - **A new fallback path** gets a fault site, `FNL_FAULT("name")`, and a row in
   `src/core/fault.c`, so it can be forced in a Debug tree.
 - **A new call into a runtime the library opens** (the Vulkan loader,
-  `libEGL`, `libwayland-client`, `libxcb`) gets a row in that runtime's list
-  (`vk_fns.h`, `egl_dyn.h`, `wl_dyn.h`, `xcb_dyn.h`).
+  `libwayland-client`, `libxcb`) gets a row in that runtime's list
+  (`vk_fns.h`, `wl_dyn.h`, `xcb_dyn.h`).
 - **A push-constant or instance struct** changes in the shader, the C struct
   and its `_Static_assert` together.
 
@@ -200,7 +200,7 @@ The surrounding file is the authority, and [`CLAUDE.md`](CLAUDE.md) *House
 style* has the full list. In summary:
 
 - **C11**, linking nothing beyond the system's own libraries. Every other
-  runtime -- the Vulkan loader, `libEGL`, `libwayland-client`, `libxcb` -- is
+  runtime -- the Vulkan loader, `libwayland-client`, `libxcb` -- is
   opened at run time, never linked. A patch that adds a library to the link
   line will be asked to open it instead, or to run it as a subprocess.
 - **Tabs for indentation** in C, Objective-C and GLSL, four columns wide
@@ -253,7 +253,7 @@ Wayland: a refused present the compositor said was shown is counted
 harness: the validation layer under wine; a wine Direct3D 12 resize expected
 ```
 
-Common scopes: `Wayland`, `X11`, `Win32`, `Cocoa`, `KMS`, `Vulkan`, `GL`,
+Common scopes: `Wayland`, `X11`, `Win32`, `Cocoa`, `KMS`, `Vulkan`,
 `D3D12`, `Metal`, `testbed`, `harness`, `docs`, `TODO`. Keep one logical
 change per commit, and put the reasoning in the body when the subject cannot
 carry it.

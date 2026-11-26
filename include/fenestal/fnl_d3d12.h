@@ -97,7 +97,7 @@ FNL_API bool fnl_d3d12_scene_layout(FnlApp *app, FnlSceneTarget target,
  * Do not close the list, change the bound target's resource state, or
  * execute anything on the queue from inside the callback.
  *
- * Direct3D 12 is recorded afresh for every frame shown here, as OpenGL is:
+ * Direct3D 12 is recorded afresh for every frame shown here:
  * on_record runs for every frame, not once per change (fenestal.h
  * *on_record*). */
 typedef struct {

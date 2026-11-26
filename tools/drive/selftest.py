@@ -14,17 +14,13 @@
 #   asan tree    asan, ubsan, assert
 #   tsan tree    tsan, assert
 #   gc tree      assert
-#   under GL     gl as well: an invalid GL call, which the debug context's
-#                output must bring to the log
 #   win64 gc     ubsan (a trap: UBSan without a runtime), assert, under wine
 #                drawn with Vulkan
 #
 # A Linux tree is run on both of this desktop's backends, each named by
-# FNL_BACKEND as a round names it: the bug is committed in fnl_init(), and
-# GL's is committed through a context each backend's bridge made. Every
+# FNL_BACKEND as a round names it: the bug is committed in fnl_init(). Every
 # program is told its renderer by FNL_RENDERER, as a round's is: each tree
-# has every renderer of its system, and GL's bug is committed only where
-# OpenGL was chosen.
+# has every renderer of its system.
 #
 # The program is the testbed, which every tree builds. A tree that is not
 # built is skipped and says so. Needs a desktop: the program opens its
@@ -44,7 +40,6 @@ EXPECT = {
     'ubsan':  r'runtime error: signed integer overflow',
     'tsan':   r'ThreadSanitizer: data race',
     'assert': r'assertion failed: held',
-    'gl':     r'GL: .*INVALID_ENUM',
 }
 # A trap is an illegal instruction, which wine reports by its exception code.
 TRAP = r'c000001d|illegal instruction|EXCEPTION_ILLEGAL_INSTRUCTION'
@@ -61,12 +56,6 @@ TREES = [
     ('linux', 'wayland', 'vulkan', 'tsan', ['tsan', 'assert']),
     ('linux', 'wayland', 'vulkan', 'gc', ['assert']),
     ('win64', '', 'vulkan', 'gc', ['ubsan', 'assert']),
-    ('linux', 'x11', 'gl', 'asan', ['asan', 'ubsan', 'assert', 'gl']),
-    ('linux', 'x11', 'gl', 'tsan', ['tsan', 'assert', 'gl']),
-    ('linux', 'x11', 'gl', 'gc', ['assert', 'gl']),
-    ('linux', 'wayland', 'gl', 'asan', ['asan', 'ubsan', 'assert', 'gl']),
-    ('linux', 'wayland', 'gl', 'tsan', ['tsan', 'assert', 'gl']),
-    ('linux', 'wayland', 'gl', 'gc', ['assert', 'gl']),
 ]
 
 

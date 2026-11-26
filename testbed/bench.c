@@ -332,9 +332,6 @@ static void read_platform(FnlApp *app, const FnlFrame *f, bool driver)
 #ifdef SCENE_HAS_VULKAN
 	case FNL_RENDERER_VULKAN: known = scene_vulkan_driver(app, &d); break;
 #endif
-#ifdef SCENE_HAS_GL
-	case FNL_RENDERER_OPENGL: known = scene_gl_driver(app, &d);     break;
-#endif
 #ifdef SCENE_HAS_D3D12
 	case FNL_RENDERER_D3D12:  known = scene_d3d12_driver(app, &d);  break;
 #endif
@@ -648,9 +645,8 @@ static void run_overlay(void *ud, FnlApp *app, const FnlFrame *f)
 	while (fnl_poll_event(app, &ev))
 		run_event(app, &ev, ph, f->index);
 
-	/* The GPU memory's first answer, asked before anything counts: for
-	 * OpenGL it is the system's (gpumem.c), and opening NVML for it took
-	 * 20 ms of one frame on NVIDIA, a 50 ms interval in the measure. */
+	/* The GPU memory's first answer, asked before anything counts, so that
+	 * whatever the API opens to answer is not a frame of the measure. */
 	if ((ph == PH_SETTLE || ph == PH_WARMUP) && !R.primed) {
 		double vram;
 		(void)testbed_vram_mib(app, &vram);

@@ -27,10 +27,10 @@ that is the claim this library makes -- but what can be *asked* about it:
     the Mac         the same questions, put to the window server by an
                     agent there (mac_driver.py), and screencapture's picture
 
-The Wayland and X11 windows are each driven twice on this desktop: drawn
-with Vulkan (wayland-vulkan, x11-vulkan) and with OpenGL (wayland-gl,
-x11-gl). The window server's half is one class; RENDERER says which
-renderer the program draws with. A tree has every backend and every
+The Wayland and X11 windows are each driven on this desktop, drawn with
+Vulkan (wayland-vulkan, x11-vulkan). The window server's half is one
+class; RENDERER says which renderer the program draws with. A tree has
+every backend and every
 renderer its system has -- linux, win64, macos -- so an environment is a
 tree, the backend the program is told to open (BACKEND, by FNL_BACKEND,
 on Linux) and the renderer it is told to draw with (RENDERER, by
@@ -193,9 +193,9 @@ class Unavailable(RuntimeError):
 # skipped round; any other exit is the program failing, and the round fails
 # with what it said.
 MACHINE_GAP = re.compile(
-    r"no (display|X display|backend|Vulkan|Metal|OpenGL|device|Metal device|"
+    r"no (display|X display|backend|Vulkan|Metal|device|Metal device|"
     r"Vulkan physical devices)|no Vulkan driver would load|"
-    r"no OpenGL framework|DISPLAY is|WAYLAND_DISPLAY|cannot connect",
+    r"DISPLAY is|WAYLAND_DISPLAY|cannot connect",
     re.I)
 
 
@@ -304,13 +304,11 @@ class Environment:
     # one's name -- renderer_check() in stress.py reads the line saying it
     # was named. Every tree is told, the ones with one renderer as well,
     # which take the name of the one they have. Only "vulkan" has the
-    # validation layer a checker round puts in front; a checker build
-    # drawing with OpenGL reports GL's own debug output through the
-    # library's log instead, which the log check reads.
+    # validation layer a checker round puts in front.
     RENDERER = "vulkan"
     # How the library's own line names each.
-    RENDERER_NAMES = {"vulkan": "Vulkan", "gl": "OpenGL",
-                      "d3d12": "Direct3D 12", "metal": "Metal"}
+    RENDERER_NAMES = {"vulkan": "Vulkan", "d3d12": "Direct3D 12",
+                      "metal": "Metal"}
     # Which of the tree's programs this drives. Any of them can be: the echo
     # is the library's, and start() asks for it by a variable (ECHO). Set
     # on the instance before start().
@@ -535,8 +533,8 @@ class Environment:
             kinds, last, gap = {}, None, False
             for i, line in enumerate(lines):
                 # The other renderers' GPUs are listed ahead of the drawing
-                # one's inventory too, where GL draws or the backend shares
-                # a driver (gpu_list_early()): only a listing after the
+                # one's inventory too, where the backend shares a driver
+                # (gpu_list_early()): only a listing after the
                 # inventory ends the opening.
                 if OPENED.match(line) and (kinds or
                                            line.startswith("moving to ")):
@@ -1677,16 +1675,6 @@ class X11(_XEnvironment):
         self.portal.keycode(self.SPARE_KEYCODE - 8, False)
 
 
-class X11GL(X11):
-    """The same X11 window, drawn with OpenGL through EGL instead of Vulkan.
-    Everything a round reads is the X server's and everything it sends is
-    the portal's, so the window server's half is X11's whole; only the tree
-    and the renderer differ."""
-    NAME = "x11-gl"
-    TREE = "linux"
-    RENDERER = "gl"
-
-
 # ---- Win32 under wine, on this desktop -------------------------------------
 
 WINE_ENV = "FNL_DRIVE_WINE"
@@ -1900,8 +1888,8 @@ def wine_layer_env(renderer):
     which has one but was never asked. So the host's loader is asked for
     it (VK_LOADER_LAYERS_ENABLE) and the library is not, which would only
     log that it found none. Every instance of the process gets it that
-    way, which the round declines elsewhere (Zink's, stress.py) and takes
-    here for Vulkan, whose program makes no instance but the library's;
+    way, which the round declines elsewhere (stress.py) and takes here
+    for Vulkan, whose program makes no instance but the library's;
     a Direct3D 12 round's vkd3d-proton makes its own, so it runs with no
     layer at all, and the Direct3D 12 debug layer is its checker."""
     if not validation_asked():
@@ -2156,16 +2144,6 @@ class Wayland(_Portal):
         from PIL import Image
         self.portal.screenshot(path)
         return Image.open(path).convert("RGB")
-
-
-class WaylandGL(Wayland):
-    """The same Wayland window, drawn with OpenGL through EGL instead of
-    Vulkan. The echo and the portal are all a round has of a Wayland window,
-    so the window server's half is Wayland's whole; only the tree and the
-    renderer differ."""
-    NAME = "wayland-gl"
-    TREE = "linux"
-    RENDERER = "gl"
 
 
 # ---- Win32 under wine, on the compositor itself ------------------------------
@@ -3146,16 +3124,6 @@ class CocoaNativeVulkan(CocoaNative):
         return sorted(set(super().beside(tree)) | {have})
 
 
-class CocoaNativeGL(CocoaNative):
-    """The same program on the same Mac, told OpenGL: a CGL context, 4.1
-    core, the frame copied into the window's Metal layer (src/renderer/gl/
-    cgl.m). No validation layer to ask for, and no debug output on 4.1:
-    the log check reads the program's own lines alone."""
-    NAME = "macos-gl-native"
-    TREE = "macos"
-    RENDERER = "gl"
-
-
 # ---- X11 with nobody managing it ---------------------------------------------
 
 class _OnBare:
@@ -3176,16 +3144,14 @@ class _OnBare:
     # a machine with two, checked at start as on a laptop. And NVIDIA's
     # (__NV_PRIME_RENDER_OFFLOAD and the rest), for a machine booted on
     # NVIDIA's driver, which is steered by them as Mesa's is by its own.
-    # And Mesa's GL ones, since FNL_GPU does not steer OpenGL: DRI_PRIME picks
-    # the device, and LIBGL_ALWAYS_SOFTWARE puts llvmpipe where the GPU has
-    # no 4.5 -- which a GL round sets itself where it must (_SoftGL). And
-    # the library's fault sites, which a Debug tree's round forces there as
+    # And the library's fault sites, which a Debug tree's round forces there as
     # here.
     FORWARD = ("VK_", "MESA_", "LP_", "FNL_GPU", "FNL_VK_", "__NV_",
-               "__GLX_", "LIBGL_", "DRI_PRIME", "FNL_FAULT", "FNL_X11_")
+               "FNL_FAULT", "FNL_X11_")
     VALIDATION = "VkLayer_khronos_validation"
-    # A ranked round opened on OpenGL: the layer asked for is proven at the
-    # walk's first Vulkan entry instead of at the start (_validated()).
+    # A ranked round opened on a renderer but Vulkan: the layer asked for is
+    # proven at the walk's first Vulkan entry instead of at the start
+    # (_validated()).
     layer_owed = False
     # Whether the X server's socket is forwarded here.
     FORWARD_X = False
@@ -3232,11 +3198,10 @@ class _OnBare:
                 b.driver = driver
                 b.NAME = "%s@%s%s" % (cls.NAME, name,
                                       ":" + driver if driver else "")
-                # Drawn on the GPU the driver was moved for, where FNL_GPU
-                # steers the renderer: on its own the library picks the
-                # integrated GPU over NVK on a GPU before Turing.
-                if driver and cls.RENDERER != "gl" and \
-                        not os.environ.get("FNL_GPU"):
+                # Drawn on the GPU the driver was moved for: on its own the
+                # library picks the integrated GPU over NVK on a GPU before
+                # Turing.
+                if driver and not os.environ.get("FNL_GPU"):
                     b.gpu = "nvidia"
                 made.append(b)
         return made or [cls()]
@@ -3249,9 +3214,9 @@ class _OnBare:
         holds NVIDIA's GPU open through its X driver. NVIDIA's userspace
         is then in place for the round (Bare.gpu_driver()), but under
         ThreadSanitizer, which draws on no row of NVIDIA's own driver: there
-        libglvnd still loaded NVIDIA's EGL vendor to list OpenGL's GPUs, the
-        GPU on nouveau, and ThreadSanitizer spent 80 minutes in one
-        reallocation loop of libnvidia-glcore's. Any other round has the GPU
+        NVIDIA's userspace was still loaded with the GPU on nouveau, and
+        ThreadSanitizer spent 80 minutes in one reallocation loop of
+        libnvidia-glcore's. Any other round has the GPU
         and the userspace as the boot does, before its server starts
         (Bare.as_booted())."""
         self.box.moves_driver = self.driver or ""
@@ -3267,26 +3232,6 @@ class _OnBare:
     # Whether this round opens where the machine's GPU ranking says
     # (gpu_sent()), and names no renderer or GPU.
     ranked = False
-    # Whether this environment is the one that runs a round on a kernel
-    # driver where the machine keeps a ranking: such a round names no
-    # renderer, so another environment of the same tree would run the
-    # same round again under another renderer's name (ranked_twin()).
-    RANKED_ROUND = True
-
-    def ranked_twin(self, variant):
-        """Why this round is not run, or None: a round on a kernel driver,
-        on a machine that keeps a ranking, opens where the ranking says and
-        walks every renderer on every driver (stress.gpu_every_pair()),
-        whichever renderer its environment is named for -- so one
-        environment runs it, and the others are skipped as its twin.
-        Not under ThreadSanitizer, which keeps no ranking (gpu_sent())."""
-        if not self.driver or self.RANKED_ROUND or variant == "tsan" or \
-                not self.ranking_kept():
-            return None
-        return ("%s keeps a GPU ranking, so the round on %s opens on its "
-                "first entry and walks every renderer: kms-vulkan-bare@%s:%s "
-                "is that round" % (self.machine, self.driver, self.machine,
-                                   self.driver))
 
     def ranking_kept(self):
         """Whether the machine keeps a GPU ranking for the program on KMS
@@ -3336,11 +3281,8 @@ class _OnBare:
     ICDS = {"nvidia": "nvidia_icd", "nouveau": "nouveau_icd"}
 
     # Whether the device a program said is the NVIDIA GPU on each kernel
-    # driver: NVK names itself, NVIDIA's own driver does not. FNL_GPU
-    # steers Vulkan onto that GPU and nothing steers OpenGL, which picks
-    # for itself and draws on the integrated GPU where the driver's
-    # userspace is missing -- a round on a driver about another GPU. Not
-    # asked where FNL_GPU, set for the run, names the device itself.
+    # driver: NVK names itself, NVIDIA's own driver does not. Not asked
+    # where FNL_GPU, set for the run, names the device itself.
     ON_DRIVER = {"nvidia": lambda n: "NVIDIA" in n and "(NVK " not in n,
                  "nouveau": lambda n: "(NVK " in n}
 
@@ -3419,9 +3361,6 @@ class _OnBare:
             busy = self.box.busy()
             if busy:
                 raise D.Unreachable(busy)
-            same = self.ranked_twin(variant)
-            if same:
-                raise D.Unreachable(same)
             self.box.kill_stale()
             self.driver_bind()
             for line in self.box.facts():
@@ -3464,13 +3403,6 @@ class _OnBare:
         on = self.ON_DRIVER.get(getattr(self, "driver", None) or "")
         if self.ranked:
             on = None           # where the ranking put it, checked there
-        if on and not os.environ.get("FNL_GPU") and not said:
-            # OpenGL names its device after Vulkan's inventory and its own:
-            # 46 s and more from the start under ASan on aspire, past the
-            # wait above.
-            said = self.device_said(60.0 * self.patience())
-            if said:
-                print("  %s%s" % (IN_USE, said[0]), flush=True)
         if on and not os.environ.get("FNL_GPU") and \
                 not (said and on(said[0])):
             self.stop()
@@ -3511,10 +3443,10 @@ class _OnBare:
         """A layer the environment asks for is a layer in the program, or
         the round stops: Win32Native.start()'s reason, asked of /proc
         there since stress.py's layer_check reads this machine's. Vulkan's
-        layer only: a GL program never loads it.
+        layer only.
 
         A ranked round draws with what the ranking put first, which its
-        environment does not name: opened on OpenGL, the layer is owed
+        environment does not name: opened on another renderer, the layer is owed
         (layer_owed) and proven at the first Vulkan entry the GPU walk
         lands on (stress.gpu_every_pair())."""
         if not validation_asked():
@@ -3820,44 +3752,6 @@ class X11Bare(_OnBare, X11):
         self.box.clipboard_done()
 
 
-# What the library says, through EGL, of a device with no OpenGL it can
-# draw with (egl.c): neither a 4.5 nor a 4.1 core context, 4.1 being the
-# one it steps down to.
-NO_GL41 = ("this device has no OpenGL 4.1",)
-
-
-class _SoftGL(Environment):
-    """An OpenGL round on the bare machine, put on Mesa's llvmpipe where the
-    machine's GPU has no 4.1 (the thinkpad's Ironlake, GL 2.1). The program
-    says so and exits at start; it does not switch itself, since only
-    LIBGL_ALWAYS_SOFTWARE does and a library does not write its caller's
-    environment (egl.c). The round sets it and starts once more, and says
-    so; the device line then names llvmpipe. Set by hand, it is what the
-    round starts with and nothing is retried."""
-
-    def start(self, variant="release", args=(), env=None):
-        try:
-            return super().start(variant, args, env)
-        except Unavailable as e:
-            if not any(n in str(e) for n in NO_GL41) or \
-                    "LIBGL_ALWAYS_SOFTWARE" in \
-                    {**os.environ, **(env or {})}:
-                raise
-        print("  no OpenGL 4.1 on %s's GPU: started again on llvmpipe "
-              "(LIBGL_ALWAYS_SOFTWARE=1)" % (self.machine or "?"),
-              flush=True)
-        return super().start(variant, args,
-                             dict(env or {}, LIBGL_ALWAYS_SOFTWARE="1"))
-
-
-class X11GLBare(_SoftGL, X11Bare):
-    """The linux binary on the same machine's Xorg, told OpenGL: X11Bare's
-    in everything but the renderer, as X11GL is X11's."""
-    NAME = "x11-gl-bare"
-    TREE = "linux"
-    RENDERER = "gl"
-
-
 class WaylandBare(_OnBare, Wayland):
     """The Linux tree's binary on the bare machine's weston, with no
     panel, shell client or desktop around it, told to open Wayland.
@@ -4082,14 +3976,6 @@ class WaylandBare(_OnBare, Wayland):
                 "program reaches the clipboard only by taking the focus")
 
 
-class WaylandGLBare(_SoftGL, WaylandBare):
-    """The linux binary on the same machine's weston, told OpenGL, as
-    WaylandGL is Wayland's."""
-    NAME = "wayland-gl-bare"
-    TREE = "linux"
-    RENDERER = "gl"
-
-
 class KmsBare(WaylandBare):
     """The Linux tree's binary on the bare machine with no window server at
     all, told to open KMS: neither Xorg nor weston up, so the program opens
@@ -4170,12 +4056,6 @@ class KmsBare(WaylandBare):
                     r"\S+$",
                     r"^KMS: no headless surface for the GPU that will draw; "
                     r"it draws into images of its own$",
-                    # Which way OpenGL reaches the output, said once a
-                    # device (egl_kms.c): onto the backend's buffers, or
-                    # read back where the GPU will not take them.
-                    r"^KMS: OpenGL draws onto the output's own buffers, "
-                    r"nothing read back$",
-                    r"^KMS: OpenGL copies each frame onto the output: .+$",
                     # An output turned off, by the round's forced
                     # unplug or by a move to another (output_dark()).
                     r"^KMS: \S+ dark$",
@@ -4262,18 +4142,6 @@ class KmsBare(WaylandBare):
 
     def clipboard_missing(self):
         return "there is no other program on a bare display to share one"
-
-
-class KmsGLBare(_SoftGL, KmsBare):
-    """The linux binary there, told OpenGL, as KmsBare is told Vulkan:
-    OpenGL on Mesa's surfaceless EGL, every frame read back and flipped on
-    by the backend, which is the only way OpenGL reaches the output. On a
-    kernel driver, on a machine that keeps a ranking, KmsBare's round is
-    this one's too, and this one is skipped (ranked_twin())."""
-    NAME = "kms-gl-bare"
-    TREE = "linux"
-    RENDERER = "gl"
-    RANKED_ROUND = False
 
 
 # ---- Win32 under wine, on the bare machine -----------------------------------
@@ -4509,12 +4377,12 @@ class Win32D3D12CageBare(_Vkd3dProton, Win32CageBare):
     EXPECTED_LOG = _Vkd3dProton.EXPECTED_LOG + _WineOnBare.EXPECTED_LOG
 
 
-ALL = (Wayland, WaylandGL, X11, X11GL, Win32, Win32D3D12, Win32Wayland,
+ALL = (Wayland, X11, Win32, Win32D3D12, Win32Wayland,
        Win32WaylandD3D12, Win32VM, Win32VMD3D12, Win32Native,
-       Win32NativeD3D12, X11Bare, X11GLBare, WaylandBare, WaylandGLBare,
-       KmsBare, KmsGLBare, Win32Bare, Win32D3D12Bare, Win32WaylandBare,
+       Win32NativeD3D12, X11Bare, WaylandBare,
+       KmsBare, Win32Bare, Win32D3D12Bare, Win32WaylandBare,
        Win32D3D12WaylandBare, Win32CageBare, Win32D3D12CageBare,
-       CocoaNative, CocoaNativeVulkan, CocoaNativeGL)
+       CocoaNative, CocoaNativeVulkan)
 
 
 def by_name(name):

@@ -229,7 +229,7 @@ struct BackendState {
 	/* A compositing manager owned _NET_WM_CM_S<screen> at open: what is
 	 * presented reaches the screen through it, at its refresh, and does not
 	 * tear. Read once -- a compositor that comes or goes afterwards is not
-	 * followed -- and read by the GL bridge (src/renderer/gl/egl_x11.c). */
+	 * followed. */
 	bool composited;
 
 	/* _NET_WM_SYNC_REQUEST (x11_ext.c). The counter, or 0 without the SYNC

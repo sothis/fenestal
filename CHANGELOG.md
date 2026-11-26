@@ -6,6 +6,15 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **OpenGL is gone.** The renderer, `fnl_gl.h` (`fnl_gl_proc()`,
+  `fnl_gl_version()`, `fnl_gl_scene_layout()`, `fnl_gl_scene_framebuffer()`),
+  `FNL_RENDERER=gl` and the GL scenes of the testbed, the examples and the
+  `texture` demo are removed. `FnlRenderer` is renumbered: `FNL_RENDERER_
+  OPENGL` is gone, `FNL_RENDERER_D3D12` is 2 and `FNL_RENDERER_METAL` is 3.
+  Linux and FreeBSD builds draw with Vulkan alone; macOS has Metal and
+  Vulkan, Windows Direct3D 12 and Vulkan. The ABI baselines are renamed to
+  match (`fenestal-0-metal-vulkan`).
+
 - **The MSVC tree builds on Linux too, and so does FreeBSD's.** Both are
   trees for a system this one is not; neither needs that system to be
   compiled. `./build.sh win64-msvc` takes clang-cl, `lld-link`, `llvm-lib`,

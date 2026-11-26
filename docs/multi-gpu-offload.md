@@ -24,8 +24,7 @@ card.
   frame's fence, and the backend copies the pixels into a dumb buffer on
   Intel's card (`present_pixels`). On the panel that is some ten points of
   a core more than the display path. At 4K it is four times 1080p's, and
-  it shows in the ranking: on schenker's HDMI-A-1 Intel's OpenGL ranked
-  ahead of NVIDIA's Vulkan (TODO *The calibration, entry by entry*).
+  it shows in the ranking (TODO *The calibration, entry by entry*).
 
 **One device, one queue.** The Vulkan renderer takes a single queue family
 and queue (`src/renderer/vulkan/device.c`, `best_q`, `vkGetDeviceQueue`),
@@ -54,7 +53,7 @@ NVIDIA's own driver ("an image the display's device imports").
 - The 4K ranking would measure the GPUs, not our copy.
 - Needs `VK_EXT_external_memory_dma_buf` and
   `VK_EXT_image_drm_format_modifier` (linear). NVK has both; NVIDIA's 580
-  branch is to be checked. Vulkan alone: OpenGL keeps the CPU copy.
+  branch is to be checked.
 - Fits the existing seam: the copy path is already a swapchain on a
   headless surface or images of the renderer's own
   (`RendererState::surfaceless`), so the change is what happens after the
@@ -75,8 +74,8 @@ reticle, the veil -- on the display's.
   scene image under a live overlay.
 - **Costs**: a frame of latency unless pipelined with care; two devices
   that can each be lost; semaphores across devices (sync_file, or
-  external semaphores); a pairing per renderer (Vulkan to Vulkan, Vulkan
-  to OpenGL by `EXT_memory_object`, Direct3D 12's cross-adapter heaps and
+  external semaphores); a pairing per renderer (Vulkan to Vulkan,
+  Direct3D 12's cross-adapter heaps and
   shared fences).
 
 ### 3. A helper GPU lent to the caller

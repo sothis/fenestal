@@ -22,7 +22,7 @@
  *     fnl_poll_event().
  *   - Wayland, X11, Win32 and Cocoa (macOS) -- and on Linux a bare display
  *     with no window server at all (KMS), where the window is the output --
- *     drawn with Vulkan, OpenGL, Direct3D 12 or Metal.
+ *     drawn with Vulkan, Direct3D 12 or Metal.
  *   - the window wears this library's own titlebar, or one you draw in its
  *     place with fnl_titlebar_custom() -- never the window manager's frame,
  *     and never none. Fullscreen drops the bar for as long as it lasts.
@@ -187,19 +187,17 @@ typedef void (*FnlLogFn)(void *ud, FnlLogLevel lvl, const char *msg);
  * list -- print at INFO, so a caller that wants them wants FNL_LOG_DEBUG. */
 FNL_API void fnl_set_log_level(FnlLogLevel lvl); /* [any] */
 
-/* Which renderer draws: Vulkan, OpenGL (4.5 core on Linux, 4.1 on macOS),
- * Direct3D 12 (Windows) or Metal (macOS). A build has one or several --
- * every one its system has -- and the caller says which it has a scene for, in
- * FnlInitDesc::renderer (that one) or ::renderers (any of these). Asking
- * for one this build does not have is FNL_ERR_UNSUPPORTED rather than a
- * fallback; fnl_renderer() reports which it is, and the matching interop
- * header is fnl_vulkan.h, fnl_gl.h, fnl_d3d12.h or fnl_metal.h. */
+/* Which renderer draws: Vulkan, Direct3D 12 (Windows) or Metal (macOS). A build
+ * has one or several -- every one its system has -- and the caller says which
+ * it has a scene for, in FnlInitDesc::renderer (that one) or ::renderers (any
+ * of these). Asking for one this build does not have is FNL_ERR_UNSUPPORTED
+ * rather than a fallback; fnl_renderer() reports which it is, and the matching
+ * interop header is fnl_vulkan.h, fnl_d3d12.h or fnl_metal.h. */
 typedef enum {
 	FNL_RENDERER_DEFAULT = 0,
 	FNL_RENDERER_VULKAN  = 1,
-	FNL_RENDERER_OPENGL  = 2,
-	FNL_RENDERER_D3D12   = 3,
-	FNL_RENDERER_METAL   = 4
+	FNL_RENDERER_D3D12   = 2,
+	FNL_RENDERER_METAL   = 3
 } FnlRenderer;
 
 /* A renderer's bit in FnlInitDesc::renderers. ANY is every renderer, for a
@@ -375,11 +373,11 @@ typedef struct {
 
 	/* The renderers the caller has a scene for, as FNL_RENDERER_BIT()s, where
 	 * `renderer` is DEFAULT. fnl_init() tries those this build has in its own
-	 * order -- on Windows Direct3D 12, Vulkan; on macOS Metal, Vulkan,
-	 * OpenGL; on Linux Vulkan, OpenGL -- and steps past one that fails on
-	 * this machine to the next, on the same window. fnl_renderer() says
+	 * order -- on Windows Direct3D 12, Vulkan; on macOS Metal, Vulkan;
+	 * on Linux Vulkan -- and steps past one that fails on this machine to
+	 * the next, on the same window. fnl_renderer() says
 	 * which it took, from on_gpu_created on. FNL_RENDERER in the
-	 * environment ("vulkan", "gl", "d3d12", "metal") names one of them
+	 * environment ("vulkan", "d3d12", "metal") names one of them
 	 * instead, which is taken or fails. */
 	uint32_t renderers;
 
@@ -1255,10 +1253,7 @@ FNL_API FnlRenderer fnl_renderer(const FnlApp *app); /* [any] */
  * holds for later rebuilds as gpu_index does. While a second window is open
  * no move is made -- the device is every window's, and a move would rebuild
  * it under the other's scene -- so the request is dropped, with one line
- * through the log sink. OpenGL lists the GPUs its driver will open this
- * window on -- every one where the window is the output, and where it is a
- * window server's, those whose driver takes the GPU it is told, which on X11
- * is none but the server's own. Since 0.9. */
+ * through the log sink. Since 0.9. */
 typedef enum {
 	FNL_GPU_KIND_UNKNOWN    = 0, /* hardware the API does not describe */
 	FNL_GPU_KIND_INTEGRATED = 1, /* shares the CPU's memory */
@@ -1917,9 +1912,7 @@ FNL_API void fnl_set_scene_motion_px(FnlApp *app, float dx_px,
  * fnl_input_latency_ms() -- and what this process takes of the machine:
  * its CPU, as the share of one core, its resident memory, the GPU memory
  * it holds on the GPU drawing, and the share of that GPU's time its frames
- * take; and the GPU's name. A figure the system will not say is a dash:
- * GPU memory under OpenGL is NVIDIA's NVML or the kernel's DRM fdinfo on
- * Linux and none elsewhere.
+ * take; and the GPU's name. A figure the system will not say is a dash.
  *
  * Hidden until shown, and shown it keeps nothing measured at rest: a
  * window at rest draws a frame only where the process's figures move, at
@@ -2010,7 +2003,7 @@ FNL_API int fnl_frame_samples(FnlApp *app, FnlFrameSample *out, int max,
 /* A frame on the screen: which (FnlFrame::index) and when it got there, by
  * the display's own stamp, on FnlFrame::time's clock -- where the window
  * server or the driver says. KMS does for the frames it flips itself, the
- * copy path's and OpenGL's, and for Vulkan's own display path, whose flips
+ * copy path's, and for Vulkan's own display path, whose flips
  * the driver makes, where the driver says when (VK_EXT_present_timing).
  * Wayland by wp_presentation, X11 by the Present extension, Win32 by
  * DXGI's frame statistics -- the last frame shown when the next is
@@ -2187,7 +2180,7 @@ FNL_API bool fnl_vsync(const FnlApp *app);        /* [any] */
 /* Which backend and which renderer this program is running on -- together,
  * its platform. The backend is "Wayland", "X11", "Win32", "Cocoa" or "KMS"
  * -- a bare display, no window server -- and the renderer is the name of
- * what fnl_renderer() answers: "Vulkan", "OpenGL", "Direct3D 12" or
+ * what fnl_renderer() answers: "Vulkan", "Direct3D 12" or
  * "Metal". A Linux build has Wayland, X11 and KMS, and fnl_init() opens
  * the first the session has -- Wayland where WAYLAND_DISPLAY is set, X11
  * where DISPLAY is, KMS where neither is -- or the one FNL_BACKEND names

@@ -3,10 +3,8 @@
 
 cmake_minimum_required(VERSION 3.18)
 
-# texture: a textured cube on OpenGL or Vulkan, with a scene for each. Each
-# scene is compiled where the library has its renderer -- both on Linux and
-# macOS (OpenGL 4.1 there), Vulkan alone on Windows, which has no OpenGL
-# renderer.
+# texture: a textured cube on Vulkan, compiled where the library has that
+# renderer: Linux, macOS (on MoltenVK) and Windows.
 #
 # Builds on its own, bringing in the library from ../.. --
 #
@@ -31,28 +29,14 @@ if(vulkan IN_LIST FNL_RENDERERS)
     list(APPEND TEXTURE_SOURCES scene_vulkan.c)
     list(APPEND TEXTURE_DEFS SCENE_HAS_VULKAN)
 endif()
-if(gl IN_LIST FNL_RENDERERS)
-    list(APPEND TEXTURE_SOURCES scene_gl.c)
-    list(APPEND TEXTURE_DEFS SCENE_HAS_GL)
-endif()
 if(NOT TEXTURE_DEFS)
-    message(STATUS "texture: skipped, neither OpenGL nor Vulkan in "
-                   "this build (${FNL_RENDERERS})")
+    message(STATUS "texture: skipped, no Vulkan in this build "
+                   "(${FNL_RENDERERS})")
     return()
 endif()
 
-# The shaders, once for each scene, by the library's tools:
-#
-#   Vulkan        SPIR-V by glslangValidator, embedded as `<file>_spv`
-#                 (cube_vert_spv) in <file>.h
-#   OpenGL        that SPIR-V translated back to GLSL by spirv-cross
-#                 (FNL_SPIRV_CROSS), the push block as a uniform block, and
-#                 embedded as text by the library's script (FNL_EMBED_TEXT),
-#                 since GL compiles it at run time: GLSL 4.50 as
-#                 `<file>_glsl` in <file>.gl.h, and 4.10, for a 4.1 context,
-#                 on the library's flags for one (FNL_GL41_FLAGS, which map
-#                 the depth range in the vertex stage), as `<file>_glsl41` in
-#                 <file>.gl41.h
+# The shaders, by the library's tools: SPIR-V by glslangValidator, embedded as
+# `<file>_spv` (cube_vert_spv) in <file>.h.
 set(TEXTURE_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${TEXTURE_GEN_DIR})
 set(TEXTURE_SHADER_HDRS)
@@ -69,31 +53,12 @@ foreach(_s cube.vert cube.frag)
             VERBATIM)
         list(APPEND TEXTURE_SHADER_HDRS ${_out}.h)
     endif()
-    if(gl IN_LIST FNL_RENDERERS)
-        add_custom_command(
-            OUTPUT ${_out}.gl.h ${_out}.gl41.h
-            BYPRODUCTS ${_out}.spv ${_out}.gl ${_out}.gl41
-            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V ${_in}
-                    -o ${_out}.spv
-            COMMAND ${FNL_SPIRV_CROSS} ${_out}.spv --version 450 --no-es
-                    --glsl-emit-push-constant-as-ubo --output ${_out}.gl
-            COMMAND ${CMAKE_COMMAND} -DIN=${_out}.gl -DOUT=${_out}.gl.h
-                    -DVAR=${_var}_glsl -P ${FNL_EMBED_TEXT}
-            COMMAND ${FNL_SPIRV_CROSS} ${_out}.spv ${FNL_GL41_FLAGS}
-                    --output ${_out}.gl41
-            COMMAND ${CMAKE_COMMAND} -DIN=${_out}.gl41 -DOUT=${_out}.gl41.h
-                    -DVAR=${_var}_glsl41 -P ${FNL_EMBED_TEXT}
-            DEPENDS ${_in} ${FNL_EMBED_TEXT}
-            VERBATIM)
-        list(APPEND TEXTURE_SHADER_HDRS ${_out}.gl.h ${_out}.gl41.h)
-    endif()
 endforeach()
 add_custom_target(fenestal_demo_texture_shaders
                   DEPENDS ${TEXTURE_SHADER_HDRS})
 
 # sinf and friends are libm's on Linux; Windows and macOS have them in libc.
-# Neither scene links its API: Vulkan's entries come from the library's
-# loader and GL's from fnl_gl_proc().
+# The scene links no API: Vulkan's entries come from the library's loader.
 set(TEXTURE_LIBS)
 if(UNIX AND NOT APPLE)
     list(APPEND TEXTURE_LIBS m)

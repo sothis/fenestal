@@ -4,8 +4,7 @@
 
     python3 tools/drive/stress.py                    # every environment
     python3 tools/drive/stress.py x11-vulkan         # one of them
-    python3 tools/drive/stress.py x11-gl             # the same, drawn by GL
-    python3 tools/drive/stress.py wayland-gl         # Wayland, drawn by GL
+    python3 tools/drive/stress.py wayland-vulkan     # Wayland
     python3 tools/drive/stress.py win64-vulkan-vm    # on Windows, in a VM
     python3 tools/drive/stress.py win64-vulkan-native    # ... on a laptop
     python3 tools/drive/stress.py win64-vulkan-native@schenker:intel
@@ -863,7 +862,6 @@ def pick_row(r, box_dx, row):
 # key it.
 RENDERER_KEYS = {
     "Vulkan": "vulkan",
-    "OpenGL": "gl",
     "Direct3D 12": "d3d12",
     "Metal": "metal",
 }
@@ -959,9 +957,7 @@ def gpu_in_use(b, listed):
 
 
 # How long a move the program has begun and not ended is waited for past a
-# section's own wait: under ThreadSanitizer OpenGL's instance alone took
-# 80 s on Intel, 98 s on llvmpipe and 204 s on Zink over NVK (schenker,
-# measured with the validation layer in Zink's instance as in ours),
+# section's own wait: under ThreadSanitizer a rebuild alone took minutes
 # where a release build takes under one.
 MOVE_UNDER_WAY_S = 600.0
 # The library's lines for a move begun (frame.c, drivers.c) and for one
@@ -1198,7 +1194,7 @@ def gpu_driver_moves(r):
     it can be or the frames said to pause (DESIGN *Drawn across the
     move*), and the helper's line says how long the kernel took. A
     landing is a GPU named as the new driver names it -- NVK's "(NVK
-    ...)" on nouveau, Zink's for OpenGL, and nowhere else -- and never one
+    ...)" on nouveau, and nowhere else -- and never one
     the library then sent back, which with the window first on the NVIDIA
     GPU is a GPU called NVIDIA too."""
     b, check = r.b, r.check
@@ -1550,8 +1546,8 @@ def gpu_every_pair(r):
             )
             failed[frm].append(stopped)
             break
-        # A ranked round opened on OpenGL owes the layer's proof to the
-        # first Vulkan entry it lands on (_OnBare._validated()).
+        # A ranked round opened on another renderer owes the layer's proof
+        # to the first Vulkan entry it lands on (_OnBare._validated()).
         if (
             getattr(b, "layer_owed", False)
             and rows[to][1] == "vulkan"
@@ -1589,7 +1585,7 @@ def gpu_every_pair(r):
     if getattr(b, "layer_owed", False):
         r.skip(
             "the validation layer is in the program",
-            "the ranking opened on OpenGL and the walk landed on no "
+            "the ranking opened on another renderer and the walk landed on no "
             "Vulkan entry",
         )
     for n in nodes:
@@ -3456,25 +3452,8 @@ def expected(line):
         # HDR output reads.
         or re.match(r"colour: (srgb|linear|pq)$", line) is not None
         or line.startswith("Vulkan on")
-        or re.match(r"EGL \d+\.\d+, .+$", line) is not None
         or re.match(r"GPU \d+: .* \(.*\)$", line) is not None
         or line.startswith("GPU in use: ")
-        # The GL renderer on a device with no 4.5, drawing through its
-        # 4.1 profile (DESIGN *OpenGL 4.1*): which profile, as the line
-        # above says which device.
-        or re.match(
-            r"no OpenGL 4\.5 core context here \(\S+\); "
-            r"drawing with 4\.1 core$",
-            line,
-        )
-        is not None
-        # And OpenGL's way onto a Mac's window (cgl.m), said once.
-        or re.match(
-            r"OpenGL draws into an IOSurface, which Metal "
-            r"copies onto .+$",
-            line,
-        )
-        is not None
         or re.match(r"moving to GPU \d+: ", line) is not None
         # A move to another kernel driver, as the library and the
         # helper narrate one that goes right (gpu_driver_moves()); a
@@ -3537,7 +3516,7 @@ def expected(line):
         )
         is not None
         # Mesa's loader, shown a card it has no driver for -- NVIDIA's
-        # own module has it -- whenever EGL's devices are listed.
+        # own module has it.
         or re.match(
             r"pci id for fd \d+: [0-9a-f]{4}:[0-9a-f]{4}, "
             r"driver \(null\)$",
@@ -3565,24 +3544,8 @@ def expected(line):
         # The other renderers' GPUs, listed after the first frame.
         or re.match(r"\S.* lists \d+ GPUs? here, in \d+ ms$", line) is not None
         # A GPU whose VRAM its runtime suspend loses (NVK before
-        # Turing), and the GPUs OpenGL left out: no 4.5, or a software
-        # device whose display Mesa opens on the hardware one.
+        # Turing).
         or line.startswith("the glyph atlas is in system memory: ")
-        or re.match(
-            r"GPU left out: .*, which makes no OpenGL 4\.5 "
-            r"core context$",
-            line,
-        )
-        is not None
-        or re.match(
-            r"GPU left out: .*, whose display for this window "
-            r"EGL opens on another device$",
-            line,
-        )
-        is not None
-        or line.startswith(
-            "EGL's own GPU makes no OpenGL 4.5 core context; drawing on "
-        )
         or re.match(r".+ is ranked below an integrated one: ", line) is not None
         or FRAME_TIMES.match(line) is not None
         or INPUT_LATENCY.match(line) is not None
@@ -3594,7 +3557,7 @@ def expected(line):
         is not None
         or FRAME_AT_REST.match(line) is not None
         # The display period put right where the swap did not block at
-        # first (frame.c's PERIOD_RELEARN_RUN): OpenGL on a bare Xorg.
+        # first (frame.c's PERIOD_RELEARN_RUN).
         or re.match(
             r"display period learnt again: [\d.]+ ms, where "
             r"[\d.]+ stood -- ",
@@ -4218,8 +4181,8 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
         args.validation == "auto" and args.variant in ("asan", "tsan", "gc")
     )
     # The library's instance alone (FNL_VK_VALIDATION), not the loader's
-    # every instance: Zink's and vkd3d-proton's are Mesa's and wine's, and
-    # the layer's own lock order in Zink's failed rounds that were ours.
+    # every instance: vkd3d-proton's is wine's, and the layer's own lock
+    # order in a foreign instance failed rounds that were ours.
     if validate:
         if not ledger.layer():
             os.environ["FNL_VK_VALIDATION"] = "1"
@@ -4359,8 +4322,7 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
                 hold.begin()
             backend_check(r, b)
             renderer_check(r, b)
-            # The layer is Vulkan's; a GL program is checked by GL's debug
-            # output, which a Debug tree logs and the log check reads.
+            # The layer is Vulkan's alone.
             layered = ledger.layer() and b.RENDERER == "vulkan"
             if layered and getattr(b, "NO_LAYER", ""):
                 r.skip("the validation layer is in the program", b.NO_LAYER)

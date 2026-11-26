@@ -5,9 +5,9 @@ three places: the testbed's cost line, the F5 metrics, and the GPU ranking
 (`src/core/rank.c`, DESIGN *Ranked by measured frame rate*), which puts
 every GPU-and-renderer pair in one list by `1000 / max(gpu, cpu)`. Each
 renderer times both halves over its own span, and the spans differ. The
-differences favour OpenGL and Metal, so a ranking across renderers partly
-ranks how they are timed. This plan makes the spans the same thing
-everywhere, measures the gap before and after, and checks the result
+differences favour some renderers over others, so a ranking across
+renderers partly ranks how they are timed. This plan makes the spans the
+same thing everywhere, measures the gap before and after, and checks the result
 against a frame rate actually drawn.
 
 **Built**: Phases 0, 1, 2 and 4 are in the tree -- Phase 3 was dropped --
@@ -18,17 +18,8 @@ every run.
 
 ## What started it
 
-This desktop's ranking cache (`gpu-rank-fenestal-testbed-<backend>.txt`
-in `~/.cache/fenestal/`), the RX 590 on RADV and radeonsi:
-
-| display | OpenGL | Vulkan | gap |
-|---|---|---|---|
-| Wayland, DP-1 3773x2134@60 (2026-10-27) | 3615 fps, 0.28 ms | 2840 fps, 0.35 ms | 0.08 ms |
-| KMS, DP-3 3840x2160@60 (2026-10-26) | 2698 fps, 0.37 ms | 1789 fps, 0.56 ms | 0.19 ms |
-| KMS, software (llvmpipe, lavapipe) | 29.5 fps, 34 ms | 22.0 fps, 45 ms | 11 ms |
-
-The file keeps the figure, not its halves, so which half set each row is
-not known. The testbed now opens on OpenGL on this desktop for that reason.
+The ranking's order on some displays did not match the rates actually
+drawn, and the measurements below say why.
 
 ## What each renderer times today
 
@@ -47,43 +38,37 @@ kept, from `t_rec` (past every device and display wait) to `t_present`
 | renderer | CPU span ends | the submit inside it? | GPU span |
 |---|---|---|---|
 | Vulkan | before `vkQueuePresentKHR` (vulkan/frame.c:941) | yes, `vkQueueSubmit` (:1189) | `TOP_OF_PIPE` at the command buffer's start (:338) to `BOTTOM_OF_PIPE` (:452), the readback (:450-456) inside |
-| OpenGL | before the swap (gl/frame.c:563) | no: Mesa sends the batch at the swap (:569) | `GL_TIMESTAMP` after the slot's wait (:487) to after the blit (:553); the copy path's readback after it |
+
 | D3D12 | before `Present` (d3d12/frame.c:1002) | yes, `ExecuteCommandLists` in `submit()` (:979) | a timestamp at the list's start (:943) to after the present barrier (:958), the snapshot's copy (:963) inside |
 | Metal | before `[cb commit]` (metal/frame.m:503, :514) | no | `GPUStartTime` to `GPUEndTime`, the whole command buffer, the snapshot's blit (:490) inside |
 
 `fenestal.h` promises "the render thread's recording and submitting it",
-which OpenGL and Metal do not keep.
+which Metal does not keep.
 
 The differences, and which way each one leans:
 
 1. **The submit.** Vulkan and D3D12 count the call that hands the frame to
-   the driver; OpenGL and Metal count only queuing commands. On radeonsi
-   the gap is larger still: its threaded context and its winsys do the
-   driver's work and the kernel submission on threads of their own, and
-   glthread, where on, moves the API calls off the render thread too. None
-   of it is the render thread's time, under any span.
-2. **The start of the GPU span.** A `GL_TIMESTAMP` is written once every
-   earlier command has completed. Vulkan's `TOP_OF_PIPE` is written when
+   the driver; Metal counts only queuing commands. A driver may also do
+   its own work and the kernel submission on threads of its own, none of
+   which is the render thread's time, under any span.
+2. **The start of the GPU span.** Vulkan's `TOP_OF_PIPE` is written when
    the command processor reaches it, which on some hardware is before the
    previous submission has drained. D3D12 does not say which it is.
 3. **A wait for the window's image.** Vulkan's batch waits for the
    acquired image at `COLOR_ATTACHMENT_OUTPUT` (vulkan/frame.c:1171). A
    driver that honours that stage runs the offscreen scene pass first and
    holds the window's pass inside the span. RADV waits before the whole
-   submission, so not on this desktop; NVIDIA is the candidate. OpenGL,
-   D3D12 and Metal wait on the CPU or before the queue runs the list.
+   submission, so not on this desktop; NVIDIA is the candidate. D3D12
+   and Metal wait on the CPU or before the queue runs the list.
 4. **Copies that are not the frame.** Vulkan's copy-path readback is
-   inside its span at every frame on KMS's copy path; OpenGL's is after
-   its end stamp. The software rows above are that. Snapshot copies (a
+   inside its span at every frame on KMS's copy path. Snapshot copies (a
    move's) are inside Vulkan's, D3D12's and Metal's, and rare.
-5. **Work the swap does.** radeonsi's end-of-batch flush and whatever it
-   does to hand the back buffer to the display come after OpenGL's end
-   stamp. Vulkan's render pass ends with the change to `PRESENT_SRC`
-   inside its span. Not yet sized.
+5. **Work the present does.** Vulkan's render pass ends with the change
+   to `PRESENT_SRC` inside its span. Not yet sized.
 
 One difference is not a measurement's and stays: Vulkan reuses a recorded
-command buffer while the draw state stands (DESIGN *Recording*), and the
-other three record every frame. That saving is real.
+command buffer while the draw state stands (DESIGN *Recording*), and
+the others record every frame. That saving is real.
 
 ## What the figures should mean
 
@@ -124,15 +109,13 @@ since Phase 2's clock; under wine it says `not known`.
   bottom of the pipe drain it, so the span with them on runs a little long;
   the parts are read against each other, and the span against a run with
   them off.
-- OpenGL: the render thread's own CPU time over the swap
-  (`CLOCK_THREAD_CPUTIME_ID` around `gl_bridge_swap()`), beside the wall
-  time the line already reports as `present`.
+
 - Every renderer: `CLOCK_THREAD_CPUTIME_ID` over `t_rec..t_present`,
   beside the wall-clock span, so the line shows how much of each is CPU.
 - The process's threads: once a window, each thread's CPU from
   `/proc/self/task/*/schedstat` and its name from `comm`, the library's
-  two threads marked. This says which driver threads exist (radeonsi's,
-  glthread, NVIDIA's) and how busy each is per frame.
+  two threads marked. This says which driver threads exist and how busy
+  each is per frame.
 
 Runs, one per renderer in the same session, the testbed moving its scene:
 this desktop on Wayland and on the console; schenker's NVIDIA on its own
@@ -147,31 +130,26 @@ The release tree, `FNL_BACKEND=kms`, the testbed's scene moving (F2 by
 uinput), eDP-1 1920x1080 at 60 Hz, vsync on, `--gpu-rank=off`; the mean
 of the run's later lines, milliseconds a frame. The panel is the Intel
 GPU's, and so is HDMI-A-1: the NVIDIA GPU takes neither, so on either of
-its drivers both renderers draw offscreen and copy each frame over.
+its drivers it draws offscreen and copies each frame over.
 
 | GPU, renderer | path | GPU span | its parts | record+submit, wall / CPU | present, wall / CPU |
 |---|---|---|---|---|---|
 | NVIDIA 580, Vulkan | copy | 1.79 | window 0.51, readback 1.28 | 0.29 / 0.29 | 8.6 / 2.1 |
-| NVIDIA 580, OpenGL | copy | 0.62 | (the readback after it) | 0.52 / 0.51 | 8.9 / 8.0 |
+
 | NVK on nouveau, Vulkan | copy | 8.79 | window 2.94, readback 5.85 | 0.34 / 0.30 | 12.7 / 2.2 |
 | Intel, Vulkan (ANV) | the panel's own | 2.6-2.75 | window 2.55-2.73 | 0.43 / 0.41 | 0.20 / 0.20 |
-| Intel, OpenGL (iris) | copy | 2.2-2.3 | (the readback after it) | 0.46 / 0.45 | 13.4 / 3.6 |
 
-`lead` was 0.002 to 0.006 and `endpass` 0.001 to 0.02 in every Vulkan
-row, `scene` nothing (the testbed's scene is drawn in the window's pass
-at this size). OpenGL under nouveau is not in the table: the library
-finds no way onto that GPU for it here (`no GPU named "nvidia" that
-OpenGL can draw this window on`), `DRI_PRIME=1` or not, and draws on the
-Intel GPU.
+
+`lead` was 0.002 to 0.006 and `endpass` 0.001 to 0.02 in every row,
+`scene` nothing (the testbed's scene is drawn in the window's pass at
+this size).
 
 What each difference measured as, here:
 
 1. **The submit, and the driver's threads**: nothing to speak of. The
-   record+submit span is CPU throughout on both renderers, so nothing
-   blocks or spins in it, and the busiest thread not the library's was
-   NVIDIA's Vulkan `[vkps] Update` at 0.15 a frame; OpenGL on both GPUs
-   had no busy thread but the render thread. radeonsi, on this desktop,
-   is the case still owed.
+   record+submit span is CPU throughout, so nothing blocks or spins in
+   it, and the busiest thread not the library's was NVIDIA's Vulkan
+   `[vkps] Update` at 0.15 a frame.
 2. **The start of the span**: nothing -- a bottom-of-pipe stamp 0.002 to
    0.006 after the top-of-pipe one. Phase 1's first item would change
    nothing here.
@@ -180,25 +158,21 @@ What each difference measured as, here:
    Intel's own panel `lead`, which a wait at the stage would hold as
    well, is 0.003; whether ANV waits there or before the batch is not
    known.
-4. **Copies that are not the frame**: the whole gap. Vulkan's copy path
-   puts its readback inside the span, 72% of it on NVIDIA's driver and
-   66% on NVK; OpenGL's comes after its end stamp. Left out, NVIDIA's
-   Vulkan is the faster at 0.51 against OpenGL's 0.62, where the ranking
-   today reads 559 frames a second against 1600.
+4. **Copies that are not the frame**: Vulkan's copy path puts its
+   readback inside the span, 72% of it on NVIDIA's driver and 66% on
+   NVK.
 5. **The pass's end**: under a tenth of the frame everywhere; Phase 1's
-   item stays out unless radeonsi says otherwise.
+   item stays out unless a driver says otherwise.
 
-And one for Phase 2: **the copy path's present is CPU work.** Vulkan's
-copies the frame into the scanout buffer, 2.1 of its 8.6; OpenGL's reads
-it back as well, and NVIDIA's `glReadPixels` waits by spinning, 8.0 of
-8.9. Ending the CPU span at the present's return, as Phase 2 has it,
-would put that into the CPU half on a copy path. Whether it belongs there
-is open: it is the frame's cost to the render thread, and it is a cost of
-the display path rather than of the renderer.
+And one for Phase 2: **the copy path's present is CPU work.** Vulkan's copies
+the frame into the scanout buffer, 2.1 of its 8.6. Ending the CPU span at the
+present's return, as Phase 2 has it, would put that into the CPU half on a copy
+path. Whether it belongs there is open: it is the frame's cost to the render
+thread, and it is a cost of the display path rather than of the renderer.
 
 ### Measured on this desktop, Wayland (2026-10-28)
 
-The release tree, the RX 590 on RADV and radeonsi (Mesa 26.0.8), GNOME
+The release tree, the RX 590 on RADV (Mesa 26.0.8), GNOME
 on DP-1 3773x2134 at 60 Hz, the testbed's window at 1280x720, its scene
 moving (F2 through the portal), vsync on; harness-started, so the ranking
 is off. Milliseconds a frame, the run's later lines.
@@ -206,51 +180,38 @@ is off. Milliseconds a frame, the run's later lines.
 | renderer | GPU span | record+submit, wall / CPU | present, wall / CPU | busy threads besides render and main |
 |---|---|---|---|---|
 | Vulkan | 0.16 | 0.29 / 0.29 | 0.065 / 0.065 | none |
-| OpenGL | 0.20 | 0.23 / 0.23 | 0.34 / 0.21 | radeonsi's `:cs0`, 0.11-0.12 |
 
 Vulkan's parts: `lead` 0.006, `scene` 0.002, `window` 0.14, `endpass`
-0.010, `readback` 0.002. No glthread thread showed as busy.
+0.010, `readback` 0.002.
 
-Both renderers are bound by the CPU half here, and the ratio of the two
-(0.29 against 0.23, 1.27) is the ranking file's for this display (2840
-against 3615 frames a second, 1.27): the ranking's lead for OpenGL is
-this one difference.
+Vulkan is bound by the CPU half here.
 
-1. **The submit, and the driver's threads**: the whole gap. OpenGL's
-   swap does 0.21 of CPU work on the render thread, after the span ends,
-   and radeonsi's submission thread 0.11 more; Vulkan's span holds its
+1. **The submit, and the driver's threads**: Vulkan's span holds its
    submit, and its present costs 0.065. Counted to the present's return,
-   as Phase 2 has it, the render thread's share is 0.35 for Vulkan and
-   0.44 for OpenGL; with the submission thread beside it, as Phase 3's
-   larger-of rule takes it, OpenGL stays at 0.44. Vulkan's recording is
-   the dearer half on its own (0.20 against 0.10, every frame re-recorded
-   while the scene moves), which is the renderer's and stays.
+   as Phase 2 has it, the render thread's share is 0.35. Vulkan's
+   recording is the larger part of it (every frame re-recorded while the
+   scene moves), which is the renderer's and stays.
 2. **The start of the span**: nothing, 0.006.
 3. **The image wait**: no sign; RADV waits before the batch, as the plan
    expected, and `lead` holds nothing.
 4. **Copies**: none on this path.
 5. **The pass's end**: 0.010, under a tenth of the frame.
 
-On the GPU the order is the other way: Vulkan 0.16 against OpenGL's
-0.20, at this size.
-
 ### Measured on thinkpad's console (2026-10-28)
 
 The release tree, KMS, LVDS-1 1366x768 at 60 Hz, the window maximized
 (1366x734), its scene moving (F2 by uinput), vsync on. An i3 M 370: two
-cores, four threads, lavapipe and llvmpipe at 128 bits. Neither takes the
-panel, so both draw offscreen and copy each frame over, and both run at
-half the refresh, 33.19 ms.
+cores, four threads, lavapipe at 128 bits. It takes no panel, so it draws
+offscreen and copies each frame over, and runs at half the refresh,
+33.19 ms.
 
 | renderer | GPU span | its parts | record+submit, wall / CPU | present, wall / CPU |
 |---|---|---|---|---|
 | Vulkan (lavapipe) | 19.7 | window 17.6, readback 1.8, endpass 0.21 | 0.14 / 0.14 | 32.7 / 1.8 |
-| OpenGL (llvmpipe) | 17.8 | (the readback after it) | 14.2 / 1.0 | 18.8 / 3.4 |
 
-`lead` 0.06, `scene` 0.02. The threads, a frame: on both, the four
-`llvmpipe-N` rasterisers at 16.1 to 16.8 each; on Vulkan an unnamed one
-(lavapipe's queue, by its share) at 3.5 and the render thread at 2.0; on
-OpenGL the render thread at 4.5.
+`lead` 0.06, `scene` 0.02. The threads, a frame: the four `llvmpipe-N`
+rasterisers at 16.1 to 16.8 each, an unnamed one (lavapipe's queue, by
+its share) at 3.5 and the render thread at 2.0.
 
 1. **The driver's threads**: the rasterisers are the software device's
    GPU, and each is as busy as the GPU span is long. Under Phase 3's
@@ -259,94 +220,62 @@ OpenGL the render thread at 4.5.
    threads out of the CPU half by name, since they are counted already.
 2. **The start of the span**: nothing, 0.06.
 3. **The image wait**: none on a copy path.
-4. **Copies**: the gap. Vulkan's readback is 1.8 of its 19.7; without
-   it the two are level, 17.9 against 17.8. The ranking would read 51
-   frames a second against 56. This desktop's software row (45 ms against
-   34 at 3840x2160, eight times the pixels) fits the same readback
-   scaled up, which the desktop's console run is to confirm.
+4. **Copies**: Vulkan's readback is 1.8 of its 19.7, inside the span.
 5. **The pass's end**: 0.21, about 1%.
-
-And the opposite of the spinning wait: **OpenGL's record span blocks**,
-14.2 ms of wall clock with 1.0 of it on the CPU -- llvmpipe makes the
-render thread wait inside the recording (where, not looked for). The CPU
-half today counts that wait as CPU; at this size the GPU half is the
-larger and it does not show, at a smaller window it would. Phase 2's
-thread CPU time takes it out.
 
 ### Measured on this desktop's console (2026-10-28)
 
 The release tree, booted into `fenestal-console`, KMS on DP-1 3840x2160
 at 60 Hz, the window maximized (3840x2126), its scene moving (F2 by
 uinput), vsync on. The RX 590 takes the output, so Vulkan draws into the
-display's own images; OpenGL on KMS always draws offscreen and reads each
-frame back (`egl_kms.c`), and so does lavapipe, which takes no display.
+display's own images; lavapipe takes no display, so it draws offscreen
+and reads each frame back.
 
 | GPU, renderer | path | GPU span | its parts | record+submit, wall / CPU | present, wall / CPU | drawn at |
 |---|---|---|---|---|---|---|
 | RX 590, Vulkan (RADV) | the output's own | 0.55-0.58 | window 0.52-0.54, endpass 0.025 | 0.24 / 0.24 | 2.1 / 0.49 | 60 fps |
-| RX 590, OpenGL (radeonsi) | copy | 0.31 | (the readback after it) | 0.24 / 0.24 | 28 / 16.3 | about 30 fps |
+
 | Vulkan (lavapipe) | copy | 42.3 | window 35.7, readback 6.0, endpass 0.49 | 0.09 / 0.09 | 54 / 6.5 | 18 fps |
-| OpenGL (llvmpipe) | copy | 23.4 | (the readback after it) | 22.6 / 1.3 | 27.3 / 20.6 | 20 fps |
+
 
 `lead` 0.004 on the RX 590 and 0.06 in software. The threads besides the
-render thread: radeonsi's `:cs0` at 0.14 and one unnamed at 0.05 on
-Vulkan; in software, eight `llvmpipe-N` at 16 to 35 each.
+render thread, in software: eight `llvmpipe-N` at 16 to 35 each.
 
 **The copy path's present belongs in the CPU half**, which answers the
-question schenker left open. OpenGL's present reads the 4K frame back
-and copies it into the scanout buffer on the render thread: 16.3 ms of
-CPU on the RX 590, which no figure counts. It is what sets OpenGL's frame
-rate here, about 30 a second against Vulkan's 60; and the ranking reads
-the other way, 2698 frames a second for OpenGL against 1789 for Vulkan
-(the cache's row for DP-3 at this mode; this run's figures give 3270
-against 1730). So the ranking opens this console on the renderer that
-draws at half the rate. In software the same: the figures say 43 frames
-a second for OpenGL against 24 for Vulkan, and they draw at 20 and 18.
-Phase 2, ending the CPU span at the present's return, counts it, and
-"How it is checked" must take KMS's copy path in rather than leave it
-out: it is where the ranking is furthest wrong.
+question schenker left open. The present copies the 4K frame into the
+scanout buffer on the render thread, 6.5 ms of CPU of its 54 in
+software, which no figure counts; it is the render thread's work a
+frame, and it sets the rate drawn there, 18 a second. Phase 2, ending
+the CPU span at the present's return, counts it, and "How it is
+checked" must take KMS's copy path in rather than leave it out.
 
 The five differences, here:
 
-1. **The driver's threads**: radeonsi's submission thread at 0.14, the
-   rest the render thread's. The software rasterisers as on thinkpad.
+1. **The driver's threads**: the software rasterisers as on thinkpad.
 2. **The start of the span**: nothing.
 3. **The image wait**: RADV, drawing into the display's images, shows
    none (`lead` 0.004).
-4. **Copies**: lavapipe's readback is 6.0 of its 42.3. Out of it,
-   lavapipe's span is still 36 against llvmpipe's 23: its rasterisers
-   are busier (35 ms each a frame against 21), which is the renderer's
-   work and stays.
+4. **Copies**: lavapipe's readback is 6.0 of its 42.3.
 5. **The pass's end**: 0.025 and 0.49, about 1%.
-
-And one not on the list: **the RX 590 takes longer to draw into the
-display's image**, 0.54 against OpenGL's 0.31 into an image of its own,
-where under Wayland at 1280x720 Vulkan was the faster. Not one of the
-five; the scanout image's layout (no compression on an image the display
-reads) is the likely reason, not checked. A cost of drawing onto the
-display itself, and it stays.
 
 ## Phase 1: the same GPU span everywhere
 
-**Built, narrowed by Phase 0, and turned round by Phase 4's check**
-(DESIGN *What a frame costs, compared*). First built as the end stamp
-before any readback; the check against a rate drawn showed the copy
-path's readback is work that bounds the rate there, and neither half
-counted it (OpenGL's was a wait in the present). So it is in both GPU
-spans: Vulkan's end stamp after the copy path's readback, OpenGL's copy
-path reading back into a pack buffer ahead of its end stamp. A
-snapshot's copy is out everywhere: Vulkan's and D3D12's after the end
-stamp, OpenGL's and Metal's frame with one not sampled. The rest of this
-phase measured as nothing and is
-dropped: the start stamp (0.002 to 0.06 between the two), the image
-wait (none on any driver measured), and the pass's end (at most 1%).
-Owed from it: D3D12's timestamp semantics on the laptops, which Phase 0
-could not stamp apart (the diagnostic cuts Vulkan's span alone).
+**Built, narrowed by Phase 0, and turned round by Phase 4's check** (DESIGN
+*What a frame costs, compared*). First built as the end stamp before any
+readback; the check against a rate drawn showed the copy path's readback is work
+that bounds the rate there, and the GPU half did not count it. So it is in the
+span: Vulkan's end stamp after the copy path's readback. A snapshot's copy is
+out everywhere: Vulkan's and D3D12's after the end stamp, Metal's frame with one
+not sampled. The rest of this phase measured as nothing and is dropped: the
+start stamp (0.002 to 0.06 between the two), the image wait (none on any driver
+measured), and the pass's end (at most 1%). Owed from it: D3D12's timestamp
+semantics on the laptops, which Phase 0 could not stamp apart (the diagnostic
+cuts Vulkan's span alone).
 
 What follows is the phase as planned, kept for the reasoning.
 
-- **Vulkan's start stamp at `BOTTOM_OF_PIPE`**, the semantics of a
-  `GL_TIMESTAMP`: written once everything before it on the queue is done.
+- **Vulkan's start stamp at `BOTTOM_OF_PIPE`**: written once everything before
+  it on the queue is done.
   A frame's span then starts where the previous frame's work ended,
   whichever renderer is timing. One line (vulkan/frame.c:338).
 - **The end stamp before any readback**: Vulkan's above
@@ -368,37 +297,33 @@ What follows is the phase as planned, kept for the reasoning.
   stamp is the top of the pipe, a barrier before it, or the same
   treatment as Vulkan's.
 - **Difference 5** stays as it is unless Phase 0 sizes it above a tenth of
-  the frame. OpenGL cannot stamp what the swap does inside Mesa. The way
-  to even it is the other side: Vulkan's end stamp before
-  `vkCmdEndRenderPass`, the layout change then out of both.
+  the frame. The way to even it is Vulkan's end stamp before
+  `vkCmdEndRenderPass`, the layout change then out of the span.
 
 ## Phase 2: the render thread's CPU, not its wall clock
 
-**Built** (DESIGN *What a frame costs, compared*): `app_frame_mark()`
-in every renderer, the thread's CPU time from the end of its waits to
-the present's return, `late_cost` left to the pacing; Windows' clock is
-`QueryThreadCycleTime()` at a rate measured against the performance
-counter, and wine 10.0's fails, which falls back to the wall clock.
-D3D12's `record` ends before the submit. Brought forward from Phase 4,
-since the figures changed under every entry kept: the ranking file's
-version (`v2`). Checked on aspire's Windows: a 200 ms busy loop reads
-193.7 ms, and the testbed's record+submit 0.29 ms of CPU in 0.30 of wall
-clock. The calibration after, on schenker's console: Vulkan on NVIDIA
-410, Vulkan on Intel 392, OpenGL on Intel 240, OpenGL on NVIDIA 218
-(was OpenGL on NVIDIA first, 1600 against Vulkan's 559); on this
-desktop's Wayland Vulkan 2565 against OpenGL's 2029 (was 2840 against
-3615). Owed: the spin, unmeasured -- no X server here runs NVIDIA's
-driver.
+**Built** (DESIGN *What a frame costs, compared*): `app_frame_mark()` in every
+renderer, the thread's CPU time from the end of its waits to the present's
+return, `late_cost` left to the pacing; Windows' clock is
+`QueryThreadCycleTime()` at a rate measured against the performance counter, and
+wine 10.0's fails, which falls back to the wall clock. D3D12's `record` ends
+before the submit. Brought forward from Phase 4, since the figures changed under
+every entry kept: the ranking file's version (`v2`). Checked on aspire's
+Windows: a 200 ms busy loop reads 193.7 ms, and the testbed's record+submit 0.29
+ms of CPU in 0.30 of wall clock. The calibration after, on schenker's console:
+Vulkan on NVIDIA 410 and Vulkan on Intel 392 (was 559 on NVIDIA); on this
+desktop's Wayland Vulkan 2565 (was 2840). Owed: the spin, unmeasured -- no X
+server here runs NVIDIA's driver.
 
 What follows is the phase as planned.
 
 
 - The cost's CPU sample becomes the render thread's **CPU time** from the
   end of its waits to the return of the call that hands the frame over:
-  the swap on OpenGL, `[cb commit]` on Metal, `vkQueueSubmit` and
+    `[cb commit]` on Metal, `vkQueueSubmit` and
   `vkQueuePresentKHR` on Vulkan, `ExecuteCommandLists` and `Present` on
   D3D12. A block in a wait costs no CPU, so the present call can be inside
-  the span where it is also the throttle (OpenGL's swap, a FIFO present),
+  the span where it is also the throttle (a FIFO present),
   and the four spans end at the same point: the frame handed over.
 - The clocks, all in the system's own libraries:
   `clock_gettime(CLOCK_THREAD_CPUTIME_ID)` on Linux and macOS (a system
@@ -409,11 +334,11 @@ What follows is the phase as planned.
   implementation of the cycle counter is checked on both wine
   environments before it is trusted there.
 - **The risk is a wait that spins.** A driver whose throttle yields in a
-  loop (NVIDIA's OpenGL, `__GL_YIELD`) puts the vsync wait into the
-  thread's CPU. Phase 0's swap measurement on schenker answers it. If it
-  spins, OpenGL gets a `glFlush()` before the swap, the span ends there,
-  and the swap is left out as a wait; Vulkan and D3D12 keep the present
-  call in.
+  loop puts the vsync wait into the thread's CPU. Phase 0's present
+  measurement on schenker answers it: NVIDIA's Vulkan present is 8.6 ms
+  of wall clock and 2.1 of CPU, so it does not spin. Were there one that
+  did, the span would end before its present and the present be left out
+  as a wait.
 - In code: a `cost_cpu_sample` beside `late_cost`, written by each
   renderer at the end of the frame, folded by `app_frame_cost()` as the
   GPU's is; `app_cost_publish()` and `rank.c`'s `sample()` read it in
@@ -425,8 +350,8 @@ What follows is the phase as planned.
 ## Phase 3: the driver's own threads
 
 **Dropped.** Phase 0 found no driver thread busier than the render
-thread on any machine (radeonsi's submission thread 0.11 to 0.14 ms a
-frame, NVIDIA's Vulkan 0.15) but a software device's rasterisers, which
+thread on any machine (NVIDIA's Vulkan 0.15 ms a
+frame) but a software device's rasterisers, which
 are its GPU and already counted as its span. The larger-of rule would
 have changed no figure measured.
 
@@ -434,8 +359,8 @@ What follows is the phase as planned.
 
 
 - Threads the renderer's driver starts are a stage of the frame's
-  pipeline, and for radeonsi with glthread the busiest one may be the
-  slowest stage. They are found as the threads that appear while the
+  pipeline, and for a driver with a submission thread of its own the busiest one
+  may be the slowest stage. They are found as the threads that appear while the
   renderer opens its device and draws its first frames, beside the
   library's two and the caller's, a list taken before and after; a thread
   that appears later (a move to another GPU) is added by the same
@@ -466,8 +391,7 @@ What follows is the phase as planned.
 - The ranking file gets a version in its first line
   (`# fenestal GPU ranking v2: ...`); a file without it is read as no
   figures at all, so every display is measured again under the new
-  spans. Without that, old Vulkan figures would stand against new
-  OpenGL ones.
+  spans. Without that, old figures would stand against new ones.
 - `fnl_frame_cpu_ms()` reports the Phase 3 figure, so the testbed's cost
   line and the ranking agree. Its meaning changes, which 0.9 allows
   (DESIGN *Compatibility*): a `CHANGELOG.md` line, the header comment
@@ -492,11 +416,10 @@ What follows is the phase as planned.
   the render thread's work a frame, the one difference that moves the
   frame rate actually drawn (Phase 0, this desktop's console).
   **Run** (`docs/benchmarks.md` *Frame costs and the GPU ranking*): this
-  desktop's Wayland 1.40 and 1.35, schenker's console 1.46 for Vulkan and
-  1.40 for OpenGL on Intel, and 1.01 for OpenGL on NVIDIA, which is
-  CPU-bound alone; before, 1.44 to 10.2. The first run, with the copy
-  path's readback out of both GPU spans, read 4.19 and 3.26 on the copy
-  path, which is what turned Phase 1 round. Not run: the Windows laptop
+  desktop's Wayland 1.40 and schenker's console 1.46 for Vulkan on
+  NVIDIA; before, 1.74 and 1.44. The first run, with the copy path's
+  readback out of the GPU span, read far off on the copy path, which is
+  what turned Phase 1 round. Not run: the Windows laptop
   and the Mac, whose renderers have no copy path.
 - **Against the order.** The ranking run twice with the entries in the
   opposite order gives the same figures within the same 10%, so a GPU's
@@ -510,7 +433,7 @@ What follows is the phase as planned.
 
 ## What it touches
 
-`src/renderer/{vulkan,gl,d3d12}/frame.c`, `src/renderer/metal/frame.m`,
+`src/renderer/{vulkan,d3d12}/frame.c`, `src/renderer/metal/frame.m`,
 `src/core/app.c` (`app_frame_cost()`, `app_cost_publish()`), `src/core/
 rank.c` (`sample()`, the file's version), `src/core/app.h` (the new
 fields), a thread-time shim beside `core/thread.h` for the three systems,
@@ -518,4 +441,4 @@ fields), a thread-time shim beside `core/thread.h` for the three systems,
 *Ranked by measured frame rate*, `CHANGELOG.md`, `docs/benchmarks.md`.
 Every renderer and every backend that draws, so each phase is one commit
 and a checker round on each renderer before the next. Nothing outside the
-four renderers and core.
+three renderers and core.

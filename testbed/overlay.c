@@ -275,8 +275,7 @@ void testbed_overlay_frame_stats_log(void)
 }
 
 /* The GPU memory this process holds on the GPU drawing: the scene's API's
- * figure (scene_<api>.c), or for OpenGL, which keeps none, the system's
- * (gpumem.c). */
+ * figure (scene_<api>.c). */
 bool testbed_vram_mib(FnlApp *app, double *mib)
 {
 	switch (fnl_renderer(app)) {
@@ -289,7 +288,6 @@ bool testbed_vram_mib(FnlApp *app, double *mib)
 #ifdef SCENE_HAS_METAL
 	case FNL_RENDERER_METAL: return scene_metal_vram(app, mib);
 #endif
-	case FNL_RENDERER_OPENGL: return testbed_gpu_mem_os(fnl_gpu_name(app), mib);
 	default: return false;
 	}
 }

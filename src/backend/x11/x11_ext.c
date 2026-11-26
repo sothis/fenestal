@@ -218,7 +218,7 @@ void x11_sync_set(struct BackendState *p, uint64_t value)
 /* ---- Present --------------------------------------------------------------
  *
  * The graphics API presents into the window on a connection of its own --
- * Mesa's X11 WSI and EGL by PresentPixmap -- and the server tells every
+ * Mesa's X11 WSI by PresentPixmap -- and the server tells every
  * client that selected the window's completions about each, at the
  * display's microsecond (`ust`, CLOCK_MONOTONIC's on Linux, the frame
  * clock's) or as skipped for a later one. The serial is that connection's,

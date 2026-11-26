@@ -16,9 +16,9 @@ with, and `examples/` holds the API reference's snippets.
 | [`hello`](hello/) | any the build has | The smallest Fenestal program: a window, the library's titlebar and a black scene, with no callbacks at all. |
 | [`motion`](motion/) | Vulkan | One lit cube, turning for as long as the window is open. The cube is made in the vertex shader, so the scene has no buffers, only a pipeline per render target. |
 | [`motion2`](motion2/) | Direct3D 12, Vulkan | `motion`'s cube with a scene for each renderer. Both on Windows, Vulkan alone elsewhere. The Direct3D 12 shaders are the same GLSL, translated by spirv-cross and compiled to DXIL by dxc. |
-| [`texture`](texture/) | OpenGL, Vulkan | The turning cube with a texture made at start, a framed checkerboard: uploaded through a staging buffer into an image with a descriptor set under Vulkan, and as a texture with a sampler under OpenGL, whose shaders are the same GLSL translated back by spirv-cross (4.50, and 4.10 for a Mac). Both on Linux and macOS, Vulkan alone on Windows. |
-| [`texture2`](texture2/) | Direct3D 12, Vulkan | `texture`'s cube with a Direct3D 12 scene in place of OpenGL's: the texture copied from an upload-heap buffer on a list of its own and waited for with a fence, its view in a shader-visible descriptor heap, the sampler static in the root signature. Both on Windows, Vulkan alone elsewhere. |
-| [`texture3`](texture3/) | Metal, Vulkan | `texture`'s cube with a Metal scene in place of OpenGL's: the texture copied from a shared buffer into a private one by a blit on the library's queue and waited for, the per-draw block handed to the encoder as bytes, the shaders the same GLSL translated to MSL by spirv-cross and compiled by the device at start. Both on macOS, Vulkan alone elsewhere. |
+| [`texture`](texture/) | Vulkan | The turning cube with a texture made at start, a framed checkerboard: uploaded through a staging buffer into an image with a descriptor set. |
+| [`texture2`](texture2/) | Direct3D 12, Vulkan | `texture`'s cube with a scene for each renderer: the Direct3D 12 one has the texture copied from an upload-heap buffer on a list of its own and waited for with a fence, its view in a shader-visible descriptor heap, the sampler static in the root signature. Both on Windows, Vulkan alone elsewhere. |
+| [`texture3`](texture3/) | Metal, Vulkan | `texture`'s cube with a scene for each renderer: the Metal one has the texture copied from a shared buffer into a private one by a blit on the library's queue and waited for, the per-draw block handed to the encoder as bytes, the shaders the same GLSL translated to MSL by spirv-cross and compiled by the device at start. Both on macOS, Vulkan alone elsewhere. |
 
 Every demo is built twice: `<name>` is linked against the static library,
 and `<name>-dyn` against the shared one, which it loads from its own folder.
@@ -79,13 +79,10 @@ figures, and without figures the automatic pick decides. Measuring is asked
 for, never done unasked: `FNL_GPU_RANK=calibrate` or the GPU box's last row
 measures every GPU with every renderer the demo has, a second or more each,
 while the window shows a calibration panel and takes no input, and that run
-and every later one draw on the fastest, kept in the same cache. So
-`texture` may draw with OpenGL on a machine where OpenGL measured faster
-than Vulkan. `FNL_RENDERER=vulkan`,
-`d3d12`, `gl` or `metal` names a renderer among those the demo has, `FNL_GPU`
-a GPU, and `FNL_GPU_RANK=off` skips the ranking. Each program logs the
-backend, renderer and GPU it chose. OpenGL wants a GPU with OpenGL 4.1 core,
-which a Raspberry Pi 4's has not: `texture` draws with Vulkan there.
+and every later one draw on the fastest, kept in the same cache.
+`FNL_RENDERER=vulkan`, `d3d12` or `metal` names a renderer among those the
+demo has, `FNL_GPU` a GPU, and `FNL_GPU_RANK=off` skips the ranking. Each
+program logs the backend, renderer and GPU it chose.
 
 Keep a tree's files together when copying it elsewhere: the `-dyn`
 programs load the shared library from their own folder, and on a Mac the

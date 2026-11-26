@@ -114,7 +114,7 @@ endif()
 
 # ---- Backends and renderers ----------------------------------------------
 # A backend is the window system (Wayland, X11, KMS, Win32, Cocoa), a
-# renderer the graphics API (Vulkan, OpenGL, Direct3D 12, Metal), and a
+# renderer the graphics API (Vulkan, Direct3D 12, Metal), and a
 # platform one of each, such as Vulkan on X11. A build has every backend
 # and every renderer its system has, the platform chosen at fnl_init():
 # DESIGN *One build per operating system*.
@@ -186,29 +186,24 @@ message(STATUS "Fenestal backends: ${FNL_BACKENDS}")
 
 # The renderers a system has, in the order fnl_init() tries them (the
 # code's order is renderer.h's, FNL_RENDERERS(X)): Windows Direct3D 12 and
-# Vulkan; macOS Metal, Vulkan on MoltenVK, and OpenGL; Linux Vulkan and
-# OpenGL.
+# Vulkan; macOS Metal and Vulkan on MoltenVK; Linux Vulkan.
 # FNL_RENDERER names one of them, or `all` for every one, the default. A
 # cache variable all the same: it is what a consumer names to ask for a
 # renderer, and asking for one this system lacks is refused here and not
 # at the link.
 #
-# OpenGL reaches the window through EGL on Wayland, X11 and KMS
-# (src/renderer/gl/egl_<backend>.c; KMS's surfaceless, its frames handed to
-# the backend), and through CGL on macOS (src/renderer/gl/cgl.m), at 4.1
-# core, the renderer's 4.1 profile, its frames copied into the window's
-# Metal layer. Windows draws with Direct3D 12, on WARP where there is no
-# driver, and with Vulkan.
+# Windows draws with Direct3D 12, on WARP where there is no driver, and
+# with Vulkan.
 if(FNL_BACKEND STREQUAL win32)
     set(_fnl_system_renderers d3d12 vulkan)
 elseif(FNL_BACKEND STREQUAL cocoa)
-    set(_fnl_system_renderers metal vulkan gl)
+    set(_fnl_system_renderers metal vulkan)
 else()
-    set(_fnl_system_renderers vulkan gl)
+    set(_fnl_system_renderers vulkan)
 endif()
 set(FNL_RENDERER all CACHE STRING
-    "Renderer: all (every one this system has), vulkan, gl, d3d12 or metal")
-set_property(CACHE FNL_RENDERER PROPERTY STRINGS all vulkan gl d3d12 metal)
+    "Renderer: all (every one this system has), vulkan, d3d12 or metal")
+set_property(CACHE FNL_RENDERER PROPERTY STRINGS all vulkan d3d12 metal)
 # FNL_RENDERERS is the list the rest of this file reads, and in the cache so
 # that a consumer's directory, which added this one, can read it too: its
 # scenes are one per renderer.
@@ -362,17 +357,15 @@ endmacro()
 #                functions named libvulkan.so.1. A name the loader does not
 #                export costs nothing unless referenced.
 #
-# FNL_HOST_INCLUDE is where the host's headers are looked for, these and the
-# GL ones the macOS tree copies below: /usr/include on a Linux build machine.
+# FNL_HOST_INCLUDE is where the host's headers are looked for: /usr/include
+# on a Linux build machine.
 # A Mac has none there, so a Mac building the macOS tree names a copy of a
 # Linux machine's (.github/workflows/ci.yml does).
 set(FNL_HOST_INCLUDE /usr/include CACHE PATH
-    "The build machine's headers, for a cross tree's Vulkan and GL ones")
+    "The build machine's headers, for a cross tree's Vulkan ones")
 if(NOT vulkan IN_LIST FNL_RENDERERS)
-    # Neither the loader nor its headers: the OpenGL renderer opens EGL at run
-    # time and calls GL through what EGL hands out; Direct3D 12's runtime
-    # is d3d12 and dxgi, which mingw-w64 has, and Metal's is the SDK's
-    # framework.
+    # Neither the loader nor its headers: Direct3D 12's runtime is d3d12 and
+    # dxgi, which mingw-w64 has, and Metal's is the SDK's framework.
 elseif(CMAKE_CROSSCOMPILING)
     find_path(FNL_VULKAN_INCLUDE_DIR vulkan/vulkan.h
               PATHS ${FNL_HOST_INCLUDE} NO_CMAKE_FIND_ROOT_PATH REQUIRED)
@@ -541,38 +534,12 @@ endif()
 if(NOT MSVC)
     find_package(PkgConfig REQUIRED)
 endif()
-if(gl IN_LIST FNL_RENDERERS AND FNL_BACKEND STREQUAL cocoa)
-    # Khronos's own header, declaring every GL type and enum and no
-    # function: entry points come from the bridge (cgl.m). Copied from this
-    # machine into the tree's generated headers, since a cross find_path
-    # looks in Apple's SDK, which has none, and the host's /usr/include
-    # must not reach a Darwin build whole.
-    foreach(_h GL/glcorearb.h KHR/khrplatform.h)
-        find_file(_fnl_host_${_h} ${_h} PATHS ${FNL_HOST_INCLUDE}
-                  NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
-        configure_file(${_fnl_host_${_h}}
-                       ${CMAKE_CURRENT_BINARY_DIR}/generated/glhdr/${_h}
-                       COPYONLY)
-    endforeach()
-    set(FNL_GLCOREARB_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/glhdr)
-elseif(gl IN_LIST FNL_RENDERERS)
-    pkg_check_modules(EGL REQUIRED IMPORTED_TARGET GLOBAL egl)
-    # Khronos's own header, declaring every GL type and enum and no
-    # function: entry points come from the loader (src/renderer/gl/loader.c).
-    find_path(FNL_GLCOREARB_DIR GL/glcorearb.h REQUIRED)
-endif()
-
 # For their headers: each runtime is opened at run time (src/core/dynlib.h)
 # and none is linked, so that a machine without one still loads the
 # program and steps past what needed it.
 if(wayland IN_LIST FNL_BACKENDS)
     pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET GLOBAL
                       wayland-client)
-    if(gl IN_LIST FNL_RENDERERS)
-        # The native window EGL draws into (src/renderer/gl/egl_wayland.c).
-        pkg_check_modules(WAYLAND_EGL REQUIRED IMPORTED_TARGET GLOBAL
-                          wayland-egl)
-    endif()
 endif()
 if(x11 IN_LIST FNL_BACKENDS)
     # Core xcb and nothing beside it: the backend hand-encodes the extension
@@ -705,29 +672,25 @@ else()
 endif()
 
 # ---- Shader translation ----------------------------------------------------
-# One source per shader: the GLSL above, for Vulkan. OpenGL, Direct3D 12 and
-# Metal get spirv-cross's translation of its SPIR-V, made here and checked as
-# it is made -- GLSL 4.50 by glslang's OpenGL front end, each program's
-# stages linked so their `Push` blocks are seen to agree; HLSL by glslang's
-# HLSL front end. MSL has no compiler off a Mac, and is checked by being
-# made: spirv-cross refuses what Metal cannot express. A Vulkan tree has no
-# use for any of them and translates where spirv-cross is installed, as a
-# check that a shader edit has not left the other three APIs behind. DESIGN
-# *One shader source*.
+# One source per shader: the GLSL above, for Vulkan. Direct3D 12 and Metal
+# get spirv-cross's translation of its SPIR-V, made here and checked as it
+# is made -- HLSL by glslang's HLSL front end. MSL has no compiler off a Mac,
+# and is checked by being made: spirv-cross refuses what Metal cannot
+# express. A Vulkan tree has no use for either and translates where
+# spirv-cross is installed, as a check that a shader edit has not left the
+# other two APIs behind. DESIGN *One shader source*.
 #
 # The conventions the renderers rely on: the push-constant block is named
-# `Push` and becomes a std140 uniform block of that name (GL) or `cbuffer
-# Push` (HLSL) or `constant Push& [[buffer(0)]]` (MSL); a vertex input at
+# `Push` and becomes a `cbuffer Push` (HLSL) or `constant Push&
+# [[buffer(0)]]` (MSL); a vertex input at
 # location N is TEXCOORDN in HLSL and [[attribute(N)]] in MSL; a binding is
 # its own number in MSL; and HLSL and MSL flip Y at the end of each vertex
 # stage, since Direct3D's and Metal's clip space points up where Vulkan's
-# points down. GL needs no flip: that renderer draws into images of its
-# own, row 0 at the top as Vulkan's are, and flips once onto the window.
+# points down.
 find_program(FNL_SPIRV_CROSS spirv-cross)
 if(FNL_SPIRV_CROSS)
     set(FNL_SHADER_XLATE ON)
-    file(MAKE_DIRECTORY ${FNL_GEN_DIR}/spv ${FNL_GEN_DIR}/gl
-                        ${FNL_GEN_DIR}/gl41 ${FNL_GEN_DIR}/hlsl
+    file(MAKE_DIRECTORY ${FNL_GEN_DIR}/spv ${FNL_GEN_DIR}/hlsl
                         ${FNL_GEN_DIR}/msl)
 elseif(NOT FNL_RENDERERS STREQUAL "vulkan")
     message(FATAL_ERROR "every renderer but Vulkan draws with spirv-cross's "
@@ -736,7 +699,7 @@ elseif(NOT FNL_RENDERERS STREQUAL "vulkan")
 else()
     set(FNL_SHADER_XLATE OFF)
     message(STATUS "spirv-cross not found; shaders are not translated for "
-                   "OpenGL, Direct3D and Metal")
+                   "Direct3D and Metal")
 endif()
 set(FNL_HLSL_MODEL 60)
 # MSL 2.1, which every Mac that has macOS 13 takes; compiled by the device at
@@ -746,15 +709,6 @@ set(FNL_HLSL_MODEL 60)
 set(FNL_MSL_FLAGS --msl --msl-version 20100 --flip-vert-y
     --msl-decoration-binding CACHE INTERNAL
     "spirv-cross's flags for a shader the Metal renderer's conventions take")
-# GLSL 4.10 for the GL renderer's 4.1 profile, the depth range mapped in
-# the vertex stage (--fixup-clipspace: z = 2z - w) since 4.1 has no
-# glClipControl, and no binding qualifiers (4.20's): a `Push` block is bound
-# by name, as at 4.50, and each program has one sampler, on unit 0, which is
-# where an unbound sampler uniform reads. In the cache for a consumer's own
-# shaders, as the Metal flags are. DESIGN *OpenGL 4.1*.
-set(FNL_GL41_FLAGS --version 410 --no-es --glsl-emit-push-constant-as-ubo
-    --no-420pack-extension --fixup-clipspace CACHE INTERNAL
-    "spirv-cross's flags for a shader the GL renderer's 4.1 profile takes")
 # Direct3D 12 loads DXIL, compiled from the translation by Microsoft's dxc
 # for Linux, whose validator signs it (tools/dxc.py fetches it, pinned, and
 # build.sh names it here). A tool the build runs, like glslangValidator, and
@@ -769,9 +723,8 @@ if(d3d12 IN_LIST FNL_RENDERERS)
     file(MAKE_DIRECTORY ${FNL_GEN_DIR}/dxil)
 endif()
 # The script that embeds a translation as a C string, for a consumer that
-# draws with OpenGL and translates its own shaders the same way. In the
-# cache because a variable set here is not seen by the directory that added
-# this one.
+# translates its own shaders the same way. In the cache because a variable
+# set here is not seen by the directory that added this one.
 set(FNL_EMBED_TEXT ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
     CACHE INTERNAL "Embeds a text file as a C string: cmake -P")
 
@@ -779,15 +732,10 @@ set(FNL_EMBED_TEXT ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
 # shaders/<name> as `const uint32_t <var>[]` in generated/<name>.h. The two
 # optional arguments compile it again under -D<define>, into <out>.h.
 #
-# Translated as well where spirv-cross is: generated/gl/<stem>.<stage> and
-# its `static const char <stem>_<stage>_glsl[]` in a header beside it;
-# generated/gl41/<stem>.<stage> and its `<stem>_<stage>_glsl41[]`, GLSL 4.10
-# for the GL renderer's 4.1 profile, with no binding qualifiers and Vulkan's
-# depth range mapped to GL's in the vertex stage (DESIGN *OpenGL 4.1*);
-# generated/hlsl/<stem>.<stage>, and generated/msl/<stem>.<stage> with its
-# `<stem>_<stage>_msl[]` likewise. The stem is <out> without the stage, its
-# dots made underscores -- text.frag.lcd is text_lcd.frag -- so that glslang
-# reads the stage off the name when it links a program.
+# Translated as well where spirv-cross is: generated/hlsl/<stem>.<stage>, and
+# generated/msl/<stem>.<stage> with its `static const char
+# <stem>_<stage>_msl[]` in a header beside it. The stem is <out> without the
+# stage, its dots made underscores -- text.frag.lcd is text_lcd.frag.
 function(embed_shader name var)
     set(out ${name})
     set(define)
@@ -809,8 +757,6 @@ function(embed_shader name var)
         string(REPLACE ".${stage}" "" stem ${out})
         string(REPLACE "." "_" stem ${stem})
         set(spv  ${FNL_GEN_DIR}/spv/${stem}.${stage}.spv)
-        set(gl   ${FNL_GEN_DIR}/gl/${stem}.${stage})
-        set(gl41 ${FNL_GEN_DIR}/gl41/${stem}.${stage})
         set(hlsl ${FNL_GEN_DIR}/hlsl/${stem}.${stage})
         set(msl  ${FNL_GEN_DIR}/msl/${stem}.${stage})
         # Made under .new names and renamed into place only once every
@@ -821,24 +767,10 @@ function(embed_shader name var)
         # is missing for a dirty one -- every build would rerun every
         # translation. What does survive is listed.
         add_custom_command(
-            OUTPUT ${gl}.h ${gl} ${gl41}.h ${gl41} ${hlsl} ${msl}.h
+            OUTPUT ${hlsl} ${msl}.h
             BYPRODUCTS ${spv} ${hlsl}.spv ${msl}
             COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -V ${define}
                     ${src} -o ${spv}
-            COMMAND ${FNL_SPIRV_CROSS} ${spv} --version 450 --no-es
-                    --glsl-emit-push-constant-as-ubo --output ${gl}.new
-            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -S ${stage}
-                    ${gl}.new
-            COMMAND ${CMAKE_COMMAND} -DIN=${gl}.new -DOUT=${gl}.h.new
-                    -DVAR=${stem}_${stage}_glsl
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            COMMAND ${FNL_SPIRV_CROSS} ${spv} ${FNL_GL41_FLAGS}
-                    --output ${gl41}.new
-            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -S ${stage}
-                    ${gl41}.new
-            COMMAND ${CMAKE_COMMAND} -DIN=${gl41}.new -DOUT=${gl41}.h.new
-                    -DVAR=${stem}_${stage}_glsl41
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
             COMMAND ${FNL_SPIRV_CROSS} ${spv} --hlsl
                     --shader-model ${FNL_HLSL_MODEL} --flip-vert-y
                     --output ${hlsl}.new
@@ -849,17 +781,13 @@ function(embed_shader name var)
             COMMAND ${CMAKE_COMMAND} -DIN=${msl}.new -DOUT=${msl}.h.new
                     -DVAR=${stem}_${stage}_msl
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            COMMAND ${CMAKE_COMMAND} -E rename ${gl}.new ${gl}
-            COMMAND ${CMAKE_COMMAND} -E rename ${gl}.h.new ${gl}.h
-            COMMAND ${CMAKE_COMMAND} -E rename ${gl41}.new ${gl41}
-            COMMAND ${CMAKE_COMMAND} -E rename ${gl41}.h.new ${gl41}.h
             COMMAND ${CMAKE_COMMAND} -E rename ${hlsl}.new ${hlsl}
             COMMAND ${CMAKE_COMMAND} -E rename ${msl}.new ${msl}
             COMMAND ${CMAKE_COMMAND} -E rename ${msl}.h.new ${msl}.h
             DEPENDS ${src} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            COMMENT "Translating ${out} for OpenGL, Direct3D and Metal"
+            COMMENT "Translating ${out} for Direct3D and Metal"
             VERBATIM)
-        list(APPEND FNL_GEN_FILES ${gl}.h ${gl41}.h ${hlsl} ${msl}.h)
+        list(APPEND FNL_GEN_FILES ${hlsl} ${msl}.h)
         # And signed DXIL for Direct3D 12, as a byte array named
         # <stem>_<stage>_dxil, the entry spirv-cross names `main`.
         if(d3d12 IN_LIST FNL_RENDERERS)
@@ -879,32 +807,6 @@ function(embed_shader name var)
             list(APPEND FNL_GEN_FILES ${dxil})
         endif()
     endif()
-    set(FNL_GEN_FILES ${FNL_GEN_FILES} PARENT_SCOPE)
-endfunction()
-
-# gl_program(<name> <stage file>...)
-# The translated stages of one GL program, linked by glslang as the driver
-# will link them. A stage whose `Push` block differs from another's fails
-# here, at build time, and not in a driver's link log.
-function(gl_program name)
-    if(NOT FNL_SHADER_XLATE)
-        return()
-    endif()
-    foreach(_dir gl gl41)
-        set(files)
-        foreach(_s ${ARGN})
-            list(APPEND files ${FNL_GEN_DIR}/${_dir}/${_s})
-        endforeach()
-        set(stamp ${FNL_GEN_DIR}/${_dir}/${name}.linked)
-        add_custom_command(
-            OUTPUT ${stamp}
-            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -l ${files}
-            COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
-            DEPENDS ${files}
-            COMMENT "Linking the GL program ${name} (${_dir})"
-            VERBATIM)
-        list(APPEND FNL_GEN_FILES ${stamp})
-    endforeach()
     set(FNL_GEN_FILES ${FNL_GEN_FILES} PARENT_SCOPE)
 endfunction()
 
@@ -1423,7 +1325,6 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E touch ${FNL_GEN_DIR}/headers_checked.stamp
     DEPENDS ${_hc_src} ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fenestal.h
             ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_vulkan.h
-            ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_gl.h
             ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_metal.h
             ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_d3d12.h
     COMMENT "Compiling the public headers as C11 and C++11 to C++20"
@@ -1438,14 +1339,14 @@ list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/headers_checked.stamp)
 # do about a difference. A cross build cannot run the dump; the layout is the
 # same on both 64-bit ABIs the project targets, and the native trees hold it.
 # A baseline per renderer set: the interop headers and the exports differ. The
-# layout holds fenestal.h's, fnl_gl.h's and Metal's whatever the build,
-# Vulkan's where the set has it and Direct3D 12's where it has that -- one of
-# four (fenestal-0 with Vulkan's, -gl with Metal's alone, -d3d12 with Direct3D
+# layout holds fenestal.h's and Metal's whatever the build, Vulkan's where
+# the set has it and Direct3D 12's where it has that -- one of four
+# (fenestal-0 with Vulkan's, -metal with Metal's alone, -d3d12 with Direct3D
 # 12's and not Vulkan's, -d3d12-vulkan with both);
-# the exports are one list per set -- fenestal-0 for Vulkan alone, -gl,
-# -d3d12 and -metal for one each, and -<set> for a system's several
-# (vulkan-gl, d3d12-vulkan, metal-vulkan-gl). The portable part is in each,
-# and a change to it updates each.
+# the exports are one list per set -- fenestal-0 for Vulkan alone, -d3d12
+# and -metal for one each, and -<set> for a system's several (d3d12-vulkan,
+# metal-vulkan). The portable part is in each, and a change to it updates
+# each.
 # The export list is compared in every tree, cross trees included: it is
 # written at configure from the headers, and needs no host tool. The layout
 # dump is the native trees' alone, as above.
@@ -1462,17 +1363,17 @@ if(d3d12 IN_LIST FNL_RENDERERS)
 elseif(vulkan IN_LIST FNL_RENDERERS)
     set(_abi_layout fenestal-0)
 else()
-    set(_abi_layout fenestal-0-gl)
+    set(_abi_layout fenestal-0-metal)
 endif()
 if(FNL_RENDERER_COUNT GREATER 1)
-    # Named for the set, in the order fnl_init() tries them: Linux and
-    # FreeBSD's vulkan-gl, Windows' d3d12-vulkan, macOS' metal-vulkan-gl.
+    # Named for the set, in the order fnl_init() tries them: Windows'
+    # d3d12-vulkan, macOS' metal-vulkan.
     string(JOIN "-" _fnl_abi_set ${FNL_RENDERERS})
     set(_abi_syms fenestal-0-${_fnl_abi_set})
-elseif(FNL_RENDERER STREQUAL vulkan)
+elseif(vulkan IN_LIST FNL_RENDERERS)
     set(_abi_syms fenestal-0)
 else()
-    set(_abi_syms fenestal-0-${FNL_RENDERER})
+    set(_abi_syms fenestal-0-${FNL_RENDERERS})
 endif()
 if(NOT FNL_GENERATED_DIR)
     fnl_host_tool(abidump tools/abidump.c)
@@ -1617,8 +1518,8 @@ embed_shader(shape.vert shape_vert_spv)
 embed_shader(shape.frag shape_frag_spv)
 embed_shader(rect.vert rect_vert_spv)
 embed_shader(rect.frag rect_frag_spv)
-# A caller's picture placed at a rectangle, on both renderers this tree
-# draws with. See shaders/image.vert and fnl_overlay_image().
+# A caller's picture placed at a rectangle, on every renderer. See
+# shaders/image.vert and fnl_overlay_image().
 embed_shader(image.vert image_vert_spv)
 embed_shader(image.frag image_frag_spv)
 # One covering triangle, and the fetch that puts the scene image back on the
@@ -1634,14 +1535,6 @@ embed_shader(mlaa.frag mlaa_frag_spv)
 # offset each was rasterised at. Vulkan's alone: no other renderer draws
 # FNL_AA_TAAU (FnlRendererVtbl::temporal_upscale says which).
 embed_shader(taau.frag taau_frag_spv)
-
-gl_program(text       text.vert       text.frag)
-gl_program(text_lcd   text.vert       text_lcd.frag)
-gl_program(rect       rect.vert       rect.frag)
-gl_program(shape      shape.vert      shape.frag)
-gl_program(image      image.vert      image.frag)
-gl_program(blit       fullscreen.vert blit.frag)
-gl_program(mlaa       fullscreen.vert mlaa.frag)
 
 # ---- The library ----------------------------------------------------------
 # Layered: src/core names no window server and no graphics API, and
@@ -1695,12 +1588,10 @@ endif()
 # own, so that choosing it is a file name here and not an #ifdef in a file
 # that would then need both backends' headers: one for each backend the
 # build has, each a table the renderer looks up by the backend that opened
-# (VkBridge, EglBridge).
+# (VkBridge).
 set(_fnl_vk_bridges)
-set(_fnl_egl_bridges)
 foreach(_p IN LISTS FNL_BACKENDS)
     list(APPEND _fnl_vk_bridges src/renderer/vulkan/surface_${_p}.c)
-    list(APPEND _fnl_egl_bridges src/renderer/gl/egl_${_p}.c)
 endforeach()
 # Win32's Vulkan frames can go through DXGI instead (present_dxgi.c).
 if(win32 IN_LIST FNL_BACKENDS)
@@ -1711,22 +1602,6 @@ endif()
 # FNL_RENDERERS(X)). The *_dyn.c and vk_load.c files open each runtime at
 # run time.
 set(FNL_RENDERER_SOURCES)
-if(gl IN_LIST FNL_RENDERERS)
-    list(APPEND FNL_RENDERER_SOURCES src/renderer/gl/device.c
-                                     src/renderer/gl/loader.c
-                                     src/renderer/gl/gl_compat.c
-                                     src/renderer/gl/target.c
-                                     src/renderer/gl/overlay.c
-                                     src/renderer/gl/frame.c
-                                     src/renderer/gl/memory.c)
-    if(FNL_BACKEND STREQUAL cocoa)
-        list(APPEND FNL_RENDERER_SOURCES src/renderer/gl/cgl.m)
-    else()
-        list(APPEND FNL_RENDERER_SOURCES src/renderer/gl/egl.c
-                                         src/renderer/gl/egl_dyn.c
-                                         ${_fnl_egl_bridges})
-    endif()
-endif()
 if(d3d12 IN_LIST FNL_RENDERERS)
     list(APPEND FNL_RENDERER_SOURCES src/renderer/d3d12/device.c
                                      src/renderer/d3d12/frame.c
@@ -1852,30 +1727,6 @@ if(NOT WIN32)
     target_link_libraries(fenestal_usage INTERFACE m)
     target_link_libraries(fenestal_usage INTERFACE ${CMAKE_DL_LIBS})
 endif()
-if(gl IN_LIST FNL_RENDERERS AND FNL_BACKEND STREQUAL cocoa)
-    # The frameworks, which are the runtime, as Metal is: OpenGL for CGL
-    # and the entry points, IOSurface for the frame's way into Metal. And
-    # the copied Khronos header for the library and for a consumer's scene,
-    # which this SDK has no copy of.
-    target_link_libraries(fenestal_usage INTERFACE "-framework OpenGL"
-                          "-framework IOSurface")
-    target_include_directories(fenestal_objects SYSTEM PRIVATE
-                               ${FNL_GLCOREARB_DIR})
-    target_include_directories(fenestal_usage SYSTEM INTERFACE
-                               ${FNL_GLCOREARB_DIR})
-elseif(gl IN_LIST FNL_RENDERERS)
-    # GL itself is reached through what eglGetProcAddress hands out, so
-    # nothing links libGL or libOpenGL.
-    fnl_headers_of(PkgConfig::EGL)
-    # A consumer's scene includes <GL/glcorearb.h> as the testbed's and the
-    # snippets' do, and a cross tree's is not on the compiler's default
-    # search path: EGL's .pc brings its own prefix, which need not be the
-    # one the header was found under.
-    target_include_directories(fenestal_objects SYSTEM PRIVATE
-                               ${FNL_GLCOREARB_DIR})
-    target_include_directories(fenestal_usage SYSTEM INTERFACE
-                               ${FNL_GLCOREARB_DIR})
-endif()
 if(d3d12 IN_LIST FNL_RENDERERS)
     # The runtime and DXGI; dxguid for the interface ids, a static library.
     target_link_libraries(fenestal_usage INTERFACE d3d12 dxgi dxguid)
@@ -1911,9 +1762,6 @@ if(NOT FNL_BACKEND MATCHES "^(win32|cocoa)$")
     endforeach()
     if(wayland IN_LIST FNL_BACKENDS)
         fnl_headers_of(PkgConfig::WAYLAND_CLIENT)
-        if(gl IN_LIST FNL_RENDERERS)
-            fnl_headers_of(PkgConfig::WAYLAND_EGL)
-        endif()
     endif()
     if(x11 IN_LIST FNL_BACKENDS)
         fnl_headers_of(PkgConfig::XCB)
@@ -2231,12 +2079,11 @@ file(MAKE_DIRECTORY ${TESTBED_GEN_DIR})
 set(TESTBED_SHADER_HDRS)
 # One header per shader for every renderer the build has, each a name of its
 # own so that all of them can sit in one directory: <shader>.h for Vulkan's
-# SPIR-V (`<var>_spv`), .gl.h for OpenGL's GLSL (`<var>_glsl`), .dxil.h for
+# SPIR-V (`<var>_spv`), .dxil.h for
 # Direct3D 12's DXIL (`<var>_dxil`) and .msl.h for Metal's MSL (`<var>_msl`).
 foreach(_s scene.vert scene.frag star.vert star.frag)
     # glslang takes --vn verbatim, and `scene.vert_spv` is not an identifier.
     string(REPLACE "." "_" _var ${_s})
-    string(REGEX REPLACE "^.*\\." "" _stage ${_s})
     set(_in ${CMAKE_CURRENT_SOURCE_DIR}/testbed/shaders/${_s})
     set(_spv ${TESTBED_GEN_DIR}/${_s}.spv)
     if(vulkan IN_LIST FNL_RENDERERS)
@@ -2257,44 +2104,6 @@ foreach(_s scene.vert scene.frag star.vert star.frag)
                     -o ${_spv}
             DEPENDS ${_in}
             VERBATIM)
-    endif()
-    if(gl IN_LIST FNL_RENDERERS)
-        # Translated back to GLSL for GL, as the library's own are (DESIGN
-        # *One shader source*), and embedded as text, which GL compiles at
-        # run time. The library's embed script, since the testbed lives in
-        # this tree; a consumer's would be its own few lines.
-        set(_gl ${TESTBED_GEN_DIR}/${_s}.gl)
-        add_custom_command(
-            OUTPUT ${TESTBED_GEN_DIR}/${_s}.gl.h
-            BYPRODUCTS ${_gl}
-            COMMAND ${FNL_SPIRV_CROSS} ${_spv} --version 450 --no-es
-                    --glsl-emit-push-constant-as-ubo --output ${_gl}
-            # The library's rule validates both translations, and so does the
-            # 4.10 one below: a translation the device would refuse fails the
-            # build here instead.
-            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -S ${_stage} ${_gl}
-            COMMAND ${CMAKE_COMMAND} -DIN=${_gl}
-                    -DOUT=${TESTBED_GEN_DIR}/${_s}.gl.h -DVAR=${_var}_glsl
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            DEPENDS ${_spv} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            VERBATIM)
-        # And GLSL 4.10 for a 4.1 context (fnl_gl_version()), the depth
-        # mapped in the vertex stage, as the library's are: <s>.gl41.h,
-        # `<var>_glsl41`.
-        add_custom_command(
-            OUTPUT ${TESTBED_GEN_DIR}/${_s}.gl41.h
-            BYPRODUCTS ${_gl}41
-            COMMAND ${FNL_SPIRV_CROSS} ${_spv} ${FNL_GL41_FLAGS}
-                    --output ${_gl}41
-            COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} -S ${_stage}
-                    ${_gl}41
-            COMMAND ${CMAKE_COMMAND} -DIN=${_gl}41
-                    -DOUT=${TESTBED_GEN_DIR}/${_s}.gl41.h -DVAR=${_var}_glsl41
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            DEPENDS ${_spv} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_text.cmake
-            VERBATIM)
-        list(APPEND TESTBED_SHADER_HDRS ${TESTBED_GEN_DIR}/${_s}.gl.h
-                                        ${TESTBED_GEN_DIR}/${_s}.gl41.h)
     endif()
     if(d3d12 IN_LIST FNL_RENDERERS)
         # To HLSL by spirv-cross, flipped in Y as the library's are, and to
@@ -2342,7 +2151,7 @@ endforeach()
 # SCENE_HAS_<API> for each, which is how main.c knows which it may be
 # handed (FnlInitDesc::renderers) and dispatches on fnl_renderer().
 set(TESTBED_SOURCES testbed/main.c testbed/overlay.c testbed/proc.c
-                    testbed/gpumem.c testbed/titlebar_custom.c
+                    testbed/titlebar_custom.c
                     testbed/bench.c testbed/bench_options.c
                     testbed/bench_panel.c testbed/bench_stats.c
                     testbed/bench_json.c testbed/bench_record.c
@@ -2433,7 +2242,7 @@ file(GLOB FNL_SNIPPETS CONFIGURE_DEPENDS
 # scene_<api>.c draws with that API, and is built where the build has that
 # renderer; Metal's is scene_metal.m, Objective-C, and a tree without the
 # language skips it.
-foreach(_api vulkan gl d3d12 metal)
+foreach(_api vulkan d3d12 metal)
     if(NOT _api IN_LIST FNL_RENDERERS)
         list(REMOVE_ITEM FNL_SNIPPETS
              ${CMAKE_CURRENT_SOURCE_DIR}/examples/scene_${_api}.c

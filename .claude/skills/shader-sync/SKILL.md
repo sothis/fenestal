@@ -28,7 +28,7 @@ owns them. The pinned structs and their shaders are:
 
 | C struct | Shader | Pinned |
 |---|---|---|
-| `ScenePush` (in each `testbed/scene_*`: Vulkan, GL, D3D12, Metal) | `testbed/shaders/scene.vert`, `scene.frag`, `star.vert` | `sizeof == 64`, `time` at 48, `srgb` at 56, `content` at 60 |
+| `ScenePush` (in each `testbed/scene_*`: Vulkan, D3D12, Metal) | `testbed/shaders/scene.vert`, `scene.frag`, `star.vert` | `sizeof == 64`, `time` at 48, `srgb` at 56, `content` at 60 |
 | `TextPush` | `shaders/text.*` | `sizeof == 16`, `srgb` at 8, `texel_u` at 12 |
 | `OverlayPush` | `shaders/*.vert` | `sizeof == 8` |
 | `RectInstance` | `shaders/rect.vert` | `sizeof == 32`, `color` at 16 |
@@ -59,17 +59,13 @@ For each struct the user touched:
 - **The assert's numbers** reflect the new layout, and the message still names
   the right shader.
 - **The translations still hold** (DESIGN *One shader source*): a library
-  push block is still named `Push`, it holds nothing whose std140 offset
-  differs from its std430 one (a `vec3`, an array, a struct), since GL reads
-  it as a std140 uniform block, and every stage of one program that declares
-  it declares it whole. The build links each GL program from its translated
-  stages (`gl_program()` in `CMakeLists.txt`); a new library shader pairing
-  wants a line there.
+  push block is still named `Push`, and every stage of one program that
+  declares it declares it whole.
 
 Also check whether the struct is declared or written in more than one place. A
 push block used by two stages is declared whole in each of them, and a struct
 the example owns is asserted in the example rather than in `src/core/app.h` —
-`ScenePush` in `testbed/scene_vulkan.c`, `scene_gl.c`, `scene_d3d12.c` and
+`ScenePush` in `testbed/scene_vulkan.c`, `scene_d3d12.c` and
 `scene_metal.m` against `testbed/shaders/scene.frag` is the standing case.
 Every declaration of one block has to move together.
 

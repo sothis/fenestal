@@ -10,7 +10,7 @@
  *
  * Everything on screen but the titlebar is this program's, in the files
  * beside this one: the test pattern in scene_vulkan.c, and again in
- * scene_gl.c, scene_d3d12.c and scene_metal.m for the other renderers; the
+ * scene_d3d12.c and scene_metal.m for the other renderers; the
  * keybindings panel, the status readout and the crosshair in overlay.c; and
  * a replacement titlebar, drawn only with --custom-titlebar, in
  * titlebar_custom.c. The library's own titlebar -- window buttons,
@@ -139,8 +139,8 @@ typedef struct {
 	void (*on_record)(void *ud, FnlApp *app, const FnlFrame *frame);
 } Scene;
 
-#if !defined(SCENE_HAS_VULKAN) && !defined(SCENE_HAS_GL) &&                    \
-	!defined(SCENE_HAS_D3D12) && !defined(SCENE_HAS_METAL)
+#if !defined(SCENE_HAS_VULKAN) && !defined(SCENE_HAS_D3D12) &&                 \
+	!defined(SCENE_HAS_METAL)
 #error "no scene: the build defines SCENE_HAS_<API> for each one it compiles"
 #endif
 
@@ -148,10 +148,6 @@ static const Scene SCENES[] = {
 #ifdef SCENE_HAS_VULKAN
 	{ FNL_RENDERER_VULKAN, scene_vulkan_on_gpu_created,
 	  scene_vulkan_on_gpu_lost, scene_vulkan_on_record },
-#endif
-#ifdef SCENE_HAS_GL
-	{ FNL_RENDERER_OPENGL, scene_gl_on_gpu_created, scene_gl_on_gpu_lost,
-	  scene_gl_on_record },
 #endif
 #ifdef SCENE_HAS_D3D12
 	{ FNL_RENDERER_D3D12, scene_d3d12_on_gpu_created, scene_d3d12_on_gpu_lost,
@@ -198,7 +194,6 @@ static void scene_on_gpu_lost(void *ud, FnlApp *app)
 	const Scene *s = atomic_load(&scene);
 	if (s)
 		s->on_gpu_lost(ud, app);
-	testbed_gpu_mem_os_release();
 }
 
 static void scene_on_record(void *ud, FnlApp *app, const FnlFrame *f)
@@ -852,7 +847,7 @@ static void name_window(FnlApp *app)
 	else
 		snprintf(where, sizeof where, "%s", fnl_backend_name(app));
 	/* The renderer and, where its frames go through another API's
-	 * swapchain, which: "Vulkan via D3D11"; OpenGL's version. */
+	 * swapchain, which: "Vulkan via D3D11". */
 	char how[64];
 	testbed_renderer_label(app, how, sizeof how);
 	char title[192];
@@ -864,14 +859,7 @@ static void name_window(FnlApp *app)
 void testbed_renderer_label(FnlApp *app, char *out, size_t size)
 {
 	const char *via = fnl_renderer_via(app);
-	int gl          = 0;
-#ifdef SCENE_HAS_GL
-	gl = scene_gl_version(app);
-#endif
-	char version[16] = "";
-	if (gl > 0)
-		snprintf(version, sizeof version, " %d.%d", gl / 10, gl % 10);
-	snprintf(out, size, "%s%s%s%s", fnl_renderer_name(app), version,
+	snprintf(out, size, "%s%s%s", fnl_renderer_name(app),
 			 via[0] ? " via " : "", via);
 }
 

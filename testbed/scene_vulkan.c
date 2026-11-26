@@ -40,7 +40,7 @@
 /* Every Vulkan entry this file calls, each a pointer of the function's own
  * name, asked of FnlVulkanGpu::get_instance_proc_addr in load_vulkan(). Not
  * linked: a program that imports the loader does not start where there is
- * none, and the library would have drawn with OpenGL or Direct3D 12 there. */
+ * none, and the library would have drawn with Direct3D 12 there. */
 #define SCENE_VK_FNS(X)                                                       \
 	X(vkCmdBindPipeline)                                                      \
 	X(vkCmdDraw)                                                              \

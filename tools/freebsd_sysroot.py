@@ -53,11 +53,9 @@ REPO = "https://pkg.freebsd.org/%s/release_1" % ABI
 INDEX = "packagesite.pkg"
 INDEX_SHA256 = ("cfbd9c50689ffd3f70971634e85017ae5aa268ba8cac361014ad1c"
                 "fdd955b9e2")
-# What the build reads: the window servers', the GL and Vulkan headers', the
-# DRM's and the EGL/GLX runtime's, each a port's. Every dependency of these
-# comes with them.
-PACKAGES = ("wayland", "libxcb", "libdrm", "mesa-libs", "libglvnd",
-            "vulkan-headers")
+# What the build reads: the window servers', the Vulkan headers' and the
+# DRM's, each a port's. Every dependency of these comes with them.
+PACKAGES = ("wayland", "libxcb", "libdrm", "vulkan-headers")
 # Of the base tarball, the directories a compile and a link read: the
 # headers, the libraries, the compiler's own (crt objects, libclang_rt and
 # compiler-rt's headers) and the C++ standard library. Everything else in

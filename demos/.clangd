@@ -12,7 +12,6 @@ CompileFlags:
   Add:
     - -DFNL_STATIC
     - -DSCENE_HAS_VULKAN
-    - -DSCENE_HAS_GL
     - -I/home/json/ws/fenestal/include
     - -I/home/json/ws/fenestal/build/linux/release/demos/hello/generated
     - -I/home/json/ws/fenestal/build/linux/release/demos/motion/generated

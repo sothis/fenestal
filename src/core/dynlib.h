@@ -5,19 +5,17 @@
  *
  * A runtime opened at run time rather than linked: dlopen on POSIX,
  * LoadLibraryEx on Windows. What the system does not always have -- the
- * Vulkan loader, EGL, libwayland-client, libxcb -- is reached this way, so
+ * Vulkan loader, libwayland-client, libxcb -- is reached this way, so
  * that a machine missing one still loads the program and steps past the
  * backend or the renderer that wanted it (DESIGN *One build per operating
  * system*, *The link line*).
  *
- * **A library once opened is never closed**, with one exception. Mesa's
+ * **A library once opened is never closed.** Mesa's
  * drivers, which every one of these loads beneath it, have left
  * thread-locals and exit handlers that ran after the library would have
  * been unloaded, and the cost of keeping one mapped is its pages. Each
  * loader opens once per process and remembers the answer, failure
- * included. The exception is EGL where a GPU may be moved to another
- * kernel driver (src/renderer/gl/egl_dyn.c), which is closed because
- * glvnd kept open holds that driver; measured to close cleanly there.
+ * included.
  */
 
 #ifndef FNL_DYNLIB_H
@@ -71,16 +69,6 @@ static inline void *fnl_lib_open(const char *const *names, char *why,
 #endif
 	}
 	return NULL;
-}
-
-/* Closed: egl_dyn.c's alone (above). */
-static inline void fnl_lib_close(void *lib)
-{
-#if defined(_WIN32)
-	FreeLibrary((HMODULE)lib);
-#else
-	dlclose(lib);
-#endif
 }
 
 /* NULL where the library has no such symbol. */

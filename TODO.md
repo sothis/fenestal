@@ -26,8 +26,7 @@ UCRT one is driven on this desktop under wine.
   question. `EVIOCGRAB` on evdev is not the vt keyboard path's grab: a
   key may still reach the console shell under the window.
 - **The picture.** Whether Mesa on FreeBSD offers
-  `VK_EXT_acquire_drm_display` (else the copy path) and
-  `EGL_EXT_image_dma_buf_import` (else GL-on-KMS is readback), and whether
+  `VK_EXT_acquire_drm_display` (else the copy path), and whether
   drm-kmod's atomic client capability is there (else the legacy ioctls).
 - **Hotplug.** There is no kobject uevent group and no inotify; outputs
   and `/dev/input` are rescanned every `KMS_RESCAN_S` seconds. A monitor
@@ -122,18 +121,19 @@ borrows.
 > **Built on 2026-11-22** (`a42c7d8`), the first compile of any of it: every
 > tree is clean under gcc and under clang, the analyzer and the three
 > sanitizers among them. The compile found what reading had not -- a C-style
-> cast GLSL rejects in `blit.frag`, a Vulkan enum name that does not exist on
-> the depth barrier, and a status line grown past its buffer -- all fixed in
-> that commit, which also gave the vector its first callers.
+> cast the shader compiler rejects in `blit.frag`, a Vulkan enum name that
+> does not exist on the depth barrier, and a status line grown past its
+> buffer -- all fixed in that commit, which also gave the vector its first
+> callers.
 
-Built on 2026-11-21 in all three trees -- `build/linux` (Vulkan and OpenGL),
+Built on 2026-11-21 in all three trees -- `build/linux` (Vulkan),
 `build/win64` (Direct3D 12 and Vulkan) and `build/macos` (Metal) -- warning
-clean, the one shader through SPIR-V, GLSL 4.50, GLSL 4.10, DXIL and MSL.
+clean, the one shader through SPIR-V, DXIL and MSL.
 
 The same day, eight environments drew resolved frames in
 `tools/drive/bench.py` with `--bench-antialias=taau --bench-scene-motion=1`,
-every record `complete`: this desk's `x11-vulkan` (59.5 fps, p99 25.4 ms) and
-`x11-gl` (60.9, 19.2), `win64-vulkan` under wine (59.4), schenker's Windows
+every record `complete`: this desk's `x11-vulkan` (59.5 fps, p99 25.4 ms),
+`win64-vulkan` under wine (59.4), schenker's Windows
 `win64-vulkan-native@nvidia` (60.0), its CachyOS `x11-vulkan-bare` (60.0),
 `wayland-vulkan-bare` (59.8), `kms-vulkan-bare:nvidia` (58.9) and
 `:nouveau` (29.9), and `macos-metal-native` (60.0). What the resolve costs,
@@ -166,17 +166,17 @@ Owed, in this order:
   own exception in DESIGN *A loss waits for the queue under Direct3D 12*, so
   `win64-d3d12-native@aspire` on a `gc` tree is the way in, and both laptops
   were unreachable on 2026-11-22.
-- ~~**The Vulkan and GL barriers, under the validation layer**~~ -- **measured
-  clean (2026-11-22)**. `asan` (Debug, so GL's debug output is on) with
+- ~~**The Vulkan barriers, under the validation layer**~~ -- **measured
+  clean (2026-11-22)**. `asan` with
   `FNL_VK_VALIDATION=1`, `VK_LAYER_VALIDATE_SYNC=1` and
   `VK_LAYER_VALIDATE_BEST_PRACTICES=1` -- the layer probe proves mapped in the
   program's own `/proc/<pid>/maps` -- and `--bench-antialias=taau
-  --bench-scene-motion=1`: `x11-vulkan` drew 2395 frames in 40 s and
-  `x11-gl` 2432, both records `complete`, and neither log holds a layer line.
-  The two around `vkCmdCopyImage`, the copy's write-after-write on the history
-  image and the GL blit's source and destination are therefore silent under
-  the checks that would name them. Probed by hand and not by a round: the
-  round has no TAAU section, so what a checker round repeats is still owed --
+  --bench-scene-motion=1`: `x11-vulkan` drew 2395 frames in 40 s, the
+  record `complete`, and the log holds no layer line. The barriers around
+  `vkCmdCopyImage`, the copy's write-after-write on the history image among
+  them, are therefore silent under the checks that would name them. Probed
+  by hand and not by a round: the round has no TAAU section, so what a
+  checker round repeats is still owed --
   a press on the titlebar's TAAU box (that box's x, and the echo's
   `antialias` line as the proof the press landed) is what it wants.
   **The depth barrier is now covered too (2026-11-22, `a42c7d8`).**
@@ -251,10 +251,10 @@ Owed, in this order:
   **The testbed's star now applies the jitter too (2026-11-22).** No program
   in the tree was applying `FnlFrame::jitter_x`, so TAAU on the star gathered
   identical samples -- a false test. `demos/motion` was taught it first; the
-  testbed's four scene files (`scene_vulkan.c`, `scene_gl.c`,
+  testbed's four scene files (`scene_vulkan.c`,
   `scene_d3d12.c`, `scene_metal.m`) now shift their projection by it the same
   way, in the two vertex shaders' shared `ScenePush` (grown 16 to 32 bytes,
-  `vec2 jitter` after `size`), verified through the HLSL, MSL and GL 4.1
+  `vec2 jitter` after `size`), verified through the HLSL and MSL
   translations and clean in every tree. So the star testbed now draws a real
   TAAU picture. What is still owed is the *comparison* the item names: the
   star at 60 and at 30 sizes a second, against MSAA and MLAA, a frame read
@@ -320,7 +320,7 @@ Two vendor upscalers are open enough to build on -- MetalFX a system framework
 and FSR 2 under MIT -- with very different costs, and neither is written. The
 caller-side seam already lets a program bring its own: every
 renderer hands out the scene's command buffer and layout
-(`fnl_vulkan_scene_cmd()` and its D3D12/GL/Metal twins), and
+(`fnl_vulkan_scene_cmd()` and its D3D12 and Metal twins), and
 `fnl_set_scene_motion_px()` plus the depth are the inputs. So what follows is
 about the library drawing one itself, not about whether a caller could.
 
@@ -349,11 +349,11 @@ about the library drawing one itself, not about whether a caller could.
      scaler reads.
 - **FSR 2 -- a planned subsystem, not an integration.** FSR 2 is MIT and so
   may be reimplemented, but the tree has **no compute shaders at all**
-  (`shaders/` is `.vert`/`.frag`; no `vkCmdDispatch`/`glDispatchCompute` in
+  (`shaders/` is `.vert`/`.frag`; no `vkCmdDispatch` in
   any renderer) and its reference is C++, against this tree's C11. A real FSR 2
-  means, in order: (a) a compute stage in the four renderers and the build's
-  shader translation for SPIR-V/GLSL/DXIL/MSL; (b) the passes ported to
-  C11 and compute GLSL -- reactive mask, locks, history, auto-exposure,
+  means, in order: (a) a compute stage in the three renderers and the build's
+  shader translation for SPIR-V/DXIL/MSL; (b) the passes ported to
+  C11 and compute shaders -- reactive mask, locks, history, auto-exposure,
   Lanczos; (c) the same per-pixel motion texture MetalFX wants, since FSR 2
   reprojects by a vector field too. It is multi-session, and starts with the
   compute foundation, Vulkan first.
@@ -429,20 +429,16 @@ each wants.
   and the pass in slot S reads it on the next drawn frame, and the motion
   vector is documented as the frame before's. Scale by the presents since
   the history was written (a per-slot present index), or key the history to
-  the image. Shared by the four renderers; wants a panning measurement.
+  the image. Shared by the three renderers; wants a panning measurement.
 - **Win32: the IME is not re-placed when the window moves**, so a candidate
   list in screen coordinates stays where the window was until the next key
   (Cocoa invalidates on move and resize now). `WM_MOVE` re-placement while
   a composition is up wants a composition-active flag.
 - **The testbed's Vulkan scene keeps its entry points and `g_loaded` at file
-  scope**, alone among the scenes (GL's are in the per-window `Scene`), and
+  scope**, alone among the scenes, and
   the VRAM/driver caches beside them: a second window's `load_vulkan()`
   rewrites them under the first's render thread (TSAN-visible under
-  `--second-window`). Move them into `Scene` as scene_gl.c has them.
-- **GL: a refused swap interval logs a WARN every frame**, since the ask is
-  kept only on success; remember the refusal and say it once. `stress.py`'s
-  `expected()` has no rule for the line, so one such driver would also fail
-  a round's clean-log check.
+  `--second-window`). Move them into the per-window `Scene`.
 - **KMS: a completion given up on at a lend can be taken for the next
   flip's**, reporting that frame with the older stamp (the renew clears the
   stale count on purpose -- keeping it would eat a later completion for the
@@ -453,8 +449,7 @@ each wants.
   `hs->pointer_inside` true for a second window closed under the pointer,
   and `kb_leave` clears `kb_focused` for a surface that is not
   `kb_window`; no present reader misbehaves today.
-- **Optimizations measured but not taken:** GL's `own_state` runs 8-12 times
-  a frame and only the two callback boundaries need it; the window image's
+- **Optimizations measured but not taken:** the window image's
   depth is drawn and cleared for frames that never test it; Win32's
   `seed_held_keys()` asks ~230 scancodes per focus gain; Cocoa runs
   `update_scale()` twice for one backing change and `screens_named()` is
@@ -554,7 +549,7 @@ the macOS gc on the Mac; the Pi's tsan is the one failure, on the
 driver's own race (TODO *The Raspberry Pi 4*, whose debug info Arch
 Linux ARM does not publish). The desk and the guests were round on
 2026-11-05: x11-vulkan 106 checks with only the known sync-value line
-below, x11-gl 106, wayland-gl 74, win64-vulkan 89, win64-d3d12 93 and
+below, win64-vulkan 89, win64-d3d12 93 and
 wayland-vulkan 74, all clean, and the guests' win64-vulkan-vm and
 win64-d3d12-vm 91 each on win10 and win11, all clean.
 
@@ -608,9 +603,6 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   (`d3d11-present-refused`) was run on both laptops' GPUs on 2026-11-03
   (DESIGN's table). The guests draw on WARP, which the composition
   measure skips, so the fault is armed there and never reached.
-- **OpenGL's presented count** (`gl_bridge_scan_show()`): a frame with
-  no drawable on macOS, or no buffer on KMS, not counted, and nothing
-  else then changed.
 - **The Vulkan bail path** (`frame_bail()`): a recording forced to fail,
   the swapchain made again and the window drawing on, with no
   validation message.
@@ -619,9 +611,6 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   `shown_main()` waits beside the render thread's acquires and presents.
   Asked of the validation layer's thread checks, and of drivers beyond
   Mesa's, whether that holds or the wait wants the lock in slices.
-- **OpenGL's GPU list against its pick** where the server's display is
-  on none of the listed devices (`gl_bridge_list_gpus()` lists all, the
-  pick one): which the list should say is a decision, not yet made.
 - **`fnl_d3d12.h` compiled alone** (`FNL_CHECK_D3D12` in
   `tools/headercheck.c`): the win64 tree's first build, as C11 with
   `COBJMACROS` and as C++11 to C++20, against mingw's `<d3d12.h>`.
@@ -631,17 +620,14 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   xcb, not Xlib*). Logged (`FNL_X11_PRESENT_LOG=1`): the in-order match is
   about five frames behind once swapchains have been made again, frames
   queued that are never answered -- Mesa's, presented to a swapchain retired
-  before it sent them. Matched by serial now (DESIGN): `x11-vulkan` and
-  `x11-gl` here clean (OpenGL's 3,383 completions 17.5 ms after the push at
-  the median, 3 frames dropped), and `x11-vulkan-bare` and `x11-gl-bare` on
-  the thinkpad, aspire and the Pi (2026-11-02). The shown stamps read back
-  through sizes (`pace: shown`): right on `x11-vulkan`, and on `x11-gl`
-  since a stamp from before its present is moved to the next refresh
-  (DESIGN *X11: xcb, not Xlib*), and on the bare machines' Xorg (the
-  thinkpad, aspire, the Pi). The stamp before its latch on aspire was
+  before it sent them. Matched by serial now (DESIGN): `x11-vulkan`
+  here clean, and `x11-vulkan-bare` on the thinkpad, aspire and the Pi
+  (2026-11-02). The shown stamps read back through sizes (`pace: shown`):
+  right on `x11-vulkan`, and on the bare machines' Xorg (the thinkpad,
+  aspire, the Pi). The stamp before its latch on aspire was
   NVIDIA's out-of-date present shown anyway (DESIGN), counted now; the
-  rounds after it clean (2026-11-02: `x11-vulkan-bare` and `x11-gl-bare` on
-  aspire, 96 checks each; `x11-vulkan` 106 and `wayland-vulkan` 74 here).
+  rounds after it clean (2026-11-02: `x11-vulkan-bare` on
+  aspire, 96 checks; `x11-vulkan` 106 and `wayland-vulkan` 74 here).
   Wayland's take-back answers the same where the compositor has spoken
   first (DESIGN); its rounds clean (2026-11-02: `wayland-vulkan-bare` on
   aspire, 66 checks; `wayland-vulkan` here, 74).
@@ -656,7 +642,7 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   shown-wait off until the next answer, so a round long enough to present a few
   hundred frames was near-certain to trip it. `SYNC_SHOWN_WAIT` is 0.100 now:
   above every completion measured, and still a bound on what the manager waits
-  for. `x11-vulkan` and `x11-gl` both pass their rounds, 111 checks each.
+  for. `x11-vulkan` passes its round, 111 checks.
 - **Input held for `bench.py --hands` and pace's border row**, which
   drive input as a round does without the round's hold
   (`input_hold.py`).
@@ -675,7 +661,7 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
 - **The review's rounds of 2026-11-03, at `ebc3ba8`**, half done. Every
   tree built warning-free from nothing, fifteen with the ARM four, and
   release rounds ran clean everywhere but this desk: the bare machines'
-  X11, weston and KMS, Vulkan and OpenGL (aspire, the thinkpad, the Pi:
+  X11, weston and KMS, Vulkan (aspire, the thinkpad, the Pi:
   eighteen, aspire's KMS on nouveau and nvidia), the Mac's three (91
   checks each), and schenker and aspire under Windows (Vulkan and
   Direct3D 12 on both GPUs: 107 and 106 checks). `gc` with
@@ -688,8 +674,8 @@ win64-d3d12-vm 91 each on win10 and win11, all clean.
   known sync-value line in gc (the present wait). tsan found radeonsi's
   threaded-context command stream handed between the render thread and
   the driver's own (`amdgpu_cs_flush()`, `amdgpu_do_add_buffer()`,
-  `si_begin_new_gfx_cs()`) when the GPU box moved the window onto OpenGL;
-  each is suppressed in `tsan.supp` with its frames named. Owed still:
+  `si_begin_new_gfx_cs()`) when the GPU box moved the window onto another
+  device; each is suppressed in `tsan.supp` with its frames named. Owed still:
   - what no round does: KMS with two layouts (`FNL_KMS_LAYOUT=us,de`)
     and `compose:ralt`; a tablet or touchscreen on KMS; two monitors of
     one model on the Mac; a real input method on Windows;
@@ -711,34 +697,14 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   own swapchains: the restore gets the first frame when the second
   acquire returns, 0.21 to 0.23 s after it, on the HD 530 as well
   (DESIGN *The veil*, 2026-11-01).
-- **OpenGL to OpenGL under a window server** cannot be asked: Mesa (26.0
-  here, 26.2 on the thinkpad's Xorg) opens a display asked of the
-  software device on the hardware one, so OpenGL lists the hardware GPU
-  alone there (DESIGN, 2026-10-31). Owed: the move on GNOME, once a
-  Mesa honours the device -- or the software device's display opened
-  another way (`LIBGL_ALWAYS_SOFTWARE` in a process of the lister's own).
 
 ## Linux
 
-- **OpenGL's resize on Wayland**: the `wl_egl_window` is
-  `app_buffer_room()`'s while the size is changing and the window's at
-  rest, and the viewport shows the top-left extent (DESIGN *A swapchain
-  larger than the window*). What that saves is unmeasured. The Pi's
-  `wayland-gl` under weston (2026-10-31, `pace.py wayland-gl-bare@pi4`,
-  OpenGL's bare columns now asked for by name) draws on llvmpipe, since
-  V3D 4.2 has GL 3.1: 19, 29 and 30 fps at 5, 15 and 30 sizes a second,
-  and 30 from there to 250, at 175 to 179% of a core -- its draw row, no
-  sizes at all, 30 fps at 209%. So the ceiling is the rasteriser's, and
-  beside it the EGL window's remaking costs nothing to be seen; Vulkan
-  on the V3D, same sweep, 56 to 58 fps from 30 sizes a second. Owed: a
-  pace row on a GL 4.5 Wayland device, where the draw is faster than the
-  remaking.
 - **A dip every 21 s on this desktop's console at 4K**: 44 to 48 frames
   a second for about 3.5 s, then 60 again, the RX 590 on DP-1 at
   3840x2160. Not the library's: `vkcube --wsi display`, with none of it,
-  dips the same (4.5, 26 and 47 s, Mesa's overlay layer logging), and so
-  does the library's OpenGL, which flips through the backend's own page
-  flips and no Mesa display WSI; the kernel's connector polling off
+  dips the same (4.5, 26 and 47 s, Mesa's overlay layer logging); the
+  kernel's connector polling off
   (`drm_kms_helper.poll=N`) changes nothing, and no DRM uevent comes with
   it. What it is wants hands: another monitor on DP-1, the dark DVI-D-1
   unplugged, amdgpu's DC debug. Seen as "45 frames a second without
@@ -746,15 +712,6 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   runs FIFO at 60 between the dips. Since the period estimate holds there
   (DESIGN *Late latching*) the dip costs frames of 17.8 to 18.5 ms, not
   21 to 25.
-- **A report to NVIDIA's egl-x11**, drafted in `docs/nvidia-egl-xcb.md`
-  and not sent: `EGL_EXT_platform_xcb` is listed and every xcb display
-  refused, `EGL_NO_DISPLAY` with no error, where the same server through
-  Xlib is taken -- on Intel's Xorg under PRIME offload, and on one
-  NVIDIA's driver drives, `__NV_FORCE_ENABLE_X11_EGL_PLATFORM` or not. It
-  is why NVIDIA's OpenGL never draws an X11 window here. egl-x11's source
-  declines a server with `NV-GLX`, or with DRI3 or Present below 1.2, in
-  silence, which may be the whole of it; owed on schenker before sending,
-  the four checks the draft's source section lists (2026-10-31).
 - **The thinkpad's resets**: three, each under lavapipe on four threads,
   nothing in the journal; heat, most likely. Its fan is at its fastest on
   `auto` -- with `fan_control=1` every fixed level held it slower -- so
@@ -873,14 +830,11 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
     enumeration and device, none of it the library's. nouveau's bus
     faults on aspire are quieted, by the helper's loads and by the keys'
     nouveau entries alike. The KMS rounds on a driver, with the box's
-    move, under the checker trees: schenker's, Vulkan's and OpenGL's on
-    both drivers, under `asan` and `gc`, 97 checks each and none failed
-    (2026-10-31, `b4571d7`), OpenGL's move under `asan` among them;
-    aspire's Vulkan rounds on both drivers under `asan`, 97 checks, none
-    failed, the same day, and under `gc` likewise; and aspire's OpenGL
-    ones on both drivers under `asan` and `gc`, 97 checks each, none
-    failed (2026-10-31, `1d987ac`, the ranking set aside, as a ranked
-    machine skips them as the Vulkan round's twins); and `tsan` on
+    move, under the checker trees: schenker's Vulkan rounds on both
+    drivers, under `asan` and `gc`, 97 checks each and none failed
+    (2026-10-31, `b4571d7`); aspire's Vulkan rounds on both drivers
+    under `asan`, 97 checks, none failed, the same day, and under `gc`
+    likewise; and `tsan` on
     nouveau passes on both, the drivers preloaded and Mesa's threaded
     context off (DESIGN, 2026-10-31). Owed: a Vulkan round there under
     `tsan` loses F11 now and then and then the window (three times on
@@ -889,9 +843,9 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
     TSan, and the round's fullscreen waits may be what is short.
   - *The harness* knows the driver (`FACTS`, `discrete_sleeps()` by
     NVIDIA's "Runtime D3 status", the closed ICD in `DEBUGINFO`, `__NV_`
-    and `__GLX_` forwarded, the ICD kept loaded under ASan and
-    `lsan.supp` keyed on its two libraries, a `tsan` round on it
-    skipped with the reason). ASan needed no `protect_shadow_gap=0`.
+    forwarded, the ICD kept loaded under ASan and `lsan.supp` keyed on its
+    two libraries, a `tsan` round on it skipped with the reason). ASan
+    needed no `protect_shadow_gap=0`.
 
 ## The bare machine, without Xorg
 
@@ -1066,7 +1020,7 @@ With no monitor it runs on HDMI-A-1 forced on by the kernel's line (DESIGN
   race that `race:_mesa_hash_table_copy` in `tsan.supp` covers. The
   function is named by its code, not its symbols: the ARM library has
   none, and Arch Linux ARM's debuginfod has none for any of the Pi's
-  Vulkan or GL files (HTTP 404 for all five, `bare_driver.py --setup`;
+  Vulkan files (HTTP 404 for all of them, `bare_driver.py --setup`;
   no `debuginfod.archlinuxarm.org` exists). The 196-byte function at
   `libvulkan_lvp.so+0x16c8e0` copies a hash table's 0x48-byte header
   with four 16-byte moves, allocates its entries with `0x18` the
@@ -1161,7 +1115,7 @@ round without the declaration.
 
 ## macOS
 
-Cocoa beside Win32, Wayland, X11 and KMS, and Metal beside Vulkan, GL and
+Cocoa beside Win32, Wayland, X11 and KMS, and Metal beside Vulkan and
 Direct3D 12, on schenker's macOS stick (DESIGN *macOS*): the `macos` tree,
 cross-compiled here (DESIGN *Cross-compiling for macOS*).
 Written: the backend (`src/backend/cocoa/`), the Metal renderer
@@ -1169,8 +1123,8 @@ Written: the backend (`src/backend/cocoa/`), the Metal renderer
 with the portability extensions), `fnl_metal.h`, the testbed's and a
 snippet's scenes, the toolchain, `build.sh`'s `macos` target, the checks'
 tables, and the harness's environments for the Mac (`mac_driver.py` and its
-agent; `macos-metal-native`, `macos-vulkan-native` and `macos-gl-native`,
-and three `pace.py` columns). Owed, in this order:
+agent; `macos-metal-native` and `macos-vulkan-native`,
+and two `pace.py` columns). Owed, in this order:
 
 1. **What the design assumes and has not seen**, each answered in DESIGN
    *macOS* with what was seen: the ISO swap, on the stick's own keyboard
@@ -1184,7 +1138,7 @@ and three `pace.py` columns). Owed, in this order:
    maximized window moved between them and back with its state kept
    (2026-11-05, read from the window's reports; the built-in was dark
    then). Run since with both panels lit: the round moved the window to
-   PL4071UH and back under Metal, Vulkan and GL, 95 checks each and none
+   PL4071UH and back under Metal and Vulkan, 95 checks each and none
    failed (2026-11-06).
 2. **What the harness has and has not run** (`mac_driver.py`,
    `mac_agent.m`): "dead-layout" through macOS's input sources runs there
@@ -1211,8 +1165,8 @@ and three `pace.py` columns). Owed, in this order:
 Written 2026-11-04 and built; seen on 2026-11-05: CI's x86-64 bundle
 opened on schenker (`open -n`, and run direct from `Contents/MacOS`),
 `codesign --verify --deep --strict` passing, MoltenVK loaded from
-`Contents/Frameworks` under Vulkan (dyld's own line), and Vulkan, Metal
-and GL each drawing a complete record at 60 fps from the bundle; and
+`Contents/Frameworks` under Vulkan (dyld's own line), and Vulkan and Metal
+each drawing a complete record at 60 fps from the bundle; and
 `./build.sh macos-arm64` built here, an arm64 Mach-O, its first on this
 desktop. CI builds both trees and joins them with `lipo` into the
 ad-hoc signed bundles, MoltenVK in one only where its program has a
@@ -1224,7 +1178,7 @@ MoltenVK is staged only where a scene is Vulkan's: the testbed and
 every demo but hello carry `scene_vulkan.c`, fenestal-dev has none, and
 CI's zip of 2026-11-05 lists exactly those six bundles with it, at 43.9
 MB against 50.5. A bundle without it runs on the Mac -- `hello.app`
-opened under Metal and GL, its log saying `Vulkan lists 0 GPUs here`,
+opened under Metal, its log saying `Vulkan lists 0 GPUs here`,
 and named Vulkan it refuses with the loader's own line.
 
 ## CI
@@ -1252,25 +1206,12 @@ and headers through the cache. Owed:
   own dumps check them, so the Windows runner's and the Mac's release builds
   are the first to say so for theirs; a difference fails that tree's check.
 
-## OpenGL on macOS
+## Direct3D 12
 
-Written and driven on schenker's macOS (DESIGN *OpenGL on macOS*,
-*OpenGL 4.1*): the 4.1 profile, its translation, the caller's half, the
-CGL bridge, OpenGL in the `macos` tree and `macos-gl-native`. Owed:
-
-- **The bridge on a Mac with two GPUs**: whether the Metal device found
-  by the GL context's registry id is the one GL draws on, where there is
-  more than one to match (DESIGN *OpenGL on macOS*).
-
-## Direct3D 12 and OpenGL 4.5
-
-Two renderers beside Vulkan: D3D12 on Win32, and GL 4.5 core on Linux --
-EGL on Wayland, X11 (`EGL_EXT_platform_xcb`; GLX would bring Xlib) and KMS
-(Mesa's surfaceless display). Each is in every tree of its system beside
-Vulkan, chosen at `fnl_init()` (DESIGN *One build per operating system*):
-the `linux` tree draws with Vulkan and OpenGL, `win64` with Direct3D 12
-and Vulkan. `libEGL` and `libwayland-egl` are opened at run time, never
-linked, and Direct3D 12 is Windows' own.
+A second renderer beside Vulkan: D3D12 on Win32, in every Windows tree
+beside Vulkan and chosen at `fnl_init()` (DESIGN *One build per operating
+system*): `win64` draws with Direct3D 12 and Vulkan. Direct3D 12 is
+Windows' own and is never linked beyond the system's libraries.
 
 In this order, each step leaving every round passing. Done: the Vulkan
 renderer's state behind `App::renderer_state`, with no file of `src/core/`
@@ -1279,34 +1220,19 @@ states for every renderer (DESIGN *Recording*); and one shader source,
 translated by `spirv-cross` and checked at build time (DESIGN *One shader
 source*).
 
-1. **GL on X11**, the cheapest to drive and capture here; then Wayland
-   and KMS. The GL renderer (`src/renderer/gl/`, EGL over core xcb),
-   `fnl_gl.h`, the testbed's scene and a snippet are written, the `linux`
-   tree builds them, and the harness drives it as an environment of its
-   own (`x11-gl`). **Wayland** (`egl_wayland.c`, the `wayland-gl`
-   environment, `WaylandGL` in the harness) is written too. Both pass the
-   stress round, with and without `--capture`, a pace sweep, and every
-   checker tree (DESIGN *Wayland*, *X11*), and a Debug tree's GL debug
-   output is shown to reach the log (`FNL_SELFTEST=gl`). **KMS**
-   (`egl_kms.c`, surfaceless, the frames blitted into the backend's
-   scanout buffers, the copy path where that is refused; the
-   `kms-gl-bare` environment, `KmsGLBare`) passes on the three laptops (DESIGN
-   *KMS*), and has a pace column (`kms-gl@aspire`, 2026-10-31).
-   GL is on every Linux backend.
-2. **D3D12 on Win32** is written (`src/renderer/d3d12/`, the `win64-d3d12`
+1. **D3D12 on Win32** is written (`src/renderer/d3d12/`, the `win64-d3d12`
    environment, `fnl_d3d12.h`, a scene for the testbed, and a snippet):
    DXGI flip discard, the frame-latency object waited on before each frame,
    sync interval 1 or 0 with `ALLOW_TEARING`, and DXIL from `dxc` (DESIGN
-   *One shader source*). It records afresh every frame, as
-   GL does (DESIGN *Recording*). It passes the stress round under wine on
-   vkd3d-proton, on X11 and on Wayland (release and `gc`), in both guests
-   on WARP, and on both laptops on each GPU; the `analyzer` tree builds
-   clean. The frame-latency wait is skipped on the frame that answers a
-   size (under wine on Wayland the two waits held each other to their
-   bounds on every maximize) and under sync interval 0 (on Windows it held
-   vsync-off to the refresh rate: 8 to 22% of a core flat out, 17 to 63%
-   once skipped); see `frame.c`.
-3. **The harness**: four environments (`win64-d3d12`, `-wl`, `-vm`,
+   *One shader source*). It records afresh every frame (DESIGN *Recording*).
+   It passes the stress round under wine on vkd3d-proton, on X11 and on
+   Wayland (release and `gc`), in both guests on WARP, and on both laptops
+   on each GPU; the `analyzer` tree builds clean. The frame-latency wait is
+   skipped on the frame that answers a size (under wine on Wayland the two
+   waits held each other to their bounds on every maximize) and under sync
+   interval 0 (on Windows it held vsync-off to the refresh rate: 8 to 22% of
+   a core flat out, 17 to 63% once skipped); see `frame.c`.
+2. **The harness**: four environments (`win64-d3d12`, `-wl`, `-vm`,
    `-native`), wine's two on vkd3d-proton (`tools/vkd3d_proton.py`).
    Flat out (`pace.py --no-vsync`, twice): under wine on X11 5,854 fps
    at 200% of a core where Vulkan reaches 7,168 at 111%, and on Wayland
@@ -1328,20 +1254,12 @@ Questions, each to be answered with a measurement:
   `docs/benchmarks.md`): 35 to 37 on X11 and 18 to 23 on Wayland, where
   wine's Vulkan draws 53 to 58; its intervals up to 55 ms with 37
   missing. Under wine there is no sync counter and `size_await()` holds
-  each size. (OpenGL on X11 was the same and is answered: the ack held
-  until Present shows the frame, 48 to 49 fps, DESIGN *X11*,
-  2026-11-01.) Owed: the `--frame-times` lines' `other` under wine, to
+  each size. Owed: the `--frame-times` lines' `other` under wine, to
   name the gap.
 - **Resizing under wine** shows the new size before its frame: wine's X11
   window has no `_NET_WM_SYNC_REQUEST` (DESIGN *X11*). Recorded now
   (`tools/drive/screencast.py`): black margins. A later wine, or wine's
   Wayland driver, is where it closes.
-- **NVIDIA's OpenGL frames onto an Intel panel** stay a copy (DESIGN
-  *KMS: no window server*): a renderbuffer over the
-  imported buffer is refused, and a texture over it is drawn into a copy
-  of NVIDIA's own and crashes its EGL when let go (DESIGN). A buffer that
-  the NVIDIA GPU allocates and the Intel GPU scans out would be the other
-  way round, and wants GBM on NVIDIA's side.
 - **NVIDIA's MAILBOX on Windows**, on a GPU's own swapchain -- no longer
   the default, which goes through DXGI and tears with vsync off (620 fps
   on schenker's GTX 1050 Ti, 871 on aspire's 960M; DESIGN *Vulkan
@@ -1377,7 +1295,7 @@ Written (DESIGN *Moving to another GPU*): the list, `fnl_request_gpu()`,
 - **A move entry for each renderer, and the ranking** (DESIGN *Another
   kernel driver, with the window open*, *Ranked by measured frame
   rate*): on schenker's KMS, a calibration of eight entries kept; a
-  start that names nothing opened on the first (NVIDIA's OpenGL), with
+  start that names nothing opened on the first, with
   no move after; and `kms-vulkan-bare@schenker:nvidia`, opened there,
   through the driver cycles and the walk from every row to every other
   in the ranked list (`gpu_every_pair()`), 56 switches, 10 of them to
@@ -1389,10 +1307,7 @@ Written (DESIGN *Moving to another GPU*): the list, `fnl_request_gpu()`,
   pinned to HDMI that ran the GPU sections again on the panel
   (`gpu_on_other_outputs()`), 164 checks, none failed, the walk on HDMI
   moving the driver 12 times in its ranked order -- booted on nouveau
-  and again booted on NVIDIA's driver, alike. On a ranked machine
-  `kms-gl-bare@<m>:<driver>` is that round's twin and skipped. Unranked
-  (schenker's ranking deleted 2026-10-26), `kms-gl-bare@schenker:nouveau`
-  and `:nvidia`, 161 checks each, none failed, the walk on both displays.
+  and again booted on NVIDIA's driver, alike.
   aspire's KMS ranking, six entries since 2026-10-28, took its two
   kernel-driver moves on 2026-10-31 (16 s, a start with
   `FNL_GPU_DRIVER=switch`): eight entries, Intel's Vulkan first at 397
@@ -1404,15 +1319,14 @@ Written (DESIGN *Moving to another GPU*): the list, `fnl_request_gpu()`,
 - **The calibration, entry by entry and display by display** (DESIGN
   *Ranked by measured frame rate*): on schenker's KMS, the eight entries
   measured on eDP-1 at the first start (31 s), and on HDMI-A-1 once the
-  window was moved there (33 s, the 4K output reordering the list: Intel's
-  OpenGL ahead of NVIDIA's Vulkan); a start with HDMI unplugged and one
-  with it back measured nothing, every figure kept. With the window open,
+  window was moved there (33 s, the 4K output reordering the list); a
+  start with HDMI unplugged and one with it back measured nothing, every
+  figure kept. With the window open,
   HDMI pulled and pushed measured nothing; pulled while the window was
   measured on it, the calibration ended with 3 of 8 kept and the window
   on the panel; pushed back and the window moved there, the 5 missing
   measured (21 s). A move between displays put the window on the
-  display's first entry: on HDMI on Intel's OpenGL, moved to the panel,
-  it went to NVIDIA's OpenGL by itself, nothing measured. A calibration
+  display's first entry by itself, nothing measured. A calibration
   ended by its display pulled (HDMI at entry 7 of 8, 6 kept) put the
   window on the panel's first entry, the GPU moved back to nvidia. The
   time left, reckoned per group, within a second of what it came to
@@ -1485,7 +1399,7 @@ frame over the whole window for a move. Nothing about it generalizes: it is
 one full-window quad with the scene's own image, and `App::ovl_img` is the
 swapchain image index rather than a picture.
 
-Built, on all four renderers (2026-11-20):
+Built, on all three renderers (2026-11-20):
 
 1. **The object and its pixels.** `fnl_image_create(app, w, h, format,
    pixels)`, `fnl_image_destroy()`, `fnl_image_supported()` and
@@ -1500,15 +1414,15 @@ Built, on all four renderers (2026-11-20):
 3. **Lifetime and device loss**: the library keeps the CPU copy, so a device
    rebuild (`on_gpu_created`) uploads it again. Each renderer destroys its
    images' objects in its own device teardown (`vk_images_device_gone()`,
-   `gl_destroy_overlay()`, `d3d_destroy_overlay()`, `mt_destroy_overlay()`)
+   `d3d_destroy_overlay()`, `mt_destroy_overlay()`)
    and leaves `FnlImage::gpu` null; the next draw uploads. That is what a
    swap to another renderer rests on too: the renderer that owned an object
    is the one that nulls it, so the next renderer's `image_free()` is never
    handed one that is not its. What is left at `fnl_shutdown()` is freed
    there.
-4. **The four pipelines**: `src/renderer/vulkan/overlay.c` (an image, its
+4. **The three pipelines**: `src/renderer/vulkan/overlay.c` (an image, its
    memory, a view and a set from a freeable pool, one shared sampler),
-   `src/renderer/gl/overlay.c` (a texture), `src/renderer/d3d12/overlay.c`
+   `src/renderer/d3d12/overlay.c`
    (a texture, an upload list and an SRV from a heap of the images' own) and
    `src/renderer/metal/overlay.m` (a texture, held as an owned `void *`).
 
@@ -1527,8 +1441,7 @@ it (Direct3D 12), and the same hole on Vulkan's picture, whose view and
 descriptor set now wait as Direct3D 12's drain; a timestamp pair surviving
 a swapchain rebuild; ENTER and LEAVE in surface points on Wayland; the LED
 bit test by bytes on KMS; an `NSCursor` set per motion on Cocoa; `GETCRTC`
-per cursor report on KMS; X11's blocking `Xft.dpi` read per notification;
-GL's window image remade on every rebuild.
+per cursor report on KMS; and X11's blocking `Xft.dpi` read per notification.
 
 Open, each needing a decision or a measurement:
 
@@ -1552,20 +1465,6 @@ Open, each needing a decision or a measurement:
   the review asked to judge turns out not to need one: `WM_SIZE` is posted,
   which `QS_SENDMESSAGE` excludes, and `clipboard_open()` waits before the
   clipboard is open, so nothing is held across a handler.
-- **The GL overlay push block** -- **tried and reverted (2026-11-21)**. The
-  review's reasoning was wrong on one point: a bound range at the binding
-  point the block already has needs no shader change, so the
-  `GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT` it named is usable rather than an
-  obstacle. Eight slots of that alignment, `gl_push()` writing the next and
-  binding its range at point 0, and the ring restarting per recording, all
-  went in and built clean -- and **broke the overlay picture under OpenGL in
-  the release tree only**: `x11-gl`'s two picture checks read 0.0% white
-  where the reverted build reads 6.9%, and `I` toggles it again. A Debug (gc)
-  tree drew it correctly with the same source, one slot at a time did not
-  help, and the generated `Push` block is the 32 bytes the range binds, so
-  the cause was not narrowed before the change came out. Reverted rather than
-  shipped: the picture is a feature and the write overlap was never measured
-  as a cost.
 - ~~**Per-frame figures that move slowly**~~ -- **settled (2026-11-21)**, two
   cached and one declined. The calibration panel's width is frozen in
   `plan()`, where the ids are set (`App::cal::panel_w`), so the draw no longer
@@ -1603,8 +1502,8 @@ the snippet binds it, so that a destroy and a create land mid-round and not
 only at exit, and `stress.py`'s picture check reads the middle row through it
 three times -- drawn, destroyed, drawn again.
 
-**Measured since, and what is left.** This desk's `x11-vulkan` and `x11-gl`
-pass the three checks (7.0% of the middle row white, 2026-11-21), and wine
+**Measured since, and what is left.** This desk's `x11-vulkan`
+passes the three checks (7.0% of the middle row white, 2026-11-21), and wine
 does at `df55495` (the paragraph below). The laptops' and the Mac's rounds
 pass with the check in them (2026-11-23/24). The KMS half has run too: the
 LED's bit test at open and the `GETCRTC` kept off the motion path are on
@@ -1631,7 +1530,7 @@ round's log check when it does.
 ## Three shapes a UI is made of
 
 `fnl_overlay_rect_round()`, `fnl_overlay_circle()` and
-`fnl_overlay_gradient()`, built on all four renderers (2026-11-21). They are
+`fnl_overlay_gradient()`, built on all three renderers (2026-11-21). They are
 the shape stream's box form -- `ShapeInstance::shape_kind` says which of
 stroke, fill, round or gradient an instance is, and `shaders/shape.frag`
 reads it -- so all three blend, all three are one draw with the strokes, and
@@ -1708,7 +1607,7 @@ so the work is the process state that is still in the app, not a handle to add.
   compares by identity), Win32's raw-input registration and the two pointer
   calls that are the desktop's (`ShowCursor`, `ClipCursor`), Cocoa's four
   file-scope variables (`iso_swap`, `pump_waiting` still file-scope and main-
-  thread-only), and the GL, Metal and Vulkan tables that are one a process
+  thread-only), and the Metal and Vulkan tables that are one a process
   today.
 - **Wayland's second window is built** (2026-11-24; DESIGN *A second window*).
   The host owns the one `wl_display`, its registry and globals, the seat and
@@ -1789,7 +1688,7 @@ so the work is the process state that is still in the app, not a handle to add.
   content click and gives it on F9 while the first is open -- what no
   single-window round can say. The capture is driven on the second window alone:
   the two open nearly on top of each other under wine, and a covered window parks
-  and the driver cannot find it to click. It passes on `x11-vulkan`, `x11-gl`,
+  and the driver cannot find it to click. It passes on `x11-vulkan`,
   `win64-vulkan` and `win64-d3d12` (release, 2026-11-23), 12 checks a round, and
   on `macos-metal-native` (release, 2026-11-24, 19 checks). Wayland has a check
   of its own (`two_window_wayland()`): a compositor lists no windows and a
@@ -1808,14 +1707,11 @@ so the work is the process state that is still in the app, not a handle to add.
   `_NET_WM_PID` note stands.
 - **The scene is one per window.** Each renderer's `testbed/scene_*.c` keys its
   pipelines by the `FnlApp` the callbacks name, so a host's second window draws
-  its own rather than overwriting the first's. This found a library fault: the
-  main thread holds one GL context, and a second window's build leaves its own
-  current in place of the first's, so the first window's `on_gpu_created` built
-  in the wrong context and the second's in none. `window_start()` now enters
-  each window's renderer before its `on_gpu_created` (`thread_enter`, a no-op for
-  Vulkan and Direct3D 12). Metal's compiled-stage cache was one a process and
-  is now the device's, since a second window compiles for its own device on
-  its own render thread.
+  its own rather than overwriting the first's. `window_start()` enters
+  each window's renderer before its `on_gpu_created` (`thread_enter`, a
+  no-op for Vulkan and Direct3D 12). Metal's compiled-stage cache was one
+  a process and is now the device's, since a second window compiles for its
+  own device on its own render thread.
 - **The testbed shows the three ways two windows can relate** (2026-11-24):
   F10 shows and hides the second window, F12 cycles **own** (the second draws
   the scene shader's other scene -- the demos' turning cube, content of its
@@ -1840,11 +1736,7 @@ so the work is the process state that is still in the app, not a handle to add.
   and a window releasing while another still holds it leaves that one's clip on
   the pointer rather than clearing it (which was the fight two captures had).
   The round exercises it: the second window takes the pointer on a content click
-  and gives it on F9 with the first open beside it. And so is the GL row: the
-  entry-point table is the window's (`RendererState::funcs`, `gl_funcs.h`),
-  reached through the calling thread's binding, so a second window's build
-  never writes under the first's draws; the 4.1 shim's vertex-array records
-  are the thread's and Metal's stages the device's.
+  and gives it on F9 with the first open beside it.
 - **The two-window review's fixes** (2026-11-24): a failed
   `fnl_window_create()` no longer takes KMS's console and display path with
   it (the last-window test is the registry's, and the copy path the attempt
@@ -1883,7 +1775,7 @@ so the work is the process state that is still in the app, not a handle to add.
   window opens on all five. The window position is wired for X11, Win32 and
   Cocoa, which KMS has no use for and Wayland cannot honour. Both windows draw
   the scene, and the two-window round passes on X11 and Win32, drawn with
-  Vulkan, OpenGL and Direct3D 12 (release, 2026-11-23), on KMS, which has a
+  Vulkan and Direct3D 12 (release, 2026-11-23), on KMS, which has a
   check of its own (release and `gc`, 2026-11-23), on Wayland
   (`two_window_wayland()`, release, 2026-11-24) and on the Mac
   (`macos-metal-native`, release, 2026-11-24).

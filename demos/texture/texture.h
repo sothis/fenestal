@@ -3,10 +3,10 @@
  *
  * Written in 2026 by Janos Sonntag and dedicated to the public domain.
  *
- * What the texture demo's files share. main.c is the program -- the clock,
- * the overlay and the texture's pixels -- and names no graphics API; each
- * scene file is the device's half for one API: scene_gl.c and
- * scene_vulkan.c. F5's metrics panel is the library's.
+ * What the texture demo's files share. main.c is the program -- the clock, the
+ * overlay and the texture's pixels -- and names no graphics API; each scene
+ * file is the device's half for one API: scene_vulkan.c. F5's metrics panel is
+ * the library's.
  */
 
 #ifndef TEXTURE_H
@@ -19,9 +19,7 @@
 #include <stdint.h>
 
 /* What the cube's draw is given. The shaders declare the same block; the
- * asserts are what stop them drifting apart. Vulkan pushes it, and OpenGL
- * uploads it as a std140 uniform block, whose offsets for these three
- * members are the same. */
+ * asserts are what stop them drifting apart. */
 typedef struct {
 	float    mvp[16];
 	float    light[4];       /* xyz: towards the light, in the cube's own space;
@@ -41,13 +39,6 @@ _Static_assert(offsetof(CubePush, srgb) == 80, "CubePush layout drifted");
 #define TEX_SIZE 128
 
 void texture_pixels(unsigned char *rgba);
-
-/* ---- scene_gl.c ---------------------------------------------------------- */
-
-void scene_gl_on_gpu_created(void *ud, FnlApp *app);
-void scene_gl_on_gpu_lost(void *ud, FnlApp *app);
-/* From on_record: the cube, once, into the frame's framebuffer. */
-void scene_gl_draw(FnlApp *app, const FnlFrame *f, CubePush *push);
 
 /* ---- scene_vulkan.c ------------------------------------------------------ */
 

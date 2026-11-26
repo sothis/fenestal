@@ -62,7 +62,7 @@ static FnlResult create_surface(App *a)
 	return FNL_OK;
 }
 
-/* Of the window's own visual, the root's (egl_x11.c says why). */
+/* Of the window's own visual, the root's. */
 static bool presents(App *a, VkInstance inst, VkPhysicalDevice dev,
 					 uint32_t family)
 {

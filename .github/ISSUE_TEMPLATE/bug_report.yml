@@ -47,7 +47,6 @@ body:
       description: What the program logged as `renderer:`.
       options:
         - Vulkan
-        - OpenGL
         - Direct3D 12
         - Metal
         - Not known

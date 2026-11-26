@@ -139,7 +139,3 @@ fnl_vulkan_queue_wait_idle
 fnl_vulkan_scene_layout
 fnl_vulkan_scene_cmd
 fnl_vulkan_scene_rect
-fnl_gl_proc
-fnl_gl_version
-fnl_gl_scene_layout
-fnl_gl_scene_framebuffer

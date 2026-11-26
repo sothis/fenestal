@@ -1,4 +1,4 @@
-# Each renderer's state header (vk_state.h, gl_state.h) is the second half of
+# Each renderer's state header (vk_state.h) is the second half of
 # a translation unit whose first half is core/app.h: it names App, GPU_NAME_MAX
 # and the Fnl* types app.h declares and includes nothing back, so a parser that
 # starts at one of them sees nothing it can name and calls the file broken. A

@@ -509,7 +509,7 @@ typedef struct {
 } GpuEntry;
 
 /* A ranked entry as src/core/rank.c keys it, "<renderer key>|<GPU>" with
- * the kernel driver after the GPU where the list names one ("gl|NVIDIA
+ * the kernel driver after the GPU where the list names one ("vulkan|NVIDIA
  * GeForce GTX 1050 Ti on nvidia"), with its terminator; the most figures
  * a ranking keeps, every entry of a list on each of eight displays; and
  * one figure, for an entry on a display, 0 where it would not draw. */
@@ -734,7 +734,7 @@ void app_gpu_list_others(App *a); /* app.c */
 void app_gpu_list_start(App *a);  /* app.c */
 /* "discrete", "software", "hardware" for an unknown kind: the word the
  * inventory and the titlebar's list give a kind. And a renderer's name,
- * "OpenGL", and key, "gl", from the build's tables. */
+ * "Vulkan", and key, "vulkan", from the build's tables. */
 const char *app_gpu_kind_word(FnlGpuKind k);  /* app.c */
 const char *app_renderer_name(FnlRenderer r); /* app.c */
 const char *app_renderer_key(FnlRenderer r);  /* app.c */
@@ -901,8 +901,8 @@ static inline bool fnl_draw_state_eq(const FnlDrawState *x,
 /* FNL_AA_TAAU's `Push` block (shaders/taau.frag): the subpixel offset this
  * frame's scene was rasterised at, in scene pixels, the weight the history is
  * mixed in at, and one scene texel in normalised units. Here rather than in a
- * renderer's header because all four draw it, and each binds the same bytes:
- * std430 push constants on Vulkan, a `Push` uniform block on GL, a cbuffer on
+ * renderer's header because every one draws it, and each binds the same bytes:
+ * std430 push constants on Vulkan, a cbuffer on
  * Direct3D 12 and `constant Push&` on Metal. Two vec4s so every one of those
  * puts the same field at the same offset, which the asserts pin. */
 typedef struct {
@@ -919,7 +919,7 @@ _Static_assert(offsetof(TaauPush, texel) == 16, "TaauPush layout drifted");
  * case, and nothing has moved since in the other -- a still window redrawing
  * for the figures, where starting the accumulation over would throw away the
  * image it had converged on. Renderers hold the two numbers; the rule is one
- * function, in frame.c, so it reads the same on all four. */
+ * function, in frame.c, so it reads the same on all three. */
 bool app_taau_follows(const App *a, uint64_t last, bool written);
 
 /* The metrics panel (fnl_set_metrics_panel()). The process's figures -- CPU,
@@ -1615,8 +1615,7 @@ struct FnlApp {
 	 * under App::lock, which gpu_merge() reads them under on any thread.
 	 * gpu_drivers_on is whether a move is offered at all -- FNL_GPU_DRIVER
 	 * set, and one GPU here that can move -- written once before the
-	 * render thread starts, and what the OpenGL renderer closes its
-	 * library between spells for; gpu_driver_next the move owed to
+	 * render thread starts; gpu_driver_next the move owed to
 	 * renderer_swap(), an index into gpu_drivers or -1, the render
 	 * thread's, and gpu_driver_to the renderer it lands on, the render
 	 * thread's too. gpu_drivers_pinned, under App::lock, once something of
@@ -2074,9 +2073,8 @@ struct FnlApp {
 	 * reads it either way; both on the render thread. `buffer_crops`,
 	 * set by the backend at open and not changed, is Wayland's viewport.
 	 * A renderer also writes `buffer` where Win32's DXGI shows a buffer
-	 * from its corner, where an X11 Vulkan swapchain presents one to one
-	 * from its corner, and where Wayland OpenGL keeps a larger native
-	 * window. */
+	 * from its corner, and where an X11 Vulkan swapchain presents one to one
+	 * from its corner. */
 	Extent buffer;
 	bool buffer_crops;
 	/* When the size, scale or margin last changed (swapchain_adopt()), and
@@ -2354,11 +2352,8 @@ struct FnlApp {
 	int gpu_part_n[GPU_SPAN_MAX];
 	int gpu_part_cur;
 	bool gpu_spans;
-	/* The OpenGL renderer's profile at its last device build, 45 or 41,
-	 * for fnl_gl_version() on any thread; 0 before one. */
-	FnlAtomicU32 gl_version;
 	/* Where the renderers share a driver (FnlBackendVtbl::shared_driver),
-	 * or OpenGL draws, what each of gpu_early_r listed before the one
+	 * what each of gpu_early_r listed before the one
 	 * drawing was built, which app_gpu_list_others() publishes in place
 	 * of listing it then. The main thread's in fnl_init(), and the render
 	 * thread's again at a move to another kernel driver, before the
@@ -2488,10 +2483,9 @@ struct FnlApp {
 	 * own terms: the renderer sets it on the render thread at every
 	 * rebuild while fnl_present_mode() reads it from [any], through
 	 * FnlRendererVtbl::present_mode_name. On Vulkan it is a
-	 * VkPresentModeKHR (vk_present_mode()); on OpenGL, Direct3D 12 and
+	 * VkPresentModeKHR (vk_present_mode()); on Direct3D 12 and
 	 * Metal the swap interval vsync asks for, 1 waiting for the vertical
-	 * blank and 0 not -- on OpenGL the interval asked, which the one given
-	 * may differ from (gl_state.h's `interval`). Core never reads it as
+	 * blank and 0 not. Core never reads it as
 	 * either: it goes back to the renderer through present_mode_name and
 	 * present_mode_matches, and one renderer's value means nothing to
 	 * another's. */

@@ -10,9 +10,8 @@
  */
 
 #include <fenestal/fenestal.h>
-#include <fenestal/fnl_gl.h>
-/* fnl_gl.h includes no GL header, and fnl_metal.h none outside Objective-C,
- * so every tree checks both; fnl_vulkan.h includes Vulkan's, so only a tree
+/* fnl_metal.h includes no Metal header outside Objective-C, so every tree
+ * checks it; fnl_vulkan.h includes Vulkan's, so only a tree
  * that has them does. A macOS tree compiles this as Objective-C as well,
  * where fnl_metal.h is Metal's types. */
 #include <fenestal/fnl_metal.h>
@@ -84,8 +83,6 @@ int headercheck(void)
 	FnlD3D12SceneLayout d3d_layout;
 	FnlD3D12Scene d3d_scene;
 #endif
-	FnlGlSceneLayout gl_layout;
-	FnlGlProc proc = 0;
 	FnlMetalGpu mtl_gpu;
 	FnlMetalSceneLayout mtl_layout;
 	FnlMetalScene mtl_scene;
@@ -106,8 +103,6 @@ int headercheck(void)
 	(void)d3d_layout;
 	(void)d3d_scene;
 #endif
-	(void)gl_layout;
-	(void)proc;
 	(void)mtl_gpu;
 	(void)mtl_layout;
 	(void)mtl_scene;

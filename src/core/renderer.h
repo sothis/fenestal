@@ -28,7 +28,7 @@ typedef struct FnlRendererVtbl {
 	 * checked against. */
 	FnlRenderer api;
 	/* As FNL_RENDERER spells it, at configure and in the environment:
-	 * "vulkan", "gl", "d3d12", "metal". */
+	 * "vulkan", "d3d12", "metal". */
 	const char *key;
 
 	/* Whether this renderer can draw the overlay -- the text, rectangles and
@@ -81,8 +81,9 @@ typedef struct FnlRendererVtbl {
 
 	/* The calling thread is about to use the device, or has finished with it
 	 * for now. For a graphics API whose context is current on one thread at
-	 * a time -- OpenGL -- this is where it is made current and released; one
-	 * whose device any thread may use names renderer_noop for both.
+	 * a time this is where it is made current and released; one whose device
+	 * any thread may use -- every renderer there is -- names renderer_noop
+	 * for both.
 	 *
 	 * The device is held by the thread that built it from create_device_
 	 * objects on: the main thread, through fnl_init() and fnl_run()'s
@@ -186,7 +187,7 @@ typedef struct FnlRendererVtbl {
 	 * through renderer_any(), and a move to another renderer may free the
 	 * drawing one's state while they run. They read App's own atomics,
 	 * App::gpu_name under App::lock, and what the backend fixed before any
-	 * thread started (X11's `composited`, for GL's pacer), and never
+	 * thread started (X11's `composited`), and never
 	 * App::renderer_state. */
 
 	/* max_samples is the best count this device offers for both colour and
@@ -270,7 +271,7 @@ void renderer_noop(App *a);
  * caller accepts more than one (DESIGN *One build per operating system*):
  * on Windows Direct3D 12, which every Windows 10 has, on WARP where there
  * is no driver, then Vulkan, which wants a vendor's driver; on macOS Metal,
- * then Vulkan on MoltenVK, one layer more; on Linux Vulkan, then OpenGL.
+ * then Vulkan on MoltenVK, one layer more; on Linux Vulkan.
  * Each is there by a -DFNL_HAVE_RENDERER_<NAME> that CMake passes with its
  * sources. A list, so that whatever reads it -- the core's choice, a table
  * of names -- cannot disagree with it. */
@@ -278,11 +279,6 @@ void renderer_noop(App *a);
 #  define FNL_WITH_RENDERER_VULKAN(X) X(vulkan)
 #else
 #  define FNL_WITH_RENDERER_VULKAN(X)
-#endif
-#if defined(FNL_HAVE_RENDERER_GL)
-#  define FNL_WITH_RENDERER_GL(X) X(gl)
-#else
-#  define FNL_WITH_RENDERER_GL(X)
 #endif
 #if defined(FNL_HAVE_RENDERER_D3D12)
 #  define FNL_WITH_RENDERER_D3D12(X) X(d3d12)
@@ -299,14 +295,12 @@ void renderer_noop(App *a);
 #define FNL_RENDERERS(X) FNL_WITH_RENDERER_D3D12(X) FNL_WITH_RENDERER_VULKAN(X)
 #elif defined(__APPLE__)
 #  define FNL_RENDERERS(X) \
-	FNL_WITH_RENDERER_METAL(X)                                                 \
-	FNL_WITH_RENDERER_VULKAN(X) FNL_WITH_RENDERER_GL(X)
+	FNL_WITH_RENDERER_METAL(X) FNL_WITH_RENDERER_VULKAN(X)
 #else
-#define FNL_RENDERERS(X) FNL_WITH_RENDERER_VULKAN(X) FNL_WITH_RENDERER_GL(X)
+#define FNL_RENDERERS(X) FNL_WITH_RENDERER_VULKAN(X)
 #endif
 
 extern const FnlRendererVtbl fnl_renderer_vulkan;
-extern const FnlRendererVtbl fnl_renderer_gl;
 extern const FnlRendererVtbl fnl_renderer_d3d12;
 extern const FnlRendererVtbl fnl_renderer_metal;
 

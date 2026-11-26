@@ -45,7 +45,6 @@ static const char *renderer_of(FnlRenderer r)
 {
 	switch (r) {
 	case FNL_RENDERER_VULKAN: return "Vulkan";
-	case FNL_RENDERER_OPENGL: return "OpenGL";
 	case FNL_RENDERER_D3D12:  return "Direct3D 12";
 	case FNL_RENDERER_METAL:  return "Metal";
 	default:                  return "?";

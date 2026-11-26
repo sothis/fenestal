@@ -169,10 +169,6 @@ offset FnlVulkanSceneLayout.subpass 8
 offset FnlVulkanSceneLayout.samples 12
 offset FnlVulkanSceneLayout.color_format 16
 offset FnlVulkanSceneLayout.depth_format 20
-sizeof FnlGlSceneLayout 12
-offset FnlGlSceneLayout.samples 0
-offset FnlGlSceneLayout.color_format 4
-offset FnlGlSceneLayout.depth_format 8
 sizeof FnlMetalGpu 16
 offset FnlMetalGpu.device 0
 offset FnlMetalGpu.queue 8
@@ -203,9 +199,8 @@ enum FNL_LOG_INFO 2
 enum FNL_LOG_DEBUG 3
 enum FNL_RENDERER_DEFAULT 0
 enum FNL_RENDERER_VULKAN 1
-enum FNL_RENDERER_OPENGL 2
-enum FNL_RENDERER_D3D12 3
-enum FNL_RENDERER_METAL 4
+enum FNL_RENDERER_D3D12 2
+enum FNL_RENDERER_METAL 3
 enum FNL_RENDERERS_ANY 4294967295
 enum FNL_GPU_KIND_UNKNOWN 0
 enum FNL_GPU_KIND_INTEGRATED 1

@@ -246,9 +246,8 @@ kernel's. "The system's rate" is the accurate wording.
 outside the contract, and `fnl_d3d12.h` does not say so. This is the D3D12
 analogue of B1, found during verification.
 
-**B26. The GL and Metal capability contracts are not stated.** GL is 4.5
-core (4.1 on macOS) and Metal is the chosen device; the interop headers
-should say what guarantees a scene has.
+**B26. The Metal capability contract is not stated.** Metal is the chosen
+device; the interop header should say what guarantees a scene has.
 
 ### C. The stability promise
 
@@ -441,7 +440,7 @@ No API decision is needed for this phase; it should land first.
    `VK_EXT_MEMORY_BUDGET_EXTENSION_NAME` to the device extension list in
    `create_device()` when offered and there is room; keep
    `memory_budget` true only when enabled (A16).
-10. **Regenerate the baselines** for the four layouts and seven export
+10. **Regenerate the baselines** for the four layouts and five export
     sets (commands in section 5), then build the native trees; the exact
     compare passes with the new files.
 
@@ -533,7 +532,7 @@ function is pinned, and a check that fails if it happens again.
     the current rules; move history to DESIGN if it is load-bearing). Add
     the multi-window limits, the TAAU uniform-vector note, the HDR
     experimental note if D5 cannot verify it, the push-constant-only note,
-    and the GL, Metal and D3D12 capability notes. Make `FnlMode` an
+    and the Metal and D3D12 capability notes. Make `FnlMode` an
     anonymous typedef. Update README *Compatibility*, DESIGN
     *Compatibility* and the `CHANGELOG.md` Unreleased entries.
 19. **Update every consumer** -- examples, testbed, demos, `pace.c`,
@@ -555,9 +554,9 @@ Do not start these unasked. When asked:
   `tools/abidump.c` with the system compiler against `include` and
   `mac/include`, run it, and diff against `tools/abi/fenestal-1.abi`
   (A15).
-- Rounds: `x11-vulkan`, `x11-gl`, `wayland-vulkan` (confirm the
+- Rounds: `x11-vulkan`, `wayland-vulkan` (confirm the
   two-window check is in the round), `win64-vulkan`, `win64-d3d12`,
-  `macos-metal-native`, `macos-vulkan-native`, `macos-gl-native`, the
+  `macos-metal-native`, `macos-vulkan-native`, the
   bare, KMS and weston environments, the wine environments and the Pi;
   the checker variants `asan`, `tsan` and `gc` under the validation layer;
   `tools/probe/bare_checks.py` on the Pi. Sweep order: other machines
@@ -620,25 +619,13 @@ Document these in the stability block so 1.0 does not read as an omission:
 
 ## 5. Baseline refresh commands
 
-The four layouts and seven export sets come from different
+The four layouts and five export sets come from different
 configurations. The tree directory is fixed, so each is a build, copy and
 rebuild:
 
 ```sh
-# Linux, default (Vulkan and OpenGL): layout fenestal-0.abi,
-# exports fenestal-0-vulkan-gl.syms
+# Linux (Vulkan only): layout fenestal-0.abi, exports fenestal-0.syms
 ./build.sh linux release
-cp build/linux/release/generated/fenestal.abi tools/abi/fenestal-0.abi
-cp build/linux/release/generated/fenestal.syms \
-    tools/abi/fenestal-0-vulkan-gl.syms
-
-# Linux, GL only: layout fenestal-0-gl.abi, exports fenestal-0-gl.syms
-./build.sh linux release -DFNL_RENDERER=gl
-cp build/linux/release/generated/fenestal.abi tools/abi/fenestal-0-gl.abi
-cp build/linux/release/generated/fenestal.syms tools/abi/fenestal-0-gl.syms
-
-# Linux, Vulkan only: exports fenestal-0.syms; layout is the default's
-./build.sh linux release -DFNL_RENDERER=vulkan
 cp build/linux/release/generated/fenestal.abi tools/abi/fenestal-0.abi
 cp build/linux/release/generated/fenestal.syms tools/abi/fenestal-0.syms
 
@@ -665,7 +652,7 @@ cp /tmp/fenestal-d3d12.abi tools/abi/fenestal-0-d3d12.abi
 # macOS (cross): the exports are written at configure
 ./build.sh macos release
 cp build/macos/release/generated/fenestal.syms \
-    tools/abi/fenestal-0-metal-vulkan-gl.syms
+    tools/abi/fenestal-0-metal-vulkan.syms
 ./build.sh macos release -DFNL_RENDERER=metal
 cp build/macos/release/generated/fenestal.syms tools/abi/fenestal-0-metal.syms
 ```

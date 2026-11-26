@@ -14,7 +14,7 @@
  * straight into the window or into a smaller image, whether it is multisampled,
  * or how the frame is paced. As there, a pipeline state belongs to a sample
  * count and a pair of formats, so it builds one per target the library says it
- * might see. And as under GL, the list's state is shared with the library's own
+ * might see. And the list's state is shared with the library's own
  * drawing, so everything the draws rely on is set on every call.
  */
 

@@ -118,8 +118,8 @@ FNL_API bool fnl_metal_scene_layout(FnlApp *app, FnlSceneTarget target,
  * must outlive the frames that read it, as on any queue: the command buffer
  * keeps the objects it names alive, and does not keep their contents.
  *
- * Metal is recorded afresh for every frame shown, as OpenGL and Direct3D 12
- * are: on_record runs for every frame, not once per change (fenestal.h
+ * Metal is recorded afresh for every frame shown, as Direct3D 12 is:
+ * on_record runs for every frame, not once per change (fenestal.h
  * *on_record*). */
 typedef struct {
 	FNL_MTL_BORROWED FnlMtlRenderEncoder encoder;

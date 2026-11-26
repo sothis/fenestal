@@ -26,8 +26,8 @@ static const char *const SCALES[] = { "desktop", "1", "1.25", "1.5",
  * whatever the environment says standing. */
 static const char *const BACKENDS[]  = { "auto", "wayland", "x11", "kms",
 										 "win32", "cocoa", NULL };
-static const char *const RENDERERS[] = { "auto",  "vulkan", "gl",
-										 "d3d12", "metal",  NULL };
+static const char *const RENDERERS[] = { "auto",  "vulkan", "d3d12",
+										 "metal", NULL };
 
 const char *const BENCH_PAGE_NAMES[BENCH_PAGE_COUNT] = {
 	"Run", "Window", "Device", "Load", "Record",

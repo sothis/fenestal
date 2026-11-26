@@ -223,6 +223,11 @@ static void rank_load(App *a)
 		 * in either case ("-D3D11|" as well), so both are dropped. */
 		if (strstr(t2 + 1, "-d3d11|") || strstr(t2 + 1, "-D3D11|"))
 			continue;
+		/* A renderer no build has any more: its entries would otherwise
+		 * stay in the file for good, and rank first on a figure nothing
+		 * can match again. */
+		if (strncmp(t2 + 1, "gl|", 3) == 0)
+			continue;
 		RankRow *r = &a->rank[n++];
 		snprintf(r->display, sizeof r->display, "%s", t1 + 1);
 		snprintf(r->id, sizeof r->id, "%s", t2 + 1);
@@ -666,8 +671,8 @@ void app_rank_start(App *a)
 void app_gpu_entry_id(const App *a, const GpuEntry *e, char *out, size_t size)
 {
 	char cut[GPU_NAME_MAX];
-	/* A renderer's software rasteriser by its kind: OpenGL lists Mesa's as
-	 * "Mesa software rasteriser" and names it "llvmpipe (...)" once it
+	/* A renderer's software rasteriser by its kind: a renderer may list Mesa's
+	 * as "Mesa software rasteriser" and name it "llvmpipe (...)" once it
 	 * draws, and there is one a renderer. */
 	if (e->kind == FNL_GPU_KIND_SOFTWARE)
 		snprintf(out, size, "%s|software", app_renderer_key(e->renderer));

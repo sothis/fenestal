@@ -13,13 +13,10 @@
  * output's modes, chosen by set_mode, and set_output moves it to another
  * connected output of the card. Fullscreen is the one state left, and takes
  * the titlebar away. This file holds the DRM node, as master, and the
- * display is shown one of three ways: by Vulkan, lent a duplicate of the
+ * display is shown one of two ways: by Vulkan, lent a duplicate of the
  * node through VK_EXT_acquire_drm_display (surface_kms.c); by the copy
  * path, a frame drawn headless and its pixels put in a pair of dumb buffers
- * here (kms_present_pixels()), where no Vulkan device drives the output;
- * or by the OpenGL bridge, which draws into that pair on the GPU and has
- * this file flip it (egl_kms.c; kms_scan_begin(), kms_scan_export(),
- * kms_scan_show()).
+ * here (kms_present_pixels()), where no Vulkan device drives the output.
  *
  * Raw ioctls against the kernel's own headers, for the DRM node and for
  * evdev both: libdrm, libinput and libudev would each be an entry on a
@@ -2060,7 +2057,6 @@ static bool scan_make(struct BackendState *p, KmsScan *s,
 	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CREATE_DUMB, &cd) < 0)
 		return false;
 	s->handle[i]                = cd.handle;
-	s->gen[i]                   = ++p->scan_gen;
 	s->pitch                    = cd.pitch;
 	s->size                     = (size_t)cd.size;
 	s->w                        = m->hdisplay;
@@ -2360,8 +2356,7 @@ static bool flip_wait(App *a, int ms)
  * a driver, once the pending flip is waited out: a flip of ours still
  * queued is read by Mesa's wait thread as one of its own images and its
  * user_data -- the window's address, where the driver's is an image's --
- * dereferenced: a segfault inside the driver at the move from OpenGL back
- * to Vulkan. And after a mode set, which the
+ * dereferenced: a segfault inside the driver. And after a mode set, which the
  * kernel completes only once every flip before it has: the driver's last,
  * in flight when the display was released and it stopped reading, would
  * otherwise count as the first of ours, and the next flip find the CRTC
@@ -2421,12 +2416,10 @@ static void scan_refuse(struct BackendState *p, const char *what)
  * that is not "fast", which one between two dumb buffers of one size is)
  * gets the vblank flip until the next mode set, with one line.
  *
- * In two halves, for the copy path and for the OpenGL bridge, which draws
- * into the back buffer on the GPU in place of the copy (egl_kms.c):
- * kms_scan_begin() is the buffer the frame goes into, the selection
- * adopted, the pair made and the last flip waited out; kms_scan_show()
- * puts it on the screen. */
-int kms_scan_begin(App *a)
+ * In two halves: kms_scan_begin() is the buffer the frame goes into, the
+ * selection adopted, the pair made and the last flip waited out;
+ * kms_scan_show() puts it on the screen. */
+static int kms_scan_begin(App *a)
 {
 	struct BackendState *p = a->backend_state;
 	if (p->scan_failed) {
@@ -2710,7 +2703,7 @@ static void scan_dark_elsewhere(struct BackendState *p, const KmsScan *s,
 	}
 }
 
-void kms_scan_show(App *a, int back)
+static void kms_scan_show(App *a, int back)
 {
 	struct BackendState *p            = a->backend_state;
 	struct BackendHostState *hs       = p->host;
@@ -3012,57 +3005,6 @@ static void kms_present_pixels(App *a, const void *px, int w, int h,
 		scan_row(dst, src + (size_t)y * pitch, cw, fmt, scan10);
 	}
 	kms_scan_show(a, back);
-}
-
-/* [render] Buffer `i` of the pair as a dma-buf the GPU can draw into: its
- * size, pitch and format, and a key that names it and no buffer made
- * before or after, so the bridge imports each once. -1 where the kernel
- * will not export it -- a driver whose dumb buffers no other device may
- * share -- and the bridge then copies. The caller closes the descriptor. */
-int kms_scan_export(App *a, int i, KmsScanBuf *out)
-{
-	struct BackendState *p = a->backend_state;
-	if (i < 0 || i > 1 || !p->scan.handle[i])
-		return -1;
-	struct drm_prime_handle ph = {
-		.handle = p->scan.handle[i],
-		.flags  = DRM_CLOEXEC | DRM_RDWR,
-		.fd     = -1,
-	};
-	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &ph) < 0)
-		return -1;
-	*out = (KmsScanBuf){
-		.w      = p->scan.w,
-		.h      = p->scan.h,
-		.pitch  = p->scan.pitch,
-		.fourcc = p->scan.fourcc,
-		.key    = p->scan.gen[i],
-	};
-	return ph.fd;
-}
-
-/* [render] Through the mapping every buffer of the pair has: a GPU that
- * imports a buffer of another device's may draw into a copy of its own,
- * and nothing else says so (kms_scan_peek()'s caller, egl_kms.c). */
-bool kms_scan_peek(App *a, int i, uint32_t *first, uint32_t *last)
-{
-	const struct BackendState *p = a->backend_state;
-	if (i < 0 || i > 1 || !p->scan.map[i] || p->scan.w <= 0 || p->scan.h <= 0)
-		return false;
-	const unsigned char *m = p->scan.map[i];
-	const size_t end =
-		(size_t)(p->scan.h - 1) * p->scan.pitch + (size_t)(p->scan.w - 1) * 4u;
-	memcpy(first, m, 4);
-	memcpy(last, m + end, 4);
-	return true;
-}
-
-/* [render] The key kms_scan_export() would give buffer `i`, without the
- * export: 0 where there is none. */
-uint32_t kms_scan_key(App *a, int i)
-{
-	const struct BackendState *p = a->backend_state;
-	return i >= 0 && i <= 1 ? p->scan.gen[i] : 0u;
 }
 
 bool kms_display_hdr(App *a, unsigned *max_lum)

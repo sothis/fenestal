@@ -34,9 +34,7 @@ layer is in it: a loader that cannot find a layer says nothing, and a round
 run without it would read as one run with it. Made unfindable
 (`VK_LAYER_PATH=/nonexistent`), that check fails and the round with it.
 What the layer says lands in the log, and `log is clean` fails on any line
-there that no list expects, a `VUID` among them. The layer is Vulkan's: a
-round drawn with OpenGL has none to prove loaded, and GL's debug output,
-which a Debug tree logs, is what the log check reads instead.
+there that no list expects, a `VUID` among them.
 
 **A round holds the machine's own input.** For its length the keyboards,
 mice and touchpads of the machine it drives are held away from the desktop
@@ -78,8 +76,8 @@ applicable* with the reason, not quietly omitted.
 
 **A Linux environment names its backend.** The Linux tree, `linux`, has
 Wayland, X11 and KMS, so an environment is a tree and a backend --
-`x11-vulkan` is `linux` told `FNL_BACKEND=x11`, `kms-gl-bare` is `linux`
-told `kms` -- and the variable goes to the
+`x11-vulkan` is `linux` told `FNL_BACKEND=x11`, `kms-vulkan-bare` is
+`linux` told `kms` -- and the variable goes to the
 program here and over the bare machine's ssh alike (`BACKEND` in
 `environment.py`). Never the library's own choice: this desktop offers
 both window servers, and a round of one under the other's name would pass
@@ -90,11 +88,10 @@ kept from it, since such a build refuses a name it has not got.
 
 **And every environment names its renderer.** Every tree has every
 renderer of its system in each program -- `win64` Direct3D 12 and Vulkan,
-`linux` Vulkan and OpenGL, `macos` Metal, Vulkan and OpenGL -- so
-`win64-vulkan` and `win64-d3d12` (and their `-wl`, `-vm`, `-native` and
-bare twins), `x11-vulkan` and `x11-gl`, and `macos-metal-native`,
-`macos-vulkan-native` and `macos-gl-native` are each one tree told
-`FNL_RENDERER=vulkan`, `gl`, `d3d12` or `metal`. Left to itself the
+`linux` Vulkan, `macos` Metal and Vulkan -- so `win64-vulkan` and
+`win64-d3d12` (and their `-wl`, `-vm`, `-native` and bare twins), and
+`macos-metal-native` and `macos-vulkan-native` are each one tree told
+`FNL_RENDERER=vulkan`, `d3d12` or `metal`. Left to itself the
 library takes the first renderer of its system's order and steps down on
 a failure, so a round of one renderer under another's name would pass for
 it. Every environment is told its renderer (`RENDERER` in
@@ -618,29 +615,26 @@ figure to read on Intel is the sizes, about fifteen a second either way.
 Two sweeps of each laptop column agreeing to within three frames, and four
 alternated on the HD 630.
 
-**And on a Mac.** `macos-metal-native`, `macos-vulkan-native` and
-`macos-gl-native` are the one `macos` tree, told each of its three
-renderers, on schenker booted from its macOS stick, and `CocoaNative`
-in `environment.py` is the laptop's environment once more:
-`windows_driver.Desk`'s questions, answered by an agent of the Mac's own
-(`mac_agent.m`, which
-`mac_driver.py` compiles here with the cross toolchain and copies over each
-round). Getting in is simpler than on Windows. A program started from an
-ssh session as the logged-in user reaches the window server, so there is no
-scheduled task and no forwarded port: the agent is the last command of one
-session, its stdin and stdout the line, and the program is the last command
-of another, whose stderr is the echo. One master connection carries both
+**And on a Mac.** `macos-metal-native` and `macos-vulkan-native` are the one
+`macos` tree, told each of its two renderers, on schenker booted from its macOS
+stick, and `CocoaNative` in `environment.py` is the laptop's environment once
+more: `windows_driver.Desk`'s questions, answered by an agent of the Mac's own
+(`mac_agent.m`, which `mac_driver.py` compiles here with the cross toolchain and
+copies over each round). Getting in is simpler than on Windows. A program
+started from an ssh session as the logged-in user reaches the window server, so
+there is no scheduled task and no forwarded port: the agent is the last command
+of one session, its stdin and stdout the line, and the program is the last
+command of another, whose stderr is the echo. One master connection carries both
 and every copy. What only a hand on the Mac can give is two grants to
 `/usr/libexec/sshd-keygen-wrapper`, which is what an ssh session is to the
-privacy database: Accessibility, without which a posted event is dropped
-without a word, and Screen Recording, without which a window's title is
-withheld and a picture is the wallpaper. The agent asks for both before a
-round and the round is skipped, saying which, when either is missing.
-`mac_driver.py --status <name>` says which are there, and `--setup <name>`
-raises Accessibility's dialog on the Mac and writes the machine down; the
-machines are `FNL_DRIVE_MAC`'s or the lines of
-`~/.local/state/fenestal/mac-hosts`, and `power.py boot schenker macos`
-takes schenker there.
+privacy database: Accessibility, without which a posted event is dropped without
+a word, and Screen Recording, without which a window's title is withheld and a
+picture is the wallpaper. The agent asks for both before a round and the round
+is skipped, saying which, when either is missing. `mac_driver.py --status
+<name>` says which are there, and `--setup <name>` raises Accessibility's dialog
+on the Mac and writes the machine down; the machines are `FNL_DRIVE_MAC`'s or
+the lines of `~/.local/state/fenestal/mac-hosts`, and `power.py boot schenker
+macos` takes schenker there.
 
 Input is posted `CGEvent`s at the HID tap, which macOS delivers as a
 hand's; modifiers go as flag changes with the side's device bit, and a held
@@ -852,7 +846,7 @@ out of those groups has nothing else to fall back on -- and loads `uinput`
 now and at every boot, sends the
 kernel's messages to VT 12, installs `tools/gpu-driver.sh` for the
 library's own move between kernel drivers, and fetches the debug info of
-the installed Vulkan drivers and layers and of Mesa's OpenGL, so that a
+the installed Vulkan drivers and layers and of Mesa's drivers, so that a
 checker names their frames.
 
 **This desktop is a bare machine too, booted into its console.** The GRUB

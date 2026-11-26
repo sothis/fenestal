@@ -57,13 +57,10 @@ static const char *const SITES[] = {
 	"kms-no-display",       /* acquire_display: the copy path instead */
 	"kms-no-headless",      /* copy_surface: images of the renderer's own */
 	"kms-mode-refused",     /* a mode switched to will not show */
-	"kms-gl-copy",          /* scan_begin: OpenGL copies onto the output */
 	"kms-swapchain-refused", /* create_swapchain: a display mode's refused */
 	"atlas-out-of-vram",    /* build_atlas: the atlas in system memory */
 	"stale-swapchain",      /* swap_stale_note: the window's size nudged */
 	"swapchain-scale-refused", /* a larger swapchain the driver refused */
-	"gl-opaque-refused",    /* gl_bridge_resize: no opaque EGL surface */
-	"gl-41",                /* gl_load: a 4.5 context drawn as 4.1 */
 	"d3d12-no-scaling-none", /* d3d_bridge_swapchain: stretch instead */
 	"occluded",             /* the frame loop: the renderer says covered */
 	"win32-no-raw-wheel",   /* raw_wheel_open: the wheel by message alone */
@@ -107,9 +104,6 @@ static int site_index(const char *name, size_t len)
  *   ubsan   a signed overflow
  *   tsan    two threads writing one int with nothing between them
  *   assert  an FNL_ASSERT that fails
- *   gl      an invalid GL call, for a debug context's output to report;
- *           committed by the OpenGL renderer once that context exists
- *           (src/renderer/gl/device.c), since nothing here may name GL
  *
  * Everything the compiler could see through is volatile, or the bug would
  * be folded away -- or reported at compile time, which is not the question.
@@ -153,8 +147,6 @@ static void selftest(void)
 	} else if (!strcmp(what, "assert")) {
 		volatile bool held = false;
 		FNL_ASSERT(held);
-	} else if (!strcmp(what, "gl")) {
-		/* The OpenGL renderer's, through FNL_SELFTEST("gl"). */
 	} else {
 		fnl_log(FNL_LOG_WARN, "FNL_SELFTEST: no such test '%s'", what);
 	}

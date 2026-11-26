@@ -6,7 +6,7 @@
  * The Metal half of the frame: the scene, the window's image, the overlay
  * over it, and the present.
  *
- * Recorded afresh every frame, as Direct3D 12 and GL are (fenestal.h
+ * Recorded afresh every frame, as Direct3D 12 is (fenestal.h
  * *on_record*, DESIGN *Recording*): a command buffer is used once, so there
  * is no record_gen test here. Whether a turn draws at all is the frame
  * policy's, as with every renderer.

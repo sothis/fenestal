@@ -42,7 +42,7 @@ import ledger
 # programs on this desk and the laptops, never a guest.
 ROUNDS = ("stress",)
 PACED = ("win64-vulkan-native", "win64-d3d12-native", "macos-metal-native",
-         "macos-vulkan-native", "macos-gl-native", "x11-vulkan-bare",
+         "macos-vulkan-native", "x11-vulkan-bare",
          "wayland-vulkan-bare", "kms-vulkan-bare")
 
 

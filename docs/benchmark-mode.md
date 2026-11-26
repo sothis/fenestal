@@ -59,7 +59,7 @@ that no longer holds says what does.
   **Now:** Wayland publishes it (wayland.c:97) and so does Win32
   (win32.c:405), and the getter is `fnl_output_refresh_mhz()`.
 - GPU timestamps are durations only (`app_gpu_time(a, seconds)`,
-  app.c:2341; readers vulkan/frame.c:616, gl:452, d3d12:326, metal.m:354).
+  app.c:2341; readers vulkan/frame.c:616, d3d12:326, metal.m:354).
   No present-to-display stamp anywhere: KMS reads only `drm_event.type`
   (kms.c:1707), D3D12 calls `GetFrameStatistics` for `PresentCount` alone
   (d3d12/frame.c:420), present_wait gives "shown" not "when", no
@@ -108,7 +108,7 @@ that no longer holds says what does.
   must pass ruff (80 col) and mypy.
 - ABI: `tools/abi/check.cmake` byte-compares `.abi` (layouts, enum values;
   from `tools/abidump.c` `S()`/`F()` lines) and `.syms` (exports; three
-  files: `fenestal-0.syms`, `-gl.syms`, `-all.syms`). A new `FNL_API` needs
+  files: `fenestal-0.syms`, `-metal.syms`, `-all.syms`). A new `FNL_API` needs
   a comment above it, a thread tag, and a caller in `examples/`
   ("Shows: ...") or `build.sh` fails (`tools/mkapidoc.py`).
 
@@ -194,9 +194,9 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
    `VK_EXT_memory_budget` through `vkGetPhysicalDeviceMemoryProperties2KHR`
    gated on `vkEnumerateDeviceExtensionProperties`; D3D12
    `EnumAdapterByLuid` + `QueryVideoMemoryInfo`; Metal
-   `currentAllocatedSize`; GL `NVX_gpu_memory_info`/`ATI_meminfo` optional),
+   `currentAllocatedSize`),
    driver identity (`VkPhysicalDeviceDriverProperties`, DXGI adapter desc,
-   OS build, `GL_VERSION`), `library.*` (phase means from two
+   OS build), `library.*` (phase means from two
    `fnl_frame_stats()` snapshots, gpu idle %, missed cycles, period, hold;
    null in phase 1), and **later**: `frame.present_interval_ms` and
    input-to-photon from present stamps (key reserved), power/thermal.
@@ -204,8 +204,8 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
 7. **The run.** Driver thread owns settle -> warmup -> measure -> cooldown
    -> done (atomics the callbacks read); `bench_on_record()` wraps the scene
    (duration, `testbed_scene_set_load`); `bench_on_overlay()` is the one drain,
-   stamps the interval, applies RUN options on its first call, samples VRAM
-   (GL must be inside a callback, fnl_gl.h:22-24), `fnl_invalidate()` under
+   stamps the interval, applies RUN options on its first call, samples VRAM,
+   `fnl_invalidate()` under
    `every-frame` (pace.c's `--draw`; DESIGN *At rest*: the window never
    rests). Interaction with the 0.2 s cost window and the three redraw
    scenarios (at-rest reads `fnl_fps()` as the 5 Hz sampling rate and says
@@ -307,7 +307,7 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
     lifetimes, driver thread, hooks, write), `bench_options.c`,
     `bench_panel.c`, `bench_json.c` (writer + flat reader), `bench_stats.c`,
     `bench_load.c`, `bench_proc_{linux,win32,macos}.c` (one per OS),
-    `bench_gpu_{vulkan,gl,d3d12}.c` + `bench_gpu_metal.m` (under the
+    `bench_gpu_{vulkan,d3d12}.c` + `bench_gpu_metal.m` (under the
     `SCENE_HAS_` loop). Changes: main.c (`--bench*` ahead of the unknown
     option, callbacks template built before init, `testbed_bench_main()`),
     testbed.h (four prototypes + `testbed_scene_set_load`), each `scene_*` draws

@@ -52,8 +52,8 @@ account of that process. It is the one Windows column with a GPU and a
 panel under it. `win64-d3d12-native` is the same program told the other
 renderer, titled `d3d12@schenker`. The guest has neither and stays out.
 
-`metal@schenker-mac`, `vulkan@schenker-mac` and `gl@schenker-mac` are the
-Mac's (mac_driver.py), taken the same way: the macos tree's program, told
+`metal@schenker-mac` and `vulkan@schenker-mac` are the Mac's
+(mac_driver.py), taken the same way: the macos tree's program, told
 each renderer, started over ssh on its desktop, its CPU the agent's account of
 it.
 
@@ -67,11 +67,7 @@ exhausts the machine's shared-memory segments (DESIGN *X11*).
 `weston@thinkpad` and `kms@thinkpad` are the same machine's other two
 rounds: the same program on weston there, told to open Wayland, and told
 to open KMS on the bare display, which on lavapipe is the copy path.
-`bare-gl@`, `weston-gl@` and `kms-gl@` are the three drawn with OpenGL,
-columns only when named (`wayland-gl-bare@pi4`), so a bare sweep keeps
-the columns it had; a GPU with no OpenGL 4.1 there wants
-LIBGL_ALWAYS_SOFTWARE=1 in front, which a round sets for itself. The
-KMS window is its output and refuses every size, so its rows are what
+The KMS window is its output and refuses every size, so its rows are what
 asking costs a window that cannot change, and none of them draws for the
 asking.
 
@@ -80,9 +76,8 @@ program under wine there, on Xorg, weston and cage, and `d3d12-bare@`,
 `d3d12-weston@` and `d3d12-cage@` the same told Direct3D 12, on
 vkd3d-proton: copied and started as a round's (DESIGN *Wine on the bare
 machine*), their CPU the program's and the wine server's
-(measure_bare()). Columns only when named (`win64-vulkan-bare`), as
-OpenGL's are. Wine places its window itself, so FNL_DRIVE_BARE_OUTPUT is
-not taken there.
+(measure_bare()). Columns only when named (`win64-vulkan-bare`). Wine
+places its window itself, so FNL_DRIVE_BARE_OUTPUT is not taken there.
 
 A cell is a handful of seconds on a desktop doing other things, so one sweep
 is an indication and two sweeps agreeing is a measurement.
@@ -360,7 +355,7 @@ def measure_bare(b, variant, rate, seconds, settle, window, extra):
         sent.update(b.forced())
         # A column measures the renderer and GPU it names: a ranked round
         # would drop both and open on the ranking's first entry, which on
-        # a ranked machine made `kms-gl` Vulkan's column.
+        # a ranked machine made another's column Vulkan's.
         b.gpu_sent(sent, ranked=False)
         # The checkers' known reports, as a round names them; run_argv()
         # points each at the copy sent there.
@@ -605,8 +600,7 @@ def main():
     for cls, renderer in ((B.Win32Native, ""),
                           (B.Win32NativeD3D12, "d3d12"),
                           (B.CocoaNative, "metal"),
-                          (B.CocoaNativeVulkan, "vulkan"),
-                          (B.CocoaNativeGL, "gl")):
+                          (B.CocoaNativeVulkan, "vulkan")):
         here = [b for b in cls.each() if b.gpu or "@" in b.NAME]
         native += here
         columns += [(b.NAME, renderer + b.NAME[b.NAME.index("@"):],
@@ -616,9 +610,7 @@ def main():
     # laptop.
     bare = []
     for cls, title in ((B.X11Bare, "bare"), (B.WaylandBare, "weston"),
-                       (B.KmsBare, "kms"), (B.X11GLBare, "bare-gl"),
-                       (B.WaylandGLBare, "weston-gl"),
-                       (B.KmsGLBare, "kms-gl"),
+                       (B.KmsBare, "kms"),
                        (B.Win32Bare, "wine-bare"),
                        (B.Win32WaylandBare, "wine-weston"),
                        (B.Win32CageBare, "wine-cage"),
@@ -629,15 +621,10 @@ def main():
         bare += here
         columns += [(b.NAME, title + b.NAME[b.NAME.index("@"):],
                      functools.partial(measure_bare, b)) for b in here]
-    # OpenGL's bare columns only when named: a default sweep keeps the
-    # columns it had. Where the GPU has no OpenGL 4.1 the program says so
-    # and exits; LIBGL_ALWAYS_SOFTWARE=1 in front puts it on llvmpipe, as
-    # a round does by itself (_SoftGL).
-    # Wine's too: six columns more for each machine, more than doubling a
-    # bare sweep, and figures about wine's translation, which the
-    # library's own columns there are read without.
-    named_only = {b.NAME for c in (B.X11GLBare, B.WaylandGLBare,
-                                   B.KmsGLBare, B.Win32Bare,
+    # Wine's bare columns only when named: six columns more for each
+    # machine, more than doubling a bare sweep, and figures about wine's
+    # translation, which the library's own columns there are read without.
+    named_only = {b.NAME for c in (B.Win32Bare,
                                    B.Win32WaylandBare, B.Win32CageBare,
                                    B.Win32D3D12Bare, B.Win32D3D12WaylandBare,
                                    B.Win32D3D12CageBare) for b in c.each()}

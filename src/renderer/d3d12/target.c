@@ -9,8 +9,7 @@
  *
  * Direct3D 12 releases nothing for you: a resource a frame in flight still
  * uses must outlive that frame. So everything here that is replaced waits
- * for the queue first -- the drain Vulkan's scene_set_size() makes, and
- * which GL's deletes did not need.
+ * for the queue first -- the drain Vulkan's scene_set_size() makes.
  */
 
 #include "core/app.h"
@@ -224,8 +223,7 @@ static void sampled_view(App *a, ID3D12Resource *r, int slot)
 
 /* A depth image as a shader resource: the SRV's format is the *resource*
  * format of the D32_FLOAT attachment, which is R32_FLOAT, and the shader
- * reads the depth itself out of .r -- there is no compare here, as on GL's
- * GL_NONE. */
+ * reads the depth itself out of .r -- there is no compare here. */
 static void depth_sampled_view(App *a, ID3D12Resource *r, int slot)
 {
 	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {

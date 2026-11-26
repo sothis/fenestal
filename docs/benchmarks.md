@@ -55,7 +55,7 @@ layer. schenker goes into Windows and macOS from a cold start
 One release build of each tree, driven in every environment the harness
 reaches: the bare machines on their keys, schenker and aspire booted once
 on each of the key's two NVIDIA entries; both laptops on Windows, each
-GPU; schenker on macOS; the two VirtualBox guests; this desktop. 88
+GPU; schenker on macOS; the two VirtualBox guests; this desktop. 72
 rounds, every one passing at its first run but one, rerun below.
 `--capture` was off, so the picture checks are among the not
 applicable, and the bare rounds had `MESA_VK_WSI_DEBUG=noshm`. Each cell
@@ -65,9 +65,7 @@ the environment does not meet).
 | environment | device | checks / failed / n/a |
 |---|---|---|
 | `wayland-vulkan` | RX 590 | 73 / 0 / 9 |
-| `wayland-gl` | RX 590 | 73 / 0 / 9 |
 | `x11-vulkan` | RX 590 | 102 / 0 / 4 |
-| `x11-gl` | RX 590 | 102 / 0 / 4 |
 | `win64-vulkan` (wine) | RX 590 | 86 / 0 / 5 |
 | `win64-d3d12` (wine) | RX 590 | 89 / 0 / 4 |
 | `win64-vulkan-wl` | RX 590 | 53 / 0 / 14 |
@@ -85,20 +83,16 @@ The bare machines, a column for each boot. On the nouveau entry the
 library's own pick is the integrated GPU (NVK's on a GPU before Turing
 ranks below it). A KMS round on a kernel driver opens where the machine's
 GPU ranking says, the integrated GPU on both laptops, and walks every
-renderer on every GPU from the titlebar's box, moving the NVIDIA GPU to
-the other driver and back on the way; so the KMS OpenGL round on a
-driver is that same round and is skipped as its twin.
+GPU from the titlebar's box, moving the NVIDIA GPU to
+the other driver and back on the way.
 
 | environment | thinkpad | pi4 | aspire, NVIDIA entry | aspire, nouveau entry | schenker, NVIDIA entry | schenker, nouveau entry |
 |---|---|---|---|---|---|---|
 | `x11-vulkan-bare` | lavapipe 69 / 0 / 7 | V3D 84 / 0 / 6 | GTX 960M 91 / 0 / 6 | HD 530 91 / 0 / 6 | GTX 1050 Ti 91 / 0 / 6 | HD 630 91 / 0 / 6 |
-| `x11-gl-bare` | llvmpipe 84 / 0 / 6 | llvmpipe 88 / 0 / 6 | HD 530 91 / 0 / 6 | HD 530 91 / 0 / 6 | HD 630 91 / 0 / 6 | HD 630 91 / 0 / 6 |
 | `wayland-vulkan-bare` | lavapipe 46 / 0 / 12 | V3D 56 / 0 / 11 | GTX 960M 65 / 0 / 11 | HD 530 62 / 0 / 11 | GTX 1050 Ti 65 / 0 / 11 | HD 630 62 / 0 / 11 |
-| `wayland-gl-bare` | llvmpipe 57 / 0 / 11 | llvmpipe 59 / 0 / 11 | HD 530 65 / 0 / 11 | HD 530 62 / 0 / 11 | HD 630 65 / 0 / 11 | HD 630 62 / 0 / 11 |
 | `kms-vulkan-bare` | lavapipe 55 / 0 / 15 | V3D 58 / 0 / 16 | | | | |
 | `kms-vulkan-bare@…:nouveau` | | | HD 530 97 / 0 / 24 | HD 530 97 / 0 / 24 | HD 630 97 / 0 / 24 | HD 630 97 / 0 / 24 |
 | `kms-vulkan-bare@…:nvidia` | | | HD 530 97 / 0 / 24 | HD 530 97 / 0 / 24 | HD 630 97 / 0 / 24 | HD 630 97 / 0 / 24 |
-| `kms-gl-bare` | llvmpipe 55 / 0 / 15 | llvmpipe 58 / 0 / 16 | | | | |
 | `win64-vulkan-bare` | modesetting 59 / 0 / 9 | | GTX 960M 73 / 0 / 8 | GTX 960M 73 / 0 / 8 | NVIDIA-G0 73 / 0 / 8 | HD 630 73 / 0 / 8 |
 | `win64-d3d12-bare` | modesetting 71 / 0 / 7 | | GTX 960M 79 / 0 / 7 | GTX 960M 79 / 0 / 7 | NVIDIA-G0 79 / 0 / 7 | GTX 1050 Ti (NVK) 79 / 0 / 7 |
 | `win64-vulkan-wl-bare` | lavapipe 41 / 0 / 17 | | GTX 960M 54 / 0 / 16 | GTX 960M 54 / 0 / 16 | GTX 1050 Ti 54 / 0 / 16 | HD 630 54 / 0 / 16 |
@@ -132,7 +126,6 @@ image has no CPU access).
 | environment | release | asan | tsan | gc |
 |---|---|---|---|---|
 | `kms-vulkan-bare@black` (RADV) | 63 / 0 / 19, three runs | 63 / 0 / 19 | 63 / 0 / 19 | 63 / 0 / 19 |
-| `kms-gl-bare@black` (radeonsi) | 68 / 0 / 14 | 68 / 0 / 15 | 68 / 0 / 15 | 68 / 0 / 15 |
 
 ### The Raspberry Pi 4's checker rounds, 2026-10-24 at `6ef6044`
 
@@ -143,17 +136,14 @@ with `--capture` where marked:
 | environment | release | asan | tsan | gc |
 |---|---|---|---|---|
 | `kms-vulkan-bare@pi4` (V3D) | 63 / 0 / 7 (capture) | 63 / 0 / 7 (capture) | 56 / 0 / 14 | 56 / 0 / 14 |
-| `kms-gl-bare@pi4` (llvmpipe) | 63 / 0 / 7 (capture) | 56 / 0 / 15 | 56 / 0 / 15 | |
 
 ### schenker's KMS rounds on a kernel driver, the checkers, 2026-10-31
 
 The rounds that move schenker's NVIDIA GPU between nouveau and NVIDIA's
 module from the titlebar's box and walk every renderer on every GPU,
-under each checker, at `b4571d7` with this set's OpenGL and harness
-fixes (TODO's overnight item). With the ranking schenker keeps, a round
-opens on its first entry and the KMS OpenGL round is its twin, skipped;
-with the ranking set aside, both run, each told its renderer. Checks /
-failed / not applicable.
+under each checker, at `b4571d7` with this set's harness fixes (TODO's
+overnight item), with the ranking schenker keeps and with it set aside.
+Checks / failed / not applicable.
 
 | round | asan | tsan | gc |
 |---|---|---|---|
@@ -161,20 +151,13 @@ failed / not applicable.
 | ranked, `kms-vulkan-bare@schenker:nvidia` | 97 / 0 / 24 | skipped | 97 / 0 / 24 |
 | unranked, `kms-vulkan-bare@schenker:nouveau` | 97 / 0 / 24 | 71 / 2 / 21 | 97 / 0 / 24 |
 | unranked, `kms-vulkan-bare@schenker:nvidia` | 97 / 0 / 24 | skipped | 97 / 0 / 24 |
-| unranked, `kms-gl-bare@schenker:nouveau` | 97 / 0 / 25 | 71 / 2 / 22 | 97 / 0 / 25 |
-| unranked, `kms-gl-bare@schenker:nvidia` | 97 / 0 / 25 | skipped | 97 / 0 / 25 |
 
 Under ThreadSanitizer the rounds on NVIDIA's module are skipped, and the
-round on nouveau sets NVIDIA's userspace aside, since libglvnd loaded
-NVIDIA's EGL vendor to list OpenGL's GPUs and ThreadSanitizer spent 80
-minutes in it (`Environment.driver_bind()`); a ranked round under it
-orders and keeps nothing, so both renderers run. Its two failures are
+round on nouveau sets NVIDIA's userspace aside
+(`Environment.driver_bind()`). Its two failures are
 the exit status and the reports: a lock-order inversion inside the
 validation layer and lavapipe's `_mesa_hash_table_copy()`, the drivers'
-own (`tsan.supp`, TODO). Before the fixes, ASan and gc failed every round
-on NVIDIA's OpenGL debug output alone: its refusal of the output's buffer
-and its move of the copy's readback buffer (DESIGN *KMS: no window
-server*).
+own (`tsan.supp`, TODO).
 
 ## Pacing
 
@@ -197,19 +180,19 @@ The `border` row is measured again (2026-10-31, `1d987ac`, two sweeps):
 the press, over the time they span (`frames_between()`), where it had
 averaged lines picked by position and taken the drag's resting lines
 with the rest. Its CPU is unchanged; its frames are lower, most of all
-OpenGL's and Direct3D 12's, which the old count read near 60.
+Direct3D 12's, which the old count read near 60.
 
-| sizes/s | wayland-vulkan | wayland-gl | x11-vulkan | x11-gl | win64-vulkan | win64-d3d12 | win64-vulkan-wl | win64-d3d12-wl |
-|---|---|---|---|---|---|---|---|---|
-| idle | 0, 0.3% | 0, 0.3% | 0, 0.3% | 0, 0.2% | 0, 0.7% | 0, 0.5% | 0, 0.5% | 0, 0.5% |
-| 5 | 20, 1.5% | 20, 1.8% | 20, 3.2% | 19, 1.8% | 19, 4.2% | 19, 5.8% | 19, 3.0% | 19, 5.0% |
-| 15 | 47, 3.0% | 48, 5.0% | 48, 7.8% | 45, 4.3% | 46, 10.5% | 46, 12.5% | 45, 7.2% | 45, 12.5% |
-| 30 | 60, 3.5% | 60, 7.0% | 59, 11.3% | 61, 6.8% | 60, 15.5% | 59, 14.3% | 59, 9.5% | 59, 17.8% |
-| 45 | 60, 3.7% | 60, 7.3% | 60, 14.0% | 61, 7.3% | 60, 15.5% | 59, 14.8% | 59, 11.7% | 59, 18.2% |
-| 60 | 60, 3.8% | 60, 8.2% | 60, 15.2% | 61, 7.7% | 60, 14.8% | 58, 14.7% | 59, 11.0% | 59, 17.7% |
-| 250 | 60, 5.5% | 60, 9.5% | 60, 15.3% | 62, 10.3% | 60, 16.0% | 58, 14.8% | 59, 12.5% | 59, 19.5% |
-| draw | 60, 8.3% | 60, 7.0% | 60, 8.2% | 62, 6.2% | 60, 7.7% | 60, 11.0% | 60, 7.7% | 60, 10.2% |
-| border | -- | -- | 52-57, 12.6-12.9% | 36-40, 7.6-7.7% | 53-56, 13.8-15.6% | 35-37, 14.6-15.2% | 55-58, 14.4% | 18-23, 20.0-20.7% |
+| sizes/s | wayland-vulkan | x11-vulkan | win64-vulkan | win64-d3d12 | win64-vulkan-wl | win64-d3d12-wl |
+|---|---|---|---|---|---|---|
+| idle | 0, 0.3% | 0, 0.3% | 0, 0.7% | 0, 0.5% | 0, 0.5% | 0, 0.5% |
+| 5 | 20, 1.5% | 20, 3.2% | 19, 4.2% | 19, 5.8% | 19, 3.0% | 19, 5.0% |
+| 15 | 47, 3.0% | 48, 7.8% | 46, 10.5% | 46, 12.5% | 45, 7.2% | 45, 12.5% |
+| 30 | 60, 3.5% | 59, 11.3% | 60, 15.5% | 59, 14.3% | 59, 9.5% | 59, 17.8% |
+| 45 | 60, 3.7% | 60, 14.0% | 60, 15.5% | 59, 14.8% | 59, 11.7% | 59, 18.2% |
+| 60 | 60, 3.8% | 60, 15.2% | 60, 14.8% | 58, 14.7% | 59, 11.0% | 59, 17.7% |
+| 250 | 60, 5.5% | 60, 15.3% | 60, 16.0% | 58, 14.8% | 59, 12.5% | 59, 19.5% |
+| draw | 60, 8.3% | 60, 8.2% | 60, 7.7% | 60, 11.0% | 60, 7.7% | 60, 10.2% |
+| border | -- | 52-57, 12.6-12.9% | 53-56, 13.8-15.6% | 35-37, 14.6-15.2% | 55-58, 14.4% | 18-23, 20.0-20.7% |
 
 ### The laptops on Linux, Intel GPUs and lavapipe
 
@@ -371,13 +354,12 @@ cost, and the thinkpad's 20.5, 21.8 and 20.6 for KMS, X11 and weston
 are that rasteriser to the last decimal. The Mac's rows are the longest
 from latch to screen, 48 to 70 ms, the same lesson from the other end.
 The Pi's KMS round carries no stamps, so its latency cells are empty; a
-dash is a figure the driver does not keep -- the Mac's OpenGL answers 0
-from its timer queries (DESIGN *OpenGL on macOS*).
+dash is a figure the round does not have.
 
 ```sh
 python3 tools/drive/bench.py --hands x11-vulkan-bare wayland-vulkan-bare \
     kms-vulkan-bare win64-vulkan-native win64-d3d12-native \
-    macos-metal-native macos-vulkan-native macos-gl-native
+    macos-metal-native macos-vulkan-native
 ```
 
 The two KMS rows of an NVIDIA machine are its two kernel drivers,
@@ -413,7 +395,6 @@ such records into a frame's fixed cost and its cost a megapixel.
 | pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 1, indication | 1920x1046 | 2.01 | 30.0 | 60 | 33.34 | 33.50 | 30 | 17.58 | 8.75 | 1.36 | 0.68 | 9 | - | - |
 | jsons-MBP, Metal on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 17.10 | 58 | 1.46 | 1.59 | 0.20 | 0.22 | 15 | 69.5 | 70.6 |
 | jsons-MBP, Vulkan on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.66 | 17.06 | 58 | 1.47 | 1.60 | 0.41 | 0.44 | 18 | 48.3 | 53.9 |
-| jsons-MBP, OpenGL on Cocoa, Intel HD Graphics 630 | defaults | 1, indication | 1280x720 | 0.92 | 60.0 | 55 | 16.68 | 17.10 | 58 | - | - | 0.96 | 1.04 | 22 | - | - |
 
 ## Benchmark mode at two sizes, three runs each, 2026-11-04 to 05 at `a3f304a`
 
@@ -456,7 +437,6 @@ and 1.88 on schenker's (125%), and 0.48 and 1.78 on the Mac, whose
 | pi4, Vulkan on KMS, V3D 4.2.14.0 | defaults | 0.45, 2.01 | 0.27 ± 0.00 | 8.61 ± 0.00 | 1.16 ± 0.01 | 0.10 ± 0.01 |
 | jsons-MBP, Metal on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.24 ± 0.00 | 1.17 ± 0.00 | 0.22 ± 0.00 | 0.00 ± 0.00 |
 | jsons-MBP, Vulkan on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | 0.23 ± 0.00 | 1.16 ± 0.00 | 0.42 ± 0.00 | 0.00 ± 0.00 |
-| jsons-MBP, OpenGL on Cocoa, Intel(R) HD Graphics 630 | defaults | 0.48, 1.78 | - | - | 0.77 ± 0.01 | 0.23 ± 0.01 |
 
 The split is what one size could not show, and the repeats say how well
 each line is pinned. On the Pi the window servers carry a per-frame GPU
@@ -475,8 +455,7 @@ the two renderers on both GPUs of both laptops: aspire's HD 530
 0.01 under Vulkan and 0.16 ± 0.15 under Direct3D 12. On the Mac Metal
 and MoltenVK cost the same per pixel, 1.17 ± 0.00 and 1.16 ± 0.00 over
 0.24 and 0.23 ms fixed, and differ in the per-frame CPU: Metal 0.22 ms,
-MoltenVK 0.42, OpenGL 0.77, whose GPU time is a dash: the driver's timer
-queries answer 0 (DESIGN *OpenGL on macOS*). The
+MoltenVK 0.42. The
 CPU figures leave out the waits, so a presenter that blocks longer at a
 bigger window can read less of a frame's CPU there -- the Pi's X11 line
 is -1.96 ± 0.02 ms/MP -- and only the GPU's slope is read as the
@@ -535,14 +514,11 @@ distance of an area's mean from the line:
 | ASPIRE, Direct3D 12, HD 530 / GTX 960M | 0.31, 0.48, 1.92 | 0.022 / 0.012 |
 | jsons-MBP, Metal | 0.31, 0.48, 1.78 | 0.029 |
 | jsons-MBP, Vulkan | 0.31, 0.48, 1.78 | 0.027 |
-| jsons-MBP, OpenGL | 0.31, 0.48, 1.78 | - |
 
 Every Windows line holds to 0.09 ms at its three areas -- the loose
 Direct3D 12 line on schenker's 1050 Ti the one at the top of that -- and
 the Mac's Metal and MoltenVK lines come out the same to two decimals,
-0.20 ms fixed with 1.17 and 1.18 ms/MP, over residuals of 0.03. The
-Mac's OpenGL keeps no GPU time (DESIGN *OpenGL on macOS*), so its line
-is the CPU's, 0.76 + 0.25 ms/MP with a 0.004 ms residual.
+0.20 ms fixed with 1.17 and 1.18 ms/MP, over residuals of 0.03.
 
 ## KMS's two ways, 2026-11-05
 
@@ -594,37 +570,29 @@ frame costs, compared*). The testbed, its scene moving, release builds.
 
 Drawn flat out (`FNL_VSYNC=0`), the predicted rate `1000 / max(GPU,
 CPU)` over the rate presented, from `FNL_COST_PARTS`'s lines; the ratio
-should be alike across renderers, since the halves overlap alike:
+should be alike across places, since the halves overlap alike:
 
 | place | renderer | drawn | ratio before | ratio after |
 |---|---|---|---|---|
 | this desktop, Wayland 1280x720, RX 590 | Vulkan | 7407 | 1.74 | 1.40 |
-| | OpenGL | 6122 | 1.89 | 1.35 |
 | schenker, KMS 1920x1046, GTX 1050 Ti | Vulkan | 387 | 1.44 | 1.46 |
-| | OpenGL | 588 | 10.2 | 1.01 |
-| schenker, KMS, HD 630 | OpenGL | 162 (102 before) | 5.03 | 1.40 |
 
 Vulkan on the HD 630 takes the panel and has no tearing mode there, so
-it draws at 60 whatever is asked and is not in the table. OpenGL on the
-GTX 1050 Ti is CPU-bound alone, where the larger of the two halves is
-exact. OpenGL's copy path draws faster after: its readback into a pack
-buffer no longer holds the render thread.
+it draws at 60 whatever is asked and is not in the table.
 
 The GPU ranking, `FNL_GPU_RANK=calibrate`, frames a second:
 
 | place | before | after |
 |---|---|---|
-| schenker, KMS eDP-1 1920x1080@60 | OpenGL GTX 1050 Ti 1600, Vulkan GTX 1050 Ti 559 | Vulkan GTX 1050 Ti 412-414, Vulkan HD 630 357-415, OpenGL GTX 1050 Ti 249-251, OpenGL HD 630 188 |
-| this desktop, Wayland | OpenGL 3615, Vulkan 2840 | Vulkan 2565, OpenGL 2029 |
+| schenker, KMS eDP-1 1920x1080@60 | Vulkan GTX 1050 Ti 559 | Vulkan GTX 1050 Ti 412-414, Vulkan HD 630 357-415 |
+| this desktop, Wayland | Vulkan 2840 | Vulkan 2565 |
 | aspire, Windows 1920x1032 | -- | D3D12 GTX 960M 1337, Vulkan GTX 960M 1105, Vulkan HD 530 864, D3D12 HD 530 371 |
 
 Two calibrations on schenker, visiting the entries in different orders,
 agree within 1% but for Vulkan on the HD 630 (357 and 415). With vsync
-on, both renderers' CPU half on the GTX 1050 Ti is about twice what it
-is flat out -- the copy at a low CPU clock -- which is why the
-calibration puts Vulkan first there while OpenGL is the faster flat out:
-the ranking measures the scene at the display's rate, as DESIGN *Ranked
-by measured frame rate* says it does.
+on, the CPU half on the GTX 1050 Ti is about twice what it is flat out
+-- the copy at a low CPU clock: the ranking measures the scene at the
+display's rate, as DESIGN *Ranked by measured frame rate* says it does.
 
 ## Reading them
 
@@ -654,7 +622,7 @@ by measured frame rate* says it does.
 - **weston's CPU under sizes is a fifth or less of the last set's** on
   the Intel, NVIDIA and NVK GPUs (4 to 10% from 30 sizes a second, where
   it was 15 to 48), and this desktop's Wayland under Vulkan about three
-  fifths; its OpenGL and every Xorg did not move. It is `8de7465`, a
+  fifths; every Xorg did not move. It is `8de7465`, a
   size inside the images drawn with no new swapchain on Wayland:
   schenker's weston at 27.0% from 30 sizes a second the commit before
   and 5.6% with it, built side by side (DESIGN *A swapchain larger than

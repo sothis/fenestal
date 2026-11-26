@@ -19,8 +19,8 @@
 # the build, and this build would compile it for ARM.
 #
 # The runtimes the library opens at run time are wanted for their headers
-# alone, and those are the host's: Wayland's, EGL's, xcb's, GL's and
-# Vulkan's do not depend on the processor, and this gcc searches
+# alone, and those are the host's: Wayland's, xcb's and Vulkan's do not
+# depend on the processor, and this gcc searches
 # /usr/include after its own glibc's, never before. Hence INCLUDE BOTH
 # below, and no ARM copies of any of them. Nothing in the tree links the
 # Vulkan loader; the one a caller may link is a stub made at configure

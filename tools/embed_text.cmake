@@ -4,8 +4,8 @@
 # Run as a script: cmake -DIN=<file> -DOUT=<header> -DVAR=<name> -P this
 #
 # A text file as `static const char <VAR>[]` in a C header, one string literal
-# per line so the header reads as the source did. For the GLSL that
-# spirv-cross writes, which OpenGL compiles at run time from the text and so
+# per line so the header reads as the source did. For the MSL that
+# spirv-cross writes, which Metal compiles at run time from the text and so
 # is embedded as text, where SPIR-V is embedded as words.
 #
 # A CMake script and not a tool of the tree's: it runs during the build, on

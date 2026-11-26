@@ -7,8 +7,8 @@ are here.
 
 A portable C11 library: a window, a device, a swapchain, a render thread and a
 text overlay, wrapped around a scene that is the caller's. Its five
-backends are Wayland, X11, KMS, Win32 and Cocoa and its four renderers
-Vulkan, OpenGL, Direct3D 12 and Metal: one build per operating system,
+backends are Wayland, X11, KMS, Win32 and Cocoa and its three renderers
+Vulkan, Direct3D 12 and Metal: one build per operating system,
 with every backend and renderer that system has, as `libfenestal.a` and a
 shared object (*One build per operating system*). `testbed/` is the
 application the library is developed with, the programs under `demos/` are
@@ -22,7 +22,7 @@ client titlebar are composited over whatever was recorded.
 
 ```
   backend    window, input, outputs, scale, timing, wake-up   5 backends
-  renderer   device, swapchain, targets, loss recovery        4 renderers
+  renderer   device, swapchain, targets, loss recovery        3 renderers
   frame      pacing, late latch, render scale, FSAA, MLAA     1 policy
 > your scene a command buffer, inside a pass, viewport set    per graphics API
   overlay    text, rectangles, strokes, client decorations    platform-agnostic
@@ -33,7 +33,7 @@ The caller's row is in the middle, not on top.
 The first two rows name this document's terms. Wayland, X11, Win32, Cocoa
 and KMS are the library's *backends* (`src/backend/<name>/`, the seam
 `FnlBackendVtbl`, which a build has every one of for its system and
-`fnl_init()` chooses among); Direct3D 12, OpenGL, Metal and Vulkan are its
+`fnl_init()` chooses among); Direct3D 12, Metal and Vulkan are its
 *renderers* (`src/renderer/<name>/`, the seam `FnlRendererVtbl`, which a
 build has every one of for its system too and `fnl_init()` chooses among
 on the open window). A *platform* is one of each -- X11 with Vulkan, Win32
@@ -42,7 +42,7 @@ with Direct3D 12 -- and a build target, one per operating system (`linux`,
 operating system*). A *GPU* is the device that does the drawing, hardware
 or a software rasteriser such as lavapipe or WARP.
 
-Five headers ship: `include/fenestal/fenestal.h`, the portable surface, which
+Four headers ship: `include/fenestal/fenestal.h`, the portable surface, which
 includes no window-system or graphics header at all; and one interop header
 per renderer, such as `include/fenestal/fnl_vulkan.h`, for what a caller
 records into and what it builds pipelines against.
@@ -57,8 +57,7 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 | `xcb` | the X11 display connection's headers — core protocol only, no `xcb-randr`, `xcb-xkb`, `xcb-icccm` or `xcb-cursor`. Opened at run time |
 | Vulkan loader + headers | `find_package(Vulkan)`: the headers, which reach a consumer through `fenestal::static`; the library opens the loader at run time and hands it to a caller's scene (`FnlVulkanGpu`) |
 | `glslangValidator` | compiles `shaders/*` to SPIR-V, embedded as C arrays at build time |
-| `spirv-cross` | translates that SPIR-V to GLSL 4.50 and 4.10, HLSL and MSL, and the build checks each (*One shader source*); every renderer but Vulkan draws with it, so it is optional only for `-DFNL_RENDERER=vulkan` |
-| `egl`, `wayland-egl`, `GL/glcorearb.h` | where OpenGL is built on Linux: EGL's and the Wayland native window's headers, opened at run time; and Khronos's header of GL's types and enums, with no function in it (`src/renderer/gl/loader.c`) |
+| `spirv-cross` | translates that SPIR-V to HLSL and MSL, and the build checks each (*One shader source*); every renderer but Vulkan draws with it, so it is optional only for `-DFNL_RENDERER=vulkan` |
 | `freetype2` | **build-time only** — `tools/mkfont` bakes the glyph atlases with it; the program does not link it |
 | pthreads | the render thread |
 | `libdrm` (FreeBSD) | the KMS backend's DRM headers; FreeBSD names them under `libdrm/`, and the build makes the `drm/` spelling Linux's sources use |
@@ -78,14 +77,14 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 ./build.sh freebsd                # FreeBSD, natively or cross
 ./build.sh linux release -DFNL_NATIVE_ARCH=ON  # for this CPU only
 ./build/linux/release/fenestal-testbed       # the platform it finds
-FNL_BACKEND=x11 FNL_RENDERER=gl ./build/linux/release/fenestal-testbed
+FNL_BACKEND=x11 FNL_RENDERER=vulkan ./build/linux/release/fenestal-testbed
 ```
 
 Every tree lands under `build/<target>/<variant>`. Targets are `linux`,
-with Wayland, X11 and KMS and Vulkan and OpenGL in it, `win64` and
+with Wayland, X11 and KMS and Vulkan in it, `win64` and
 `win64-msvc`, with Direct3D 12 and Vulkan, `freebsd`, with the same three
-backends and renderers as Linux, `macos`, with Metal, Vulkan on MoltenVK
-and OpenGL 4.1, and `macos-arm64` and `macos-universal`; variants are
+backends and renderer as Linux, `macos`, with Metal and Vulkan on
+MoltenVK, and `macos-arm64` and `macos-universal`; variants are
 `release`, `clang`, `asan`, `tsan`, `analyzer` and `gc`. `linux` takes all
 six, `linux-arm64` four where its cross compiler is, `win64` three
 (release, analyzer and gc: mingw-w64 ships no sanitizer runtime, and clang
@@ -382,7 +381,7 @@ here: 141 exports, every one `fnl_*`, in both variants.
 ```sh
 ./build.sh linux                  # the host tree first, release first
 python3 tools/macos_sdk.py --fetch   # once: Apple's SDK, from a Mac
-./build.sh macos                  # Cocoa drawn with Metal, Vulkan, GL
+./build.sh macos                  # Cocoa drawn with Metal and Vulkan
 ./build.sh macos-arm64            # the same for Apple's own processors
 ```
 
@@ -419,8 +418,8 @@ in its `Contents/Frameworks`, where the library also looks for it
 `src/backend/cocoa/` and `src/renderer/metal/`, are **Objective-C** under ARC:
 neither has a C interface, and the alternative -- every call cast through
 `objc_msgSend` from C -- gives up the compiler's check on every one of them.
-So is the OpenGL bridge to CGL (`src/renderer/gl/cgl.m`), and outside the
-library the Metal scenes and the Mac's agent (`tools/drive/mac_agent.m`).
+So are, outside the library, the Metal scenes and the Mac's agent
+(`tools/drive/mac_agent.m`).
 What crosses into C state is held as an owned `void *` (`cocoa_state.h`),
 because the Vulkan bridge reading it is C.
 
@@ -482,8 +481,7 @@ release round takes away what an earlier one left there. With no loader
 built, a checker round has no layer to prove loaded (`NO_LOADER`, the
 skip's reason) and Metal's validation alone. Metal's own API validation
 is on in every checker round, which every renderer's frames there go
-through -- MoltenVK's are Metal's commands, and OpenGL's are copied into
-the layer by Metal. A round of a
+through -- MoltenVK's are Metal's commands. A round of a
 Debug tree sends `MTL_DEBUG_LAYER=1` with
 `MTL_DEBUG_LAYER_ERROR_MODE=nslog`, an error said on stderr where its
 default stops the program with an assertion, and waits for Metal's
@@ -491,11 +489,11 @@ default stops the program with an assertion, and waits for Metal's
 never comes. Without the loader the round sends `FNL_VK_VALIDATION=0`:
 MoltenVK refuses the layer it names, and says so. Measured with the
 loader (schenker, 2026-11-01): `macos-vulkan-native` on the `gc` tree,
-the layer loaded, 90 checks and none failed, the log clean; Metal and
-OpenGL on the same tree, 90 each, none failed; and the release round
+the layer loaded, 90 checks and none failed, the log clean; Metal on
+the same tree, 90, none failed; and the release round
 after, 90, MoltenVK opened directly and the loader's files gone from
-beside it. Before the loader (the same day): Metal,
-Vulkan and OpenGL rounds of the `gc` tree, 90 checks each and none
+beside it. Before the loader (the same day): Metal and
+Vulkan rounds of the `gc` tree, 90 checks each and none
 failed, no assertion and no validation error; and eight forced losses
 under Metal (`device-lost%40`), eight rebuilt with none. Metal's
 teardown skips its queue wait on a declared loss as Direct3D 12's did,
@@ -531,7 +529,7 @@ AppKit, QuartzCore and Metal (or MoltenVK) and libSystem.
 ```sh
 ./build.sh linux                       # the host tree first, release first
 python3 tools/freebsd_sysroot.py --fetch   # once: base.txz and the ports
-./build.sh freebsd                     # Wayland, X11 and KMS, Vulkan and GL
+./build.sh freebsd                     # Wayland, X11 and KMS, Vulkan
 ```
 
 The FreeBSD tree is built here as the macOS one is, and FreeBSD only runs
@@ -542,7 +540,7 @@ objcopy LLVM's, as the native tree's is: base's elftoolchain one takes no
 has is the base system the tree links against and the ports whose headers
 and `.pc` files it reads, so `tools/freebsd_sysroot.py` fetches both once
 from the release's own distribution servers -- `base.txz` for 15.1, and the
-packages `wayland`, `libxcb`, `libdrm`, `mesa-libs`, `libglvnd` and
+packages `wayland`, `libxcb`, `libdrm`, and
 `vulkan-headers` with every dependency -- pinned by SHA-256 all the way
 down, the repository's index included, and kept under
 `~/.local/state/fenestal/freebsd-sysroot`, which survives `rm -rf build`.
@@ -594,7 +592,7 @@ built against it asks for no newer symbol than 2.34; a glibc newer here
 than there would be the first thing to check if the Pi refuses one.
 
 Nothing of ARM is installed beside that. What the library opens at run
-time -- Wayland's, EGL's, xcb's and Vulkan's runtimes -- it wants at the
+time -- Wayland's, xcb's and Vulkan's runtimes -- it wants at the
 build for the headers alone, and those do not depend on the processor:
 this gcc searches `/usr/include` after its own glibc's, so the host's are
 found as they are, and the toolchain file lets `find_path` look there
@@ -624,9 +622,7 @@ installed and says it skipped it where not: it is the one tree whose
 compiler a machine building the other ten may well lack, and the sweep
 should not fail there.
 
-The Pi 4's GPU (Mesa's `v3d` and `v3dv`) makes no OpenGL 4.1 core context,
-nor 4.5, so there a program steps past the GL renderer and draws with
-Vulkan. What the Pi owes is TODO.md's.
+What the Pi owes is TODO.md's.
 
 **With no monitor.** With no cable both HDMI ports read disconnected and
 the KMS backend has nothing to open; `video=HDMI-A-1:1920x1080@60D` on the
@@ -651,7 +647,7 @@ environments are skipped, there being no wine. `install()` refuses a
 program built for another processor and names the tree. The first
 `kms-vulkan-bare@pi4` round, release, with `--capture`: 63 checks, none
 failed, 7 not applicable, in 73 s -- the German layout's dead keys, the
-mode rows, the moves to llvmpipe under Vulkan and under GL and back to
+mode rows, the moves to llvmpipe under Vulkan and back to
 V3D, and the pointer seen in the scanned-out frame after each. Without
 `--capture`, 56, none failed. The event queue's median is 16 ms at rest
 and 45 ms with the scene moving, the starburst's 20 ms of GPU a frame at
@@ -662,8 +658,8 @@ Arch Linux ARM's `gcc-libs` (16.1.1): Ubuntu's, which come with the cross
 gcc, are a gcc 16 snapshot, and its ASan crashed in its interceptors' setup
 before `main` on the Pi, where the Pi's runs the same program.
 `kms-vulkan-bare@pi4` passed under `asan` (63 checks with `--capture`),
-`tsan` (56) and `gc` (56), and `kms-gl-bare@pi4` under `asan` and `tsan`
-(56 each), none failing, the validation layer loaded in each Vulkan one.
+`tsan` (56) and `gc` (56), none failing, the validation layer loaded
+in each.
 What they found was Mesa's, one of each:
 
 - **ASan**: 156 bytes at each mode change on the display path -- the
@@ -686,30 +682,23 @@ rounds' reach.
 
 ### One shader source
 
-Each shader is written once, as the Vulkan GLSL in `shaders/`. OpenGL,
-Direct3D 12 and Metal get `spirv-cross`'s translation of its SPIR-V, made by
-`embed_shader()` beside the SPIR-V array: `generated/gl/<stem>.<stage>`,
-embedded as a C string because GL compiles text at run time,
-`generated/hlsl/<stem>.<stage>`, for Direct3D's compiler, and
-`generated/msl/<stem>.<stage>`, embedded as a C string as GL's is. A second
-source per API, written by hand, was the alternative, and it is four copies
+Each shader is written once, as the Vulkan GLSL in `shaders/`. Direct3D 12
+and Metal get `spirv-cross`'s translation of its SPIR-V, made by
+`embed_shader()` beside the SPIR-V array: `generated/hlsl/<stem>.<stage>`,
+for Direct3D's compiler, and `generated/msl/<stem>.<stage>`, embedded as a
+C string because Metal compiles text at run time. A second
+source per API, written by hand, was the alternative, and it is three copies
 of every edit with nothing to say when one is missed.
 
 Each translation is checked as it is made, by glslang, which is already a
-build dependency: the GLSL by its OpenGL front end, and the HLSL by its HLSL
-front end, compiled through to SPIR-V. And every GL program is linked from
-its translated stages (`gl_program()`), because GL links a program's stages
-at run time and a uniform block declared differently in two of them is a
-link error there. The text shader declares the whole of `Push` in both its
-stages for that reason.
+build dependency: the HLSL by its HLSL front end, compiled through to
+SPIR-V.
 
 What the renderers rely on, and so what a shader keeps to:
 
-* **The push-constant block is named `Push`.** GL gets a std140 uniform
-  block of that name (`--glsl-emit-push-constant-as-ubo`), bound by name;
-  HLSL gets `cbuffer Push`, with no register, which the compiler gives
-  `b0` -- Direct3D 12's root constants. std140 places a block of scalars
-  and `vec2`s where std430 does, which is all a push block here holds.
+* **The push-constant block is named `Push`.** HLSL gets `cbuffer Push`,
+  with no register, which the compiler gives `b0` -- Direct3D 12's root
+  constants.
 * **A vertex input at location N is `TEXCOORDN`** in HLSL, which is the
   name Direct3D 12's input layout gives it, and `[[attribute(N)]]` in MSL,
   fed from buffer 1 by the pipeline's vertex descriptor.
@@ -720,23 +709,14 @@ What the renderers rely on, and so what a shader keeps to:
   member is a matrix is longer there than in C: a matrix, a light and a
   word, a lit scene's per-draw block, is 84 bytes in C and 96 in MSL, and
   is handed over padded.
-* **Clip space is Vulkan's.** The GL renderer draws every frame into
-  images of its own, the window's included, with no flip anywhere, so row 0
-  of each is the top, as in Vulkan: a viewport, a scissor, `gl_FragCoord` (which
-  `spirv-cross` leaves at GL's default origin) and a texture coordinate all
-  mean what they mean there, and no GLSL changes. The finished frame is
-  flipped once, by the blit onto the window's own framebuffer, which is never
-  drawn into. `glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)`, core in 4.5,
-  makes the depth range Vulkan's. `GL_UPPER_LEFT` was the alternative, and
-  it puts a rendered image's top in its last row, which the scene's fetch
-  and MLAA would then read upside down. Direct3D's and Metal's clip space
+* **Clip space is Vulkan's.** Direct3D's and Metal's clip space
   points Y up, and their HLSL and MSL flip it at the end of each vertex
   stage (`--flip-vert-y`); their depth range and texture origin are
   Vulkan's already.
 
-`spirv-cross` is required by a GL, Direct3D 12 or Metal build and optional
+`spirv-cross` is required by a Direct3D 12 or Metal build and optional
 for a Vulkan one, where the translation is unused and runs as a check that an
-edit to a shader has not left the other three APIs behind; without it the
+edit to a shader has not left the other two APIs behind; without it the
 build says so and goes on. MSL has no compiler off a Mac, so its check is
 only that `spirv-cross` made it; the device compiles it when it is made,
 MSL 2.1 (`FNL_MSL_FLAGS`), and Metal keeps what it compiled in the system's
@@ -772,178 +752,6 @@ holds them, since on Windows a `d3d12.dll` beside the program would be
 loaded in place of the system's. WineHQ's 11.0 and 11.21 run DXIL on
 their own vkd3d (*Wine 11 on this desktop*), and `FNL_DRIVE_VKD3D=wine`
 puts the Direct3D 12 environments on it.
-
-### OpenGL 4.1
-
-The GL renderer is written against 4.5 core -- direct state access,
-immutable storage, persistently mapped arenas, a base instance and
-`glClipControl` -- and draws with 4.1 core as well, which is where macOS
-stops (TODO.md *OpenGL on macOS*). The profile is chosen at load by the
-context's version (`gl_load()`, `gl_profile41`): EGL asks for 4.5 core and
-for 4.1 where that is refused, and a 4.1 context draws through the 4.1
-profile. A Debug tree's `FNL_FAULT=gl-41` draws a 4.5 context through it,
-which is how it is driven where every device has 4.5. What 4.5 gives, by
-site:
-
-- **Direct state access** (`gl_compat.c`): every DSA slot of the table is
-  a stand-in made of 4.1's bind-to-edit calls, on binding points nothing
-  else uses -- a buffer on `GL_COPY_WRITE_BUFFER`, a texture on unit 0's
-  `GL_TEXTURE_2D`, a renderbuffer on `GL_RENDERBUFFER` -- and on the draw
-  framebuffer, saved and put back. So every call site is the same under
-  both profiles, and no vertex array's state is touched but the drawn
-  one's.
-- **Immutable storage** (4.2's `glTexStorage2D`, 4.4's buffer storage):
-  each level specified with no pixels and the levels past it cut off;
-  a buffer's usage hint read off the storage flags.
-- **The persistent, coherent arenas** (4.4): the core appends into client
-  memory, and each flush uploads what it is about to draw
-  (`gl_arena_upload()`), into the frame slot's buffer, which the slot's
-  fence guards as before.
-- **The base instance** (4.2) and the separate attribute format (4.3): the
-  stand-ins keep each vertex array's format, binding and buffer, and at
-  the draw point each instanced attribute at the flush's first instance
-  and draw from 0.
-- **`glClipControl`** (4.5): a second translation of the shaders,
-  `generated/gl41/`, GLSL 4.10 with the depth range mapped in the vertex
-  stage (`spirv-cross --fixup-clipspace`: z = 2z - w) and no binding
-  qualifiers (4.20's). A `Push` block is bound by name, as at 4.50, and
-  each program has one sampler, on unit 0, which is where an unbound
-  sampler uniform reads, so no `glUniform1i` is needed. Both translations
-  are embedded in every GL tree and checked by glslang at build time,
-  each pair linked as a program (`gl_program()`).
-- **Debug output and the reset status** (4.3, 4.5): loaded where the
-  context lists `GL_KHR_debug`, `GL_KHR_robustness` or `GL_ARB_robustness`,
-  and left out otherwise -- asked by extension and not by the pointer,
-  since Mesa's EGL hands out a stub for any name.
-
-A device with 4.1 alone is drawn on where it is the window server's own and
-nothing EGL lists has 4.5; it is not offered as a move, since the list
-asks each device for 4.5 (`makes_gl45()`), and stays so until a move onto
-one has been seen to land. On this hardware that changes nothing listed:
-nouveau's NVIDIA GPUs give way to the Intel GPU beside them, as before.
-
-**A scene of the caller's is told.** `fnl_gl_version()` says 45 or 41
-(`App::gl_version`, written at each device build, so any thread may ask),
-and `fnl_gl.h` says what 41 means: 4.1 core calls alone, GLSL 4.10, and
-GL's own depth range, which the scene's vertex stage maps from Vulkan's
-itself -- spirv-cross's `--fixup-clipspace`, in `FNL_GL41_FLAGS`, the
-cache entry a consumer's build translates with as the examples' do. A
-function and not a field of `FnlGlSceneLayout`, which has no size of its
-own to grow by. The testbed's scene and `demos/texture`'s are written in the
-4.1 subset, which 4.5 runs too -- bind-to-edit, a vertex array described
-while bound, `glTexImage2D` with one level said -- and take their
-shaders' 4.10 translation where the version is 41; the snippet clears
-with 4.1's `glClearBufferfv`. Driven so on the thinkpad's llvmpipe under
-the override (2026-10-31), the scenes in their 4.1 subset and 4.10
-shaders: the testbed's rounds on Xorg, weston and KMS with pictures, 84,
-60 and 61 checks, minimal's on Xorg and KMS, 21 and 22, none failed; and
-minimal's cubes read off KMS's scanout textured, lit and in depth order.
-At 4.5 the same rounds pass as before. The fault site keeps the 4.5 context
-and draws the library's half through the profile, and tells the scene 41 as
-well (`fnl_gl_version()` says 41 there): its 4.10 shaders on the 4.5
-context.
-
-Measured on the thinkpad (2026-10-31), llvmpipe told
-`MESA_GL_VERSION_OVERRIDE=4.1` beside `LIBGL_ALWAYS_SOFTWARE=1`: Mesa
-refuses the 4.5 context (`EGL_BAD_MATCH`), the 4.1 one is made, and
-`fenestal-pace`, which has no scene, drew at 53 to 61 fps with its size
-changed 30 times a second. Mesa's override sets the GL version alone --
-GLSL 4.50 and direct state access stay -- so the testbed, its scene given
-the 4.1 context for the measurement, ran whole rounds through the profile:
-`x11-gl-bare`, `wayland-gl-bare` and `kms-gl-bare`, 84, 57 and 55 checks,
-none failed. A round drives the profile by `FNL_FAULT=gl-41` in a Debug
-tree, and `fenestal-pace` by the override: the three rounds again under
-`asan` with the site forced, the scene on llvmpipe's 4.6 and the library
-through the 4.1 profile, 84, 57 and 55 checks, none failed but the log's,
-which held the site's own lines alone. The same override on the
-Ironlake GPU, whose GL is 2.1, makes it claim 4.1 and refuse every
-program (GLSL 1.40 at most), which is the override's lie and no
-profile's.
-
-On a hardware GPU (2026-10-31, `1d987ac`, aspire's HD 530, iris, Mesa
-26.2.6): the override gives a real 4.1 core context ("OpenGL 4.1 (Core
-Profile) Mesa 26.2.6"), and `x11-gl-bare` and `wayland-gl-bare` pass
-through the profile at `release`, 91 and 62 checks, none failed; with
-`FNL_FAULT=gl-41` under `asan`, `gc` and `tsan`, none failed but the
-site's own log lines, and in one `tsan` round on Xorg lavapipe's keyed
-`_mesa_hash_table_copy()`, left unnamed that run. What the profile costs
-a frame, `pace.py --no-vsync` on the same device, alternated twice: 1183
-and 1191 fps at 51.8 and 48.7% of a core at 4.5, 1149 and 1171 at 47.2 and
-49.5% through the 4.1 profile -- one to three percent fewer frames, about
-one run's spread, and no more CPU at the testbed's load.
-
-### OpenGL on macOS
-
-macOS stops at OpenGL 4.1 and keeps it only deprecated, and its windows
-take frames from Metal: the `macos` tree draws with OpenGL all the same,
-through a bridge of its own (`src/renderer/gl/cgl.m`) and the renderer's
-4.1 profile (*OpenGL 4.1*), after Metal and Vulkan in the order. A CGL
-context with no view, 4.1 core and accelerated; the window's image
-blitted into an IOSurface each frame, one per frame slot, bound to GL as
-a rectangle texture (`CGLTexImageIOSurface2D`) and unflipped, since an
-IOSurface's row 0 is its top and GL takes it for the bottom, which is the
-window image's own convention; and Metal copying the IOSurface, wrapped
-as BGRA8 sRGB so the copy moves the encoded bytes, into the window's
-`CAMetalLayer` drawable and presenting it. The bridge says it is
-surfaceless and takes the way KMS's own buffers take
-(`gl_bridge_scan_begin()`, `_show()`): `nextDrawable` is the throttle,
-`displaySyncEnabled` the interval, the backend's occlusion the renderer's
-(`gl_bridge_occluded()`), and the Metal device the GL context's renderer
-by its registry id. GL's writes are fenced and waited for before the
-copy, by polling the fence (below). Rejected:
-`NSOpenGLContext` on the view, whose `update` is the main thread's at
-every size and races the render thread; `CAOpenGLLayer`, which draws on
-Core Animation's thread; an IOSurface as a plain layer's `contents`,
-undocumented and unthrottled; ANGLE or Zink, a library to ship.
-
-The tree links OpenGL and IOSurface beside AppKit, QuartzCore and Metal,
-all the system's, and carries Khronos's `glcorearb.h` and `khrplatform.h`
-copied from the build machine, since Apple's SDK has neither and a cross
-build's own `/usr/include` must not reach it whole.
-
-Measured on schenker's macOS 26.7 (2026-10-31), the HD 630's driver
-`4.1 INTEL-24.5.9`: 4.1 core and GLSL 4.10, with `ARB_texture_storage`
-and `ARB_timer_query` among its extensions and no base instance, debug
-output or robustness, so the profile's stand-ins are what draws. Its
-timer queries answer 0 -- `GL_TIMESTAMP` has no counter bits and
-`GL_TIME_ELAPSED` reads 0 around fifty 4K clears -- so OpenGL there has
-no GPU time to give, and `fnl_frame_gpu_ms()` says none. The testbed
-drew right side up and in its colours, its title "OpenGL 4.1", and
-`macos-gl-native` passed whole, 87 checks; Metal's and Vulkan's rounds
-beside it, 87 each, now walk their GPU box onto OpenGL as well. The first
-OpenGL round lost one fullscreen toggle of eight -- the library ended in
-fullscreen after an even number of F11s, which macOS drops mid-
-transition, and each transition there costs a second of frames at 5 a
-second -- and the run after it lost none.
-
-What the copy costs, against Metal on the same machine (`pace.py`,
-2026-10-31, `metal@` and `gl@schenker-mac`): the same frames at every
-rate -- 20 and 47 fps at 5 and 15 sizes a second, 60 from 30 up, 60
-drawn -- for more of a core, 8.8 to 20.4% against 4.7 to 12.4% at the
-low rates, 32.5 to 73.8% against 19.2 to 57.0% at the high ones, 34.9%
-against 10.5% drawing, and the border row 60 fps at 65.3% against 58 at
-21.7%. Most of it is the present (2026-10-31, `1d987ac`, `--frame-times`
-with `FNL_COST_PARTS=1`, the render thread's CPU clock over each span,
-the window at rest): the bridge's present -- the wait on GL's fence,
-`nextDrawable`, the blit and Metal's present -- takes 3.1 ms a frame, 98%
-of it on the CPU, where Metal's present takes 0.04 ms; at 60 frames a
-second that is some 19% of a core, and the record and submit, 0.55
-against 0.22 ms, two more. The present spins, and the spin is Apple's
-`glClientWaitSync` (2026-11-01, an instrumented copy of `cgl.m`, 60 fps
-with the scene moving, means over 60 frames, wall and CPU): the fence
-wait 4.5 to 4.95 ms of which 4.4 to 4.8 on the CPU, `nextDrawable` 0.09,
-the blit 0.09 and the commit 0.03. With no wait -- `glFlush` alone --
-the same time went into `nextDrawable`, asleep (4.0 to 5.3 ms, 0.09 of
-CPU), but nothing then orders GL's writes before Metal's read of the
-IOSurface, two queues of one GPU; it was not taken, and whether it would
-be right stays unknown. Polled instead -- the fence asked with no
-timeout, 0.2 ms slept between, at most 100 ms -- the wait is as long,
-4.3 to 5.0 ms, for 0.24 to 0.29 ms of CPU, and that is the present now.
-After it `gl@schenker-mac` keeps its frames at every rate for 5.8, 17.0,
-30.0, 32.9, 41.6 and 65.4% of a core at 5, 15, 30, 45, 60 and 250 sizes
-a second, against that day's three sweeps' 8.7 to 9.6, 21 to 26, 31 to
-55, 35 to 37, 41 to 62 and 75 to 88%, and 13.5% drawing against Metal's
-10.5; `macos-gl-native` passes, 90 checks.
 
 ### Using it from another project
 
@@ -1150,9 +958,7 @@ rest, where no hold is run. Before the draw state on a drawing window,
 it would fall past the pacing's hold and before `FRAME_MARK_REC`, so
 outside `late_cost`: a part of the frame the late latch never budgets
 for, twice a second -- `getrusage()`, `/proc/self/statm` and the GPU
-memory, which under OpenGL is NVML's query (half a millisecond,
-*Benchmarking*) or a read of every descriptor's
-DRM fdinfo, twice on Intel where i915 finds none. After the present it
+memory. After the present it
 is outside the frame, between a present and the next latch: where frames
 are invited (Wayland) it falls in the wait for the next invitation, and
 where they are not the backend's wait answers at once, so the hold after
@@ -1196,18 +1002,12 @@ figure being llvmpipe's own workers at idle, which drew two frames in the
 12 s. A minute at rest on X11 with vsync, the panel up: 88 frames over 88
 `frame at rest: N drawn` lines (1.47 a second) and not one frame line, 0.38 %
 of a core; the scene moving then gives `miss 0/0` and `hold 0.00`, so the
-display hold never deepened. Under OpenGL on amdgpu (fdinfo), late latching
-on and the scene moving, no vblank is missed with the panel shown or hidden
-and no frame line reports one, the shown mean 16.06 ms against 16.57 hidden:
-the sample after the present costs nothing. Under wine, where the thread's CPU
+display hold never deepened. Under wine, where the thread's CPU
 time is not known, `--frame-cpu-log` -- and not `--footprint-log`, which asks
 for cost sampling and so counts the panel's rest frames -- shows the
 per-frame CPU held at 0.35 ms through a rest of nine panel frames in 12 s
 drawn for the figures, with no frame line: the last moving frames' figure,
-not the panel's own. Under OpenGL on NVIDIA (NVML, schenker's GTX 1050 Ti
-under weston, the scene moving) the panel adds nothing: 1120 vblanks missed
-on 39 frame lines with it shown against 1190 hidden, means 16.80 against
-16.81 ms -- the misses are the offload path's own. `--frame-times` with the
+not the panel's own. `--frame-times` with the
 testbed's `--frame-stats-log` (X11, RX 590, 2026-11-05): at rest from
 startup the panel drew a rest frame a half second and the totals counted
 every one -- frames and rows both 124 to 127, GPU 35621 to 36830 us, 403 us
@@ -1230,15 +1030,9 @@ keybindings, 316 points across against their 236, so the two
 meet only in a window narrower than some 588 points, where F5 now covers the
 right of F1's rather than going under it as the testbed's own did.
 
-GPU memory is the API's own figure where it keeps one -- Vulkan's memory
+GPU memory is the API's own figure -- Vulkan's memory
 budget, Direct3D 12's `QueryVideoMemoryInfo`, Metal's
-`currentAllocatedSize` -- and under OpenGL, which keeps none, the
-system's on Linux: NVIDIA's NVML, opened at run time, or the kernel's
-DRM fdinfo for i915, xe and amdgpu (`src/renderer/gl/memory.c`). NVML
-holds NVIDIA's driver while it is started, which would stop a move to
-nouveau (*Another kernel driver, with the window open*), so it starts
-only when the panel first asks and is shut down with the device, which
-every move rebuilds.
+`currentAllocatedSize`.
 
 Its GPU row is the share of the GPU's time this program's frames take:
 the GPU's seconds on every frame read over the sample's window, by the
@@ -1250,10 +1044,9 @@ a rest (*Shown, it keeps nothing measured at rest*), and their product
 would go on saying a still window keeps the GPU busy. Every frame read
 counts, those drawn only to show the figures as well, since they are
 what the window takes of the GPU at rest. Measured as the product, with
-the pattern moving on schenker's HDMI at 3840x2160@30: 2.3 % on NVIDIA's
-OpenGL (0.76 ms) and 22 to 25 % on Intel's Vulkan, each what the
-ranking's figure for that entry gives at 30 frames a second (1293 and
-122 fps), and 50 % on llvmpipe (16.6 ms). The row itself, on schenker's
+the pattern moving on schenker's HDMI at 3840x2160@30: 22 to 25 % on Intel's
+Vulkan, what the ranking's figure for that entry gives at 30 frames a
+second (122 fps), and 50 % on llvmpipe (16.6 ms). The row itself, on schenker's
 Intel Vulkan maximized on that monitor (3840x2117, 30 fps, 2026-11-05):
 18.9 %, the product 6.30 ms by 30 fps over 10, 18.9 %; at rest with the
 panel shown and the scene still, 0.0 % where the product stands at the
@@ -1263,9 +1056,7 @@ On the Mac (2026-10-31, `1d987ac`, the testbed at rest with
 `--footprint-log`, the Mac's own `ps` of the same process beside it) the
 RAM row is `task_info`'s resident size, within a MiB of `ps`'s RSS under
 all three renderers, and the CPU row the same order as its `%cpu`. Metal's
-VRAM is `MTLDevice.currentAllocatedSize`, 31 MiB, and MoltenVK's 36 to 42;
-OpenGL there has neither VRAM nor GPU, both dashes, since CGL keeps no
-figure for a process and its timer queries answer 0 (*OpenGL on macOS*).
+VRAM is `MTLDevice.currentAllocatedSize`, 31 MiB, and MoltenVK's 36 to 42.
 On both laptops' Windows (the same day, each renderer on each GPU,
 Windows' own counters of the same process beside it): the RAM row within
 half a MiB of the working set; Direct3D 12's VRAM, `QueryVideoMemoryInfo`'s
@@ -1420,8 +1211,7 @@ unless the run asks for another class.
 **The driver drawing** is the record's `platform.driver`: Vulkan's
 `VK_KHR_driver_properties` name and version text where the device lists
 it (chained only then: a struct of an extension it lacks is invalid), the
-API version and the PCI ids; OpenGL's vendor, renderer and version
-strings, which name no PCI ids. Direct3D 12's is DXGI's: the adapter's
+API version and the PCI ids. Direct3D 12's is DXGI's: the adapter's
 description, which names the device and not the driver ("NVIDIA GeForce
 GTX 1050 Ti", "Microsoft Basic Render Driver" for WARP), the user-mode
 driver's version (32.0.15.8278), which `CheckInterfaceSupport` answers for
@@ -1432,14 +1222,7 @@ newest GPU family the device is in, and no PCI ids.
 
 **What the bench costs the frame it measures.** Its `on_overlay` is
 0.01 ms a frame on schenker, and the frame a row is taken in up to 0.5 ms
-more -- for OpenGL the GPU memory is the system's, NVML's on NVIDIA's
-driver (`gpumem.c`), and its query is that half millisecond. The first
-query opens NVML, which took 20 ms of one frame: a 50 ms interval at the
-first row of every OpenGL run on weston, frame 60 of each, until the first
-query was moved into the settle. What is left there is the renderer's own:
-OpenGL on weston on the 1050 Ti misses one or two vblanks in 300 frames
-(33 ms, the bench's callback under 0.6 ms in them), where Vulkan misses
-none.
+more.
 
 **Each drawn frame's own phases** come from the library's ring
 (`fnl_frame_samples()`): the frame loop keeps the last 1024 drawn frames'
@@ -1469,8 +1252,8 @@ included, and keeps those whose place falls between the measure's two
 readings of the totals (`FnlFrameStats::frames`), draining on through the
 cool-down and once more after the loop, which keeps the rows' means the
 totals'. On schenker every measured frame had its time, on Vulkan,
-OpenGL, Direct3D 12 and Metal alike, and the rows' mean was the totals'
-to the microsecond (OpenGL 1.64357 ms against 1.64359). The output's
+Direct3D 12 and Metal alike, and the rows' mean was the totals'
+to the microsecond. The output's
 refresh rate is `fnl_output_refresh_mhz()` and the record's
 `platform.refresh_hz` -- on Win32 the display configuration's signal
 (`QueryDisplayConfig`'s `vSyncFreq`, 60.02 Hz on both laptops), which the
@@ -1486,7 +1269,7 @@ completion: a poll and the read it licenses are one thread's at a time
 (`ev_lock`), and the window is found in the host's own flip list, not in
 the registry the main thread frees -- and back with the kernel's timestamp,
 for the flips the
-library makes -- the copy path and OpenGL's bridge; and Wayland's
+library makes -- the copy path; and Wayland's
 `wp_presentation`, a
 feedback asked for just before each present so it rides on that commit,
 answered on the main thread, sixteen slots in the backend's state and no
@@ -1496,7 +1279,7 @@ CLOCK_MONOTONIC alone, the frame clock's, so no clock is converted. And
 X11's Present extension, whose completions the backend selects on its
 window (`x11_present_open()`, encoded by hand, the Generic Event
 Extension's version asked first as its events need): the graphics API
-presents on a connection of its own -- Mesa's WSI and EGL, by
+presents on a connection of its own -- Mesa's WSI, by
 PresentPixmap -- with that connection's serials, so a completion is the
 oldest frame not yet answered, queued at `frame_request()` and taken back
 by `frame_cancel()`, one completion a present and in order; a skipped one
@@ -1643,17 +1426,12 @@ read it (`input.read_to_shown_ms`) and from when it happened
 | | frame on screen p50 | read to screen p50 / p95 |
 |---|---|---|
 | KMS, Vulkan copy path | 6.5 ms | 13.0 / 20.5 ms |
-| KMS, OpenGL bridge | 6.0 ms | 11.5 / 16.8 ms |
 | weston, Vulkan | 13.7 ms | 18.7 / 25.7 ms |
-| weston, OpenGL | 14.1 ms | 20.2 / 26.1 ms |
 
 And X11, Intel's GPU (2026-10-29): schenker's Xorg, shown interval p50
-16.661 ms, p99 16.674, latch to screen 21.4 ms with OpenGL and 53.6 with
-Vulkan; this desk's XWayland, Vulkan, 16.667 and 54.0. OpenGL's swap
-holds one frame ahead of the screen and Mesa's X11 Vulkan WSI three, the
-pairing being the same code for both. The hold's jitter does not reach
-Xorg's screen under OpenGL: the shown frames are 16.646 to 16.675 ms
-apart.
+16.661 ms, p99 16.674, latch to screen 53.6 ms with Vulkan, whose Mesa
+X11 WSI holds three frames ahead of the screen; this desk's XWayland,
+Vulkan, 16.667 and 54.0.
 
 **So on X11 a frame is held until the one before it is on the screen.**
 Ahead of its latch, until the window server has answered for the last
@@ -1662,7 +1440,7 @@ handed to core (`app_frame_answered()`) and waited on there
 (`display_hold()`, where `FnlBackendVtbl::display_waits`: X11's alone) --
 so it is latched, drawn and presented in the refresh that follows. Latch
 to screen p50, every figure at 60 fps (2026-10-29): schenker's Xorg,
-Intel's GPU, 53.7 ms as it was and 16.4 so; OpenGL there 21.4 and 16.4;
+Intel's GPU, 53.7 ms as it was and 16.4 so;
 NVIDIA's own driver 36.3 and 16.5; this desk's XWayland 54.0 and 16.5. Held
 first by `VK_KHR_present_wait` on the last present, a frame or two
 deep -- 33.1 ms with two let wait, 16.5 with one, and fullscreen with MSAA
@@ -1720,8 +1498,7 @@ where a float's step is about a tenth of a microsecond.
 
 weston's compositor frame is the refresh it adds. The stamps also say what
 the callbacks' intervals smooth: Vulkan on weston misses a vblank now and
-then (shown interval p99 33.3 ms) where OpenGL there does not (16.7 ms),
-and every stamp on both was at a vblank.
+then (shown interval p99 33.3 ms), and every stamp was at a vblank.
 
 **The tools around the record** are `tools/bench/`: `schema.json`, the
 record's definition, which `check.py` enforces with a validator of the
@@ -1777,7 +1554,6 @@ narrows the move).
 ```
 include/fenestal/fenestal.h    the installed header: the whole portable surface
 include/fenestal/fnl_vulkan.h  the Vulkan interop: what a caller records into
-include/fenestal/fnl_gl.h      the OpenGL interop, the same for GL
 include/fenestal/fnl_d3d12.h   the Direct3D 12 interop
 include/fenestal/fnl_metal.h   the Metal interop
 
@@ -1860,7 +1636,7 @@ src/backend/cocoa/     the borderless window, its view and layer, the run
                        Objective-C (DESIGN *macOS*)
                        Each has a <name>_state.h holding the handles no other
                        window server may see; only the backend's own files
-                       and its bridges include it (surface_*.c, egl_*.c,
+                       and its bridges include it (surface_*.c,
                        and on Win32 Vulkan's present_dxgi.c)
 
 src/renderer/vulkan/
@@ -1882,15 +1658,6 @@ src/renderer/vulkan/
   vk_load.c      the loader, opened at run time, filling vk_fns.h's pointers
   present_dxgi.c Win32: the frames presented through a DXGI swapchain
 
-src/renderer/gl/       OpenGL, 4.5 core on Linux and 4.1 on macOS: device.c
-                       (the bridge's display and context, the seam's table),
-                       target.c, frame.c, overlay.c, loader.c (the entry
-                       points, into one table), gl_compat.c (the 4.1
-                       profile's stand-ins), memory.c (the process's GPU
-                       memory); the bridges, egl.c with an egl_<backend>.c
-                       each and cgl.m on macOS; egl_dyn.c, libEGL opened at
-                       run time
-
 src/renderer/d3d12/    Direct3D 12: device.c (the factory, adapter, device and
                        the seam), target.c (the swapchain's buffers and the
                        scene's targets), overlay.c, frame.c, present_d3d11.c
@@ -1911,7 +1678,7 @@ testbed/
   overlay.c      the keybindings panel, the status lines and the crosshair
   titlebar_custom.c    a whole replacement titlebar, drawn by the testbed
                        (--custom-titlebar)
-  shaders/       GLSL the testbed owns: the test pattern and the star
+  shaders/       Shader sources the testbed owns: the test pattern and the star
 
 examples/        the API reference's snippets, each a complete program
 demos/<name>/    a program to copy: main.c, a scene file per renderer, its
@@ -1977,7 +1744,7 @@ tools/mkdist.py       the source distribution: the build, docs/ and tools/
                       tree as it stands, untracked files included
 tools/mkkeysyms.py    regenerates src/backend/keysym_table.h from X11's
                       keysymdef.h; run by hand, a few times a decade
-shaders/       GLSL the library owns: the three overlay pipelines, the
+shaders/       Shader sources the library owns: the three overlay pipelines, the
                covering triangle, the fetch and the MLAA filter
 protocols/     vendored Wayland protocol XML
 fonts/ubuntu/  vendored Ubuntu Sans + Ubuntu Sans Mono, with the licence
@@ -2067,33 +1834,30 @@ server's events into those calls and its answers into requests.
 
 ### One build per operating system
 
-One build per operating system -- `linux`, `win64` (and its native MSVC
-twin), `freebsd`, `macos` -- holding every backend and every renderer that
-system has, with the platform chosen in `fnl_init()`. The first of the three
-steps below is built and driven: a Linux build has Wayland, X11 and KMS, and
-the backend is chosen when the
-program starts. The second -- every runtime opened at run time, none
-linked -- and the third for Windows -- Direct3D 12 and Vulkan in one
-build, the renderer chosen on the open window -- are built and driven
-on this desktop, the bare machines, the guests and the Windows laptops
-(TODO.md says what those still owe). The third, for Linux and macOS --
-Vulkan and OpenGL, and Metal, Vulkan and OpenGL 4.1 -- is built and
-driven too. What follows is that design, and the order it was built
-in. One platform per build had a caller shipping for Linux
-pick Wayland, X11 or KMS before it could know which one the user's machine
-runs, and made eleven targets and forty-seven trees.
+One build per operating system -- `linux`, `win64` (and its native MSVC twin),
+`freebsd`, `macos` -- holding every backend and every renderer that system has,
+with the platform chosen in `fnl_init()`. The first of the three steps below is
+built and driven: a Linux build has Wayland, X11 and KMS, and the backend is
+chosen when the program starts. The second -- every runtime opened at run time,
+none linked -- and the third for Windows -- Direct3D 12 and Vulkan in one build,
+the renderer chosen on the open window -- are built and driven on this desktop,
+the bare machines, the guests and the Windows laptops (TODO.md says what those
+still owe). The third, for macOS -- Metal and Vulkan -- is built and driven too,
+Linux having Vulkan alone. What follows is that design, and the order it was
+built in. One platform per build had a caller shipping for Linux pick Wayland,
+X11 or KMS before it could know which one the user's machine runs, and made a
+target and a set of trees for every pair.
 
 | system  | backends          | renderers                    |
 |---|---|---|
-| Linux   | Wayland, X11, KMS | Vulkan, OpenGL               |
+| Linux   | Wayland, X11, KMS | Vulkan                       |
 | Windows | Win32             | Direct3D 12, Vulkan          |
-| FreeBSD | Wayland, X11, KMS | Vulkan, OpenGL               |
-| macOS   | Cocoa             | Metal, Vulkan (on MoltenVK), OpenGL 4.1 |
+| FreeBSD | Wayland, X11, KMS | Vulkan                       |
+| macOS   | Cocoa             | Metal, Vulkan (on MoltenVK)  |
 
 Linux and FreeBSD have a choice of backend; on Windows and macOS the choice
-is the renderer's alone. OpenGL on macOS is 4.1, through CGL, its frames copied
-into the Metal layer (*OpenGL on macOS*); Windows draws with Direct3D 12,
-on WARP where there is no driver, and Vulkan.
+is the renderer's alone. Windows draws with Direct3D 12, on WARP where there
+is no driver, and Vulkan.
 
 **What fitted already.** Every call to a backend or a renderer goes through
 its table, so choosing one at run time changes nothing per frame.
@@ -2135,9 +1899,8 @@ the list:
 
 The bridges were chosen by file name in `CMakeLists.txt`, and each pair
 defined the same symbols -- `create_surface` and the instance extensions in
-each `surface_<backend>.c`, eight `egl_native_*` functions in each
-`egl_<backend>.c` -- one definition per build. Each file now defines one
-table, `VkBridge` and `EglBridge`, of static functions, and its renderer
+each `surface_<backend>.c` -- one definition per build. Each file now defines
+one table, `VkBridge`, of static functions, and its renderer
 finds the one whose `backend` is `FnlBackendVtbl::id`, from a list made from
 `FNL_BACKENDS(X)` as the core's is, so the two cannot disagree. Still one
 file per real pair, and still the only files that see both halves.
@@ -2147,7 +1910,7 @@ each `<p>_state.h`, and a Linux build now links three. No translation unit
 sees two, and `App::backend_state` is a pointer whose type is only completed
 inside one backend's files; gcc's LTO, the one pass that sees them all at
 once, compares pointer members without what they point to, and the sweep's
-23 trees built without a warning from it or anything else. A tag of each
+trees built without a warning from it or anything else. A tag of each
 backend's own is the change to make if a checker ever objects.
 
 **Measured** (2026-10-22). Every Linux environment, each named its
@@ -2179,20 +1942,18 @@ nothing else:
 
 - **Linux**: `m`, `pthread` and `CMAKE_DL_LIBS` (nothing from glibc 2.34,
   where `dlopen` is libc's; `libdl` before it). `libvulkan.so.1`,
-  `libEGL.so.1`, `libwayland-client.so.0`, `libwayland-egl.so.1` and
-  `libxcb.so.1` by `dlopen`.
+  `libwayland-client.so.0` and `libxcb.so.1` by `dlopen`.
 - **Windows**: `user32`, `gdi32`, `d3d12`, `dxgi` and `dxguid`, all part
   of the system from Windows 10. `vulkan-1.dll` by
   `LoadLibraryEx`, from the program's directory or System32 and never the
   current one.
-- **macOS**: AppKit, QuartzCore and Metal, and OpenGL and IOSurface where
-  the tree has OpenGL; MoltenVK by `dlopen` from beside
+- **macOS**: AppKit, QuartzCore and Metal; MoltenVK by `dlopen` from beside
   the program (`@executable_path`), where `build.sh` puts it, or a
   loader the system has.
 
 **The runtimes, as built.** One shim, `src/core/dynlib.h`, opens a library from
 a list of names and finds its symbols; a library once opened is never closed
-(but for EGL where a GPU may move to another kernel driver, `egl_dyn.c`), since
+since
 Mesa beneath every one of these leaves thread-locals and exit handlers that
 outlive an unload, and each loader opens once per process and keeps its answer,
 failure included. Every runtime is reached the same way: its header is included
@@ -2213,9 +1974,6 @@ program the build makes does.
   are asked for in its bridge at the call, since their prototypes need that
   server's headers. No loader, or no driver beneath it, is
   `FNL_ERR_NO_DEVICE`, which the renderer choice steps past.
-- **EGL** (`egl_dyn.h`, `egl_dyn.c`): seventeen entries, opened as the GL
-  renderer's bridge first opens; GL itself was always reached through
-  `eglGetProcAddress`.
 - **xcb** (`xcb_dyn.h`, `xcb_dyn.c`): seventy, core xcb's and the extension
   plumbing `x11_ext.c` encodes its requests through; opened first thing in
   the backend's `open()`, so a machine without it is `FNL_ERR_NO_DISPLAY`
@@ -2230,8 +1988,6 @@ program the build makes does.
   and the library has hidden copies of its own. The version has to be the
   headers': their inline requests index those tables by opcode.
   libwayland compares interfaces by name, so its copies and these agree.
-  libwayland-egl, the GL bridge's, is opened in `egl_wayland.c` when the
-  bridge first wants a window.
 
 The invariant's "plus the runtime of the platform it chose" becomes "plus
 the system's own libraries"; a library something needs is still a
@@ -2268,23 +2024,20 @@ another GPU and back -- a new instance every time, the entries asked
 again.
 
 **Measured with each one missing**, 2026-10-28 on this desktop's GNOME:
-`fenestal-pace`, which links libc alone, run under bubblewrap with the
-library directory overlaid and the runtime deleted in the overlay, so
-`dlopen` meets a missing file as a machine without it would. No Vulkan
-loader: Wayland, OpenGL, `passed over Vulkan: no Vulkan loader:
-libvulkan.so.1: ...`. No `libEGL`: Vulkan, OpenGL listing no GPU. Neither:
-`fnl_init()` fails, one line naming both. No `libwayland-client`: X11,
-`passed over Wayland`. No `libwayland-egl` with OpenGL named, or no
-`libxcb` with X11 named: the named one fails, one line naming the
-library. And no `libwayland-client` or no `libxcb` with neither named:
-the backend opens, and then no renderer draws -- Mesa's Vulkan drivers and
-its EGL link both libraries themselves, so a machine missing either has
-no Mesa that loads, and the line says `no Vulkan driver would load`,
-not that none is installed. Each refusal is said once: the loader's,
-asked again by the renderer after the GPU listing, and the driver's,
-asked by both, are recorded quietly the second time (`fnl_fail_quiet()`);
-and a list of names reports the first's reason, the runtime's own name,
-not a fallback's (`fnl_lib_open()`).
+`fenestal-pace`, which links libc alone, run under bubblewrap with the library
+directory overlaid and the runtime deleted in the overlay, so `dlopen` meets a
+missing file as a machine without it would. No Vulkan loader: `fnl_init()`
+fails, one line naming it (`no Vulkan loader: libvulkan.so.1: ...`). No
+`libwayland-client`: X11, `passed over Wayland`. No `libxcb` with X11 named: the
+named one fails, one line naming the library. And no `libwayland-client` or no
+`libxcb` with neither named: the backend opens, and then no renderer draws --
+Mesa's Vulkan drivers and its drivers link both libraries themselves, so a
+machine missing either has no Mesa that loads, and the line says `no Vulkan
+driver would load`, not that none is installed. Each refusal is said once: the
+loader's, asked again by the renderer after the GPU listing, and the driver's,
+asked by both, are recorded quietly the second time (`fnl_fail_quiet()`); and a
+list of names reports the first's reason, the runtime's own name, not a
+fallback's (`fnl_lib_open()`).
 
 **The choice is an order, not a measurement.** A benchmark at startup costs
 the startup, answers differently from run to run, and leaves the harness and
@@ -2298,21 +2051,21 @@ and one correction:
 - **Renderer, on Windows**: Direct3D 12, then Vulkan. Direct3D 12 first
   because every Windows 10 has it, on WARP where there is no driver; Vulkan
   wants a vendor's driver, which the guests do not have.
-- **Renderer, on macOS**: Metal, then Vulkan, then OpenGL 4.1: one layer
+- **Renderer, on macOS**: Metal, then Vulkan: one layer
   fewer, and MoltenVK may not be beside the program.
-- **Renderer, on Linux**: Vulkan, then OpenGL.
+- **Renderer, on Linux**: Vulkan, the only one.
 - **The correction**: a renderer whose best device is software -- lavapipe,
-  llvmpipe, WARP -- ranks after one whose best device is hardware, which is
-  Vulkan with only lavapipe on a machine with a hardware GL driver. Vulkan
-  answers it from the ranking the startup inventory already makes
-  (`device_type_rank()`, `phys_software`), OpenGL from its renderer string.
+  llvmpipe, WARP -- ranks after one whose best device is hardware, as
+  Direct3D 12's WARP does behind a hardware Vulkan device. Each renderer
+  answers it from the ranking its startup inventory already makes
+  (`device_type_rank()`, `phys_software` for Vulkan).
 
 As much as can be is decided before `open()`. An instance and a device that
 could present answer most of it -- the loader, a driver, a device -- and Vulkan
 answers presentation without a surface
 (`vkGetPhysicalDevice*PresentationSupportKHR`, for Wayland, XCB and Win32). The
-X11 window is made with the root visual and EGL's configuration follows it, so
-that backend's window does not wait on the choice either. A failure after the
+X11 window is made with the root visual, so that backend's window does not
+wait on the choice either. A failure after the
 window exists, in `create_surface` or `create_device_objects`, steps down to the
 next renderer on the same window, the backend kept: closing it and opening
 another shows a window that vanishes. Device-loss recovery stays on the renderer
@@ -2359,14 +2112,13 @@ software** (`renderer_correct()`). A renderer whose GPU in use is a
 software rasteriser, with no GPU named, lists the candidates after it with
 `list_gpus` -- the same listing a move uses -- and gives way to the first
 that lists hardware: torn down, the other built on the same window, one
-line, `Vulkan would draw on software here (llvmpipe …), and OpenGL has
+line, `Direct3D 12 would draw on software here (WARP …), and Vulkan has
 hardware (AMD Radeon RX 590 …)`. A machine whose first renderer found
 hardware lists nothing at startup, which is every machine but that one.
 Where the other will not build, the first is built again on its software
-(`renderer-refused@2` forces it: `OpenGL has hardware here … and would not
-draw …; Vulkan draws on software`). A named renderer or a named GPU is
-never corrected. Seen on this desktop with Vulkan shown only lavapipe
-(`VK_DRIVER_FILES`): the window opened on OpenGL's Radeon. On Windows
+(`renderer-refused@2` forces it: `Vulkan has hardware here … and would not
+draw …; Direct3D 12 draws on software`). A named renderer or a named GPU is
+never corrected. On Windows
 Direct3D 12 comes first, whose WARP is the software device of a machine
 with no driver, and a guest has no other: Vulkan there lists lavapipe,
 and nothing changes.
@@ -2408,7 +2160,7 @@ named. Unforced on the laptops the order took Direct3D 12, on the NVIDIA
 GPU (*The startup inventory*).
 
 Unforced elsewhere (2026-10-31, `1d987ac`). On the Mac the testbed opened
-`renderer: Metal` on the HD 630 and listed MoltenVK and OpenGL after it,
+`renderer: Metal` on the HD 630 and listed MoltenVK after it,
 in the order above. In both guests the first start opened Direct3D 12 on
 WARP, the order's; the ranking then measured both entries there (win10
 Direct3D 12 83.0 fps, Vulkan on lavapipe 79.0; win11 75.5 and 90.1), and
@@ -2423,12 +2175,8 @@ the live window.
 A window takes the next renderer's surface after the first one's has
 failed, not only after it drew (2026-10-31, `1d987ac`, the `gc` testbed on
 schenker's HD 630, no renderer named): with `FNL_FAULT=framebuffers@1`
-Vulkan's first build fails after its swapchain is made on the window, is
-torn down, and OpenGL draws the same window at 60 fps -- `renderer:
-OpenGL; passed over Vulkan: FNL_FAULT: create_framebuffers` -- on bare
-Xorg, on weston (its screenshot the testbed whole) and on KMS, whose
-scan-out showed the frame from 0.9 s, black before it; each with no
-warning or error, and exit 0. On both laptops' Windows the same fault
+Vulkan's first build fails after its swapchain is made on the window and is
+torn down. On both laptops' Windows the same fault
 fails Vulkan's build after its DXGI flip-model swapchain is made on the
 HWND, and Direct3D 12 takes the window (`renderer: Direct3D 12; passed
 over Vulkan: FNL_FAULT: create_framebuffers`), at the start and again
@@ -2444,11 +2192,9 @@ dissolve with no black sample. On Cocoa, with
 `FNL_FAULT=metal-after-layer@1` and no renderer named, Metal's build
 fails with the window's `CAMetalLayer` given its device, and MoltenVK
 takes the same NSWindow (`renderer: Vulkan; passed over Metal: FNL_FAULT:
-after the layer`); with `framebuffers@1` beside it Vulkan fails too and
-OpenGL 4.1 draws the window through its bridge (schenker's HD 630,
-2026-11-01, the `macos gc` tree, both pictures the testbed whole).
+after the layer`).
 
-**Forcing it.** `FNL_BACKEND=x11` and `FNL_RENDERER=gl` in the environment,
+**Forcing it.** `FNL_BACKEND=x11` and `FNL_RENDERER=vulkan` in the environment,
 spelt as the configure options spell them, take that one or fail, with no
 step down: a forced run that quietly ran something else is a figure that
 lies. `FNL_GPU` stays the device's (*The startup inventory*). The inventory
@@ -2466,7 +2212,7 @@ list what a tree is built as now. The cross trees borrow `linux/release`'s
 bake. A configure option keeps a build of one platform (`FNL_BACKEND`
 taking one name as well as `linux`, as it does now, and `FNL_RENDERER` one
 as well as all) for a consumer who wants the smaller library; the sweep
-builds only the full ones. The twenty-seven environments stay: each names a
+builds only the full ones. The environments stay: each names a
 tree and a platform, forced by the two variables, and the ledger records
 the platform the inventory reports rather than the tree's name. One check
 joins the round, unforced: that each environment takes what the order above
@@ -2474,16 +2220,16 @@ says it should -- Wayland with Vulkan on this desktop, Win32 with Direct3D
 12 on WARP in the guests.
 
 **What every renderer costs in bytes** (2026-10-31, `c3b3aeb`, release):
-little. The Linux shared object is 1.71 MB with three backends and two
-renderers -- 441 KB of code, 1.09 MB read-only -- and the arm64 one 1.70;
+little. The Linux shared object is 1.71 MB with three backends --
+441 KB of code, 1.09 MB read-only -- and the arm64 one 1.70;
 the Windows DLL 1.58 MB and the macOS dylib 1.40. Of the Linux one, 955 KB
-is the font (the atlas 926 KB, its cells 29), and the shaders in both
-translations 40 KB: SPIR-V 29.6 KB, Vulkan's, and GL's GLSL 10.8 KB. On
+is the font (the atlas 926 KB, its cells 29), and the shaders 29.6 KB of
+SPIR-V, Vulkan's. On
 Windows the shaders are SPIR-V's 29.6 KB again and Direct3D 12's DXIL 153
 KB, a signed container being five times the SPIR-V it is made from; on
 macOS SPIR-V for MoltenVK and Metal's MSL, 15 KB. So the second renderer
-of a system costs some 11 KB of shader on Linux and some 150 on Windows,
-and the code that draws with it; the font is half of every tree, whichever
+of a system costs some 150 KB of shader on Windows, and the code that draws
+with it; the font is half of every tree, whichever
 renderers it has.
 
 In this order, each step leaving every round passing:
@@ -2491,9 +2237,8 @@ In this order, each step leaving every round passing:
 1. **The Linux backends in one build**, the renderer still chosen at configure:
    the bridge tables, the backend order and `FNL_BACKEND` at run time, the
    runtimes linked as now. A caller sees nothing change; eleven targets became
-   seven, `linux-vulkan` and `linux-gl` for the six, and forty-seven trees
-   twenty-three. Built and driven.
-2. **The runtimes loaded, not linked**, Linux first: Vulkan's table, EGL,
+   seven, and forty-seven trees twenty-three. Built and driven.
+2. **The runtimes loaded, not linked**, Linux first: Vulkan's table,
    xcb, then Wayland's redirect header. A build check joins the ABI's: the
    shared object's undefined symbols are the system's and nothing else
    (`--no-undefined`, at its link). Built and driven.
@@ -2501,8 +2246,7 @@ In this order, each step leaving every round passing:
    its correction, the step down on the same window, `FNL_RENDERER`, and every
    scene of each example compiled in. Built and driven: `win64`, `linux` and
    `macos` for the seven targets of one renderer each, with an ABI baseline of
-   the two Linux renderers' exports (`fenestal-0-vulkan-gl.syms`); the
-   correction left out.
+   the exports; the correction left out.
 
 ### Threading
 
@@ -3996,18 +3740,17 @@ each window with its own NSWindow, layer, delegate and render thread (below).
 The window position (`x_pt`/`y_pt`) is honoured by X11, Win32 and Cocoa, and
 ignored by Wayland (the compositor places) and KMS (a window is an output).
 Built and exercised on this desktop (release, 2026-11-23): the single-window
-rounds and the two-window check pass on `x11-vulkan`, `x11-gl`, `win64-vulkan`
+rounds and the two-window check pass on `x11-vulkan`, `win64-vulkan`
 and `win64-d3d12`, Win32's process-global pointer calls -- the clip, the
 show count and the raw mouse registration -- are the host's,
 both windows draw the scene (the
 testbed's scene state is per window, keyed by the app), and `find_window()`
 picks between a process's several windows (an `index` into them, and
 `find_windows()` naming every one). Proving the second window draws the scene
-found a fault on the main thread: it holds one GL context, and a window
-created after `fnl_init()` builds its own, leaving that current in place of
-the first's — so `window_start()` now enters each window's renderer for its
-own `on_gpu_created`, where before the first's callback built in the second's
-context and the second's in none. KMS's second window is built (below): it
+found a fault on the main thread: a renderer may hold one current context,
+and a window created after `fnl_init()` builds its own, leaving that current
+in place of the first's — so `window_start()` enters each window's renderer
+for its own `on_gpu_created`. KMS's second window is built (below): it
 opens on a free output, drawn by the copy path, the pointer routing between
 the windows. Wayland's is built below, the point of the design having been
 routing one seat's events between windows. Cocoa's is built below on the
@@ -4110,23 +3853,17 @@ read at its site; what is *not* in this table was looked for and not found.
 | `win32.c` | `ShowCursor` (a counter), `ClipCursor` (global) | two captures fight: the second `capture_apply(p, false)` gives back the first's confinement |
 | `cocoa.m` | `NSApp.delegate` | the second window's delegate replaces the first's, and the first loses Command-Q, the Dock's Quit and `applicationDidHide`; one delegate that asks the frontmost window is the fix, `windowWillClose:` being where a window leaves it |
 | `cocoa.m` | `left_held`, `left_down`, `pump_waiting`, `iso_swap` | window-drag and pump state at file scope: `pump_waiting` sends a wakeup to whichever app checks it, and `left_down` is whichever window's press was last |
-| `gl/loader.c`, `gl/gl_compat.c` | `GlFuncs gl`, `gl_profile41`, `vaos[]`, `real_delete_vertex_arrays` | one function table and one VAO record table for the process: a 4.1 context next to a 4.5 one makes `gl_profile41` wrong for one of them, and two windows' vertex-array names collide in one array of 16. The table is the window's now (`RendererState::funcs`, `gl_funcs.h`), reached through the calling thread's binding (`gl_bind()`), so a second window's load never writes under the first's draws; `vaos` is 4.1's alone, the thread's, and read and written only while that window's context is current |
 | `metal/device.m` | `s_fn[]` | `mt_functions_forget()`, from one window's overlay creation, empties another's compiled stages |
 | `vk_load.c` | the `fnl_vk*` entry table | refilled per instance; the loader's own entries are per device through its trampolines, but the table is single, and the file already requires that no two `vk_load_instance()` calls run at once |
 | `kms/kms.c` | the card as master, `outputs[]`, `scan`, the grabbed inputs, `crtcs_save()` | one window is the whole card (below) |
 
 **Not to be moved**, and deliberately so: `error.c`'s log sink (the process's,
 and the caller sets it once), `text_measure.c`'s glyph table (a property of the
-build, written once before any thread), `egl_dyn.c`'s hold count (already
-counted across apps, which is why a window's close does not close the driver),
-the EGL display's holds in `egl.c`, one level down from it (every window on one
-window server asks EGL for the same display, and `eglTerminate()` ends it for
-all of them, so a window's close gives a hold back and the last one terminates
-it), `cocoa.m`'s `app_launched` (one `NSApplication` a process), and X11's
-static `xcb_extension_t` objects — libxcb caches each extension's reply *per
-connection* under the object's `global_id`, so one object serves every
-connection correctly and a copy per window would only change when the server
-is asked.
+build, written once before any thread), `cocoa.m`'s `app_launched` (one
+`NSApplication` a process), and X11's static `xcb_extension_t` objects — libxcb
+caches each extension's reply *per connection* under the object's `global_id`,
+so one object serves every connection correctly and a copy per window would only
+change when the server is asked.
 
 **On KMS a window is an output, and that is the model.** There is no window
 server to place a second window with: the program holds the card as master
@@ -4324,7 +4061,7 @@ asan; and the tsan round's own checks, its two-window check failing on the
 harness's pointer sweep of a slow build and not on a check of the library's.
 Wayland's second window is built and driven by hand (above); its round,
 `two_window_wayland()`, is in the harness and awaits its run.
-Direct3D 12, OpenGL and Metal still build a device a window, measured green on
+Direct3D 12 and Metal still build a device a window, measured green on
 the same Intel GPU; if a driver is found to want them shared, `VkHost`'s shape
 is the one to follow.
 
@@ -4670,7 +4407,7 @@ such report — Vulkan has nothing like `DXGI_STATUS_OCCLUDED` anywhere in WSI, 
 it does not know and must not claim the window has gone. The one exception is
 the Mac, where AppKit's occlusion state is the window server's own report and
 MoltenVK's layer is Metal's: the bridge reads it there (`VkBridge::occluded`),
-as Metal's and OpenGL's do. On Wayland that costs
+as Metal's does. On Wayland that costs
 nothing. On Win32 under Vulkan a *covered* window goes on rendering while a
 *minimized* one is parked by the backend half: a stated limitation rather than
 a silent one. Direct3D 12 does report it, and the loop parks on that (*A
@@ -4796,7 +4533,7 @@ frame-rate window at every wake, so a window that draws a size and rests before
 the next one prints no line while it is driven -- at 5 and 15 sizes a second
 everywhere, and at every rate on Windows once its frames were held until shown.
 `pace.py` averaged the lines it had, the settle's, and read 20 or 30 for any of
-them, or 10 where the settle left one line (`x11-gl` on this desk). The 5 and 15
+them, or 10 where the settle left one line. The 5 and 15
 rows above were read that way; counted (`fnl_frame_stats()`, which
 `fenestal-dev pace` prints for its drive and `pace.py` reads), they are 19 to 20
 and 45 to 47 on every machine of 2026-10-30, three to four frames a size, as the
@@ -4838,9 +4575,7 @@ costs, compared*, which has the measurement):
   Vulkan a query pool of two per swapchain image, at the top of the
   image's command buffer and after the copy path's readback -- the buffer
   is submitted again unrecorded while the draw state stands, so the reset
-  is in it; OpenGL two `GL_TIMESTAMP` queries per slot, the copy path's
-  readback into a pack buffer ahead of the second, and a frame that takes
-  a snapshot not sampled; Direct3D 12 a timestamp heap resolved into a
+  is in it; Direct3D 12 a timestamp heap resolved into a
   readback buffer at the list's end, its second stamp ahead of a
   snapshot's copy; Metal the command buffer's `GPUStartTime` and
   `GPUEndTime`, read at the slot's wait and not in a completion handler,
@@ -4878,7 +4613,7 @@ every renderer answers a non-blocking poll for finished frames
 (`gpu_time_poll`), asked every turn of the loop, at rest too. The frame drawn
 at rest for the figures alone owes none of its own (`App::cost_counts`), or a
 still window would draw five times a second for good. Measured on the RX
-590 under GNOME, Wayland, Vulkan and OpenGL, at 0.5 s: the line moved twice
+590 under GNOME, Wayland and Vulkan, at 0.5 s: the line moved twice
 a second while the scene moved, and the testbed at rest, after a move to
 lavapipe and back with no input after either, used 0.0 to 0.3 % of a core,
 with both figures shown.
@@ -4906,7 +4641,7 @@ desktop, the testbed at rest with the panel up when the panel sampled:
 at 0.5 s, 0.2 % of a core on the RX 590
 and 13 % on lavapipe, whose frame is rasterised on the CPU; at 0.2 s, where
 `fnl_fps()` reads 5 at rest and a steady 60 with the scene moving, 0.6 %
-on Wayland Vulkan, 0.8 % on Wayland OpenGL, 0.4 % on X11 Vulkan and 30 %
+on Wayland Vulkan, 0.4 % on X11 Vulkan and 30 %
 on lavapipe; with the panel down, 0.2 to 0.4 % throughout. `--frame-times`
 keeps a half-second line on a clock of its own (`FRAME_TIMES_WINDOW`),
 each with the frames its window drew: `pace.py`'s border row adds up the
@@ -5005,26 +4740,24 @@ hold alone.
 A software device is left out before any of that. Its present waits for the
 frame to be drawn, so `App::present_block` stays unmeasured on a
 `VK_PHYSICAL_DEVICE_TYPE_CPU` device and late latching is inert there, as it is
-for any renderer that cannot measure the block. Inert means no hold only
-because the figures start again with the device: a move forgets the hold,
-its ceiling and the base (`late_slack_forget()`, as a wake from sleep
-does), where nothing invites. Kept, the hold a GPU had learnt stood for
-good on the software device after it, where nothing measured could cut it,
-and cost far more than its length. On schenker's KMS at 3840x2160@30,
-llvmpipe after NVIDIA's OpenGL held 13.8 ms a frame and drew 10 fps; with
-no hold it drew 30. The work was the same: a short wait each frame with
-every core idle kept the CPU's own clock choice (HWP) at 1.1 GHz with
-four cores' worth busy, at 5 W and with no limit reported, where llvmpipe
-started there ran at 3.4 GHz, and holding the clock at 3.4 GHz gave the
-30 fps back. The GPU ranking measured the same slow state, 11 and 10
-fps for OpenGL's and Vulkan's software entries, since a calibration moves
-to each; with the hold forgotten, two calibrations there measured 31 and
-50 for OpenGL's and 38 and 32 for Vulkan's. That spread is the machine's:
-under its energy preference `balance_performance` HWP drops the clock to
-1.1 to 1.6 GHz for seconds at a time under llvmpipe's load, still with no
-limit reported (llvmpipe at 15 fps there), and under `performance` holds
-3.4 GHz (30 fps throughout). A figure for a CPU rasteriser is as steady
-as the machine's clock policy.
+for any renderer that cannot measure the block. Inert means no hold only because
+the figures start again with the device: a move forgets the hold, its ceiling
+and the base (`late_slack_forget()`, as a wake from sleep does), where nothing
+invites. Kept, the hold a GPU had learnt stood for good on the software device
+after it, where nothing measured could cut it, and cost far more than its
+length. On schenker's KMS at 3840x2160@30, llvmpipe after NVIDIA's Vulkan held
+13.8 ms a frame and drew 10 fps; with no hold it drew 30. The work was the same:
+a short wait each frame with every core idle kept the CPU's own clock choice
+(HWP) at 1.1 GHz with four cores' worth busy, at 5 W and with no limit reported,
+where llvmpipe started there ran at 3.4 GHz, and holding the clock at 3.4 GHz
+gave the 30 fps back. The GPU ranking measured the same slow state, 10 fps for
+Vulkan's software entry, since a calibration moves to each; with the hold
+forgotten, two calibrations there measured 38 and 32. That spread is the
+machine's: under its energy preference `balance_performance` HWP drops the clock
+to 1.1 to 1.6 GHz for seconds at a time under llvmpipe's load, still with no
+limit reported (llvmpipe at 15 fps there), and under `performance` holds 3.4 GHz
+(30 fps throughout). A figure for a CPU rasteriser is as steady as the machine's
+clock policy.
 
 `App::present_block` therefore excludes every fence wait and includes the
 present call as well as the acquire, because which of the two a driver blocks in
@@ -5083,7 +4816,7 @@ so there "no period yet" is for good, and the spacing is what holds
 lavapipe on a bare X server to 60 rather than 135 (measured, the one time
 the rule was dropped for all). So each renderer says which it is
 (`App::present_untimed`, from what it already knew: Vulkan's
-`phys_software`, OpenGL's `software`, Direct3D 12's WARP), the spacing
+`phys_software`, Direct3D 12's WARP), the spacing
 keeps the old rule there, and elsewhere leaves the swapchain to throttle
 until a period is learnt. And the threshold is 0.6 of the refresh, not
 0.9: the probe's deliberate miss puts a few short samples beside it,
@@ -5092,46 +4825,26 @@ the same starvation; a swapchain that throttles nothing reads far under
 (lavapipe's 7 ms, 0.42).
 
 **An estimate that says nothing blocks is put right when the samples say
-otherwise.** Mesa's OpenGL on schenker's Xorg (modesetting with glamor,
-the HD 630) lets a new window's swaps through unthrottled for about half a
-second -- 254 frames a second -- and blocks for the refresh ever after. The
-sixty presents the estimators wait out end inside that burst, so the first
-settled sample was the frame's own cost, 1.06 ms, and it replaced the
-estimate whole: under `PACE_UNTHROTTLED`, so the loop spaced every turn by
-the refresh, which samples nothing, and the hold stayed at 0. With the
-spacing switched off for a probe, the swap blocked 16.1 ms a frame and the
-estimate still read 1.06, since every true sample is over `LATE_MISS_FACTOR`
-of it and was dropped as a missed cycle. So two things, both only while
-the estimate is under `PACE_UNTHROTTLED` of a reported refresh: eight
-samples in a row that it would drop, agreeing with each other, replace it
-(`PERIOD_RELEARN_RUN`; a missed cycle is one sample, never eight alike, and
-an estimate at the refresh is never touched, so a device falling behind
-for a while is not taken for a new display); and while the spacing holds
-every turn on a device whose present is timed, a burst of eleven turns is
-let through unspaced after 120 spaced ones, the gap doubling after each
-burst that changed nothing to 3840 turns (`period_probe()`), so the swap can
-say it blocks. On schenker the period is learnt again 2.3 s into the window
-("display period learnt again: 16.62 ms, where 1.07 stood") and the swap
-throttles from then on; the stress round's window had stuck at 3.25 ms and
-was put right the same way. The hold there settles at 0 to 1.1 ms and not
-at Vulkan's 12: a longer one makes that swap miss its vblank, and the
-controller cuts it, which is the controller working. What it costs: the
-callbacks' intervals move with the hold, p99 17.67 ms against 16.83 with
-the spacing; whether what reaches the screen moved, X11 has no present
-stamps to say. Vulkan on the same server, KMS and weston never reach the
-rule.
-
-**And where the swap never blocks, the probe's bursts are the cost.**
-Mesa's OpenGL with `vblank_mode=0` on the same machine is a hardware swap
-that throttles nothing with vsync asked for: the estimate stays at the
-frame's own 1.17 ms, which is right, the loop spaces every turn by the
-reported refresh, and over a 20 s measure it drew 1221 frames where the
-rate is 1200 -- 61.05 fps, the extra 21 the probe's bursts of eleven
-(24 frames with under 1 ms of pace), each burst's gap having doubled
-toward 3840 turns. Nothing else of it shows: the callbacks' intervals
-p50 16.66 ms and p99 16.82. With the swap blocking as it should, the
-same window learnt its period again (16.84 ms, where 1.00 stood) and
-drew 59.9995 fps.
+otherwise.** A swap may let a new window's presents through unthrottled for
+a while and block for the refresh ever after. The sixty presents the
+estimators wait out can end inside that burst, so the first settled sample
+is the frame's own cost, about a millisecond, and it replaces the estimate
+whole: under `PACE_UNTHROTTLED`, so the loop spaces every turn by the
+refresh, which samples nothing, and the hold stays at 0. With the spacing
+off, the swap would block a whole frame and the estimate still read the
+millisecond, since every true sample is over `LATE_MISS_FACTOR` of it and is
+dropped as a missed cycle. So two things, both only while the estimate is
+under `PACE_UNTHROTTLED` of a reported refresh: eight samples in a row that
+it would drop, agreeing with each other, replace it (`PERIOD_RELEARN_RUN`; a
+missed cycle is one sample, never eight alike, and an estimate at the
+refresh is never touched, so a device falling behind for a while is not
+taken for a new display); and while the spacing holds every turn on a device
+whose present is timed, a burst of eleven turns is let through unspaced
+after 120 spaced ones, the gap doubling after each burst that changed
+nothing to 3840 turns (`period_probe()`), so the swap can say it blocks.
+Where the swap really never blocks, the probe's bursts are the cost: over a
+20 s measure at 60 Hz such a window drew 1221 frames where the rate is 1200,
+the extra 21 the bursts of eleven, and nothing else of it shows.
 
 **Nor is a missed cycle taken for the period.** The first sample after
 rest can span two refreshes, and the first settled one replaces the
@@ -5146,8 +4859,8 @@ the estimate already learnt drops such samples as before. Not seen at
 
 Measured after, 2026-10-28: amdgpu's display path, the estimate 14.9 to
 16.9 ms over 45 s and the hold 4 to 11 ms, where it had been 2 ms and 0,
-OpenGL there 16.63 ms and 5 to 12; schenker's KMS, all four of Intel's
-and NVIDIA's Vulkan and OpenGL at 16.6 ms with holds of 6 to 12 --
+schenker's KMS, all four of Intel's
+and NVIDIA's Vulkan at 16.6 ms with holds of 6 to 12 --
 Intel's Vulkan on its own panel had learnt no period at all before, hold
 0; GNOME's X11 Vulkan at 16.6; aspire's Windows, D3D12 and Vulkan on both
 GPUs, the same as before the change; lavapipe on thinkpad's Xorg still
@@ -5171,8 +4884,7 @@ points of a core from 5 to 60 sizes a second and 7 at 250 (Vulkan's
 within 1.4 and 0.9), at 19 to 30% from 30 to 60 and 58 to 65% at 250,
 below Vulkan's at every rate, the frames the same in all three. So the
 spread between the earlier sweeps is between sittings, not one sweep's
-noise; OpenGL's column is the noisy one, two cells of twenty-one a half
-over the rest.
+noise.
 
 A third sitting at `a24e42f` lay between the two, 19 to 31% at 30 to 60
 sizes a second and 56% at 250, below Vulkan's again, and a fourth sweep
@@ -5257,11 +4969,10 @@ the renderer's.** Everything above decides to draw or to rest, the same for
 every graphics API. A renderer that keeps a recording -- Vulkan's command
 buffers -- re-records an image only when `record_gen` has moved past the
 one it was recorded at, and submits it again otherwise. One that does not
-records on every turn the core draws, and never on one it rests: OpenGL,
-where a frame is the calls that drew it, and Direct3D 12, which could keep
-a list per back buffer and does not. One list, reset each frame on the
-slot's allocator, is GL's shape, which the D3D12 renderer shares the
-scene's and the overlay's drawing with; a list kept per image would want
+records on every turn the core draws, and never on one it rests: Direct3D
+12, which could keep a list per back buffer and does not. One list, reset
+each frame on the slot's allocator, is the shape the D3D12 renderer shares
+the scene's and the overlay's drawing with; a list kept per image would want
 Vulkan's retirement of what each names across a resize, for a saving that
 recording a few dozen draws does not need. The public
 promise is what both keep: `on_record` and `on_overlay` run at least when
@@ -5513,17 +5224,6 @@ images (none zero copy, 34.7 ms both ways) and scans out a fullscreen one,
 which has the output's size anyway (710 of 720, 7.9 ms). It is kept there
 for a compositor that does what Windows does, at a swapchain a drag.
 
-**OpenGL on Wayland keeps the same room.** The `wl_egl_window` is
-`app_buffer_room()`'s size while the size is changing and the window's
-own at rest, and an unchanged size is not handed to
-`wl_egl_window_resize()` again: Mesa allocates the next buffer for a
-size it is given. The viewport's source is the top-left extent, which
-is the part Vulkan's images already show, and the blit lands in the top
-of the window framebuffer because that framebuffer's origin is the
-bottom. What that saves, where OpenGL draws faster than it reallocates,
-is unmeasured. On the Pi the `wayland-gl` window under weston draws on
-llvmpipe, and the rasteriser is the ceiling (TODO).
-
 **Where an X11 device can present one to one, Vulkan keeps its
 swapchain too.** The surface names the window's extent, so an image of
 another size is out of date unless the present mode offers
@@ -5689,7 +5389,7 @@ subsurface's frame is shown by its own commit, so the ack follows the frame
 that answers it. The frame callback is the subsurface's, which the driver
 commits. Without a viewporter the pixel cannot cover the window and the
 frames stay where they were, said once. Measured: Vulkan on RADV to lavapipe
-and back, to OpenGL and back, and OpenGL to lavapipe, each shown at once.
+and back, each shown at once.
 
 Driven (2026-10-22): `x11-vulkan` and `wayland-vulkan` between this
 desktop's RX 590 and lavapipe, and `win64-d3d12-native` on both laptops,
@@ -5782,45 +5482,6 @@ kind comes from the API: Vulkan's device type, Metal's unified memory and
 integrated and discrete short of a device per adapter at every rebuild, and
 a guess from the memory it reports is wrong on APUs.
 
-**OpenGL lists what its drivers will open this window on.** EGL lists its
-devices (`EGL_EXT_device_enumeration`), and a display can be had on one: on
-the device itself where there is no window (`EGL_EXT_platform_device`,
-KMS), and on the window server with the device named
-(`EGL_EXT_explicit_device`). Not every driver takes the name. Measured on
-schenker (Mesa 26.2.5, NVIDIA 580, `tools/probe/eglexplicit.c`): on X11
-both draw on the server's GPU whatever is named, and NVIDIA's refuses the
-xcb display it is named for; on weston NVIDIA's takes the name and Mesa's
-does not -- its software device too, which `gl_bridge_context()`'s note
-already had. So a device is listed where a display opened for this window
-on it says it is on it (the display's `EGL_DEVICE_EXT`), once, at the
-first open (`list_devices()`), each such display opened and closed again:
-on KMS every GPU (the NVIDIA one, Intel's, llvmpipe), on weston the NVIDIA
-one beside the compositor's, on X11 the server's alone. A device a driver
-views but has no driver for -- Mesa's of the NVIDIA card under NVIDIA's own
-module -- has no name to give and is passed over unopened. A move closes
-the display and opens it on the new device, the native window made again
-over it. With no GPU named the display is the window server's choice, or
-on KMS glvnd's: NVIDIA's EGL, first by its vendor file, answers the
-surfaceless display. A device whose display opens and makes no 4.5 core
-context (`makes_gl45()`, asked with no configuration) is left out with a
-line: nouveau on aspire's GM107 and schenker's GP107 (Mesa 26.2.5)
-answers `EGL_BAD_MATCH`, and listed, a move to it fails and comes back.
-The way back is a move as the way there was, the surface's loss raised
-again (`device_recover()`): from the device's loss alone OpenGL recovers
-on the display that failed, and does so every turn. Forced
-(`FNL_FAULT=recover-objects@1`, the gc tree): on OpenGL, KMS on aspire,
-the move to llvmpipe fails, one line says so, and the window is rebuilt
-on Intel's and drawn there to the end of the round; on Vulkan, X11 here,
-the same from llvmpipe back to RADV, at the size it had; on Direct3D 12,
-both laptops' Windows, from the NVIDIA GPU back to Intel's and from
-Intel's back to the NVIDIA one, the window drawn there to the end of the
-round.
-Mesa's surfaceless display, with no NVIDIA driver to answer it, takes the
-first render node, which there is nouveau's, so EGL's own choice gives
-way to the first listed GPU that is not software where it is one left
-out; where nothing is listed the context fails and says how to get
-llvmpipe, as before.
-
 **On KMS the list is every GPU with a graphics queue, and each reaches the
 output one of three ways.** The surface there is the panel's display, which
 one device holds, so a list of the devices that can present to it would be
@@ -5883,7 +5544,7 @@ line with no loss beside it, and the window drawn at its size after.
 
 **The list spans every renderer the caller has a scene for.** Each entry
 carries the renderer that listed it, so the one list holds Vulkan's GPUs
-and OpenGL's on Linux, Direct3D 12's and Vulkan's on Windows, Metal's and
+alone on Linux, Direct3D 12's and Vulkan's on Windows, Metal's and
 MoltenVK's on a Mac, and a move to one of another renderer's is a move to
 that renderer. `FnlInitDesc::renderers` says which renderers those are,
 where `FnlInitDesc::renderer` names none: a caller that names one has
@@ -5914,16 +5575,13 @@ Vulkan makes an instance of its own in a scratch state of its own, never
 `App::renderer_state`, and asks each device whether a queue presents to the
 window server with no surface (`VkBridge::presents`,
 `vkGetPhysicalDevice*PresentationSupport KHR`; KMS's `can_draw`, a Mac's every
-device); OpenGL lists with the same code its own open uses (`list_devices()`,
-into a `GlDevices` of the caller's), and where EGL lists nothing it names the
-window server's one GPU by a context made current on no surface; Direct3D 12 and
-Metal enumerate as their picks do. The inventory names the renderer beside the
-kind wherever the caller has scenes for more than one, and numbers each line as
-the whole list counts (`app_gpu_inventory()`).
+device); Direct3D 12 and Metal enumerate as their picks do. The inventory names
+the renderer beside the kind wherever the caller has scenes for more than one,
+and numbers each line as the whole list counts (`app_gpu_inventory()`).
 
 **The others are listed after the first frame, on a thread of their own,
-and timed.** Listing loads their drivers -- an instance of Vulkan's, a
-display of EGL's per device -- which the window's first frame has no need
+and timed.** Listing loads their drivers -- an instance of Vulkan's -- which the
+window's first frame has no need
 to wait for, and which on the render thread held the frame after it as
 long; the line `<renderer> lists n GPUs here, in t ms` is the cost, said
 where it is paid. The thread (`app_gpu_list_start()`) is joined with the
@@ -5931,71 +5589,33 @@ render thread. Nothing it calls reads `App::renderer_state`: Vulkan's
 instance is made in a state of its own, which `make_instance()` and the
 bridges' `presents` are handed, and the list is published only once that
 instance is gone, so no move to Vulkan can start beside it. Measured:
-OpenGL's one GPU on this desktop 56 ms, its two or three on the laptops'
-Linux 41 to 89 ms; Vulkan's three there 36 to 54 ms; on the laptops'
+Vulkan's three on the laptops' Linux 36 to 54 ms; on the laptops'
 Windows Vulkan's two 194 to 398 ms and Direct3D 12's three 14 to 456 ms;
 on the Mac Vulkan's one 30 ms and
 Metal's 0. Deciding the renderer before `open()` instead would cost a
 refused renderer's build before the window exists, about one listing
 more for each one tried (2026-10-31, aspire's console, a probe of the
-loader and `libEGL` alone, each cold in a fresh process): a Vulkan
+loader alone, each cold in a fresh process): a Vulkan
 instance with the surface extensions, its devices enumerated and a
 device made, 71 to 105 ms on NVIDIA's driver and 83 to 137 on nouveau,
-where NVK wakes the GPU to enumerate it; an EGL display and a 4.5 core
-context made current, 44 to 55 ms. The first cold instance after the
+where NVK wakes the GPU to enumerate it. The first cold instance after the
 machine sat idle is a third over the rest. The list growing is an
 `FNL_EVENT_GPU`, as a move is: the
 event says to read the list again, and its length is compared beside the
 GPU in use.
 
-**And off the render thread for a second reason: its context.** Listed
-there, Vulkan's drivers -- NVIDIA's 580 among them -- left OpenGL's
-context not current: on NVIDIA's EGL on KMS nothing more was drawn and the
-thread spun, on Mesa's under weston the next swap failed as a lost
-surface. A context is current per thread, and the listing's is not the
-render thread's. Where the thread will not start, the listing runs on the
-render thread and the renderer is entered again after it (`thread_enter`),
-which for OpenGL makes its context current.
-
-**NVIDIA's Vulkan driver terminates NVIDIA's EGL display when an instance
-beside it ends.** The fuller finding, with `tools/probe/eglmove.c`'s
-held-context steps on aspire (580.196.07, glvnd 1.7.0, no window server):
-a display on NVIDIA's device, a context made current and released, a
-Vulkan instance made and destroyed, and every `eglMakeCurrent` after it
-`EGL_NOT_INITIALIZED`, on the thread that held the context and on a new
-one alike; the display opened before or after the instance, glvnd closed
-and opened again in between or not; and nothing of it with Mesa's drivers
-alone, or with the instance before the display. A context already current
-survives a terminated display until it is released, which is all that the
-listing's own thread bought: the frames went on, and the main thread's
-`eglMakeCurrent` at the end failed. So where OpenGL is the renderer to
-draw, the others are listed before its display opens, as under wine
-(below; 114 ms for Vulkan's three on aspire, 120 ms on schenker's KMS --
-and 8.6 s there at the first start after a boot, NVIDIA's driver
-initialising the GPU, which the window's first frame then waits out);
-the listing is not run
-again on the way back from a move that missed, where the list stands
-(*Another kernel driver*); and the OpenGL renderer reads
-`EGL_NOT_INITIALIZED` from a display it initialised as the display
-terminated under it (`RendererState::display_gone`) -- a caller's own
-Vulkan instance would do it -- and makes everything again from the display
-up at the next recovery, where it retried a dead surface for ever.
-
-**Except under wine, and where OpenGL draws, where they are listed before
-the one drawing is built.** There Direct3D 12 is vkd3d-proton on the same
-Vulkan driver, so the listing is a second Vulkan instance in the process
-beside a swapchain that presents (`FnlBackendVtbl::shared_driver`). On
-NVIDIA's 580 under weston and cage, both laptops, the window's Direct3D 12
-program aborted at
-startup (exit code 3, no line): with `WINEDEBUG=+seh`, vkd3d-proton's
-present-wait thread called a null pointer inside `vkWaitForPresentKHR`
-within the 37 ms the Vulkan instance was being listed and destroyed.
-Wine's own table for that call is per device, so the null is the
-driver's. Not on Xorg, and not on lavapipe. So `fnl_init()` lists every
-other renderer the list spans before it builds each candidate
-(`gpu_list_early()`), and the thread after the first frame publishes what
-they said; the cost is paid at startup there, 91 ms for Vulkan's three on
-aspire.
+**Under wine the others are listed before the one drawing is built.** There
+Direct3D 12 is vkd3d-proton on the same Vulkan driver, so the listing is a
+second Vulkan instance in the process beside a swapchain that presents
+(`FnlBackendVtbl::shared_driver`). On NVIDIA's 580 under weston and cage, both
+laptops, the window's Direct3D 12 program aborted at startup (exit code 3, no
+line): with `WINEDEBUG=+seh`, vkd3d-proton's present-wait thread called a null
+pointer inside `vkWaitForPresentKHR` within the 37 ms the Vulkan instance was
+being listed and destroyed. Wine's own table for that call is per device, so the
+null is the driver's. Not on Xorg, and not on lavapipe. So `fnl_init()` lists
+every other renderer the list spans before it builds each candidate
+(`gpu_list_early()`), and the thread after the first frame publishes what they
+said; the cost is paid at startup there, 91 ms for Vulkan's three on aspire.
 
 **A move to another renderer is a swap on the render thread.** The loop
 raises it as any move (`gpu_switch_owed()`, `App::renderer_next`), the
@@ -6013,10 +5633,10 @@ either, `App::renderer_owed` holds it, nothing below the loop's top is
 asked of a renderer that is not there, and the build is tried each turn.
 
 **Driven (2026-10-23), every move across and back in each list.** This
-desktop: X11 and Wayland, each started on Vulkan and on OpenGL, release
+desktop: X11 and Wayland, each started on Vulkan, release
 and under ASan, TSan and the `gc` tree (98, 73, 99 and 74 checks, none
 failed), and wine on X11 and on Wayland from Vulkan and from Direct3D 12.
-Both laptops' Linux: X11, weston and KMS with each renderer (87, 65 and
+Both laptops' Linux: X11, weston and KMS (87, 65 and
 62 checks), KMS and weston under ASan and TSan. Both laptops' Windows,
 each GPU, from Direct3D 12 and from Vulkan: five GPUs listed, 91 and 92
 checks. The guests, WARP and lavapipe. The Mac: Metal to Vulkan on
@@ -6037,9 +5657,8 @@ three displays). The harness's `NO_MOVE_TO` stays for a wine that lists
 one; the d3d12 environments load vkd3d-proton, where the adapter builds
 and is listed, and move both ways. And NVIDIA's own driver under TSan,
 which a round does not start on either. The way back, forced
-(`renderer-move-refused@1`, the gc tree, X11 here): `OpenGL would not
-draw here …; back to Vulkan`, and the window drawn on with Vulkan on the
-GPU it had to the end of the round.
+(`renderer-move-refused@1`, the gc tree, X11 here): the window drawn on
+with the renderer it had, on the GPU it had, to the end of the round.
 
 **Under the checkers a swap unloads drivers.** The loader unloads an ICD
 with the last instance, and a swap destroys it. Lavapipe then leaves two
@@ -6217,81 +5836,10 @@ renderer it was on before the move, by the choice that put it there
 (`App::gpu_cross_from`, `gpu_back_*`), which is not the one it was drawn
 across on -- a choice is an index into one renderer's list.
 
-**OpenGL, and glvnd closed between its spells.** glvnd loads NVIDIA's EGL
-beside Mesa's for every display, and while it is loaded NVIDIA's driver in
-this process is fixed as it was. On NVIDIA's module its first device query
-opens `/dev/nvidia0` and `nvidiactl`, and a display of its own keeps more,
-for as long as the library stays, `eglTerminate()` and
-`eglReleaseThread()` or not: the move is refused with this process named.
-Loaded with the GPU on nouveau it holds `nvidiactl`, and after a move
-NVIDIA's Vulkan driver here does not see the GPU -- it finds its GPU
-through glvnd's vendors -- so the build drew elsewhere and the way back
-was refused, the GPU left on NVIDIA's module. Neither is NVIDIA's EGL's
-own doing alone: the Vulkan loader closes NVIDIA's ICD at
-`vkDestroyInstance`, and glvnd beneath it, so each Vulkan instance starts
-glvnd afresh, which is why a Vulkan window moves freely. So with
-FNL_GPU_DRIVER on, the OpenGL renderer closes `libEGL.so.1` with its last
-hold -- the instance's, and each listing's -- and opens it again for the
-next (`src/renderer/gl/egl_dyn.c`, the one runtime the library closes).
-Measured on schenker with the probe now `tools/probe/eglmove.c` (glvnd
-1.7.0, Mesa 26.2.5, NVIDIA 580.196): NVIDIA's own OpenGL drawn, glvnd
-closed, every descriptor gone, the GPU moved to nouveau and back, Vulkan
-listing NVK and then NVIDIA's GPU, and NVIDIA's OpenGL drawn again after;
-the same from nouveau with OpenGL on Intel; and with glvnd left open,
-the device query alone, or a display on Mesa's surfaceless platform with
-none, NVIDIA's Vulkan driver blind after the move. glvnd's destructor
-drops its thread key and every thread's state, and Mesa's EGL keeps its
-own in a plain thread-local, so a thread that called EGL runs no code of
-either after the close; each thread hands its state back first
-(`eglReleaseThread()`) all the same.
-
-What is closed is what holds the driver, and not what took the static TLS
-block. A library whose thread-locals live there (`DF_STATIC_TLS`:
-libGLdispatch, Mesa's EGL and gallium, NVIDIA's libnvidia-tls) gets its
-room from a surplus glibc reuses only from its end, and the Vulkan
-loader's loads of NVIDIA's ICD in between leave each room freed in the
-middle: on schenker OpenGL listed one GPU after the tenth move from
-OpenGL and none after the eleventh, glvnd loading no vendor that needed
-room. The same twenty moves passed with the surplus made large
-(`GLIBC_TUNABLES=glibc.rtld.optional_static_tls`), which a library cannot
-set: glibc reads it as the process starts. So before glvnd is closed every
-library with static TLS that EGL's own spell brought in -- mapped at the
-close and not at the open, found by `dl_iterate_phdr()` -- is kept for the
-process's life (`RTLD_NOLOAD | RTLD_NODELETE`); none holds a GPU, Mesa's
-letting go at `eglTerminate()`. Not the Vulkan loader's drivers, mapped at
-a close whenever Vulkan draws while OpenGL's GPUs are listed: NVIDIA's ICD
-has static TLS too, and kept it would stay for the process's life, where
-the move rests on each instance starting NVIDIA's userspace afresh. The
-loader loads and unloads its drivers as one, so they take their room at
-the surplus's end and give it back there; twenty moves from OpenGL passed
-with them left out, OpenGL listing its three GPUs after each.
-
-**Measured, release tree, KMS** (2026-10-23, `drivermove 20 gl`: before
-each move the window is put on OpenGL on the NVIDIA GPU, so every move
-starts from OpenGL -- NVIDIA's own, or Zink's on NVK -- and lands on
-Vulkan): twenty moves in one process on each laptop, OpenGL listing all
-three GPUs after each. Schenker: to nouveau 0.84 s, 13 frames drawn
-meanwhile, 0.57 to 0.59 s the longest without one; back 0.81 s, 36
-frames, 0.13 to 0.16 s; onto NVIDIA's OpenGL after 0.14 s, onto Zink's
-0.80 s. Aspire: to nouveau 1.44 s, 53 frames, 0.30 to 0.31 s; back 0.97
-s, 32 frames, 0.29 to 0.33 s; onto NVIDIA's OpenGL 0.16 s, Zink's 0.41
-s. `NOUVEAU_USE_ZINK` put OpenGL on NVK there as the probe's override
-did.
-
-Two ways round were measured and left. Mesa's vendor alone
-(`__EGL_VENDOR_LIBRARY_FILENAMES` before libEGL is opened) hides the GPU
-from NVIDIA's Vulkan driver for the process's life, the variable cleared
-after EGL's start or not: glvnd reads its vendors once a load. Mesa's
-vendor library driven directly (`libEGL_mesa.so.0`, its `__egl_Main`
-handed a table of glvnd's callbacks, which only Mesa's dispatch stubs
-read) works -- OpenGL 4.6 on Intel, both moves, Vulkan seeing each
-driver's GPU after -- but gives up NVIDIA's own OpenGL, which closing
-glvnd keeps.
-
 What is checked instead of trusted: before a move, with the renderer torn
 down and the listing joined, the process must hold no `/dev/nvidia*` and
 nothing of the GPU's (`gpu_driver_leftover()`, `gpu_driver_held()` with
-`every_nvidia`). Where it does -- glvnd a caller opened, say -- the move
+`every_nvidia`). Where it does -- a library a caller loaded, say -- the move
 is not made, said with the path, and no move is offered after it
 (`app_gpu_drivers_pin()`); `FNL_FAULT=gpu-driver-leftover` forces it.
 The descriptor says the driver is held and not by whom, so the line names
@@ -6300,67 +5848,40 @@ unloaded with its descriptor left open. And with the move entries gone
 every entry behind them has a new number, so the list is said again.
 NVML is such a holder: started, it opens `/dev/nvidiactl`, `nvidia0`,
 `nvidia-uvm` and a capability node, and `nvmlShutdown()` closes them all
-(schenker, 580.196). The testbed's F5 panel asks it for the process's
-memory on NVIDIA's OpenGL and shuts it down at each `on_gpu_lost`
-(`gpumem.c`); a caller that asks NVML anything wants the same, or the
-move is refused.
+(schenker, 580.196); a caller that asks NVML anything shuts it down at
+each `on_gpu_lost`, or the move is refused.
 
-On nouveau OpenGL draws through Zink: nouveau's own makes no 4.5 core
-context on GM107 or GP107 (`EGL_BAD_MATCH`), and Zink on NVK makes one
-and lets go with its display, as any Vulkan device does -- measured with
-the probe, OpenGL 4.5 on NVK, glvnd closed, the move to NVIDIA's module
-made and its GPU listed. FNL_GPU_DRIVER sets `NOUVEAU_USE_ZINK=1`, Mesa's
-loader's switch for nouveau alone, where the environment has none: the
-one variable the library writes, in `fnl_init()` before any thread or
-renderer of its own. The other renderers' GPUs are listed again once a
-move has landed, since a GPU's name and who can draw on it are its
-driver's; never while one runs, and not on the way back from one that
-missed, where the list stands and a listing's Vulkan instance beside
-OpenGL's display would terminate it (*Moving to another renderer*). For
-the same reason a move that lands on OpenGL lists them before OpenGL is
-built on the GPU moved, as `fnl_init()` does for a window that starts on
-OpenGL, and every landing drops what was listed so before it, which is
-the old driver's (`gpu_relist_landing()`). The move entries are named by
-Vulkan's GPU alone, whatever renderer they land on: that name is in each
-renderer's -- NVIDIA's OpenGL puts "/PCIe/SSE2" behind it, Zink wraps it
-("zink Vulkan 1.3(NVIDIA GeForce GTX 960M (NVK GM107) (MESA_NVK))") --
-where OpenGL's own would not be found by Vulkan's pick.
+The move entries are named by Vulkan's GPU alone, and the list is listed
+again once a move has landed, since a GPU's name and who can draw on it are
+its driver's (`gpu_relist_landing()`); never while a move runs, and not on
+the way back from one that missed, where the list stands.
 
 **Asked for through the GPU list.** With FNL_GPU_DRIVER set each GPU that
-can move is an entry more for each renderer the caller has a scene for,
-`<GPU>, on <driver>` with that renderer, which `fnl_request_gpu()` and
-the titlebar's GPU box take like any other, and drawn after the move on
-that GPU with that renderer, by the name it keeps on either driver (NVK's
-"(NVK GP107)" cut). With the GPU's own entries every renderer on every
-driver is one entry of the list at once -- on schenker four for the GTX
-1050 Ti, Vulkan and OpenGL on nvidia and on nouveau -- and each of the
-GPU's rows in the GPU box names it alike, by that name and the driver
-the row draws on ("NVIDIA GeForce GTX 1050 Ti on nouveau"), where its
-renderers' own names differ. Each of the four keeps its number for the
-window's life, as every entry of the list does across a move to another
-renderer: the driver the GPU was on when a move was first offered has its
-rows where the renderers list the GPU, and the other driver the move
-entries at the end, so while the GPU is away each renderer's row of it
-and that renderer's move entry, the way back, trade places
-(`app_gpu_driver_entries()`). A row is then mapped back to its renderer
-by where the entry came from, not by counting the parts, and the
-inventory lines number the GPU as the box does (`gpu_number()`, app.c). Both
-laptops' renderers list the NVIDIA GPU first on either driver; one that
-listed it elsewhere on the other would move its row there with it.
-Eight entries hold both laptops' lists,
-three GPUs a renderer and the two moves (`GPU_LIST_MAX`). The window is
-drawn across the move on Vulkan whatever it lands on (*Drawn across the
-move*): an
-OpenGL display loads NVIDIA's EGL, which holds the GPU; so where the
-caller has no Vulkan scene the frames pause instead. A landing that finds
-no GPU of the name withdraws that driver's entry for that renderer alone
-(`app_gpu_driver_unseen()`): the renderers are each a userspace of their
-own there, Zink on NVK beside NVK, NVIDIA's EGL beside its Vulkan
-driver. A driver's name in FNL_GPU_DRIVER binds it before the first
-frame; anything else (`switch`) binds none, the GPU moved only to load
-NVIDIA's module and back (`app_gpu_drivers_start()`) or by a ranking that
-opens on another driver. Off by default,
-because the entries are moves a walk over the list would make.
+can move is an entry more, `<GPU>, on <driver>`, which `fnl_request_gpu()`
+and the titlebar's GPU box take like any other, and drawn after the move on
+that GPU, by the name it keeps on either driver (NVK's "(NVK GP107)" cut).
+With the GPU's own entries every driver is one entry of the list at once --
+on schenker two for the GTX 1050 Ti, Vulkan on nvidia and on nouveau -- and
+each of the GPU's rows in the GPU box names it alike, by that name and the
+driver the row draws on ("NVIDIA GeForce GTX 1050 Ti on nouveau"). Each
+keeps its number for the window's life, as every entry of the list does
+across a move to another renderer: the driver the GPU was on when a move was
+first offered has its row where the renderer lists the GPU, and the other
+driver the move entry at the end, so while the GPU is away the GPU's row and
+its move entry, the way back, trade places (`app_gpu_driver_entries()`). A
+row is then mapped back by where the entry came from, not by counting the
+parts, and the inventory lines number the GPU as the box does
+(`gpu_number()`, app.c). Both laptops' renderers list the NVIDIA GPU first
+on either driver; one that listed it elsewhere on the other would move its
+row there with it. Eight entries hold both laptops' lists, three GPUs and
+the two moves (`GPU_LIST_MAX`). The window is drawn across the move on Vulkan
+(*Drawn across the move*). A landing that finds no GPU of the name withdraws
+that driver's entry (`app_gpu_driver_unseen()`). A driver's name in
+FNL_GPU_DRIVER binds it before the first frame; anything else (`switch`)
+binds none, the GPU moved only to load NVIDIA's module and back
+(`app_gpu_drivers_start()`) or by a ranking that opens on another driver.
+Off by default, because the entries are moves a walk over the list would
+make.
 
 **Measured on schenker, KMS** (`tools/probe/drivermove.c`, which asks for
 the entry itself, release tree): four moves, nvidia to nouveau and back
@@ -6389,7 +5910,7 @@ stood in the way, and both cost every program, not only a move:
   NVK entry, release). The module will not load at all while nouveau
   holds the GPU -- `modprobe nvidia` says "No such device", the kernel
   "No NVIDIA devices probed" -- so nothing keeps it loaded, and with
-  NVIDIA's files in place each Vulkan instance and EGL display tries
+  NVIDIA's files in place each Vulkan instance tries
   again: nine tries of 0.85 s before the first frame, which came at 13.6
   s on aspire and 19.5 s on schenker, where the same start with the
   module loaded first drew at 3.6 s. With FNL_GPU_DRIVER on, from
@@ -6397,8 +5918,8 @@ stood in the way, and both cost every program, not only a move:
   by a move there and straight back, before any renderer (1.5 and 0.7 s
   on aspire): the first frame at 5.0 s, no try refused, and the first
   move onto NVIDIA's module 0.79 s where it was 2.28, a bind and not a
-  load. The keys' NVK entry puts NVIDIA's Vulkan driver, layer and EGL
-  vendor aside at boot (`fenestal-nvidia-userspace`), and there the GPU
+  load. The keys' NVK entry puts NVIDIA's Vulkan driver and layer
+  aside at boot (`fenestal-nvidia-userspace`), and there the GPU
   moved to NVIDIA's module is listed by no Vulkan driver: that landing
   misses, is undone, and that renderer's move there is offered no more
   (`app_gpu_driver_unseen()`), since every later one would miss the same
@@ -6432,7 +5953,7 @@ after the machine): every server stopped, the GPU moved, then the round
 as ever, drawn on the NVIDIA GPU by FNL_GPU. Run on schenker
 (2026-10-23, release): `:nouveau` 59 checks and `:nvidia` 62, none failed,
 each rebinding first and drawing on that driver, the GPU box's walk over
-every entry -- Vulkan's and OpenGL's -- and back included, and, the move
+every entry and back included, and, the move
 offered (`FNL_GPU_DRIVER=switch`, which a round on a driver sends), the
 box's last row taken by the round's hands, there and back
 (`gpu_driver_moves()`: the kernel's time, drawn across or the pause said,
@@ -6444,9 +5965,9 @@ rebinds took 0.53 and 0.58 s, where they took 0.82 and 1.89. Run once
 more after the review of the move (2026-10-23, release, both laptops
 rebooted first), on aspire as well: the same counts on each, none failed,
 the rebind onto nouveau 0.13 s on schenker and 0.73 on aspire, onto
-NVIDIA's module 0.48 and 0.45; and four moves each way from OpenGL after
-them, 0.79 to 0.84 s a move on schenker and 0.96 to 1.41 on aspire,
-every one drawn across.
+NVIDIA's module 0.48 and 0.45;
+and four moves each way after them, 0.79 to 0.84 s a move on schenker
+and 0.96 to 1.41 on aspire, every one drawn across.
 
 ### Drawn across the move
 
@@ -6533,13 +6054,12 @@ surface 180 to 190, which is NVK's first enumeration of its devices,
 inside `vkGetDrmDisplayEXT`; the device 130 to 135; the pipelines 20 to
 22; the swapchain 10 to 13. On NVIDIA's driver 102 to 110 ms (56 to 64,
 4, 40 to 43), and the renderer drawn across, on Intel's GPU, 35 to 50 ms.
-On aspire NVK's is 244 ms (179, 41, 24). Zink's open on NVK, a move of
-OpenGL's, is 730 to 760 ms, all but 30 of it its display's. Every part of
-it is a driver's; the pipelines are no part of it, since Mesa's and
-NVIDIA's own disk caches cover the compiles, and the library's cache
+On aspire NVK's is 244 ms (179, 41, 24).
+Every part of it is a driver's; the pipelines are no part of it, since
+Mesa's and NVIDIA's own disk caches cover the compiles, and the library's cache
 file, one a device (*The startup inventory, and `--gpu=<n>`*), saves the
 rewrite each move cost. A move that misses pauses longer, 1.27 s on
-schenker from OpenGL: the landing's build, the undo and the build back,
+schenker: the landing's build, the undo and the build back,
 with nothing drawn across, since the landing is where the cross ends.
 
 **Killed halfway, on schenker** (2026-10-23, release). The program
@@ -6557,8 +6077,8 @@ the move once the rescue let go of the lock -- NVIDIA's to nouveau, 0.5 s
 
 Which entry of the GPU list draws a program fastest is not a property any driver
 reports. It is the program's scene's and the machine's: on schenker the GTX 1050
-Ti under NVIDIA's driver against the same GPU under NVK at its boot clocks, and
-OpenGL against Vulkan on each. The kind a driver gives (discrete, integrated)
+Ti under NVIDIA's driver against the same GPU under NVK at its boot clocks.
+The kind a driver gives (discrete, integrated)
 orders GPUs and says nothing of the rest; and a display's size and rate are part
 of what a frame costs. So the list's order is measured (`src/core/rank.c`),
 entry by entry and display by display -- and only where the caller asks for it:
@@ -6608,26 +6128,21 @@ decides nothing at the top of the list, and the figure is low at worst for an
 entry that loses either way.
 
 Every entry took the whole 1.5 and 2 s before (2026-11-01), which on this
-desktop was 11 s for `texture`'s three entries. Logged a figure a frame
-over 4 s from landing, the RX 590's two entries were flat from 0.5 s, a
-second's settle and sample within a few percent of the 3.5 s figure, which
-itself spread 7 to 14 % between runs; llvmpipe climbed from 88 to some
-430 fps over two seconds, a sixth of the slower hardware entry throughout.
-Calibrated again, three entries took 4 to 5 s and two took 3, on X11 and
-on Wayland: the hardware Vulkan entry in 1.0 to 1.1 s at 2855 to 3244 fps
-against the old 3061 and 3087, OpenGL in 1.7 to 2.0 s at 1847 to 2152
-against 2021 and 2152, llvmpipe in 1.4 to 2.4 s, and the same winner every
-time. On schenker's KMS (2026-11-01, the `texture` demo,
-`FNL_GPU_DRIVER=switch`, both codes from NVIDIA's own driver) eight
-entries took 13 s where they took 32,
-ranked in the same order with figures within 1 to 4 %: the HD 630's Vulkan
-first at 879 against 875 fps, the GTX 1050 Ti's Vulkan on NVIDIA's driver
-second at 395 against 409, settled in 1.7 s -- NVIDIA's clocks rising
-took longer than the minimum and far less than the 1.5 s cap -- and six of
-the eight, all under half of the HD 630, kept at their settled figures,
-the two moves to nouveau included (126 and 127 against 127 and 127).
-The one figure that moved is the last entry's, OpenGL on llvmpipe, 80
-against 58.
+desktop was 11 s for `texture`'s three entries. Logged a figure a frame over 4 s
+from landing, the RX 590's two entries were flat from 0.5 s, a second's settle
+and sample within a few percent of the 3.5 s figure, which itself spread 7 to 14
+% between runs; llvmpipe climbed from 88 to some 430 fps over two seconds, a
+sixth of the slower hardware entry throughout. Calibrated again, on X11 and on
+Wayland: the hardware Vulkan entry in 1.0 to 1.1 s at 2855 to 3244 fps against
+the old 3061 and 3087, the software entry in 1.4 to 2.4 s, and the same winner
+every time. On schenker's KMS (2026-11-01, the `texture` demo,
+`FNL_GPU_DRIVER=switch`, both codes from NVIDIA's own driver) the entries took
+13 s where they took 32, ranked in the same order with figures within 1 to 4 %:
+the HD 630's Vulkan first at 879 against 875 fps, the GTX 1050 Ti's Vulkan on
+NVIDIA's driver second at 395 against 409, settled in 1.7 s -- NVIDIA's clocks
+rising took longer than the minimum and far less than the 1.5 s cap -- and the
+rest, all under half of the HD 630, kept at their settled figures, the two moves
+to nouveau included (126 and 127 against 127 and 127).
 
 Meanwhile the window says so, over everything it draws, the titlebar
 included: a panel with the time left -- each entry still to measure at
@@ -6698,15 +6213,12 @@ what is drawn there, so a figure is the window's size's on that display
 
 Driven on schenker on 2026-10-26, nothing named, on its bare Xorg (no
 window manager) and bare weston: the first start measured every entry on
-the panel, `eDP-1 1920x1080@60` -- four under Xorg, where OpenGL lists
-the server's GPU alone, five under weston, which has NVIDIA's OpenGL too
-(*OpenGL lists what its drivers will open this window on*) -- in 15 and
-18 s, and opened on the first, NVIDIA's Vulkan (3621 and 3200 fps). The
+the panel, `eDP-1 1920x1080@60`, and opened on the first, NVIDIA's Vulkan
+(3621 and 3200 fps). The
 window dragged to the 4K HDMI monitor measured every entry there, the
 NVIDIA entries read lower across to the Intel-driven output (Vulkan's
-967 and 883 fps); under weston NVIDIA's OpenGL came first there (1560)
-and the window moved to it, and back on the panel to NVIDIA's Vulkan,
-nothing measured either way; a window straddling the two measured
+967 and 883 fps); back on the panel the window returned to NVIDIA's
+Vulkan, nothing measured either way; a window straddling the two measured
 nothing. A second start on each opened on the first with nothing
 measured. The GPU box listed the ranked entries with their figures and
 the Recalibrate row. The GPU box
@@ -6723,11 +6235,10 @@ them. Driven there by hand: eDP-1 measured once under
 Recalibrate dropping the 24 figures of the connected displays, measuring
 HDMI's again and eDP-1's at its next visit. An entry is keyed by its
 renderer and its name cut to the GPU's (`app_gpu_short()`) -- a
-software rasteriser by its kind alone, since OpenGL lists Mesa's as "Mesa
-software rasteriser" and names it "llvmpipe" once it draws -- and for the
+software rasteriser by its kind alone -- and for the
 GPU that can move to another kernel driver by the name it keeps on either
-driver and the driver -- `gl|NVIDIA GeForce GTX 1050 Ti on nvidia` -- so
-a key holds across the moves, NVK's and Zink's names and NVIDIA's
+driver and the driver -- `vulkan|NVIDIA GeForce GTX 1050 Ti on nvidia` -- so
+a key holds across the moves, NVK's names and NVIDIA's
 "/PCIe/SSE2". Without FNL_GPU_DRIVER the list names no driver, and that
 GPU's rows go by their own names: a ranking measured with the moves
 offered matches them only where the names differ by driver.
@@ -6770,15 +6281,10 @@ wait.
 And on the other two laptops' sticks, the same day, nothing named but
 the backend, a calibration and then a second start on each (every second
 start measured nothing and opened on the first): aspire, on eDP-1 at
-1920x1080, six entries on KMS in 22 s -- the HD 530's Vulkan first by a
-hair (397 against the GTX 960M's 394), the 960M's OpenGL copying since
-NVIDIA's EGL takes no Intel buffer -- four under Xorg in 15 s and five
-under weston in 18 s, the 960M's Vulkan first on both (1950, 1625);
-thinkpad, on LVDS-1 at 1366x768, two on KMS in 7 s, llvmpipe's OpenGL
-first (61 against lavapipe's 47) now that it draws onto the output's
-buffers, and lavapipe alone under Xorg and weston, where OpenGL offers
-Mesa's software rasteriser only to `LIBGL_ALWAYS_SOFTWARE=1` and the
-Ironlake GPU has no 4.5.
+1920x1080, the HD 530's Vulkan first on KMS by a
+hair (397 against the GTX 960M's 394), and the 960M's Vulkan first under
+Xorg and weston (1950, 1625);
+thinkpad, on LVDS-1 at 1366x768, lavapipe alone on KMS, Xorg and weston.
 
 With a ranking the list is sorted by the figures for the window's display
 in `gpu_merge()`, the measured entries first and the rest in the list's
@@ -6826,10 +6332,7 @@ driver, which sends `keep` where the machine keeps a ranking and opens on
 its first entry, and otherwise `FNL_GPU_RANK=order`: the list ordered and
 nothing moved, the window where the round's FNL_GPU puts it, so that the
 round walks the list as it is used (`gpu_every_pair()` in `stress.py`:
-from every row to every other, each direction once). A ranked round
-names no renderer, so the tree's two KMS environments would run the
-same round under two names: `kms-vulkan-bare` runs it, and
-`kms-gl-bare` is skipped there as its twin (`ranked_twin()`). Naming
+from every row to every other, each direction once). Naming
 the renderer stays what tests each renderer's start where no ranking is
 used -- a machine that keeps none, and ThreadSanitizer, which NVIDIA's
 own driver crashes -- the Vulkan layer's check with it.
@@ -6859,10 +6362,8 @@ comes before udev has given the new card's nodes their group -- the wait
 begun again by each card heard during it, and one heard after it owed a
 list of its own (`App::gpu_hotplug_gen`, a count and not a flag, which a
 second card heard in the wait would have been spent with unwaited): by a
-rebuild on the GPU in use, by its name, that lists the other renderers
-first, as a landing on another kernel driver does -- a listing after the
-first frame would put a Vulkan instance beside NVIDIA's live EGL
-display, which ends it. A GPU new to the list then has its entries
+rebuild on the GPU in use, by its name, as a landing on another kernel
+driver does. A GPU new to the list then has its entries
 measured as any entry with no figure is, and one that went keeps its
 figures; a GPU in use that went is a lost device first, answered on
 another. **Untested**: no GPU here can be plugged, and nothing has
@@ -6871,29 +6372,25 @@ driven it; the window servers' backends hear no GPU come or go yet.
 ### What a frame costs, compared
 
 The ranking puts every renderer's entries in one list by
-`fnl_frame_gpu_ms()` and `fnl_frame_cpu_ms()`, and each renderer timed
-both over a span of its own: Vulkan's GPU span held the copy path's
-readback and OpenGL's did not; Vulkan's CPU span held the submit and
-OpenGL's did not, nor the swap, nor the readback OpenGL's copy path does
-in its present. `docs/comparable-frame-costs.md` is the plan that makes
-the spans one, in phases; this is what was measured before the first and
-what each phase has changed.
+`fnl_frame_gpu_ms()` and `fnl_frame_cpu_ms()`, so each renderer's two spans
+have to hold the same things. `docs/comparable-frame-costs.md` is the plan
+that makes the spans one, in phases.
 
 **The measurement.** `FNL_COST_PARTS=1` beside `--frame-times`
 (`src/core/parts.c`, every tree) adds lines after each frame line: the
 render thread's CPU time over the spans the line gives in wall time, the
 GPU span cut by four bottom-of-pipe stamps on Vulkan, and on Linux each
-thread's CPU a frame. The testbed, its scene moving, vsync on, on four
-places (milliseconds a frame; the plan has every row and figure):
+thread's CPU a frame. The testbed, its scene moving, vsync on, on these
+places (milliseconds a frame):
 
-| place | Vulkan GPU | of it, the readback | OpenGL GPU | OpenGL's present, CPU | drawn at, Vulkan / OpenGL |
-|---|---|---|---|---|---|
-| schenker KMS, GTX 1050 Ti, NVIDIA 580 | 1.79 | 1.28 | 0.62 | 8.0 | 60 / 60 |
-| schenker KMS, NVK | 8.79 | 5.85 | -- | -- | 60 / -- |
-| thinkpad KMS, lavapipe / llvmpipe | 19.7 | 1.8 | 17.8 | 3.4 | 30 / 30 |
-| this desktop KMS 4K, RX 590 | 0.56 | none (its own output) | 0.31 | 16.3 | 60 / 30 |
-| this desktop KMS 4K, lavapipe / llvmpipe | 42.3 | 6.0 | 23.4 | 20.6 | 18 / 20 |
-| this desktop Wayland 1280x720, RX 590 | 0.16 | none | 0.20 | 0.21 | 60 / 60 |
+| place | Vulkan GPU | of it, the readback | drawn at |
+|---|---|---|---|
+| schenker KMS, GTX 1050 Ti, NVIDIA 580 | 1.79 | 1.28 | 60 |
+| schenker KMS, NVK | 8.79 | 5.85 | 60 |
+| thinkpad KMS, lavapipe | 19.7 | 1.8 | 30 |
+| this desktop KMS 4K, RX 590 | 0.56 | none (its own output) | 60 |
+| this desktop KMS 4K, lavapipe | 42.3 | 6.0 | 18 |
+| this desktop Wayland 1280x720, RX 590 | 0.16 | none | 60 |
 
 Direct3D 12's start stamp is the list's first `EndQuery`, and it is
 written once the work ahead of it is done (`tools/probe/d3d12ts.c`,
@@ -6911,44 +6408,29 @@ bottom-of-pipe one at the span's start (0.002 to 0.06), a wait for the
 window's image inside the span (none: the copy path has no image, RADV
 and ANV showed none on their own outputs), and the end of the render
 pass with its change of layout (at most 1%). The driver's threads did
-little -- radeonsi's submission thread 0.11 to 0.14, NVIDIA's Vulkan
-0.15 -- except a software device's rasterisers, which are its GPU and
-as busy as its span is long.
+little -- NVIDIA's Vulkan 0.15 -- except a software device's rasterisers,
+which are its GPU and as busy as its span is long.
 
-What did: **the copy path's readback, inside Vulkan's GPU span and
-outside OpenGL's**, a third to two thirds of Vulkan's on a hardware
-device's copy path; and **the CPU the render
-thread spends outside the span it is timed over**: OpenGL's swap on
-radeonsi (0.21, which is the whole of OpenGL's lead in this desktop's
-Wayland ranking), and on KMS every copy path's present -- reading the
-frame back and copying it into the scanout buffer, 16.3 ms of the RX
-590's OpenGL frame at 4K, which is why it draws at 30 where Vulkan draws
-at 60, and the ranking still put it first. And the other way: llvmpipe
-blocks the render thread inside OpenGL's recording, 22 ms of wall clock
-with 1.3 of CPU, which the wall-clock CPU half counted as work.
+What did: **the copy path's readback, inside Vulkan's GPU span**, a third
+to two thirds of it on a hardware device's copy path.
 
 **The GPU half: the frame drawn, the copy path's readback in it.** The
 copy path's readback is GPU work every frame on that path costs, and
 the frame rate there is bound by it: drawn flat out on schenker's
 console, Vulkan on the GTX 1050 Ti presented at 390 a second against the
-1634 its figures allowed with the readback (1.29 ms) left out, and
-OpenGL on the Intel GPU at 102 against 333 -- its `glReadPixels` into
-client memory blocked the render thread 6.7 ms a frame on the GPU's
-copy, a wait neither half counts. So Vulkan's end stamp follows the copy
-path's readback, and OpenGL's copy path reads back through a pack buffer
-(`pack_start()`) ahead of its end stamp, the present mapping it. A
-snapshot's copy, once a move, is no part of drawing the frame: Vulkan's
-and D3D12's come after the end stamp, and OpenGL and Metal, which cannot
-stamp around theirs, do not sample a frame that takes one
-(`slot_untimed` on Metal).
+1634 its figures allowed with the readback (1.29 ms) left out. So
+Vulkan's end stamp follows the copy path's readback. A snapshot's copy,
+once a move, is no part of drawing the frame: Vulkan's and D3D12's come
+after the end stamp, and Metal, which cannot stamp around its own, does
+not sample a frame that takes one (`slot_untimed` on Metal).
 
 **The CPU half: the render thread's CPU time, to the present's return.** Every
 renderer marks the end of its waits and the return of the call that hands the
 frame over (`app_frame_mark()`), and the figure is the thread's CPU time between
-them: the submit, OpenGL's swap and the copy path's readback and copy are in it,
-and a wait that blocks -- FIFO's in the present, llvmpipe's inside the recording
--- is not, wherever it falls. The present can then be inside the span although
-it is also the throttle, and the four renderers' spans end at the same point.
+them: the submit and the copy path's readback and copy are in it,
+and a wait that blocks -- FIFO's in the present -- is not, wherever it falls.
+The present can then be inside the span although
+it is also the throttle, and every renderer's span ends at the same point.
 The clock is `CLOCK_THREAD_CPUTIME_ID` on Linux and macOS, a system call of
 about a microsecond, two a frame; on Windows `QueryThreadCycleTime()`, the
 time-stamp counter while the thread runs, turned into seconds at the counter's
@@ -6960,33 +6442,9 @@ recording and submitting (`App::wall_cost`). `late_cost` keeps that span for the
 pacing, which needs wall time. Both means start again on another device, whose
 CPU figure can differ by the whole copy.
 
-A driver that waits by spinning would put its wait into the figure.
-NVIDIA's OpenGL was the one suspected (`__GL_YIELD`), and measured on
-schenker (NVIDIA 580.196.07, 2026-10-28) it does not, wherever it can
-draw for this library. On X11 it cannot draw at all: its EGL lists
-`EGL_EXT_platform_xcb` and answers every xcb display with
-`EGL_NO_DISPLAY` and no error -- on the harness's Xorg, and on an Xorg
-NVIDIA's own driver drove, the panel lit through PRIME -- where it takes
-the same server through Xlib, which this library does not link; so
-OpenGL there is Mesa's. Under PRIME offload on the Intel GPU's Xorg the
-same: Xlib's display goes to NVIDIA, xcb's to Mesa. The report, with a
-C reproduction, is drafted in `docs/nvidia-egl-xcb.md`. On weston its swap
-does not wait for the refresh -- the frame callback paces, and the
-interval is 0 -- and the present costs 0.37 to 0.50 ms, all of it CPU. On
-KMS's copy path the present costs 6.6 ms of CPU in 8.3, and with
-`__GL_YIELD=USLEEP` 7.3: work, not a wait spun; nor uncached reads, a
-pack buffer asked for in client memory (`GL_CLIENT_STORAGE_BIT`) giving
-6.6 again. Which of the map and the copy it is was not split. The pack
-buffer is asked for there all the same (`pack_start()`): without the hint
-NVIDIA's GL made it in video memory and moved it at the first map, and its
-debug output said so, which failed every checker round's clean log that
-moved the window onto NVIDIA's OpenGL on KMS.
-
 Checked against a rate drawn, flat out: the predicted rate over the
-rate presented is 1.35 to 1.46 on every run but OpenGL on the GTX 1050
-Ti, which is CPU-bound alone and reads 1.01; before, 1.44 to 10.2
-(`docs/benchmarks.md`). And the order the figures give is the order
-drawn, on both machines.
+rate presented is 1.35 to 1.46 on every run (`docs/benchmarks.md`). And the
+order the figures give is the order drawn, on both machines.
 
 The ranking file is versioned (`RANK_VERSION`, `v2` on its first line):
 a file of another version is read as nothing measured and every entry is
@@ -7034,8 +6492,7 @@ do when a window moved to lavapipe kept showing the last hardware frame
 within one move -- a surface or a device that would not build, and the
 way back -- finds the subsurface made at the first still empty, so it
 drops that one and keeps the one under it, which is still the last frame
-on screen (`present_drop()`). OpenGL's recovery renews as the others'
-do. X11 and Cocoa needed nothing.
+on screen (`present_drop()`). X11 and Cocoa needed nothing.
 
 **The frame is read back ahead of the move, and the new device dissolves
 from it.** When a move is asked for, the next frame drawn reads itself
@@ -7046,8 +6503,7 @@ presented image is the presentation engine's until it is acquired again,
 which is why the snapshot is not taken at the teardown -- and waits the
 frame's fence once (`record_readback()`, with `TRANSFER_SRC` asked of
 every swapchain whose surface allows it, which every one measured does;
-the copy path's readback already has every frame); OpenGL reads the
-window's image back as its surfaceless present does; Direct3D 12 copies
+the copy path's readback already has every frame); Direct3D 12 copies
 the back buffer into a readback buffer and waits the slot's fence; Metal
 blits the drawable into a shared buffer and waits the command buffer,
 which is why the layer is no longer framebuffer-only. The gate
@@ -7096,14 +6552,14 @@ taken is waited for to the end, without a bound, since that thread is
 then running it and not joining. The device built after the
 move uploads it once, on first use (`App::snap_gen`), and draws it over
 the whole window with the fetch's own shaders blended by one constant --
-`VK_BLEND_FACTOR_CONSTANT_ALPHA` and its three namesakes, `glBlendColor`,
-`OMSetBlendFactor`, `setBlendColor`, the alpha channel left as it is -- at
+`VK_BLEND_FACTOR_CONSTANT_ALPHA` and its namesakes, `OMSetBlendFactor`
+and `setBlendColor`, the alpha channel left as it is -- at
 a weight that falls from 1 to 0 over `fnl_set_transition_ms()`'s length.
 Direct3D 12's factor is the odd one: `D3D12_BLEND_BLEND_FACTOR` blends
 each colour channel by the factor's own channel, and the constant-alpha
 factor it has lately needs a feature check and an Agility SDK no Windows
 10 ships, so the weight goes into all four channels there; with it in the
-alpha alone, as the other three take it, the cover drew nothing on both
+alpha alone, as the others take it, the cover drew nothing on both
 laptops and on WARP, and every move cut (measured below)
 (`FnlRendererVtbl::overlay_cover`, drawn last in `draw_overlay()`, after
 the glyphs, scissored to the window as the ring is not the window's). No
@@ -7115,7 +6571,7 @@ the buffer the frame was read back into are let go once the veil is down
 (`FnlRendererVtbl::cover_release`, asked after each submit at
 `VEIL_NONE`): kept, they were some 33 MB at 4K for the device's life.
 Vulkan and Direct3D 12 drain first, once, as each drains to replace a
-cover; OpenGL and Metal let go at once, a frame in flight keeping what it
+cover; Metal lets go at once, a frame in flight keeping what it
 reads.
 
 **Black is the fallback, and the veil makes it intentional.** Where no
@@ -7218,8 +6674,7 @@ after the request with 38 frames drawn meanwhile; the way back at
 1500 ms, blue to red over 1.5 s in twenty-four steps, the snapshot's bar
 standing at one column while the cover was strong and the live bar
 walking out from under it as the cover thinned, which is the dissolve
-seen. With OpenGL, radeonsi to RADV and back, the same both ways; on
-Wayland the same timings, 0.65 to 0.70 s to the event with 37 to 39
+seen. On Wayland the same timings, 0.65 to 0.70 s to the event with 37 to 39
 frames, the window there not capturable. On schenker's console, the
 window on Intel's display path asked for the NVIDIA GPU on nouveau: the
 frame read back, the renderer drawn across built on the copy path in 23
@@ -7236,10 +6691,7 @@ window up, none black, none missing, none further than 0.27 s from the
 one before. Aspire the same: nouveau bound in 777 ms, NVK landed in 309,
 the event 3.0 s after the request with 115 frames drawn meanwhile, back
 in 1.3 s with 62, and its display red to blue in ten steps over 0.96 s
-and back over 1.06 s, five hundred samples and none black. The
-ThinkPad's console, lavapipe's Vulkan to llvmpipe's OpenGL and back by
-the copy path, at a dissolve of 1.5 s: red to blue and back in three to
-four samples each, the grab there taking 0.7 s a frame, none black. That
+and back over 1.06 s, five hundred samples and none black. That
 is the blank the whole section is about, gone. And weston, on schenker,
 Intel's GPU to NVK and back under a 1.5 s dissolve, read by weston's own
 screenshooter eight times a second since the KMS grab cannot read its
@@ -7296,71 +6748,61 @@ none failed -- one `win11` Direct3D 12 round stopped before any move, in
 its pointer-capture section, the window cycling through heights of 878,
 358 and 5 points until the harness lost it, and passed when run again.
 
-**Driven** (2026-10-24, release): every environment of this desktop and
-the two guests, the GPU box's moves across and back in each -- X11 and
-Wayland with Vulkan and OpenGL (101, 101, 73 and 73 checks), wine on X11
-and on Wayland with Vulkan and Direct3D 12 (85, 54, 88 and 57), and
-`win10` and `win11` with each (87 each) -- none failed, each move's
-`EV gpu` arriving after its dissolve within the round's wait. The Pi's
-console with Vulkan and with OpenGL, 58 checks each, the moves across
-V3D, lavapipe and llvmpipe's OpenGL and back, none failed. The laptops
-on their live keys: schenker's console on nouveau and on NVIDIA's driver
-(72 checks each, the GPU box's move to the other kernel driver and back
-in each, drawn across on the copy path), its console with OpenGL on
-nouveau (64), its bare X11 with Vulkan and OpenGL (91 and 91) and weston
-(62); aspire's console on each driver (72 and 72); the ThinkPad's bare
-X11, weston and console on lavapipe (69, 46 and 55) -- none failed, once
-the harness knew the copy path's line for what it is. Aspire's Windows,
-Vulkan and Direct3D 12 on the HD 530 and the GTX 960M, 91 checks each,
-the moves across the two GPUs, WARP and the other renderer in each: none
-failed but one round's restore-from-minimize rate, which read under the
-busy floor once and 22 % against 14 % visible when run again -- that
-device's known stall, and nothing of a move. Schenker's Windows the
-same four, 92 checks each, none failed. The Mac, Metal to Vulkan on
-MoltenVK and back and the other way round, 77 checks each, none failed:
-the drawable blitted into the snapshot and the cover drawn from it under
-Metal, with the layer no longer framebuffer-only. What that costs a
-Metal frame: `pace.py`'s draw row flat out on the Mac, 338 and 332 fps at
-27.0 and 25.8 % of a core with the layer as it is, 333 fps at 27.2 % with
-it framebuffer-only, which is nothing the measurement can tell apart.
+**Driven** (2026-10-24, release): every environment of this desktop and the two
+guests, the GPU box's moves across and back in each -- X11 and Wayland with
+Vulkan (101 and 73 checks), wine on X11 and on Wayland with Vulkan and Direct3D
+12 (85, 54, 88 and 57), and `win10` and `win11` with each (87 each) -- none
+failed, each move's `EV gpu` arriving after its dissolve within the round's
+wait. The Pi's console, 58 checks, the moves across V3D and lavapipe and back,
+none failed. The laptops on their live keys: schenker's console on nouveau and
+on NVIDIA's driver (72 checks each, the GPU box's move to the other kernel
+driver and back in each, drawn across on the copy path), its bare X11 (91) and
+weston (62); aspire's console on each driver (72 and 72); the ThinkPad's bare
+X11, weston and console on lavapipe (69, 46 and 55) -- none failed, once the
+harness knew the copy path's line for what it is. Aspire's Windows, Vulkan and
+Direct3D 12 on the HD 530 and the GTX 960M, 91 checks each, the moves across the
+two GPUs, WARP and the other renderer in each: none failed but one round's
+restore-from-minimize rate, which read under the busy floor once and 22 %
+against 14 % visible when run again -- that device's known stall, and nothing of
+a move. Schenker's Windows the same four, 92 checks each, none failed. The Mac,
+Metal to Vulkan on MoltenVK and back and the other way round, 77 checks each,
+none failed: the drawable blitted into the snapshot and the cover drawn from it
+under Metal, with the layer no longer framebuffer-only. What that costs a Metal
+frame: `pace.py`'s draw row flat out on the Mac, 338 and 332 fps at 27.0 and
+25.8 % of a core with the layer as it is, 333 fps at 27.2 % with it
+framebuffer-only, which is nothing the measurement can tell apart.
 
 **Measured across a lift** (2026-10-31, `tools/probe/dissolve.c`, its third
-argument asking for the way back that far into the first move's lift;
-schenker, Intel's HD 630 to NVK on the GTX 1050 Ti and back, a 1 s
-dissolve, `FNL_GPU_RANK=off` so that no calibration moves the window
-meanwhile). On its console (the scan-out sampled by `kms_grab.py`), the
-way back asked 0.51 s into the lift: the last sample before it (177, 47,
-172), the first after the readback (190, 45, 156), then back to red over
-1.0 s, the bar live throughout, no black. On its bare Xorg (`import`
-through the forwarded socket, five a second) and on its weston (weston's
-screenshooter, eight a second) the same: the blend held where it stood
-at the readback -- (182, 51, 179) twice on Xorg, (183, 52, 177) on weston
--- then red over 1.0 and 1.1 s, Intel's first frame 0.24 and 0.05 s after
-the way back, no picture black and none of weston's background. A loss
-during the lift (`gc`, `FNL_FAULT=device-lost@140`, some 0.6 s in) on
-both: the blend held through the rebuild, the bar still, then the lift
-went on to blue from where its clock stood -- no black, nothing back to
-red -- which is the "where the window server kept the last frame, the lift
-goes on" of the rule above. A move that will not build on weston
-(`FNL_FAULT=create-surface@1`): the last frame up 0.5 s with the bar
-standing, then live again on Intel, never a hole. OpenGL to OpenGL on
-the console (`FNL_RENDERER=gl`), NVIDIA's OpenGL onto llvmpipe and back,
-both the copy path onto the Intel panel: each a 1 s dissolve with the bar
-live and no black sample. NVK's landing on aspire's console (the kernel
-driver move, the scene moving): NVK's first frame 1.28 s after the
-request, then red to blue in nine samples over 0.95 s and back over 0.8
-s, none of 58 black. A loss during the lift on the console's display
-path (`gc`, schenker, NVK's copy path to the HD 630 on its own panel, a
-3 s dissolve, `device-lost@150` about a second in, at (129, 50, 208)):
-the next three samples, 0.2 s of the rebuild, are the whole cover --
-the frame read back before the move, red, its bar where it stood -- and
-the lift then runs again from it to blue over 3.0 s, no black and
-nothing older; a loss just after the lift showed one black sample, the
-take-back, and never the first move's frame. And a mode change after a
-move shows black, not the frame read back for it (the Pi's forced
-HDMI-A-1, six modes; V3D to llvmpipe and back, then eight changes
-between 1920x1080 and 1024x768): the two gaps a sample fell in were
-black, the live frame at the new mode in the next, and no sample of the
+argument asking for the way back that far into the first move's lift; schenker,
+Intel's HD 630 to NVK on the GTX 1050 Ti and back, a 1 s dissolve,
+`FNL_GPU_RANK=off` so that no calibration moves the window meanwhile). On its
+console (the scan-out sampled by `kms_grab.py`), the way back asked 0.51 s into
+the lift: the last sample before it (177, 47, 172), the first after the readback
+(190, 45, 156), then back to red over 1.0 s, the bar live throughout, no black.
+On its bare Xorg (`import` through the forwarded socket, five a second) and on
+its weston (weston's screenshooter, eight a second) the same: the blend held
+where it stood at the readback -- (182, 51, 179) twice on Xorg, (183, 52, 177)
+on weston -- then red over 1.0 and 1.1 s, Intel's first frame 0.24 and 0.05 s
+after the way back, no picture black and none of weston's background. A loss
+during the lift (`gc`, `FNL_FAULT=device-lost@140`, some 0.6 s in) on both: the
+blend held through the rebuild, the bar still, then the lift went on to blue
+from where its clock stood -- no black, nothing back to red -- which is the
+"where the window server kept the last frame, the lift goes on" of the rule
+above. A move that will not build on weston (`FNL_FAULT=create-surface@1`): the
+last frame up 0.5 s with the bar standing, then live again on Intel, never a
+hole. NVK's landing on aspire's console (the kernel driver move, the scene
+moving): NVK's first frame 1.28 s after the request, then red to blue in nine
+samples over 0.95 s and back over 0.8 s, none of 58 black. A loss during the
+lift on the console's display path (`gc`, schenker, NVK's copy path to the HD
+630 on its own panel, a 3 s dissolve, `device-lost@150` about a second in, at
+(129, 50, 208)): the next three samples, 0.2 s of the rebuild, are the whole
+cover -- the frame read back before the move, red, its bar where it stood -- and
+the lift then runs again from it to blue over 3.0 s, no black and nothing older;
+a loss just after the lift showed one black sample, the take-back, and never the
+first move's frame. And a mode change after a move shows black, not the frame
+read back for it (the Pi's forced HDMI-A-1, six modes; V3D to llvmpipe and back,
+then eight changes between 1920x1080 and 1024x768): the two gaps a sample fell
+in were black, the live frame at the new mode in the next, and no sample of the
 way back's frame or a frozen one.
 
 On both laptops' Windows (the same day, both renderers, Intel's GPU to
@@ -7443,21 +6885,7 @@ restored 4.4 s after the move's `EV gpu`, the window's first picture
 after the click is lavapipe's frame, whole, its bar walking, and the
 ten after it the same until the way back turns it red: no picture of
 the twelve has a black pixel inside the window. The pictures are some
-2.4 s apart, so the restore's own animation is not sampled. OpenGL to
-OpenGL here
-cannot be asked: OpenGL lists radeonsi alone on this desktop, on Wayland
-and on X11, and `FNL_GPU=llvmpipe` finds no GPU by that name, though
-EGL offers Mesa's software device: asked for it with
-`EGL_EXT_explicit_device`, Mesa 26.0.8 opens this session's Wayland
-display on radeonsi instead (a probe of EGL alone, the display's
-`EGL_DEVICE_EXT` the hardware device), so it is not the software device's
-display and `list_devices()` leaves it out -- with a line now, `GPU left
-out: a software device, whose display for this window EGL opens on
-another device`. The thinkpad's Mesa 26.2.6 does the same on bare Xorg;
-OpenGL to OpenGL has been seen on KMS, whose surfaceless display takes
-the device it is asked for. radeonsi's OpenGL to lavapipe's Vulkan, GNOME's
-frozen-frame case, shows lavapipe's frames: a picture taken on lavapipe
-is the window pure blue.
+2.4 s apart, so the restore's own animation is not sampled.
 
 **Where a driver presents through GDI** (2026-10-31, the same probe
 reading the screen from inside, sixteen to twenty-two milliseconds a
@@ -7602,8 +7030,8 @@ reported in its two parts, and what is left over:
   behind, and on schenker's weston that was the question. `fence` is the
   device's fences -- `App::device_block`, which every renderer sets: the
   slot's fence, and Vulkan's per-image one -- and `acquire` the rest: the
-  swapchain image on Vulkan, the frame-latency object on Direct3D 12,
-  nothing on OpenGL, which has neither. Lines from before the split read
+  swapchain image on Vulkan and the frame-latency object on Direct3D 12.
+  Lines from before the split read
   `wait`, the two summed.
 * **record** — building the command buffer, and zero on every frame the
   recording cache serves.
@@ -8070,21 +7498,20 @@ rather than a fixed step near the far plane; the threshold is
 `TAAU_DEPTH_REJECT`, relative to the pixel's own. The resolve writes the depth
 it compared against into its own alpha, and the history copy carries that with
 the colour while an `_SRGB` target transforms the RGB channels only -- so the
-depth it reads back next frame is the depth it wrote, and the fetch reads
-`.rgb` and never sees it. Every renderer keeps the depth for it: Vulkan stores
-it and leaves it in the read-only layout its descriptor names, GL makes it a
-texture where it was a renderbuffer, Direct3D 12 views it as an SRV beside the
-pair, and Metal gives it `MTLTextureUsageShaderRead`. On those three the depth
-was already an object a shader could read, so nothing extra is allocated. On
-Vulkan it was a transient attachment -- stored by nothing, costing no memory --
-so it is made resident **only where the mode is in force**: a size change
-builds the target resident when the render thread's last draw says the mode
-is on, so a TAAU resize costs one build and one drain; the first frame that
-wants the mode on a target built without it rebuilds once, the one place
-this needs a queue drain; and a window that never asks for the mode pays
-nothing (TODO *Temporal upscaling, measured*). The single-sampled offscreen
-pass exists twice for the same reason, differing only in whether the depth
-is stored -- see *A pipeline per target*.
+depth it reads back next frame is the depth it wrote, and the fetch reads `.rgb`
+and never sees it. Every renderer keeps the depth for it: Vulkan stores it and
+leaves it in the read-only layout its descriptor names, Direct3D 12 views it as
+an SRV beside the pair, and Metal gives it `MTLTextureUsageShaderRead`. On those
+two the depth was already an object a shader could read, so nothing extra is
+allocated. On Vulkan it was a transient attachment -- stored by nothing, costing
+no memory -- so it is made resident **only where the mode is in force**: a size
+change builds the target resident when the render thread's last draw says the
+mode is on, so a TAAU resize costs one build and one drain; the first frame that
+wants the mode on a target built without it rebuilds once, the one place this
+needs a queue drain; and a window that never asks for the mode pays nothing
+(TODO *Temporal upscaling, measured*). The single-sampled offscreen pass exists
+twice for the same reason, differing only in whether the depth is stored -- see
+*A pipeline per target*.
 
 FSR 2's and DLSS's answer -- motion vectors, depth *and* a jittered projection
 handed back by the caller, through an interop entry per renderer -- is the
@@ -8179,7 +7606,7 @@ of the small scene -- the cube's silhouette and face edges sharper, and holding
 through the pan rather than smearing. The half-scale case is the one the mode is
 for, and the demo applies `FnlFrame::jitter_x` to its projection, without
 which the resolve would sample a jitter it does not need to undo and gather
-nothing. The testbed's four scene files apply it too now (the same subpixel
+nothing. The testbed's three scene files apply it too now (the same subpixel
 shift in their vertex stages' shared `ScenePush`), so the star there draws a
 real TAAU picture -- the comparison of the star against MSAA and MLAA is what
 remains owed, in TODO *Temporal upscaling, measured*.
@@ -8189,21 +7616,19 @@ with. Direct3D 12 draws it (2026-11-22): `win64-d3d12` under wine wrote a
 `complete` benchmark record -- 59.997 fps, p99 18.45 ms over 1200 frames, the
 scene moving -- and a frame read back off the window has the star in it and
 the titlebar's TAAU box ticked, so the one renderer whose environment was shut
-when this was written is the fourth of the four. Windows draws it as well as
+when this was written is the third of the three. Windows draws it as well as
 wine: the `win10` guest, on WARP, wrote a `complete` record of 307 frames in
 20 s (2026-11-22).
 
 The resolve's order is the validation layer's business, and the layer is
-silent on it (2026-11-22). An `asan` tree -- Debug, so GL's debug output is on
--- with Khronos' layer enabled in the instance alone and sync and
-best-practices checks on, drawing the same moving TAAU frames: 2395 frames on
-`x11-vulkan` and 2432 on `x11-gl`, both records `complete`, and neither log
-holds a layer line. So the `RENDER_TARGET -> COPY_SOURCE` before the fill, the
+silent on it (2026-11-22). An `asan` tree with Khronos' layer enabled in the
+instance alone and sync and best-practices checks on, drawing the same moving
+TAAU frames: 2395 frames on `x11-vulkan`, the record `complete`, and the log
+holds no layer line. So the `RENDER_TARGET -> COPY_SOURCE` before the fill, the
 `COPY_SOURCE -> PIXEL_SHADER_RESOURCE` after it, the write the fill makes to
-the history image the frame before wrote, and the GL blit's source and its
-destination are each what those checks want. A round does not repeat it yet --
-the round has no TAAU section -- so it is a measurement and not an instrument
-(TODO *Temporal upscaling, measured*).
+the history image the frame before wrote, are each what those checks want. A
+round does not repeat it yet -- the round has no TAAU section -- so it is a
+measurement and not an instrument (TODO *Temporal upscaling, measured*).
 
 **What they cost.** AMD Radeon RX 590 GME (RADV POLARIS10), the Wayland build
 at `--scale=2` — a 2584x1532 buffer over a 2560x1440 presentable area —
@@ -8428,7 +7853,7 @@ a float one where it does not — and the shader's rule is the SDR one: write
 linear light, and read `FnlFrame::color` for how far it may go.
 
 Where it is not: X11 has no colour-management protocol, so a compositor
-treats the window as sRGB; OpenGL presents SDR on both systems; a Vulkan
+treats the window as sRGB; a Vulkan
 surface through DXGI is 8-bit and refuses it, as does a surfaceless window no
 backend vouches for. On KMS it is there where the connector's EDID carries
 the HDR static metadata block and the connector has `HDR_OUTPUT_METADATA`:
@@ -8990,48 +8415,6 @@ the new size), the ack first from maximized into fullscreen and the
 geometry first back again (fullscreen only bounds the size). The flush
 comes after both. Eight runs of that round on the thinkpad, none failed.
 
-**OpenGL draws here through EGL and a `wl_egl_window`** (`wayland-gl`,
-`src/renderer/gl/egl_wayland.c`), which differs from the X11 bridge in three
-ways, each seen working on this desk (radeonsi, Mesa 26.0.8, GNOME):
-
-* **The swap never waits.** Under an interval of 1 Mesa's
-  `eglSwapBuffers` waits for a frame callback of its own, with no timeout,
-  and a hidden window is sent none, so the render thread would stop in the
-  swap until the window came back. The surface is given 0 whatever vsync
-  asks, and vsync is the library's own frame callback, which times out
-  (`FRAME_WAIT_S`) -- the throttle Vulkan has here too (*Late latching*).
-  The status line says `frame callback (vsync)`, and with vsync off,
-  where nothing paces, `swap interval 0`. Minimized with the scene
-  clock running, the window went on committing until the off-screen skip
-  stopped it, and a `SIGTERM` six seconds later exited cleanly in 0.02 s:
-  nothing waited in the swap.
-* **The native window has a size of its own.** While the size is changing
-  it is `app_buffer_room()`'s, and at rest the window's; an unchanged size
-  is not handed to `wl_egl_window_resize()` again, because Mesa allocates
-  the next buffer for a size it is handed. The viewport's source shows the
-  top-left extent. What the room saves is unmeasured.
-* **The configuration has alpha**, for the transparent grab ring, which is
-  Wayland's pre-multiplied ARGB as Vulkan's composite alpha is; with no ring
-  (fullscreen) the EGL surface is made again with `EGL_PRESENT_OPAQUE_EXT`
-  over the same native window, so the compositor may scan it out (*Composite
-  alpha*). A driver without `EGL_EXT_present_opaque` keeps the alpha
-  surface throughout. Read off `WAYLAND_DEBUG=client`: the buffers are
-  `AR24` windowed, `XR24` in fullscreen and `AR24` again after it.
-
-The stress round is 57 checks with none failed and seven not applicable,
-and 60 with `--capture`, where the compositor's picture shows the titlebar,
-its absence in fullscreen and its return. Under `asan`, `tsan` and `gc` it
-is 60 each with `--capture`, none failed, and `minimal.py` 20 each; the
-`analyzer` and `clang` trees build with no warning. ThreadSanitizer needs
-radeonsi's debug info for two entries of `tsan.supp`, which name the
-driver's own hand-offs between its threads. A Debug tree's GL debug output
-reported nothing, and is shown to be on by `FNL_SELFTEST=gl`
-(`selftest.py`), which it reports.
-
-The bridge is the one file outside `src/backend/wayland/` that names
-Wayland: EGL takes no `wl_surface`, only a `wl_egl_window`, and only
-libwayland-egl's calls make one, so `check-layering.py` excuses it by name.
-
 ### X11: xcb, not Xlib
 
 The render thread is the reason. Mesa's WSI blocks in a connection once a frame
@@ -9160,26 +8543,26 @@ completions, which the backend selects, encoded by hand, for the shown stamp
 and the sync hold (below), are not taken as one: `invites` is false here.
 
 **lavapipe leaks a shared-memory segment per swapchain image, so run it with
-`MESA_VK_WSI_DEBUG=noshm`.** Mesa's software swapchain hands each image to
-the server through MIT-SHM -- `xcb_shm_attach`, a pixmap on the segment --
-and its teardown (`x11_image_finish()`) frees the pixmap and its own mapping
-but never sends `xcb_shm_detach`, so the server holds every segment until the
-client disconnects. Counted on the thinkpad at 250 sizes a second: the
-program's `shmat` and `shmdt` within nine of each other every second and its
-swapchain creates and destroys within three, while the segments marked for
-removal and still attached once climbed 380 a second, to the system's 4096
-in about 1,360 rebuilds. Past that every attach fails, Mesa's presents fail
-with them (BadAccess on `ShmAttach`, BadDrawable on Present), and a destroy
-then waits on a Present event that never comes; the window stopped with the
-render thread behind the reaper's lock. It is the GLX path's leak, fixed
-there in 2019, and it is in Mesa 25.0.7, 25.2, 26.1 and 26.2 alike. Nothing
-in this library can send the detach for it: the segment is the driver's. With
-`noshm` Mesa sends each frame down the socket instead, nothing is attached,
-the same run finishes, and on a panel and a CPU of 2010 it is the cheaper of
-the two everywhere but at rest (see *Frame pacing*). It reaches only Mesa's
-software path, so setting it where a GPU draws changes nothing. Left to the
-caller and not set here: it is the process's environment, read by whatever
-else in it loads Vulkan.
+`MESA_VK_WSI_DEBUG=noshm`.** Mesa's software swapchain hands each image to the
+server through MIT-SHM -- `xcb_shm_attach`, a pixmap on the segment -- and its
+teardown (`x11_image_finish()`) frees the pixmap and its own mapping but never
+sends `xcb_shm_detach`, so the server holds every segment until the client
+disconnects. Counted on the thinkpad at 250 sizes a second: the program's
+`shmat` and `shmdt` within nine of each other every second and its swapchain
+creates and destroys within three, while the segments marked for removal and
+still attached once climbed 380 a second, to the system's 4096 in about 1,360
+rebuilds. Past that every attach fails, Mesa's presents fail with them
+(BadAccess on `ShmAttach`, BadDrawable on Present), and a destroy then waits on
+a Present event that never comes; the window stopped with the render thread
+behind the reaper's lock. Mesa's older X11 path had the same leak, fixed there
+in 2019, and it is in Mesa 25.0.7, 25.2, 26.1 and 26.2 alike. Nothing in this
+library can send the detach for it: the segment is the driver's. With `noshm`
+Mesa sends each frame down the socket instead, nothing is attached, the same run
+finishes, and on a panel and a CPU of 2010 it is the cheaper of the two
+everywhere but at rest (see *Frame pacing*). It reaches only Mesa's software
+path, so setting it where a GPU draws changes nothing. Left to the caller and
+not set here: it is the process's environment, read by whatever else in it loads
+Vulkan.
 
 **And `noshm` tears unless the server is tear-free.** Each frame then
 arrives as a `PutImage` into the window, which the server copies to the
@@ -9296,8 +8679,8 @@ window's alone. In the library, `pace.py` under bare Xorg, NVIDIA's own driver:
 schenker 51, 60 and 60 fps at 45, 60 and 250 sizes a second, where it
 was 49, 37 and 0; aspire 53, 56 and 60, where 33, 11 and 20; the border
 row 58 and 49, where 41 and 32. Intel's GPU there is 60 at each rate and
-59 and 57 in the border row, as before. Both machines' `x11-vulkan-bare`
-and `x11-gl-bare` pass the round, 91 checks each (2026-10-29).
+59 and 57 in the border row, as before. `x11-vulkan-bare` passes the round on
+both machines, 91 checks each (2026-10-29).
 
 **On lavapipe a frame is its pixels, and the shader's arithmetic per
 pixel.** The thinkpad, the testbed's scene moving at 1280x720: 37 fps on
@@ -9363,75 +8746,6 @@ themselves, and each says why: `recentre_pointer()`, whose warp cannot sit
 behind a burst of motion (see *Pointer capture*), and `update_scale`, which
 `fnl_init()` calls ahead of the first pump turn.
 
-**OpenGL draws here through EGL over core xcb** (`x11-gl`,
-`src/renderer/gl/egl_x11.c`), on `BackendState::gfx` for the Vulkan bridge's
-reason. The stress round is 78 checks with none failed, `--capture` or
-not, and the same under `asan`, `tsan` and `gc`, with `minimal.py` 19 each;
-the `analyzer` and `clang` trees build with no warning, and ThreadSanitizer
-matches the same three radeonsi entries of `tsan.supp` as on Wayland and
-nothing else.
-
-**The frame is blitted at the extent's height**, into framebuffer 0, whose
-rows count up from the bottom. On Wayland the rebuild sizes the
-`wl_egl_window` before the frame; on X11 the server sizes the window and
-Mesa takes the new size at the next draw, so a frame in flight when a
-resize lands could go into a taller buffer and land at its bottom. A probe
-found it nowhere: the portal pressing a corner and moving it twelve steps
-a run, the X server's picture of the window taken after each step, three
-runs -- every frame at the window's top-left, cropped or with a strip
-where the window had just grown, none pushed down and none black. The
-count is a script's, checked against captures made to show both.
-
-**And it presents fewer frames than Vulkan while the size changes.** Two
-pace sweeps on the RX 590 under XWayland, the second beside a fresh
-`x11-vulkan` tree: idle, 5 to 15 sizes a second and `draw` match on frames,
-but at 250 sizes a second GL shows 49 fps in both against Vulkan's 60, and
-at 30 a second it read 60 and then 33, against Vulkan's 60. (The border
-row's 51 and 40 are not figures: they were read from frame lines picked
-by position, one a second of the drag, and where fewer came the window's
-"at rest" lines after it read as 0 fps -- one such cell, 31, was 62 and a
-0. The row now counts frames under the press; these are owed again,
-`TODO.md`.) GL's CPU is lower at every rate but idle, where both
-are 0.2%, and as much where the frames match as where they do not -- at 60
-a second 8.3% against 14.8%, both at 60 fps -- so fewer frames are not what
-it is.
-
-The frames are lost in Mesa's swap. `fenestal-pace` at 250 sizes a second
-puts 17-20 ms of each GL frame in `eglSwapBuffers` and almost none in the
-loop's own pacing, where `x11-vulkan` puts 13.5 ms in the pacing and 0.02
-ms in the present. With nothing resizing (`--draw`) GL's swap is 0.3 ms
-and the loop paces it to 60; at 30 sizes a second the swap averages 9 ms;
-and at 250 under `vblank_mode=0`, Mesa's override to an interval of 0, it
-is 0.3 ms again and the frames are back to 60, paced by the loop. Under an
-interval of 1, Mesa's DRI3 swap (`loader_dri3_swap_buffers_msc()`,
-`src/gallium/frontends/dri/loader_dri3_helper.c` in 26.0.8) keeps one
-present in flight: it waits for the previous one's `CompleteNotify`, then
-targets the vblank after the one that completion reported. While the
-window's size changes XWayland's completions come late, and each late one
-is a whole vblank lost -- a frame of 17-20 ms. Vulkan escapes it because a
-resize rebuilds its swapchain, which then has nothing outstanding; an
-interval of 0 escapes it because Mesa then waits for nothing and presents
-`ASYNC`, which on a server with no compositor tears. Nothing in the
-library's half waits longer.
-
-**So the swap waits for nothing where a compositor shows the frames.** The
-X11 backend asks at open whether a compositing manager owns
-`_NET_WM_CM_S<screen>` -- in the wait it already makes for
-`_NET_SUPPORTING_WM_CHECK`, so opening is three waits still -- and
-under one (mutter's, for XWayland) the GL surface is given an interval of
-0 from the start and the loop spaces the frames at the output's refresh,
-as on Wayland; the status line says `paced by the loop (vsync)`. With
-nobody compositing the swap stays the throttle, but for a resize: for
-`GL_RESIZE_HOLD` (0.25 s) after the window's image last changed size it is
-given 0, and 1 again once the size holds still -- a drag there may tear,
-and nothing at rest does (`gl_choose_interval()`). Measured on this desk,
-`fenestal-pace` at 250 sizes a second spends 0.28 ms in the swap and holds
-60 fps, against 17-20 ms and 49; the manager resizing the window at 60 Hz
-for six seconds, `x11-gl` holds 60 throughout, as `x11-vulkan` does; and
-the pace sweep's 250 row is 60 fps at 8.0% of a core against Vulkan's 60
-at 14.5%. Composited or not is read once: a compositor that comes or goes
-afterwards is not followed.
-
 **And a manager waits for the frame at a new size: `_NET_WM_SYNC_REQUEST`.**
 Without it mutter shows a new size at once with whatever the window last
 drew -- stretched, or edged in black -- until the frame at the size lands,
@@ -9456,25 +8770,23 @@ a drag (a 160x120 drag grew the window 26x19); the other left the serial pending
 after the ack, so every frame acked and waited again, the window never rested,
 and under ThreadSanitizer the drags lost the window in two rounds of three.
 
-**Vulkan's present has to have been shown, not only made.** Mesa's X11
-swapchain hands every present to a thread of its own ("WSI swapchain
-queue", `x11_manage_present_queue()` in 26.0.8's `wsi_common_x11.c`), so
-`vkQueuePresentKHR` returns before the server has the frame and a counter
-set after it still reached mutter first; `x11-vulkan` kept the artifact
-when `x11-gl` had lost it. So the frame that acks a configure waits to be
-shown (`VK_KHR_present_wait`, every present carrying a `VK_KHR_present_id`)
-before the flush, bounded at 34 ms, where the backend says the ack needs
-it (`FnlBackendVtbl::ack_when_shown`: X11's, and Win32's, whose
-`size_await()` is the same wait for the same reason). The instance is 1.0,
-where those features are asked through
-`VK_KHR_get_physical_device_properties2`, enabled where the loader lists
-it; without both, nothing waits. Measured in a round: 41 sync requests,
-707 waits that saw their frame shown -- median 6.6 ms, 90th percentile
+**Vulkan's present has to have been shown, not only made.** Mesa's X11 swapchain
+hands every present to a thread of its own ("WSI swapchain queue",
+`x11_manage_present_queue()` in 26.0.8's `wsi_common_x11.c`), so
+`vkQueuePresentKHR` returns before the server has the frame and a counter set
+after it still reached mutter first; So the frame that acks a configure waits to
+be shown (`VK_KHR_present_wait`, every present carrying a `VK_KHR_present_id`)
+before the flush, bounded at 34 ms, where the backend says the ack needs it
+(`FnlBackendVtbl::ack_when_shown`: X11's, and Win32's, whose `size_await()` is
+the same wait for the same reason). The instance is 1.0, where those features
+are asked through `VK_KHR_get_physical_device_properties2`, enabled where the
+loader lists it; without both, nothing waits. Measured in a round: 41 sync
+requests, 707 waits that saw their frame shown -- median 6.6 ms, 90th percentile
 15.6, longest 31.6 -- and two that answered `VK_ERROR_DEVICE_LOST` on a
-swapchain being replaced, which the next frame is not; the result is not
-read, and the counter goes then. Both X11 builds pass the round under the
-validation layer with sync and best-practice checks, and under
-ThreadSanitizer three rounds of three.
+swapchain being replaced, which the next frame is not; the result is not read,
+and the counter goes then. Both X11 builds pass the round under the validation
+layer with sync and best-practice checks, and under ThreadSanitizer three rounds
+of three.
 
 **And the wait is a thread's, not the loop's.** Made on the render
 thread, it held the loop until the frame was shown, which comes back some
@@ -9502,105 +8814,89 @@ the rate again. `x11-vulkan` passes the round with it, under
 ThreadSanitizer with a clean log, and both bare machines' Xorg do. These
 border figures are `pace.py`'s old count; counted over the press
 (`frames_between()`, 2026-10-31, two sweeps) `x11-vulkan` draws 52 to 57
-fps through the drag, wine's Vulkan 53 to 58, and OpenGL on XWayland 36
-to 40, Direct3D 12 under wine 35 to 37 on X11 and 18 to 23 on Wayland --
-the last three read near 60 before, the CPU of every column unchanged.
+fps through the drag, wine's Vulkan 53 to 58, Direct3D 12 under wine
+35 to 37 on X11 and 18 to 23 on Wayland -- the last two read near 60
+before, the CPU of every column unchanged.
 Direct3D 12's wait is made the same way (*Measured on Windows itself*).
 
-**And where the renderer holds no ack, the backend holds it until
-Present says the frame was shown.** OpenGL has no shown waiter, and
-nor has Vulkan without `present_wait` (`App::ack_held` false), so the
-counter was set by the flush right after `eglSwapBuffers`, before the
-server had the frame; mutter then sent the next size at once, and the
-next frame waited for it. The `--frame-times` line's `other` (the frame
-less its parts) named the gap: OpenGL's frames through a drag 23 to 28
-ms with some 16.5 of parts. Now `x11_flush()` keeps the value owed for
-the present just made until Present's CompleteNotify for that present's
-index (`x11_sync_answered()`, from `x11_present_event()` on the main
-thread), bounded at 100 ms (`SYNC_SHOWN_WAIT`) by the pump's timeout --
-34 ms, Vulkan's bound, was measured too tight for this path: of 145
-completions the median was 16.4 ms and the worst 49.6, 2.8% past it; a cancelled present lets it go at once, and a new sync
-request supersedes a kept one. Only once the window has had one
-completion (`present_live`): Mesa's software WSI under `noshm` presents
-by PutImage and answers none, and a wait that runs out turns the hold
-off for the window, with one line. `x11-sync-at-swap` (a Debug tree's
-fault site) releases at the flush as before. Measured (2026-11-01, this
-desk, RX 590, `pace.py --border`): `x11-gl` 48 and 49 fps through the
-drag in two sweeps against 36 to 40 before, `x11-vulkan` beside it 54
-and 59; under the press OpenGL's frames now take 16.7 ms with `other`
-0.0 to 0.1, the rest of the gap a few windows where no size came (110
-to 170 ms of `other`, which Vulkan's column has too). On the `gc` tree
-under the fault site 39 fps, its frames 20 to 85 ms with `other` 3 to 68,
-and 53 without it. The wait never ran out in those or in the `x11-gl`
-rounds, release and `gc`, 105 checks each and none failed. It runs out in
-`x11-vulkan`'s stress round (2026-11-02, release and `gc` alike): once, at
-the first press of the border drag after the window has been sized by
-other means, the frame there 40 to 53 ms; and never in two `pace.py
---border` sweeps beside it, 1,390 sizes at 60 fps on both renderers. Not
-matched to the wrong frame, not late: completions are taken in order, and
-`FNL_X11_PRESENT_LOG=1` (a line for each frame pushed, answered or taken
-back, and each kept value) shows the queue holding about five frames that
-are never answered once the first swapchains have been made again -- the
-presenter's serial starting over at 1 each time -- so that every
-completion after is taken for a frame some five presents older: 19.8 ms
-after its push at the median before those rebuilds, 180 to 230 ms after
-(2026-11-02, the stress round, 1,818 completions). The kept value's frame
-is then answered five presents late and the 100 ms runs out; the shown
-stamps (`fnl_frame_shown()`) and `app_frame_answered()` read the same
-queue. The steady border drags resize in place and make no new swapchain,
-which is why they never run out. So a completion is matched by its serial:
-Mesa's X11 WSI numbers each swapchain's presents from 1, the backend
-numbers its queued frames the same way, restarting where the renderer
-says a chain began (`App::present_chain`, bumped at each swapchain made and
-at a move to another renderer, whose presents start at 1 again),
-and a completion is the oldest queued frame of its number, the frames
-queued ahead of it dropped as never sent; a presenter whose serial matches
-none is taken in order as before. The same round with it (2026-11-02): no
-wait run out, 106 checks and none failed; of 2,926 completions the
-medians 14 to 33 ms after the push, the queue empty or one deep, and 8
-frames dropped, at 7 swapchains made again. Read back as a caller reads
-them (`fenestal-dev pace`'s `pace: shown` line, each `fnl_frame_shown()`
-stamp joined with its `fnl_frame_samples()` row; 2026-11-02, this desk):
-`x11-vulkan` at 15 sizes a second, 180 swapchains made, 566 of 566
-presents stamped, the latch to the screen 21.0 ms at the median and 21.4
-at p95; at 60, 718 swapchains, 723 stamped, 6.4 and 23.0 -- a refresh or
-two, where the old match read five more. `x11-gl` at 60, 681 of 737, 2.8
-ms. At 15 it was stamped almost never, 3 of 544, its match exact all the
-same: XWayland completes each flip 1 to 2 ms after the present with a stamp
-from the refresh before it. With vsync on such a frame goes up at the first
-refresh after its present, so `x11_present_event()` stamps it there --
-the period the server's own counter gives between two completions (held
-to 10 to 500 Hz), or the output's mode where none has -- and with vsync
-off, where it tears on at once, still stamps nothing. Measured again: 505
-of 543 at 15, 15.2 ms at the median; 737 of 738 at 60, 13.4; `x11-vulkan`
-576 of 577 at 15 and 718 of 718 at 60, 21.1 and 13.2 ms. On the bare
-machines' Xorg, at 15 and 60 sizes a second (2026-11-02): Vulkan on the
-thinkpad 552 of 553 and 706 of 724, 17.4 and 16.2 ms; on aspire's NVIDIA
-GPU 539 of 539 and 704 of 706, 6.2 and 19.1; on the Pi 559 of 559 and 630
-of 720, 19.1 and 22.9; OpenGL on aspire 540 of 540 and 739 of 739, 14.8
-and 4.7 (the thinkpad's and the Pi's GPUs have no OpenGL 4.1). NVIDIA's
-presenter numbers each swapchain's presents from 1 as Mesa's does: 828
-completions matched by serial, none dropped. A stamp before its frame's
-latch, seen in 4 runs of 9 on aspire at 60 (7.1 to 10.9 ms before), was a
-frame NVIDIA showed whose present it called out of date: the completion
-came on the main thread before `vkQueuePresentKHR` returned, the frame was
-taken back as never presented, and the next frame drew under its index and
-was stamped a second time, the first stamp then joined with the later
-frame. Now the backend's `frame_cancel()` sees the present answered
-already and says so (`App::present_answered_anyway`), and the renderer,
-through `app_frame_take_back()`, counts it as presented; and a frame's row
+**And where the renderer holds no ack, the backend holds it until Present says
+the frame was shown.** Vulkan without `present_wait` has no shown waiter
+(`App::ack_held` false), so the counter was set by the flush right after the
+present, before the server had the frame; mutter then sent the next size at
+once, and the next frame waited for it. The `--frame-times` line's `other` (the
+frame less its parts) named the gap. Now `x11_flush()` keeps the value owed for
+the present just made until Present's CompleteNotify for that present's index
+(`x11_sync_answered()`, from `x11_present_event()` on the main thread), bounded
+at 100 ms (`SYNC_SHOWN_WAIT`) by the pump's timeout -- 34 ms, Vulkan's bound,
+was measured too tight for this path: of 145 completions the median was 16.4 ms
+and the worst 49.6, 2.8% past it; a cancelled present lets it go at once, and a
+new sync request supersedes a kept one. Only once the window has had one
+completion (`present_live`): Mesa's software WSI under `noshm` presents by
+PutImage and answers none, and a wait that runs out turns the hold off for the
+window, with one line. `x11-sync-at-swap` (a Debug tree's fault site) releases
+at the flush as before. It runs out in `x11-vulkan`'s stress round (2026-11-02,
+release and `gc` alike): once, at the first press of the border drag after the
+window has been sized by other means, the frame there 40 to 53 ms; and never in
+two `pace.py --border` sweeps beside it, 1,390 sizes at 60 fps. Not matched to
+the wrong frame, not late: completions are taken in order, and
+`FNL_X11_PRESENT_LOG=1` (a line for each frame pushed, answered or taken back,
+and each kept value) shows the queue holding about five frames that are never
+answered once the first swapchains have been made again -- the presenter's
+serial starting over at 1 each time -- so that every completion after is taken
+for a frame some five presents older: 19.8 ms after its push at the median
+before those rebuilds, 180 to 230 ms after (2026-11-02, the stress round, 1,818
+completions). The kept value's frame is then answered five presents late and the
+100 ms runs out; the shown stamps (`fnl_frame_shown()`) and
+`app_frame_answered()` read the same queue. The steady border drags resize in
+place and make no new swapchain, which is why they never run out. So a
+completion is matched by its serial: Mesa's X11 WSI numbers each swapchain's
+presents from 1, the backend numbers its queued frames the same way, restarting
+where the renderer says a chain began (`App::present_chain`, bumped at each
+swapchain made and at a move to another renderer, whose presents start at 1
+again), and a completion is the oldest queued frame of its number, the frames
+queued ahead of it dropped as never sent; a presenter whose serial matches none
+is taken in order as before. The same round with it (2026-11-02): no wait run
+out, 106 checks and none failed; of 2,926 completions the medians 14 to 33 ms
+after the push, the queue empty or one deep, and 8 frames dropped, at 7
+swapchains made again. Read back as a caller reads them (`fenestal-dev pace`'s
+`pace: shown` line, each `fnl_frame_shown()` stamp joined with its
+`fnl_frame_samples()` row; 2026-11-02, this desk): `x11-vulkan` at 15 sizes a
+second, 180 swapchains made, 566 of 566 presents stamped, the latch to the
+screen 21.0 ms at the median and 21.4 at p95; at 60, 718 swapchains, 723
+stamped, 6.4 and 23.0 -- a refresh or two, where the old match read five more.
+Before the refresh was stamped, a frame at 15 sizes a second was stamped almost
+never, 3 of 544, its match exact all the same: XWayland completes each flip 1 to
+2 ms after the present with a stamp from the refresh before it. With vsync on
+such a frame goes up at the first refresh after its present, so
+`x11_present_event()` stamps it there -- the period the server's own counter
+gives between two completions (held to 10 to 500 Hz), or the output's mode where
+none has -- and with vsync off, where it tears on at once, still stamps nothing.
+Measured again: `x11-vulkan` 576 of 577 at 15 and 718 of 718 at 60, 21.1 and
+13.2 ms. On the bare machines' Xorg, at 15 and 60 sizes a second (2026-11-02):
+Vulkan on the thinkpad 552 of 553 and 706 of 724, 17.4 and 16.2 ms; on aspire's
+NVIDIA GPU 539 of 539 and 704 of 706, 6.2 and 19.1; on the Pi 559 of 559 and 630
+of 720, 19.1 and 22.9. NVIDIA's presenter numbers each swapchain's presents from
+1 as Mesa's does: 828 completions matched by serial, none dropped. A stamp
+before its frame's latch, seen in 4 runs of 9 on aspire at 60 (7.1 to 10.9 ms
+before), was a frame NVIDIA showed whose present it called out of date: the
+completion came on the main thread before `vkQueuePresentKHR` returned, the
+frame was taken back as never presented, and the next frame drew under its index
+and was stamped a second time, the first stamp then joined with the later frame.
+Now the backend's `frame_cancel()` sees the present answered already and says so
+(`App::present_answered_anyway`), and the renderer, through
+`app_frame_take_back()`, counts it as presented; and a frame's row
 (`fnl_frame_samples()`) takes the presents before it for its index and is
-presented where that count moved, so a refused one is drawn and not
-shown under its own index rather than the one before. Six runs after: no
-stamp before its latch, none twice, three refused presents counted.
-Wayland's `surface_frame_cancel()` answers the same where it can: a
-feedback the compositor said was shown before the take-back is a refused
-present shown, and is counted; one not yet answered is marked taken back
-and stamps nothing, as before, since a take-back comes before the
-compositor's repaint and cannot tell a commit that went from one that did
-not. Neither WSI here makes the case: Mesa's refuses before it commits,
-and NVIDIA's on aspire's weston refused no present in three runs at 15
-and 60 sizes a second, every frame presented and stamped once.
+presented where that count moved, so a refused one is drawn and not shown under
+its own index rather than the one before. Six runs after: no stamp before its
+latch, none twice, three refused presents counted. Wayland's
+`surface_frame_cancel()` answers the same where it can: a feedback the
+compositor said was shown before the take-back is a refused present shown, and
+is counted; one not yet answered is marked taken back and stamps nothing, as
+before, since a take-back comes before the compositor's repaint and cannot tell
+a commit that went from one that did not. Neither WSI here makes the case:
+Mesa's refuses before it commits, and NVIDIA's on aspire's weston refused no
+present in three runs at 15 and 60 sizes a second, every frame presented and
+stamped once.
 
 **Under wine none of this reaches the window.** wine's X11 window is
 wine's, and it advertises no `_NET_WM_SYNC_REQUEST` (`xprop`), so a
@@ -9611,41 +8907,12 @@ went from its frame (17.7% mean grey) to 0% and stayed there, so under
 wine a move asks for one frame (`on_move()`), after which the same capture
 keeps the frame -- for Vulkan under wine on X11 alone, the case measured.
 
-The lower CPU is Vulkan's rebuild and not anything GL saves. A frame costs
-the two about the same -- `--draw`, with no size changes, is 6.2% of a core
-for `x11-vulkan` and 5.2% for `x11-gl`, counted per thread -- and the gap
-opens with the sizes: from `--draw` to 60 sizes a second, both at 60 fps,
-Vulkan goes from 8.2% to 14.8% and GL from 6.5% to 8.3%, about 1.1 ms of
-CPU a rebuild against 0.3. The rebuild column of `--frame-times` at 60
-sizes a second says the same: 3.1-3.4 ms on `x11-vulkan`, 0.7-0.8 on
-`wayland-vulkan`, and 0.3-0.4 for GL on either. A Vulkan resize makes a
+The rebuild column of `--frame-times` at 60 sizes a second is 3.1-3.4 ms
+on `x11-vulkan` and 0.7-0.8 on `wayland-vulkan`. A Vulkan resize makes a
 swapchain, which on X11 is *Frame pacing*'s 3.6 ms inside
 `vkCreateSwapchainKHR` -- the server's side of new images, and two new WSI
 threads in place of the old (`WSI swapchain q` and `e`, which a per-thread
-count sees come and go) -- where a GL resize keeps its EGL surface and Mesa
-reallocates the one back buffer the next frame draws into. On Wayland the
-swapchain is cheap, which is why the two agree there. A sweep of
-`wayland-gl` beside a fresh `wayland-vulkan` tree matches on frames at
-every rate -- 60 fps at 250 sizes a second for both -- and on CPU to
-within a point (9.3% against 10.0% there, 8.0% against 8.7% at 60).
-
-**On the laptops, and where there is no 4.5.** `x11-gl-bare` and
-`wayland-gl-bare` on aspire's HD 530 and schenker's HD 630, the Intel GPU
-each -- GL takes no `FNL_GPU`, and EGL came up on Mesa's Intel driver
-though glvnd lists NVIDIA's vendor first on both -- are 64 and 43 checks,
-none failed.
-The thinkpad's Ironlake offers GL 2.1, and the context is refused with
-`EGL_BAD_MATCH`; `fnl_init()` then fails, saying that
-`LIBGL_ALWAYS_SOFTWARE=1` draws with Mesa's rasteriser instead, and with it
-llvmpipe passes 65 and 44. That is the library's answer and not a fallback
-of its own: Mesa is the one EGL with a software device, and on X11 and
-Wayland it ignores `EGL_DEVICE_EXT` -- `dri2_setup_device()` replaces the
-device asked for with the one it finds (26.0.8; checked, and the display
-came back on radeonsi) -- so only the environment switches it, and the
-library writes no caller's environment. The harness does, for the rounds
-on a bare machine: a GL program there that exits at start with that
-reason is started once more with the variable set (`_SoftGL` in
-`environment.py`), and the device line then names llvmpipe.
+count sees come and go). On Wayland the swapchain is cheap.
 
 ### KMS: no window server
 
@@ -9971,13 +9238,13 @@ the other two are tried in turn:
   open (`kms_atomic_enable()`), which the legacy calls it makes do not
   mind, and so does Mesa's view of the shared file. The queue is the
   hazard. A flip of the backend's still queued
-  when the copy is lent -- the copy path's or OpenGL's last, whose event
+  when the copy is lent -- the copy path's last, whose event
   is read only at the next frame without vsync -- is read by Mesa as one
   of its own images and its `user_data` -- the window's address, where the
   driver's is an image's -- dereferenced
   (`wsi_display_page_flip_handler2`, Mesa 26.0.8: a segfault in RADV at
-  `image->chain` on this desktop's console, at the move from OpenGL back
-  to Vulkan); and the driver's last flip, in flight when the display was
+  `image->chain` on this desktop's console, at the move back to the
+  display path); and the driver's last flip, in flight when the display was
   released and the thread stopped, would count as the backend's first,
   and the flip after it find the CRTC busy and the copy path refused for
   good. So the backend waits its pending flip out and empties the queue
@@ -10047,9 +9314,7 @@ EOTF ST 2084, BT.2020's primaries and D65, the peak its EDID names (else a
 1000-nit master) and a 0.0001 cd/m² minimum; an 8-bit pair takes the
 metadata and the colorspace back (`scan_hdr_apply()`, `scan_hdr_clear()`).
 The peak is published with the window, before any renderer settles, so a
-scene tone-maps to the panel rather than to the 1000-nit default. OpenGL
-publishes SDR, so its pair stays 8-bit and its dma-buf import is what it
-was.
+scene tone-maps to the panel rather than to the 1000-nit default.
 
 **The commits are atomic where the card has them.** `kms_atomic_enable()`
 sets `DRM_CLIENT_CAP_ATOMIC` on the card's descriptor at open and reads each
@@ -10123,7 +9388,7 @@ of its buffers (`scan_shown_on()`): it is parked instead
 (`scan_release()`), and freed once nothing shows it, or at close after
 `crtcs_restore()`, its CRTC turned off first where nothing set that one
 back. Measured on `black` (2026-10-24, HDMI-A-1 at 3840x2160 and DVI-D-1
-at 1920x1200): three Vulkan rounds and an OpenGL one, each through the
+at 1920x1200): three Vulkan rounds, each through the
 output list and back, and no `remove_fb` failure, `WARNING` or taint in
 the kernel's log, where two rounds of three had logged one before. What
 amdgpu still logs, once a round, is `REG_WAIT timeout ...
@@ -10296,8 +9561,8 @@ sequences through the files, every check passing, and the override and
 its refusals were seen in the log on two of them; and this desktop's own
 console boot (amdgpu, `de` `nodeadkeys` in `/etc/default/keyboard`, the
 configuration that had found no `xkbcli`) typed its 21 -- the acute and
-grave key as spacing marks, the circumflex key its sign -- with Vulkan
-and with OpenGL, driven as a bare machine of the harness's. The round
+grave key as spacing marks, the circumflex key its sign -- with Vulkan,
+driven as a bare machine of the harness's. The round
 types the console's layout where it has a table for it
 (`known-layout`, `LAYOUT_TYPES` in `stress.py`): for `de`, seventeen keys
 and chords -- y and z swapped, ß, the umlauts, the 102nd key's `<>|`,
@@ -10328,10 +9593,11 @@ pointer is then not shown. A cursor goes on a lit CRTC only
 and coming back the open's guess of a CRTC is off until the render
 thread's mode set, where amdgpu refuses a cursor (`EINVAL`) -- which, taken
 as the output's answer, hid the pointer for the window's life after the
-console's OpenGL round moved back. The recheck after a switch sets it once
-a CRTC drives the output. On `black`'s OpenGL round since (2026-10-24):
-no refusal logged, and the pointer seen in the scanned-out frame after the
-move back, the arrow's 69 white and 50 black pixels where the echo put it.
+window moved back to the display path. The recheck after a switch sets it once
+a CRTC drives the output.
+On `black` since (2026-10-24): no refusal logged, and the pointer seen in
+the scanned-out frame after the move back, the arrow's 69 white and 50
+black pixels where the echo put it.
 
 The round looks at it (`drawn-pointer`, a capability KMS alone declares):
 `kms_grab.py` sets the atomic client capability, which is what shows a
@@ -10370,12 +9636,11 @@ Where the CPU may not map the framebuffer, the GPU reads it. amdgpu
 refuses both `MAP_DUMB` and the mmap of the PRIME-exported dma-buf
 (`EPERM`) for an image made in VRAM with no CPU access -- RADV's scanout
 images on KMS, and mutter's -- so `kms_grab.py` then exports the image,
-imports it into Mesa's EGL with its format, modifier and every plane, and
-draws it into an 8-bit framebuffer of its own to read back
-(`gpu_read()`), through ctypes and the machine's `libEGL` and
-`libGLESv2`, Mesa's vendor alone since NVIDIA's would be asked about an
+imports it with its format, modifier and every plane, and draws it into
+an 8-bit framebuffer of its own to read back (`gpu_read()`), through
+ctypes and Mesa's libraries alone, since NVIDIA's would be asked about an
 AMD or Intel buffer. Drawn rather than read where it is: an imported
-image need not be one GL renders to, and mutter's 10-bit
+image need not be renderable, and mutter's 10-bit
 XRGB2101010 scanout is incomplete as an attachment, while every image a
 driver imports it samples. On this desktop, RADV's 3840x2160 scanout on
 the console and mutter's under GNOME, 0.3 s a picture, and whole: the
@@ -10440,15 +9705,9 @@ takes the display, since NVIDIA's 580 names none beside Intel's panel
 (*Moving to another GPU*) -- so the GPU figures read as the device's
 and the CPU and cadence as the path's.
 
-OpenGL's column on the copy path (2026-10-31, `1d987ac`, aspire's GTX
-960M on NVIDIA's driver onto Intel's eDP-1, release, the ranking set
-aside): `kms-gl@aspire` draws 60 fps at 33.7% of a core where Vulkan's
-`kms@aspire` beside it draws 58 at 18.0% -- NVIDIA's OpenGL frames reach
-the Intel panel through the CPU (*KMS: no window server*), nearly twice
-Vulkan's copy. A column measures the renderer and GPU it names, ranked
-machine or not: the harness drops both for a ranked round on a kernel
-driver, so `pace.py` asks for an unranked one, as `bench.py` does --
-before it did, a ranked machine's `kms-gl` column was Vulkan's.
+A column measures the renderer and GPU it names, ranked machine or not:
+the harness drops both for a ranked round on a kernel driver, so
+`pace.py` asks for an unranked one, as `bench.py` does.
 
 **Vsync off is FIFO on the display path.** Mesa's display WSI offers one
 present mode: `wsi_display_surface_get_present_modes()` appends
@@ -10475,7 +9734,7 @@ And an IMMEDIATE that tears wants `DRM_MODE_PAGE_FLIP_ASYNC` in Mesa's WSI,
 which is Mesa's to add; vsync off takes it unchanged the day it is
 offered (not on 26.0.8, not on main, 2026-10-24).
 
-The backend's own flip, the copy path's and OpenGL's, is asynchronous
+The backend's own flip, the copy path's, is asynchronous
 without vsync (`DRM_MODE_PAGE_FLIP_ASYNC`): the frame goes out at once and
 tears, as IMMEDIATE does on a window server, and a frame that finds the
 last flip pending -- the drop -- is the rare case rather than the rule.
@@ -10727,7 +9986,7 @@ frame callback and 3.4 ms in the present. `WAYLAND_DEBUG=client` showed
 the client committing 4 ms after each callback and the next callback
 29.7 ms after the commit, Mesa's own callback carrying the server's same
 timestamp as the library's -- so nothing on the client side waited twice.
-weston's GL repaint of a full-window `wl_shm` buffer on Ironlake takes
+weston's repaint of a full-window `wl_shm` buffer on Ironlake takes
 7 to 8 ms; started 7 ms before the vblank, it misses every one.
 `weston-presentation-shm`, whose buffer is small, holds 60 at the
 default. By `repaint-window`, `--draw --no-late-latch`:
@@ -10740,83 +9999,6 @@ The harness's `weston.ini` sets 10 (`_weston_ini()`), the column measuring
 the client and not a default sized for faster hardware; a caller on
 weston on such a machine gets 30 unless that line is in its config, and
 nothing a client does moves it.
-
-**OpenGL draws onto the output's own buffers, and needs no GBM.**
-`kms-gl`'s bridge (`src/renderer/gl/egl_kms.c`) opens Mesa's surfaceless EGL
-display (`EGL_MESA_platform_surfaceless`), makes the context current on no
-surface, and names nothing of DRM. The frame is drawn into the renderer's
-own window image as everywhere, then blitted on the GPU into the back
-buffer of the backend's scanout pair -- the copy path's two dumb buffers,
-which the backend exports as dma-bufs (`kms_scan_export()`) and the
-bridge imports once each as EGL images behind a framebuffer -- and the
-backend flips it on (`kms_scan_begin()`, `kms_scan_show()`), owning the
-output, its mode and its buffers as before. A dumb buffer is linear XRGB,
-which a driver that imports a dma-buf takes, so the backend links nothing
-and GBM, which would have put libgbm on the link line, is not needed. The
-blit is waited for before the flip (`glClientWaitSync`): the kernel need
-not wait on the GPU's writes to a dumb buffer.
-
-Where the way is refused -- the kernel will not export, the display has no
-`EGL_EXT_image_dma_buf_import`, GL no `GL_OES_EGL_image`, or the GPU
-drawing will not make a framebuffer of another device's buffer -- the
-frame is read back instead, into a pack buffer ahead of the frame's end
-stamp, and handed to the backend's `present_pixels()`, which copies it on
-as it does Vulkan's copy path; one line says which way and why
-(`FNL_FAULT=kms-gl-copy` forces the readback). The refusal is asked for,
-not met: NVIDIA's GL refuses the image behind a renderbuffer
-(`GL_INVALID_OPERATION`, "EGLImage not supported"), and a Debug tree's
-debug output is kept quiet across that one call (`debug_quiet`), or its
-line is the round's failed clean log. The flip is the throttle
-either way (`page flip (vsync)` on the status line, and `page flip
-(async)` without vsync); the surface has no interval to give. A mode
-change needs nothing of the bridge: the backend's pair follows the mode,
-and a new pair is imported by its key (`KmsScanBuf::key`).
-
-Measured on schenker's console, the HD 630 driving its panel: flat out,
-796 frames a second against 162 by the pack buffer and 102 by
-`glReadPixels` into client memory, the GPU's span 1.18 ms; at 60 Hz the
-present's CPU time 0.35 ms against 3.6. At 60 Hz the GPU's span reads
-7.8 ms, Intel's GPU clocking itself down to a load this light, which the
-ranking, measuring at the display's rate, reads as it is. This desktop's
-console, the RX 590 on DP-1 at 3840x2160, the case that asked for it:
-60 frames a second where the readback held OpenGL at 30, the present's
-CPU 0.34 ms against 16.3, the GPU's span 1.6 ms, and 448 a second flat
-out; the ranking there now Vulkan 1579, OpenGL 622, where it had put
-OpenGL first and drawn at half Vulkan's rate. aspire's HD 530
-the same: 881 frames a second flat out, the present's CPU 0.40 ms at
-60 Hz. thinkpad's llvmpipe takes its buffers too: the present's CPU
-0.17 ms against 3.4, the frame still at 30. schenker's GTX 1050 Ti on
-NVIDIA's EGL imports the Intel GPU's buffer and will not put a
-renderbuffer over it (`GL_INVALID_OPERATION`), and copies. A texture over
-it was tried and is not kept: NVIDIA's EGL made a complete framebuffer of
-it, drew into a copy of its own -- the panel stayed black -- and crashed
-inside `eglDestroyImageKHR` when the image was let go, a `glFinish()`
-before it or not. Since then every buffer imported is checked once: a
-colour cleared into it on the GPU and read back through the backend's
-mapping at both corners (`scan_lands()`, `kms_scan_peek()`), and a buffer
-the GPU's writes do not reach sends the frames the copy path's way. The
-pictures, read off the scanned-out framebuffer by `kms_grab.py`, are the
-copy path's, row for row; a moving edge broken in steps in them is the
-grab's own long read racing the
-flips, and shows on Vulkan's copy path the same way. The rounds:
-`kms-vulkan-bare@schenker:nvidia`, which walks every entry of the GPU box
-and both outputs, 161 checks and none failed, the HD 630's and llvmpipe's
-OpenGL onto the buffers and the GTX 1050 Ti's copying; `kms-gl-bare` on
-thinkpad's llvmpipe, 55, the one failure the new line in the log, which
-the round now expects.
-
-Measured on the three laptops' live keys: aspire's and schenker's EGL was
-NVIDIA's -- glvnd lists its vendor first, and its EGL has the surfaceless
-platform too -- so the GTX 960M and 1050 Ti draw and the backend flips
-their pixels onto the Intel GPU's panel, 43 checks each with `--capture`
-reading the scanned-out framebuffer, none failed; the thinkpad, which has
-no 4.5, on llvmpipe under `LIBGL_ALWAYS_SOFTWARE=1`, 46. Under `asan`
-and `gc` the two NVIDIA laptops are 39 each and the thinkpad 42, none
-failed, and under `tsan` the thinkpad 42 -- the NVIDIA ones are skipped,
-TSan not following NVIDIA's own driver. schenker's `asan` round once
-reported NVIDIA's EGL's D-Bus connection as a leak at exit, the one
-`lsan.supp` already names through its GLX library, and the file names
-`libEGL_nvidia.so` for it too.
 
 ### Win32
 
@@ -11372,8 +10554,8 @@ under MAILBOX, so the cap is not the driver's everywhere (`TODO.md`).
 
 Not NVIDIA's present-method setting either (2026-11-01, both laptops,
 driver 582.78, branch r582_73, read through NVAPI's driver settings).
-The setting, `0x20D690F8`, which the driver names "Vulkan/OpenGL present
-method" and lists with the values 0, 1 and 2, its default 2 (Auto; 0 is
+The setting, `0x20D690F8`, which the driver names a present method for
+Vulkan and lists with the values 0, 1 and 2, its default 2 (Auto; 0 is
 native and 1 layered on DXGI, by NVIDIA Profile Inspector's users), is
 unset on both, in the base and the global profile, and neither program
 has a profile of its own, so both run Auto. Written into schenker's
@@ -11836,8 +11018,7 @@ so the move is a check the round can run. Among them is
 what the design assumed of AppKit: `miniaturize:` and `zoom:` on a borderless
 window, its fullscreen on one, the resize loop and the drag, and the layer's
 top-left gravity, the frame filling the window after eight resizes back to back
-with none of it black. The third renderer there, OpenGL 4.1 through CGL, is
-`macos-gl-native` (*OpenGL on macOS*). What follows is the design and the
+with none of it black. What follows is the design and the
 reasons for it; what it still assumes and has not seen is TODO.md *macOS*'s.
 What the first runs showed, started over ssh with nothing else on the desktop: a
 program started from an ssh session reaches the window server as the logged-in
@@ -11885,8 +11066,8 @@ changes nothing. A maximized window moved from Built-in Display to
 PL4071UH and back, maximized at each step and home again (2026-11-05,
 read from the window's reports: the built-in was dark then, so there was
 no picture on it to capture). With both lit, the round moved the window
-between them and back under each renderer -- 95 checks under Metal,
-Vulkan and GL, none failed (2026-11-06).
+between them and back under each renderer -- 95 checks under Metal
+and Vulkan, none failed (2026-11-06).
 
 **The window is borderless and the library draws all of it**, as on Win32.
 A titled window with its bar made transparent was the alternative, and it
@@ -12029,7 +11210,7 @@ back from the screen as 45,45,49, and a wide-gamut panel would oversaturate
 everything. MoltenVK tags the layer the same way from the swapchain's
 colour space, so the two trees' pictures agree.
 
-**Metal is recorded afresh for every frame**, as Direct3D 12 and GL are: a
+**Metal is recorded afresh for every frame**, as Direct3D 12 is: a
 command buffer is used once. Every pipeline is made for the window's pass --
 the drawable's `BGRA8Unorm_sRGB`, the window's `Depth32Float`, one sample --
 and the scene's images are the same format, so one set of pipelines draws
@@ -12111,7 +11292,7 @@ desk. Below are the checks themselves.
 ```sh
 # Vulkan validation in the library's instance alone, with the two checks
 # that are off by default (VK_LOADER_LAYERS_ENABLE='*validation' puts it
-# in every instance of the process, Zink's and vkd3d-proton's too)
+# in every instance of the process, vkd3d-proton's too)
 FNL_VK_VALIDATION=1 VK_LAYER_VALIDATE_SYNC=1 \
 VK_LAYER_VALIDATE_BEST_PRACTICES=1 \
   ./build/linux/release/fenestal-testbed
@@ -12144,13 +11325,9 @@ python3 tools/drive/signals.py x11-vulkan --variant tsan --runs 30
 
 # Each checker made to see the bug it exists for, in every Debug tree:
 # FNL_SELFTEST=asan|ubsan|tsan|assert commits one at fnl_init(), and this
-# fails on a checker that stays silent; gl is an invalid GL call, committed
-# by the OpenGL renderer once its debug context exists, which the context's
-# output must bring to the log ("GL: GL_INVALID_ENUM in glEnable(GL_NONE)"
-# on radeonsi). 32 controls over four trees, each Linux one under X11 and
-# under Wayland, under Vulkan and under OpenGL; the win64 ones are a UBSan
-# trap and an assert under wine, run with wine's crash debugger off, under
-# Vulkan.
+# fails on a checker that stays silent. Each Linux tree runs under X11 and
+# under Wayland; the win64 ones are a UBSan trap and an assert under wine,
+# run with wine's crash debugger off, under Vulkan.
 python3 tools/drive/selftest.py
 
 # Memcheck, for the uninitialised read ASan cannot see. Only on lavapipe:
@@ -12206,54 +11383,29 @@ before. With the entry, eleven Xorg rounds under ThreadSanitizer on NVK, none
 failed; in one, `print_suppressions=1` showed the entry matching the
 race.
 
-The same holds for Mesa's OpenGL and for the Vulkan layers, and `--setup`
-fetches theirs too: libgallium, the library every gallium driver is (Zink,
-iris, llvmpipe), the EGL vendor library in front of it, and each explicit
-layer's library. The first KMS rounds under ThreadSanitizer on schenker's
-GTX 1050 Ti on nouveau (Mesa 26.2.5, 2026-10-26) failed on ten reports
-each, every frame between TSan's and our GL or Vulkan entry point Mesa's,
-LLVM's or the validation layer's: Zink's shader cache handing a program
-over from its cache thread to the render thread's readback, the GLSL type
-cache, NVK's descriptor table under its own lock, lavapipe's compiles
-inside LLVM, and a lock-order inversion between two of the validation
-layer's per-object locks -- the layer in Zink's instance, since the
-loader's variable the rounds then set puts it in every instance of the
-process. A checker round now asks for it with `FNL_VK_VALIDATION=1`
-instead, which names it in the library's instance alone, so Zink's goes
-without it. `tsan.supp`
-keys seven on the driver's function (and LLVM's on its library, which
-nothing of ours calls), and says what each was checked against; with
-them, the next round met three. Those three have no entry: each
-innermost frame is inlined, and GCC's symbolizer (libbacktrace) names no
-inlined frame in those libraries with the debug info installed, where
-binutils' `addr2line` names them all from the same files -- so a key on
-the function would match nothing, and one on the library would hide our
-own (TODO.md). The layer's info is large (708 MB on Arch, libgallium's
-366 MB), and a stick's persistent space, 3.5 GB free, holds it.
-
-With the layer out of Zink's instance (2026-10-31, `1d987ac`, Mesa
-26.2.6 with its debug info, on schenker and on aspire) its lock-order
-report is gone, and what TSan meets on nouveau is Zink over NVK: 123 and
-124 reports in the Vulkan rounds (which walk onto OpenGL), 142 and 143
-in the OpenGL ones, some twenty signatures, every frame between TSan's
-and our GL entry point Mesa's. Zink's threaded-context driver thread
-(`gdrv0`, made inside our `eglCreateContext`) against the render thread
-on one NVK command buffer, handed between them through Mesa's futex
-fences, which TSan does not see; and Zink's cache threads (`zcq0`,
-`zcfq*`) on the shader-cache hand-over that `race:blob_write_bytes`
-keys, here inside NVK and unmatched. The innermost frame of every NVK
-access is a fortified `memcpy` or `memset` inlined into the function:
-GCC's symbolizer names 133 of 505 of NVK's frames and none of those,
-`addr2line -i` all of them from the same file. A handful in libgallium
-are named (`zink_update_rendering_info`,
-`zink_create_gfx_pipeline_combined`, `create_batch_state`, the rwlock in
-`create_program`). The layer, in Zink's instance, had been serialising
-Zink's calls; out of it, NVK's races under Zink show, and both rounds
-otherwise pass whole (71 checks, the two failures the report's).
+The same holds for the Vulkan layers, and `--setup` fetches theirs too:
+libgallium, the library every gallium driver is (iris, llvmpipe), and each
+explicit layer's library. The first KMS rounds under ThreadSanitizer on
+schenker's GTX 1050 Ti on nouveau (Mesa 26.2.5, 2026-10-26) failed on a handful
+of reports, every frame between TSan's and our Vulkan entry point Mesa's, LLVM's
+or the validation layer's: NVK's descriptor table under its own lock, lavapipe's
+compiles inside LLVM, and a lock-order inversion between two of the validation
+layer's per-object locks -- the loader's variable the rounds then set puts the
+layer in every instance of the process. A checker round now asks for it with
+`FNL_VK_VALIDATION=1` instead, which names it in the library's instance alone.
+`tsan.supp` keys seven on the driver's function (and LLVM's on its library,
+which nothing of ours calls), and says what each was checked against; with them,
+the next round met three. Those three have no entry: each innermost frame is
+inlined, and GCC's symbolizer (libbacktrace) names no inlined frame in those
+libraries with the debug info installed, where binutils' `addr2line` names them
+all from the same files -- so a key on the function would match nothing, and one
+on the library would hide our own (TODO.md). The layer's info is large (708 MB
+on Arch, libgallium's 366 MB), and a stick's persistent space, 3.5 GB free,
+holds it.
 
 **Why GCC's symbolizer names a driver's frame in one run and not the
 next.** libbacktrace reads the list of loaded libraries once, at the
-first frame it names, and never again: a driver the loader or EGL opens
+first frame it names, and never again: a driver the loader opens
 after that stays `<null>` for the rest of the process, whatever debug
 info is installed, and a `tsan.supp` entry keyed on its functions never
 matches -- the "one run of two" of lavapipe's `_mesa_hash_table_copy()`,
@@ -12265,21 +11417,13 @@ nothing, GCC's runtime never asking an external symbolizer while
 libbacktrace is there; and `race:` matches the two accesses' stacks
 alone, never where a thread or a block was made. So a bare machine's
 `tsan` round preloads the open drivers behind TSan's runtime
-(`TSAN_PRELOADED` in `bare_driver.py`: `libvulkan_*`, `libgallium*`,
-`libEGL_mesa`; not the validation layer, which exports the loader's own
+(`TSAN_PRELOADED` in `bare_driver.py`: `libvulkan_*`, `libgallium*`;
+not the validation layer, which exports the loader's own
 entry points and preloaded takes the loader's place). Named so, the keys
-already there match -- `blob_write_bytes` 270 times in one round,
-`blob_read_string` 114 -- and two more are added, Zink's pipeline compile
-against its compile thread and NVK's pipeline cache, which the
-specification makes internally synchronised. What is left is the gallium
-threaded context's driver thread against the render thread on NVK's
-command buffers, handed over through a futex TSan does not see; keyed,
-NVK's command-buffer functions would hide a command buffer of our own
-Vulkan renderer recorded on two threads, so a `tsan` round runs Mesa's
-OpenGL with `GALLIUM_THREAD=0`, which makes no such thread. With both,
-`kms-vulkan-bare@schenker:nouveau` and `kms-gl-bare@schenker:nouveau`
-under `tsan` passed twice each, 71 checks and a clean log, and aspire's
-two the same once each. This desktop's
+already there match, and NVK's pipeline cache is added, which the
+specification makes internally synchronised. With it,
+`kms-vulkan-bare@schenker:nouveau` under `tsan` passed twice, a clean log,
+and aspire's the same once. This desktop's
 own `tsan` rounds go through neither, and meet none of it.
 
 A round on a kernel driver does not move the GPU to NVIDIA's own under
@@ -12287,16 +11431,6 @@ ThreadSanitizer, as it does not start on it: the window landed there
 draws on NVIDIA's Vulkan driver, and the process died in TSan's
 allocator (a SEGV, then "nested bug"): NVIDIA's own driver is checked by
 ASan and not by TSan, below.
-
-**An OpenGL build under ThreadSanitizer takes minutes.** On schenker the
-instance alone took 80 s on Intel (iris), 98 s on llvmpipe and 204 s on
-Zink over NVK, measured with the validation layer in Zink's instance; at
-release each is under one. The GPU sections therefore wait on past their
-own timeout for as long as the program says a move has begun and not
-failed (`await_move()` in `stress.py`, up to ten minutes), rather than skipping
-Zink under TSan: the races it then met were all the drivers', and our GL
-renderer's threads against Zink's are worth the round's time. The next
-round waited out a 202 s build there and landed.
 
 **NVIDIA's own driver is checked by ASan and not by TSan.** Its ICD is
 closed, so there is no debug info to fetch and an entry can key only on
@@ -12307,15 +11441,14 @@ events polled in `vkQueuePresentKHR`. The latter are allocated inside
 libxcb, where malloc's fast unwinder stops, so the stack reaches the
 driver only with `fast_unwind_on_malloc=0`. `bare_driver.py` keeps the
 ICD loaded, as it keeps lavapipe, and asks for the slow unwinder where
-it does; `lsan.supp` keys on `libGLX_nvidia` and `libnvidia-glcore`, and
+it does; `lsan.supp` keys on the driver's libraries, and
 never on libxcb, which our X11 backend allocates through. With it the Xorg
 and weston rounds pass under `asan`. ThreadSanitizer cannot run on this
-driver at all: `libnvidia-glcore` does not import `pthread_create` but
+driver at all: the driver's core library does not import `pthread_create` but
 looks it up with `dlsym` on `libpthread.so.0`, which finds libc's and not
 TSan's interceptor, so TSan has no state for the driver's threads, and
 the first `calloc` on one is a SEGV inside TSan's allocator (gdb: the
-thread's cache at `0x8`). `__GL_THREADED_OPTIMIZATIONS=0` and
-`__GL_SHADER_DISK_CACHE=0` change nothing. The harness says so and skips
+thread's cache at `0x8`). The harness says so and skips
 the round; `FNL_GPU=intel` on the same boot, the driver still loaded,
 passes `tsan` on Xorg and weston.
 
@@ -12415,10 +11548,9 @@ time, so the sixth reaches the scaled MLAA image.
 | the glyph atlas outside VRAM | `FNL_FAULT=atlas-out-of-vram` | `the glyph atlas is in system memory: …` where the device allows one (NVK); `… is in VRAM, the only memory this device allows it …` where it does not (`anv` on the HD 630); the text unchanged either way |
 | KMS with no device for the display | `FNL_FAULT=kms-no-display` | `KMS: FNL_FAULT: no device takes …; drawing offscreen and copying each frame onto …`, and the copy path on a device that has a display |
 | KMS's copy path with no headless surface | `FNL_FAULT=kms-no-display,kms-no-headless` | `KMS: no headless surface for the GPU that will draw; it draws into images of its own`, and the frames by the copy path from the renderer's own images, as NVIDIA's own driver has them without the fault. Run under the fault on both laptops (gc, nouveau): Intel's, NVK and llvmpipe, each move |
-| OpenGL on KMS by the readback where it could draw onto the output | `FNL_FAULT=kms-gl-copy`, a Debug `linux` tree on KMS, `FNL_RENDERER=gl` | `KMS: OpenGL copies each frame onto the output: FNL_FAULT`, once, and frames by the pack buffer's readback. Run 2026-11-03: `kms-gl-bare` on the thinkpad, `gc`, the line once and the round's 56 checks otherwise clean; the same path runs unforced on NVIDIA's EGL beside an Intel panel |
 | KMS with a mode or an output that will not show | `FNL_FAULT=kms-mode-refused`, and a mode or an output picked from the titlebar's lists | `KMS: … would not show WxH; back to … at WxH`, the lists' marks and the boxes back on what was, frames resume; on both paths |
 | KMS with a display mode whose swapchain the kernel refuses | `FNL_FAULT=kms-swapchain-refused`, and a mode or an output picked from the titlebar's lists | `the display refused a swapchain on its mode` twice, then `KMS: … would not show WxH; back to …`, frames resume; display path only |
-| X11's sync value released at the flush, not when Present shows the frame | `FNL_FAULT=x11-sync-at-swap`, `x11-gl` (`FNL_BACKEND=x11 FNL_RENDERER=gl`) in a Debug tree, the border dragged | the drag as before the hold: `pace.py --border` 39 fps on this desk against 53 without the fault, frames with tens of ms of `other` |
+| X11's sync value released at the flush, not when Present shows the frame | `FNL_FAULT=x11-sync-at-swap`, `x11-vulkan` in a Debug tree, the border dragged | the drag as before the hold: `pace.py --border` falls, frames with tens of ms of `other` |
 | no refresh rate known on X11 | `FNL_FAULT=x11-refresh`, a Debug tree, `FNL_BACKEND=x11` | every monitor's rate 0, read as unknown: the frames paced by the measured period alone |
 | no `FNL_STAMP` to take the clipboard's server time from (X11) | `FNL_FAULT=x11-clip-unstamped`, a Debug tree, `FNL_BACKEND=x11`, a copy and a paste | `the clipboard has no server time to stamp with; copy and paste at CurrentTime`, once; the selection taken and asked for at once, and every paste answered as before, none left to the deadline. Run 2026-11-03: `x11-vulkan`, `gc`, the line once and the round's clipboard checks and 107 others clean |
 | a swapchain stuck out of date | `FNL_FAULT=stale-swapchain%300` | `every swapchain at the window's own size is out of date at once (0 in a row); the window's size is nudged` each time; on X11 the window a pixel wider and back, ending at its own size, frames continuing; elsewhere nothing more |
@@ -12434,15 +11566,13 @@ time, so the sixth reaches the scaled MLAA image.
 | an offscreen target the device refuses | `FNL_FAULT=scene-target`, `scene-ms` or `scene-mlaa`, under `fenestal-dev lifecycle 6` | the first drops the whole target; the second costs FSAA alone and the third MLAA alone. One line through the log sink, once per target |
 | the renderer says the window is not shown | `FNL_FAULT=occluded`, any Debug tree, under `fenestal-dev pace 0 6 --settle 1 --draw --no-vsync` | after the first frame nothing is drawn and the loop parks in `FRAME_WAIT_S` turns: 0.08 s of CPU in 7 s against 7.3 without, on this desktop's X11. Run |
 | Direct3D 12 failed on a window with its swapchain on it | `FNL_FAULT=d3d12-after-swapchain@1`, a Debug `win64` tree, no renderer named and Direct3D 12 first | `renderer: Vulkan; passed over Direct3D 12: FNL_FAULT: after the swapchain`, and Vulkan's frames (through DXGI) on the same window. Seen on aspire's HD 530 and GTX 960M (2026-10-31, `FNL_GPU_RANK=off`); a later move to the 960M's Direct3D 12 lands on that window too, and back to Vulkan, no sample black |
-| Metal failed on a window with its layer given the device | `FNL_FAULT=metal-after-layer@1`, the `macos gc` tree, no renderer named | `renderer: Vulkan; passed over Metal: FNL_FAULT: after the layer`, MoltenVK drawing the same NSWindow; with `framebuffers@1` beside it, `renderer: OpenGL; passed over Metal: ...; Vulkan: FNL_FAULT: create_framebuffers` and OpenGL drawing it (schenker, 2026-11-01) |
+| Metal failed on a window with its layer given the device | `FNL_FAULT=metal-after-layer@1`, the `macos gc` tree, no renderer named | `renderer: Vulkan; passed over Metal: FNL_FAULT: after the layer`, MoltenVK drawing the same NSWindow (schenker, 2026-11-01) |
 | a DXGI that will not present unscaled (Direct3D 12) | `FNL_FAULT=d3d12-no-scaling-none`, in a Debug `win64` tree | `the swapchain would not leave its frames unscaled (0x80070057); they are stretched while the window resizes`, once a device; the window draws as before. Run 2026-11-03: `win64-d3d12` under wine, `gc`, the line once and the round's 93 checks otherwise clean |
 | a window DWM composes (Direct3D 12) | `FNL_FAULT=d3d12-composed`, a Debug `win64` tree on Windows, vsync on, the window at rest for 60 presents | `DWM composes this window's frames; they go through a Direct3D 11 swapchain instead`, then, measured there, `DWM composes the Direct3D 11 swapchain's frames too; back to this device's own`; frames continue on the device's own swapchain |
 | the Direct3D 11 swapchain refused (Direct3D 12) | `FNL_FAULT=d3d12-composed,d3d11-present-refused`, as above | `the D3D11 present (forced)`, then `the Direct3D 11 swapchain could not be made; back to this device's own`, and the window on the device's own swapchain, measured no more. Not reached in a guest: the measure skips a software device, and the guests draw on WARP. Run 2026-11-03: schenker and aspire, both GPUs each, `gc`, the lines once a device and the rounds otherwise clean |
 | the wheel by its message alone under wine (Win32) | `FNL_FAULT=win32-no-raw-wheel`, a Debug `win64-*` tree under wine | `raw mouse input unavailable; under wine a wheel step can be lost`, once; the wheel read from `WM_MOUSEWHEEL` as on Windows |
 | input stamped by the tick alone on Windows (Win32) | `FNL_FAULT=win32-no-raw-thread`, a Debug `win64` tree on Windows, with `--frame-times` | `no raw input thread (FNL_FAULT); input latency is read in the tick's steps`, once; no `raw input:` tally at close, a key's `input` figure 0 or about 16 ms over one, and a capture registered on the window as before. Run 2026-11-03: `win64-vulkan-vm` on win10 and win11, `gc`, the line once and 91 checks otherwise clean each |
 | no input method composition reported (Win32) | `FNL_FAULT=win32-no-imm32`, a Debug `win64` tree, a dead key typed under wine on X11 | `no input method composition (FNL_FAULT): the system shows it in a window of its own`, once; the accent shown in wine's own box at the window's bottom-left and no `FNL_EVENT_COMPOSE`, the letter after it typed accented as before. Run 2026-11-03: `win64-vulkan` under wine, `gc`, the line once and the round's typing, dead keys included, clean |
-| an opaque EGL surface refused (OpenGL on Wayland) | `FNL_FAULT=gl-opaque-refused`, and fullscreen | `the opaque EGL surface was refused (FNL_FAULT)`, then `surface lost -- rebuilding` once and `rebuilt on …`; the window keeps its alpha surface in fullscreen and is never asked again. Run 2026-11-03: `wayland-gl`, `gc`, the line, one `surface lost -- rebuilding` and `rebuilt on`, the round's 74 checks otherwise clean |
-| OpenGL 4.1 on a 4.5 device | `FNL_FAULT=gl-41`, a Debug tree, `FNL_RENDERER=gl` | `GPU in use: … (OpenGL …), drawn through the 4.1 profile`, and the frames as at 4.5 (*OpenGL 4.1* has the rounds run so) |
 | any one of the out-of-memory unwinds | `LD_PRELOAD` a `malloc` that fails the *n*th allocation whose caller `dladdr` places inside `libfenestal`, and sweep *n* | a clean `FNL_ERR_OUT_OF_MEMORY` out of `fnl_init()`, or one of the documented tolerances — `vk_find_present_queue()`, at each of its four call sites, and the pipeline cache's read-back and write-out. Never a crash, and nothing left behind across repeated lifetimes |
 
 Four parsers are worth fuzzing rather than reading, each load-bearing on

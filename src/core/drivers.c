@@ -8,20 +8,18 @@
  * reboot once nothing holds the GPU open (DESIGN *Another kernel driver,
  * with the window open*).
  *
- * The move is a renderer swap (renderer_swap()) with the driver changed
- * between the teardown and the build: a destroyed Vulkan instance lets the
- * GPU go, NVK's and NVIDIA's alike, and so does OpenGL with glvnd closed
- * (egl_dyn.c), so that is the one point in a window's life where the
- * process holds nothing of it. The window stays open across it, and goes
- * on drawing on the GPUs the move leaves alone while it runs -- on Vulkan,
- * whatever it lands on, since OpenGL would load NVIDIA's EGL -- the move
- * on a thread of its own (DESIGN *Drawn across the move*); where it
- * cannot, its frames pause for the move, a second or two. Asked for as a
- * GPU is, through the list: a GPU that can move is an entry more for each
- * renderer the caller has a scene for, "<GPU>, on <driver>", drawn with
- * that renderer after the move, which fnl_request_gpu() and the titlebar's
- * GPU box take like any other; with the GPU's own entries, each renderer
- * on each driver is one entry of the list.
+ * The move is a renderer swap (renderer_swap()) with the driver changed between
+ * the teardown and the build: a destroyed Vulkan instance lets the GPU go,
+ * NVK's and NVIDIA's alike, so that is the one point in a window's life where
+ * the process holds nothing of it. The window stays open across it, and goes on
+ * drawing on the GPUs the move leaves alone while it runs -- on Vulkan -- the
+ * move on a thread of its own (DESIGN *Drawn across the move*); where it
+ * cannot, its frames pause for the move, a second or two. Asked for as a GPU
+ * is, through the list: a GPU that can move is an entry more for each renderer
+ * the caller has a scene for, "<GPU>, on <driver>", drawn with that renderer
+ * after the move, which fnl_request_gpu() and the titlebar's GPU box take like
+ * any other; with the GPU's own entries, each renderer on each driver is one
+ * entry of the list.
  *
  * FNL_GPU_DRIVER turns it on: a driver's name binds that one before the
  * window first draws, and anything else ("switch") leaves the GPU as it is.
@@ -36,12 +34,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The GPU a move is of, as the list names it: the one listed Vulkan GPU
- * whose name says NVIDIA, without what a driver adds in brackets -- NVK's
- * "(NVK GP107)" -- so that the name holds across the move. Vulkan's
- * alone, since the move lands on Vulkan by that name, and OpenGL names
- * the same GPU otherwise ("/PCIe/SSE2"). With none listed, or more than
- * one, the address stands in. */
+/* The GPU a move is of, as the list names it: the one listed Vulkan GPU whose
+ * name says NVIDIA, without what a driver adds in brackets -- NVK's "(NVK
+ * GP107)" -- so that the name holds across the move. Vulkan's alone, since the
+ * move lands on Vulkan by that name. With none listed, or more than one, the
+ * address stands in. */
 static void move_gpu_name(const GpuEntry *list, int n, const GpuDriver *g,
 						  char *out, size_t size)
 {
@@ -76,9 +73,8 @@ static bool move_unseen(const App *a, const char *driver, FnlRenderer r)
 }
 
 /* Whether the GPU listed as `name` is the one that can move, named `gpu`
- * by move_gpu_name(): every renderer's name for it holds Vulkan's --
- * NVIDIA's OpenGL behind it ("/PCIe/SSE2"), Zink's around it. An address
- * names no listed GPU. */
+ * by move_gpu_name(): every renderer's name for it holds Vulkan's. An
+ * address names no listed GPU. */
 static bool names_moving(const char *name, const char *gpu)
 {
 	return gpu[0] && strncmp(gpu, "NVIDIA GPU ", 11) != 0 &&
@@ -138,8 +134,7 @@ int app_gpu_driver_entries(App *a, GpuEntry *list, int n, int max)
 		const FnlRenderer r = a->gpu_span[k]->api;
 		if (move_unseen(a, g->other, r))
 			continue;
-		/* The renderer's own row of the GPU, whose kind the entry takes:
-		 * OpenGL's says no more than hardware. */
+		/* The renderer's own row of the GPU, whose kind the entry takes. */
 		int own = -1;
 		for (int i = 0; i < n; i++)
 			if (list[i].renderer == r && list[i].driver[0])
@@ -251,17 +246,6 @@ void app_gpu_drivers_start(App *a)
 		return;
 	}
 	a->gpu_drivers_on = true;
-#ifndef _WIN32
-	/* nouveau's own OpenGL makes no 4.5 core context on the GPUs measured
-	 * (GM107, GP107: EGL_BAD_MATCH), and Zink on NVK makes one and lets the
-	 * GPU go with its display, as any Vulkan device does: so OpenGL draws
-	 * on a GPU under nouveau through Zink, Mesa's loader's switch for
-	 * nouveau alone. The one variable the library writes, and only with
-	 * the moves offered and the caller's own value left: set here, on the
-	 * caller's thread before the library has one of its own, and before
-	 * any renderer -- Mesa reads it at each display it opens. */
-	setenv("NOUVEAU_USE_ZINK", "1", 0);
-#endif
 	/* A driver named is bound now, where the GPU is not on it -- from
 	 * nothing as well, which a move cut short leaves and whose list names
 	 * one other driver of the two. The backend refuses a name that is no
@@ -280,7 +264,7 @@ void app_gpu_drivers_start(App *a)
 	}
 	/* From nouveau with NVIDIA's module not loaded, the module is loaded
 	 * by a move there and straight back, before any renderer: NVIDIA's
-	 * Vulkan and EGL drivers try to load it at each instance and display,
+	 * Vulkan driver tries to load it at each instance,
 	 * 0.85 s a try while nouveau holds the GPU, nine of them before the
 	 * first frame (13.6 s on aspire, 19.5 s on schenker, against 3.6 with
 	 * the module loaded), and it will not load beside nouveau ("No such
@@ -594,14 +578,13 @@ void app_gpu_hotplug(App *a)
 }
 
 /* The list made again where it can be: not while a move, a swap or a
- * calibration is under way, which have the GPU list as it is; and after
- * the veil, as any move to a GPU is (gpu_switch_owed()). The rebuild is on
- * the GPU in use, by its name -- its place in the list may be another's
- * now -- and lists the other renderers first, as a landing on another
- * kernel driver does (gpu_relist_landing()): listed after the first frame
- * instead, a Vulkan instance beside NVIDIA's live EGL display would end
- * it. A GPU in use that went is a lost device first, which the recovery
- * answers on another; the list is made again after it all the same. */
+ * calibration is under way, which have the GPU list as it is; and after the
+ * veil, as any move to a GPU is (gpu_switch_owed()). The rebuild is on the GPU
+ * in use, by its name -- its place in the list may be another's now -- and
+ * lists the other renderers first, as a landing on another kernel driver does
+ * (gpu_relist_landing()). A GPU in use that went is a lost device first, which
+ * the recovery answers on another; the list is made again after it all the
+ * same. */
 void app_gpu_hotplug_poll(App *a)
 {
 	const uint32_t gen = fnl_atomic_load_u32(&a->gpu_hotplug_gen);

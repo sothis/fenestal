@@ -25,7 +25,7 @@
 # is never copied to Linux here, where a cache or an artifact would hand it
 # to anyone. It is still the cross build, clang-21 and ld64.lld, once for
 # x86-64 and once for arm64, with what a Linux machine supplies to it -- the
-# baked font and the Khronos headers -- handed over from the Linux job.
+# baked font and the Vulkan headers -- handed over from the Linux job.
 #
 # Actions are pinned by commit, the tag above each.
 
@@ -80,8 +80,8 @@ jobs:
                   apt-get update -q
                   apt-get install -qy \
                       git ca-certificates cmake make gcc g++ pkgconf \
-                      python3 linux-libc-dev libvulkan-dev libegl-dev \
-                      libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
+                      python3 linux-libc-dev libvulkan-dev \
+                      libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
                       xz-utils zstd curl binutils-mingw-w64-x86-64 \
                       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
@@ -133,20 +133,18 @@ jobs:
                   archive: false
                   if-no-files-found: error
             # The four files a cross tree takes from the bake, and the stamp
-            # build.sh reads as verifyfont's pass; the Khronos headers the
+            # build.sh reads as verifyfont's pass; the Vulkan headers the
             # macOS tree finds in /usr/include on Linux, which a Mac has
             # none of (FNL_HOST_INCLUDE); and what every target's archive
             # holds, whose API reference the Mac does not make.
             - name: Gather the macOS tree's inputs
               run: |
                   g=build/linux/release/generated
-                  mkdir -p mac/font mac/include/GL mac/include/KHR
+                  mkdir -p mac/font mac/include
                   cp $g/font_data.h $g/font_metrics.h $g/font_atlas.bin \
                      $g/font_cells.bin $g/font_verified.stamp mac/font/
                   cp -R /usr/include/vulkan /usr/include/vk_video \
                      mac/include/
-                  cp /usr/include/GL/glcorearb.h mac/include/GL/
-                  cp /usr/include/KHR/khrplatform.h mac/include/KHR/
                   cp -R stage/common mac/common
             # The Mac restores them through the cache: the key is this run's
             # alone, and zstd above is what makes the entry the Mac's to
@@ -221,8 +219,8 @@ jobs:
                   apt-get update -q
                   apt-get install -qy \
                       git ca-certificates cmake make gcc g++ pkgconf \
-                      python3 linux-libc-dev libvulkan-dev libegl-dev \
-                      libgl-dev libwayland-dev libwayland-bin libxcb1-dev \
+                      python3 linux-libc-dev libvulkan-dev \
+                      libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
                       xz-utils zstd clang-21 curl binutils-mingw-w64-x86-64 \
                       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
@@ -498,7 +496,7 @@ jobs:
                   usesh: true
                   prepare: |
                       pkg install -y cmake pkgconf python3 git \
-                          wayland libxcb libdrm mesa-libs libglvnd \
+                          wayland libxcb libdrm \
                           vulkan-headers glslang spirv-cross freetype2 \
                           xkeyboard-config llvm
                   run: |

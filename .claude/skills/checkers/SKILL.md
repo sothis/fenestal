@@ -11,9 +11,9 @@ ones sit there until the window is closed, which checks almost nothing; drive
 them instead (see below).
 
 The native target, `linux`, takes the runtime checkers, and its tree has
-every Linux backend and both Linux renderers: `FNL_BACKEND=wayland` runs it
-against the compositor and `FNL_BACKEND=x11` against XWayland, and
-`FNL_RENDERER=vulkan` or `gl` draws with that one. Name both every time --
+every Linux backend, drawn with Vulkan: `FNL_BACKEND=wayland` runs it
+against the compositor and `FNL_BACKEND=x11` against XWayland. Name the
+backend every time --
 this desktop has both `WAYLAND_DISPLAY` and `DISPLAY`, and left to itself
 the program opens Wayland with Vulkan. Every command below reads the
 same way with the backend swapped, and running both is the cheapest way to

@@ -6,7 +6,7 @@
  * The Direct3D 12 half of the frame: the scene, the window's image, the
  * overlay over it, and the present.
  *
- * Recorded afresh every frame, as GL is (fenestal.h *on_record*, DESIGN
+ * Recorded afresh every frame (fenestal.h *on_record*, DESIGN
  * *Recording*): one command list, reset on the frame slot's allocator, so
  * there is no record_gen test here. Whether a turn draws at all is the
  * frame policy's, as with every renderer.

@@ -279,8 +279,7 @@ static int ctl_outputs(const App *a, const CtlEnv *e,
  * rows that fit; `*now` the row in use, or -1.
  * A GPU that can move to another kernel driver is named alike in each of
  * its rows, by the name it keeps on either driver, with the driver the row
- * draws on: "<GPU> on nouveau" -- each renderer on each driver one row,
- * where its renderers' own names for it differ ("/PCIe/SSE2", Zink's).
+ * draws on: "<GPU> on nouveau" -- each renderer on each driver one row.
  * Read under App::lock in one go, so the rows and `now` are of one list.
  * Rows count from the list's first, so a row is its index. */
 

@@ -4,13 +4,11 @@
  * Written in 2026 by Janos Sonntag and dedicated to the public domain.
  *
  * texture: a textured, lit cube, turning for as long as the window is open,
- * drawn with OpenGL or Vulkan -- both on Linux, and on a Mac (Vulkan on
- * MoltenVK, OpenGL 4.1), the library choosing between them; Vulkan alone
- * on Windows, which has no OpenGL renderer. F5 shows the library's metrics
- * panel (hidden at start); Escape quits.
+ * drawn with Vulkan, on Linux, Windows and a Mac (on MoltenVK). F5 shows the
+ * library's metrics panel (hidden at start); Escape quits.
  *
  * This file is the program and names no graphics API: each scene file is
- * one API's (scene_gl.c, scene_vulkan.c), the build says which it compiled
+ * one API's (scene_vulkan.c), the build says which it compiled
  * by SCENE_HAS_<API>, and the table below picks the one the library chose.
  * The texture's pixels are made here, and each scene uploads them its
  * own way.
@@ -174,7 +172,7 @@ typedef struct {
 	void (*draw)(FnlApp *app, const FnlFrame *f, CubePush *push);
 } Scene;
 
-#if !defined(SCENE_HAS_VULKAN) && !defined(SCENE_HAS_GL)
+#if !defined(SCENE_HAS_VULKAN)
 #error "no scene: the build defines SCENE_HAS_<API> for each one it compiles"
 #endif
 
@@ -182,10 +180,6 @@ static const Scene SCENES[] = {
 #ifdef SCENE_HAS_VULKAN
 	{ FNL_RENDERER_VULKAN, scene_vulkan_on_gpu_created,
 	  scene_vulkan_on_gpu_lost, scene_vulkan_draw },
-#endif
-#ifdef SCENE_HAS_GL
-	{ FNL_RENDERER_OPENGL, scene_gl_on_gpu_created, scene_gl_on_gpu_lost,
-	  scene_gl_draw },
 #endif
 };
 #define SCENE_COUNT (sizeof SCENES / sizeof SCENES[0])

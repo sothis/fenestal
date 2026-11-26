@@ -54,10 +54,6 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app);
 void scene_vulkan_on_gpu_lost(void *ud, FnlApp *app);
 void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *frame);
 
-void scene_gl_on_gpu_created(void *ud, FnlApp *app);
-void scene_gl_on_gpu_lost(void *ud, FnlApp *app);
-void scene_gl_on_record(void *ud, FnlApp *app, const FnlFrame *frame);
-
 void scene_d3d12_on_gpu_created(void *ud, FnlApp *app);
 void scene_d3d12_on_gpu_lost(void *ud, FnlApp *app);
 void scene_d3d12_on_record(void *ud, FnlApp *app, const FnlFrame *frame);
@@ -69,14 +65,13 @@ void scene_metal_on_record(void *ud, FnlApp *app, const FnlFrame *frame);
 /* The GPU memory this process holds on the GPU drawing, in MiB, as its API
  * says it: Vulkan's memory budget, DXGI's QueryVideoMemoryInfo, Metal's
  * currentAllocatedSize. False where it says nothing. From on_overlay, on
- * the render thread. OpenGL keeps no figure of one process's; gpumem.c
- * asks the system for it instead. */
+ * the render thread. */
 bool scene_vulkan_vram(FnlApp *app, double *mib);
 
 /* The driver drawing, as the scene's API names it, for the benchmark's
  * record: its name and version text, the API's version, and the PCI ids;
  * "" and 0 for what it does not say. From on_overlay, on the render
- * thread, where OpenGL's context is current. */
+ * thread. */
 typedef struct {
 	char name[256];
 	char info[256];
@@ -84,16 +79,10 @@ typedef struct {
 	unsigned vendor_id, device_id;
 } TestbedDriver;
 bool scene_vulkan_driver(FnlApp *app, TestbedDriver *d);
-bool scene_gl_driver(FnlApp *app, TestbedDriver *d);
-/* fnl_gl_version() where OpenGL draws, 0 elsewhere: the one call into
- * fnl_gl.h the renderer-neutral files make, through scene_gl.c, which a
- * build without OpenGL does not have. */
-int scene_gl_version(FnlApp *app);
 
 /* The renderer as the title and the status line name it: its name, the
  * API it goes through where it presents through another ("Vulkan via
- * D3D11"), and OpenGL's version where OpenGL draws ("OpenGL 4.1"), which
- * is 4.1 on a device with no 4.5. main.c. */
+ * D3D11"). main.c. */
 void testbed_renderer_label(FnlApp *app, char *out, size_t size);
 /* The clock the scene's shaders are given: the frame's own scene_time, or,
  * under --freeze, a held value so the picture keeps one pose while the
@@ -163,18 +152,6 @@ bool scene_metal_vram(FnlApp *app, double *mib);
 bool scene_d3d12_driver(FnlApp *app, TestbedDriver *d);
 bool scene_metal_driver(FnlApp *app, TestbedDriver *d);
 
-/* ---- gpumem.c: the GPU memory OpenGL cannot say ---------------------------
- *
- * This process's, on the GPU the renderer names `gpu`, in MiB, from the
- * system: NVML for NVIDIA's own driver, the kernel's DRM fdinfo for Mesa's
- * where the driver keeps one (Intel, AMD). False where there is none --
- * nouveau's, and every system but Linux. */
-bool testbed_gpu_mem_os(const char *gpu, double *mib);
-/* What it opened to answer, let go of: from on_gpu_lost, since NVML holds
- * NVIDIA's driver while it runs and the GPU may be moving to another
- * kernel driver. The next figure asked for opens it again. */
-void testbed_gpu_mem_os_release(void);
-
 /* ---- proc.c: this process's CPU and resident memory ------------------------
  *
  * The CPU as the share of one core used since the last sample, at most
@@ -218,7 +195,7 @@ void testbed_overlay_reserve_log(void);
  * all. */
 void testbed_overlay_shapes_on(void);
 /* The GPU memory this process holds on the GPU drawing, in MiB: the
- * scene's API's figure, or the system's for OpenGL. From on_overlay. */
+ * scene's API's figure. From on_overlay. */
 bool testbed_vram_mib(FnlApp *app, double *mib);
 
 /* ---- titlebar_custom.c: the bar drawn with --custom-titlebar --------------

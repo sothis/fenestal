@@ -1363,14 +1363,12 @@ static FnlAtomicPtr host_name;
 /* A move to another monitor at the same DPI changes no size. Cheap: the
  * monitor is only asked about when its handle changed.
  *
- * Under wine on X11, with Vulkan, a move also asks for a frame: wine's
- * Vulkan surface there is black after the window moves until the next
- * present, and a window at rest presents nothing -- measured, a moved
- * testbed's capture went from its frame to all black and stayed there.
- * Wine's OpenGL keeps its picture, and Windows' compositor keeps a
- * window's, so nothing is asked there; nor on wine's Wayland driver, which
- * was not seen to lose it. One frame per move, as fnl_invalidate() asks
- * for any. */
+ * Under wine on X11, with Vulkan, a move also asks for a frame: wine's Vulkan
+ * surface there is black after the window moves until the next present, and a
+ * window at rest presents nothing -- measured, a moved testbed's capture went
+ * from its frame to all black and stayed there. Windows' compositor keeps a
+ * window's, so nothing is asked there; nor on wine's Wayland driver, which was
+ * not seen to lose it. One frame per move, as fnl_invalidate() asks for any. */
 static void on_move(App *a, HWND hwnd)
 {
 	publish_output(a, false);

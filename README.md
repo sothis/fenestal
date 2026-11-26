@@ -12,7 +12,7 @@ A portable C11 library: a window, a device, a swapchain, a render thread and a
 text overlay, wrapped around a scene that is the caller's. Its backends
 are Wayland, X11, Win32, Cocoa (macOS) and KMS -- a Linux console with no
 window server, where the window is the whole output; its renderers are
-Vulkan, OpenGL, Direct3D 12 and Metal; and a platform is one of each, such
+Vulkan, Direct3D 12 and Metal; and a platform is one of each, such
 as Vulkan on X11. The GPU is the device that draws. A build has every
 backend its system has -- on Linux, Wayland, X11 and KMS, the one a
 program opens chosen when it starts -- and every renderer its system has,
@@ -38,9 +38,9 @@ and the client titlebar are composited over whatever was recorded.
   overlay    text, rectangles, strokes, client decorations    platform-agnostic
 ```
 
-Five headers ship, in `include/fenestal/`: `fenestal.h`, the portable
+Four headers ship, in `include/fenestal/`: `fenestal.h`, the portable
 surface, which includes no window-system or graphics header; and one for
-each renderer -- `fnl_vulkan.h`, `fnl_gl.h`, `fnl_d3d12.h` and
+each renderer -- `fnl_vulkan.h`, `fnl_d3d12.h` and
 `fnl_metal.h` -- for what a caller records into and builds pipelines
 against.
 
@@ -73,8 +73,7 @@ MSVC), and:
 | `libdrm` (FreeBSD) | the KMS backend's DRM headers; FreeBSD's libdrm names them under `libdrm/`, and the build makes the `drm/` spelling |
 | Vulkan loader + headers | `find_package(Vulkan)`: the headers, which reach a consumer through `fenestal::static`; nothing links the loader |
 | `glslangValidator` | compiles `shaders/*` to SPIR-V at build time |
-| `spirv-cross` | translates the shaders for OpenGL, Direct3D 12 and Metal; needed by every build but one with Vulkan alone (`-DFNL_RENDERER=vulkan`) |
-| `libegl-dev`, `libgl-dev` | OpenGL on Linux: the EGL and GL headers; EGL is opened at run time, nothing linked |
+| `spirv-cross` | translates the shaders for Direct3D 12 and Metal; needed by every build but one with Vulkan alone, which is every Linux and FreeBSD build |
 | `dxc` | Direct3D 12 only: Microsoft's shader compiler, fetched once by `tools/dxc.py` (Linux and Windows releases); run at build time |
 | `freetype2` | build-time only: bakes the glyph atlases; not linked |
 | pthreads | the render thread |
@@ -107,19 +106,19 @@ and then, from a tree:
 ```sh
 build/linux/release/hello                                 # the smallest demo
 build/linux/release/fenestal-testbed                      # the testbed
-FNL_BACKEND=x11 FNL_RENDERER=gl build/linux/release/fenestal-testbed
+FNL_BACKEND=x11 build/linux/release/fenestal-testbed
 FNL_RENDERER=vulkan wine build/win64/release/fenestal-testbed.exe
 ```
 
 Every tree lands under `build/<target>/<variant>`. The targets are one
 per operating system, plus the native-Windows and universal
-builds: `linux` (Wayland, X11 and KMS, drawn with Vulkan or OpenGL 4.5),
+builds: `linux` (Wayland, X11 and KMS, drawn with Vulkan),
 `win64` (mingw-w64 on the Universal CRT, Win32 drawn with Direct3D 12 or
 Vulkan) and `win64-msvc` (the same, built by cl.exe on Windows and by
 clang-cl here), `macos`
-(Cocoa drawn with Metal, Vulkan on MoltenVK or OpenGL 4.1), `macos-arm64`
+(Cocoa drawn with Metal or Vulkan on MoltenVK), `macos-arm64`
 for Apple's own processors, `macos-universal` the two joined by lipo,
-and `freebsd` (Wayland, X11 and KMS, drawn with Vulkan or OpenGL; natively
+and `freebsd` (Wayland, X11 and KMS, drawn with Vulkan; natively
 or cross from Linux), with `linux-arm64` the `linux` tree cross-compiled for
 the Raspberry Pi 4. Variants are `release`, `clang`, `asan`, `tsan`,
 `analyzer` and `gc`: `linux` takes all six, `linux-arm64` release, asan,
@@ -132,9 +131,9 @@ opens the backend its session has -- Wayland, else X11, else, with
 neither, KMS on the console -- and says which in its log;
 `FNL_BACKEND=wayland`, `x11` or `kms` in its environment opens that one
 or fails. Every program draws with the first renderer that works there of
-those it has a scene for -- Direct3D 12, Vulkan on Windows; Vulkan,
-OpenGL on Linux and FreeBSD; Metal, Vulkan, OpenGL on macOS -- and says
-which; `FNL_RENDERER=d3d12`, `vulkan`, `gl` or `metal` names one.
+those it has a scene for -- Direct3D 12, Vulkan on Windows; Vulkan on Linux
+and FreeBSD; Metal, Vulkan on macOS -- and says which;
+`FNL_RENDERER=d3d12`, `vulkan` or `metal` names one.
 Arguments after the target and variant go to the configure step. Clean is
 `rm -rf build`.
 
@@ -163,7 +162,7 @@ the gcc and clang trees'. `DESIGN` *Building* says so.
 
 The macOS tree is cross-compiled by clang and `ld64.lld` against Apple's
 SDK. It produces `libfenestal.dylib`, `libfenestal.a` and the programs,
-linking AppKit, QuartzCore, Metal, OpenGL and IOSurface, with MoltenVK
+linking AppKit, QuartzCore and Metal, with MoltenVK
 beside the programs (`tools/moltenvk.py`, pinned by SHA-256), which the
 library opens when it draws with Vulkan and hands to a program's Vulkan
 scene. `macos-universal` builds the two slices and joins each library and
@@ -172,7 +171,7 @@ program with `lipo` into `build/macos-universal/<variant>`
 Mac with each renderer; `TODO.md` *macOS* has what is owed.
 
 `freebsd` is native, with the base system's clang, Wayland, X11 and KMS
-drawn with Vulkan and OpenGL. FreeBSD's evdev is the input, libdrm the
+drawn with Vulkan. FreeBSD's evdev is the input, libdrm the
 DRM headers, and the event loop is `poll()` rather than epoll. It has no
 kernel uevent socket or inotify, so monitors and input devices are found
 by rescanning on a deadline. `TODO.md` *FreeBSD* has what is owed.
@@ -192,30 +191,27 @@ target_link_libraries(my_program PRIVATE fenestal::static)
 ```
 
 `fenestal::static` is the archive and `fenestal::fenestal` the shared object.
-Each carries its own link line, the system's libraries and nothing else:
-every runtime that is not the system's -- the Vulkan loader, EGL,
-`wayland-client`, `wayland-egl`, `xcb` -- is opened at run time, so a
-machine missing one still runs the program on what it has. A program whose
-own scene calls Vulkan need not link the loader either:
-`FnlVulkanGpu::get_instance_proc_addr` is the one the library opened, and
-`demos/motion/scene_vulkan.c` asks it for every entry, with
-`VK_NO_PROTOTYPES` defined so that a call it did not ask for fails to
-compile. The Vulkan headers come with `fenestal::static`. A Linux build
-has Wayland, X11 and KMS, and the program opens the first the session has:
-Wayland where `WAYLAND_DISPLAY` is set, X11 where `DISPLAY` is, KMS where
-neither is; `FNL_BACKEND=x11` in a program's environment opens that one or
-fails, and `FNL_RENDERER=gl` draws with that renderer or fails. The same
-two names are cache variables at configure, where they choose what is
-built: `FNL_RENDERER` (`vulkan`; `gl` on Linux and macOS, `d3d12` on
-Windows, `metal` on macOS; or `all`, the default, for every one the system
-has) is the one a consumer normally sets, and a build of several renderers
-wants `FnlInitDesc::renderers` to say which the program has a scene for;
-`FNL_BACKEND` (`wayland`, `x11` or `kms`; `linux`, the default on Linux,
-for all three, and `freebsd` on FreeBSD) builds one backend alone. A program
-that links the loader anyway
-(`Vulkan::Vulkan`) gets, in a cross build, an import library synthesised
-from the sources, and `FNL_VULKAN_SCAN` lists globs over the consumer's own
-so that it has the entry points they call.
+Each carries its own link line, the system's libraries and nothing else: every
+runtime that is not the system's -- the Vulkan loader, `wayland-client`, `xcb`
+-- is opened at run time, so a machine missing one still runs the program on
+what it has. A program whose own scene calls Vulkan need not link the loader
+either: `FnlVulkanGpu::get_instance_proc_addr` is the one the library opened,
+and `demos/motion/scene_vulkan.c` asks it for every entry, with
+`VK_NO_PROTOTYPES` defined so that a call it did not ask for fails to compile.
+The Vulkan headers come with `fenestal::static`. A Linux build has Wayland, X11
+and KMS, and the program opens the first the session has: Wayland where
+`WAYLAND_DISPLAY` is set, X11 where `DISPLAY` is, KMS where neither is;
+`FNL_BACKEND=x11` in a program's environment opens that one or fails. The same
+two names are cache variables at configure, where they choose what is built:
+`FNL_RENDERER` (`vulkan`; `d3d12` on Windows, `metal` on macOS; or `all`, the
+default, for every one the system has) is the one a consumer normally sets, and
+a build of several renderers wants `FnlInitDesc::renderers` to say which the
+program has a scene for; `FNL_BACKEND` (`wayland`, `x11` or `kms`; `linux`, the
+default on Linux, for all three, and `freebsd` on FreeBSD) builds one backend
+alone. A program that links the loader anyway (`Vulkan::Vulkan`) gets, in a
+cross build, an import library synthesised from the sources, and
+`FNL_VULKAN_SCAN` lists globs over the consumer's own so that it has the entry
+points they call.
 
 `demos/` holds the programs to copy, each a folder with its scenes, its
 shaders and a `CMakeLists.txt` of its own that takes the library by those
@@ -283,7 +279,7 @@ options that name one set it.
 | Variable | Effect |
 |---|---|
 | `FNL_BACKEND` | Linux: `wayland`, `x11` or `kms` opens that backend or fails |
-| `FNL_RENDERER` | `vulkan`, `gl`, `d3d12` or `metal` draws with that renderer or fails |
+| `FNL_RENDERER` | `vulkan`, `d3d12` or `metal` draws with that renderer or fails |
 | `FNL_GPU` | the device, by its number in the startup log or by part of its name |
 | `FNL_VSYNC=0` | draw flat out, for measuring; vsync is on by default, and `fnl_set_vsync()` turns it off at run time |
 | `FNL_ECHO_EVENTS=1` | print every event the program is handed, on stderr |
@@ -293,7 +289,7 @@ options that name one set it.
 | `FNL_NO_INPUT_METHOD=1` | Wayland: leave the compositor's input method unbound, so the library composes text itself |
 | `FNL_VK_DXGI=1` / `0` | Windows: Vulkan's frames go through a DXGI swapchain, copied by Direct3D 11, or never do; by default they do wherever the GPU can share images with Direct3D 11, and the GPU box lists both ways for such a GPU |
 | `FNL_D3D12_DXGI11=1` / `0` | Windows: Direct3D 12's frames go through a Direct3D 11 swapchain, copied there, or never do; by default they do where DWM is measured composing the window at rest, with vsync on |
-| `FNL_VK_VALIDATION=1` | Khronos' validation layer in the library's Vulkan instance alone, and so in a caller's scene drawn on it, not in Zink's or vkd3d-proton's; a loader without the layer makes the instance without it and says so |
+| `FNL_VK_VALIDATION=1` | Khronos' validation layer in the library's Vulkan instance alone, and so in a caller's scene drawn on it, not in vkd3d-proton's; a loader without the layer makes the instance without it and says so |
 | `FNL_FAULT=<name>` | a Debug tree: force the named fallback path (DESIGN *Forcing the paths that never run*) |
 
 ## The API reference
@@ -370,7 +366,7 @@ The titlebar is the library's, as in every program: window buttons, a
 size drop-down, the `FSAA`, `MLAA`, `TAAU` and `Fs Upsample` checkboxes, and a GPU
 drop-down that moves the window onto another GPU while it stays open -- a
 second card, lavapipe beside the hardware, or a GPU of another renderer,
-OpenGL's beside Vulkan's -- drawn dim where there is only one; and before
+Direct3D 12's beside Vulkan's -- drawn dim where there is only one; and before
 it, where the window is wide enough, an output drop-down naming the
 monitor the window is on, following it as it is dragged, and moving it to
 another -- dim on Wayland, whose clients place no window. Drag it to move,

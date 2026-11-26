@@ -1,18 +1,17 @@
 # The testbed's scenes are compiled per renderer, and the build tells them
 # which ones it has (SCENE_HAS_<API>); without one it is an #error and nothing
-# else in the file is read. A Linux tree draws with Vulkan and OpenGL, which is
-# what the editor here should see.
+# else in the file is read. A Linux tree draws with Vulkan, which is what the
+# editor here should see.
 #
 # The -I flags repeat the tree's, since a .clangd takes the place of
 # compile_flags.txt for the files below it rather than adding to it. They are
 # what the scene files need and src/core/.clangd's list does not cover: the
 # generated shader headers live in the *build's* testbed directory, beside the
-# testbed's own, and it is scene_vulkan.c and scene_gl.c -- which include them
+# testbed's own, and it is scene_vulkan.c -- which includes them
 # and <vulkan/vulkan.h> -- that a parser without them reports as broken.
 CompileFlags:
   Add:
     - -DSCENE_HAS_VULKAN
-    - -DSCENE_HAS_GL
     - -DFNL_STATIC
     - -I/home/json/ws/fenestal/include
     - -I/home/json/ws/fenestal/testbed
@@ -27,7 +26,7 @@ CompileFlags:
 # Direct3D 12, compiled by mingw: without a target and mingw's headers a Linux
 # clangd cannot find d3d12.h and reports the whole file as broken. The
 # generated dir is the *win64* tree's, where dxil/ is made -- the Linux tree
-# translates for Vulkan and OpenGL only.
+# translates for Vulkan only.
 ---
 If:
   PathMatch: scene_d3d12\.c

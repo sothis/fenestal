@@ -37,16 +37,6 @@
 leak:libGLX_nvidia.so
 leak:libnvidia-glcore.so
 #
-# And the same D-Bus connection made through NVIDIA's EGL. Checked against
-# the kms-gl-bare asan round on schenker's GTX 1050 Ti (580.178.04, no
-# window server): eglCreateContext -> libEGL_nvidia -> (the ICD's own
-# frames, unnamed) -> dbus_bus_register, 184 bytes direct and 374
-# indirect at exit, and nothing else. aspire's 960M on the same driver did
-# not report it in its round, which says when, not whether. The module is
-# the narrowest key for the reason above, and EGL is given no allocator of
-# ours either.
-leak:libEGL_nvidia.so
-#
 # And the same D-Bus connection where NVIDIA's Vulkan driver is not kept
 # loaded: a round that moves the GPU between kernel drivers, which unloads
 # it (bare_driver.py's LAVAPIPE_WHY). Its frames are then an unknown

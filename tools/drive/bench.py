@@ -461,8 +461,7 @@ def main():
         places += [(b.NAME, b, run_bare) for b in cls.each()
                    if "@" in b.NAME]
     for cls in (B.Win32VM, B.Win32VMD3D12, B.Win32Native,
-                B.Win32NativeD3D12, B.CocoaNative, B.CocoaNativeVulkan,
-                B.CocoaNativeGL):
+                B.Win32NativeD3D12, B.CocoaNative, B.CocoaNativeVulkan):
         places += [(b.NAME, b, run_remote) for b in cls.each()
                    if "@" in b.NAME]
     wanted = [p for p in places

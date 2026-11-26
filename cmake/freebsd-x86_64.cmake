@@ -14,7 +14,7 @@
 #   cmake --build build/freebsd/release -j
 #
 # FNL_FREEBSD_SYSROOT is the base system's headers and libraries and the
-# ports' -- Wayland, xcb, libdrm, GL, Vulkan's headers -- fetched once by
+# ports' -- Wayland, xcb, libdrm, Vulkan's headers -- fetched once by
 # tools/freebsd_sysroot.py, which build.sh and this file both question. The
 # configure also takes it from the environment, or runs the script, so a
 # hand-run cmake fetches it as `--path` does.

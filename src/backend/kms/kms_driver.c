@@ -486,7 +486,7 @@ bool gpu_driver_bind(const App *a, const GpuDriver *g, const char *driver)
 /* NVIDIA's libraries mapped now, by file name, after what `what` says:
  * the descriptor names the driver held and not who opened it. A library
  * still mapped with nothing built is a caller's or one the dynamic linker
- * kept past its close (egl_dyn.c); none mapped is a descriptor its
+ * kept past its close; none mapped is a descriptor its
  * library left open as it was unloaded. Each mapping of a library is a
  * line of its own, consecutive, so the last name alone is compared. */
 static void nvidia_mapped(char *what, size_t size)

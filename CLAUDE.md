@@ -7,7 +7,7 @@ render thread and a text overlay, wrapped around a scene that is the caller's.
 Its backends are Wayland, X11, Win32, Cocoa (macOS, cross-compiled here and
 driven on a Mac over ssh) and KMS -- a console with no window server, on
 Linux and FreeBSD, the window being the output; its renderers are Direct3D
-12, OpenGL (4.5 on Linux and FreeBSD, 4.1 on macOS), Metal and Vulkan; and a
+12, Metal and Vulkan; and a
 platform is one of each, such as Vulkan on X11. The GPU is the device that
 draws, hardware or a software rasteriser. A build has every backend its
 system has -- on Linux and FreeBSD, Wayland, X11 and KMS, the one a program
@@ -65,13 +65,13 @@ and the questions left open for them. A question it lists is answered in
 ```sh
 ./build.sh                        # every tree this host can build
 ./build.sh linux                  # that target, release: Wayland, X11 and
-                                  # KMS, drawn with Vulkan and OpenGL
+                                  # KMS, drawn with Vulkan
 ./build.sh win64                  # that target: Win32 on the UCRT, drawn
                                   # with Direct3D 12 and Vulkan
 ./build.sh win64-msvc             # the same: cl.exe on Windows, or clang-cl
                                   # cross here against the CRT and the SDK
 ./build.sh macos                  # that target: Cocoa, drawn with Metal,
-                                  # Vulkan on MoltenVK and OpenGL 4.1
+                                  # Vulkan on MoltenVK
 ./build.sh macos-arm64            # the macos tree for Apple's own
                                   # processors, cross-compiled; release
                                   # and gc
@@ -123,11 +123,11 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   defaults), and `-DFNL_RENDERER=vulkan` one renderer alone (`all` is the
   default).
 - **Every tree has every renderer its system has**: Direct3D 12 and Vulkan
-  on Windows, Vulkan and OpenGL on Linux and FreeBSD, Metal, Vulkan (on
-  MoltenVK) and OpenGL on macOS. A program passes the renderers it has a
+  on Windows, Vulkan on Linux and FreeBSD, Metal and Vulkan (on
+  MoltenVK) on macOS. A program passes the renderers it has a
   scene for (`FnlInitDesc::renderers`; `FNL_RENDERERS_ANY` for none), and
   `fnl_init()` tries them in that order on the open window, stepping past
-  one that fails, and logs `renderer: <Name>`; `FNL_RENDERER=gl` in its
+  one that fails, and logs `renderer: <Name>`; `FNL_RENDERER=vulkan` in its
   environment draws with that one or fails. The harness names one for
   every round, as it names the backend. The old per-renderer target names
   are refused with the new one. `FNL_GPU` in a program's environment is
@@ -197,20 +197,19 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   `~/.local/state/fenestal/macos-sdk/`; they borrow the host tree's bake as the
   Windows tree does and takes `release` and `gc`, the Debug tree there
   (`-dead_strip` where a GNU linker takes `--gc-sections`). `src/backend/cocoa/`
-  and `src/renderer/metal/` are **Objective-C under ARC**, with GL's
-  `cgl.m` the library's only other; the archive's one object is made from
-  the library's bitcode (`llvm-link`, `opt`'s internalize), since `ld64.lld`
-  has no `-r`. MoltenVK
-  goes beside the programs (`tools/moltenvk.py`), where the library opens it and
-  hands it to the examples' Vulkan scenes. DESIGN *Cross-compiling for macOS*,
-  *macOS*. **`macos-arm64` is the same tree for Apple's own processors**
-  (`cmake/macos-arm64.cmake`: the x86-64 file, included with
-  `FNL_MACOS_ARCH` set), built here and run nowhere here, since the one
-  Mac is an Intel one. **`macos-universal`** builds both slices and joins
-  every library and program with `lipo` into
-  `build/macos-universal/<variant>` (`tools/macos_universal.py`); CI packs
-  that tree as app bundles (`.github/stage.sh`). `build/macos` stays the
-  tree the harness drives on the Mac.
+  and `src/renderer/metal/` are **Objective-C under ARC**; the archive's one
+  object is made from the library's bitcode (`llvm-link`, `opt`'s internalize),
+  since `ld64.lld` has no `-r`. MoltenVK goes beside the programs
+  (`tools/moltenvk.py`), where the library opens it and hands it to the
+  examples' Vulkan scenes. DESIGN *Cross-compiling for macOS*, *macOS*.
+  **`macos-arm64` is the same tree for Apple's own processors**
+  (`cmake/macos-arm64.cmake`: the x86-64 file, included with `FNL_MACOS_ARCH`
+  set), built here and run nowhere here, since the one Mac is an Intel one.
+  **`macos-universal`** builds both slices and joins every library and program
+  with `lipo` into `build/macos-universal/<variant>`
+  (`tools/macos_universal.py`); CI packs that tree as app bundles
+  (`.github/stage.sh`). `build/macos` stays the tree the harness drives on the
+  Mac.
 - **FreeBSD is native on that system and cross-compiled from this one**,
   with the base system's clang either way -- natively, and here by
   clang-21 told the target by its triple plus `ld.lld`
@@ -218,7 +217,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   `tools/freebsd_sysroot.py --fetch` unpacks once from the 15.1 release's
   `base.txz` and its own package repository, both pinned by SHA-256
   (`~/.local/state/fenestal/freebsd-sysroot/`). It has Wayland, X11 and
-  KMS, Vulkan and OpenGL. libdrm's headers are made to the `drm/`
+  KMS and Vulkan. libdrm's headers are made to the `drm/`
   spelling the sources use; its evdev is the input
   (`src/backend/evdev_input.h`); its event loop is `poll()` and a pipe
   (`src/backend/loop_bsd.c`), not epoll and eventfd. There is no netlink
@@ -269,22 +268,12 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   the `linux` tree). It is a real X11 window on
   XWayland, so `xwininfo -root -tree` finds it and `import -window <id>`
   captures it. `tools/drive/stress.py` is the round, and it drives every
-  environment rather than one: three builds, and twenty-seven ways of
+  environment rather than one: three builds, and twenty-one ways of
   running them (`ALL` in `environment.py`), each below; every one names
   its renderer to the program by `FNL_RENDERER`, and every Linux one its
   backend by `FNL_BACKEND`.
   Unlike the native Wayland window this one can be captured directly,
-  which makes it the cheapest way to *look* at a frame. `x11-gl` is the
-  same window drawn with OpenGL, an environment of its own (`X11GL`) that is
-  X11's in everything but `RENDERER`; a checker round
-  there has no Vulkan layer to prove loaded, and GL's debug output, which a
-  Debug tree logs, is what the log check reads instead. `wayland-gl` is the
-  same for the Wayland window (`WaylandGL`), and `x11-gl-bare` and
-  `wayland-gl-bare` are the same on the laptops' Xorg and weston
-  (`X11GLBare`, `WaylandGLBare`), and `kms-gl-bare` the third with neither
-  up (`KmsGLBare`); `FNL_GPU` does not steer GL, so the
-  harness forwards Mesa's `DRI_PRIME` and `LIBGL_*` there instead.
-  OpenGL is Linux's and the Mac's (`macos-gl-native`, 4.1 through CGL).
+  which makes it the cheapest way to *look* at a frame.
   The four Win32 environments have Direct3D 12
   twins, the same `win64` tree told `FNL_RENDERER=d3d12`: `win64-d3d12`,
   `-wl`, `-vm` and `-native`. Its shaders are DXIL from Microsoft's `dxc`
@@ -374,7 +363,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   `tools/probe/native_run.py` runs one program there and prints what it
   says.
 - **And on a Mac, over ssh.** `macos-metal-native`,
-  `macos-vulkan-native` and `macos-gl-native` are the macOS tree, told
+  and `macos-vulkan-native` are the macOS tree, told
   each renderer, on schenker
   booted into macOS (`power.py boot schenker macos`), driven as the laptop
   is by an
@@ -393,8 +382,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   lines; input within two minutes that was not the agent's
   (`FNL_DRIVE_MAC_BUSY`) is a hand and a skipped environment, and
   `FNL_DRIVE_MAC_OUTPUT` names the monitor. `pace.py` has a column for
-  each renderer there (`metal@schenker-mac`, `vulkan@schenker-mac`,
-  `gl@schenker-mac`).
+  each renderer there (`metal@schenker-mac`, `vulkan@schenker-mac`).
 - **And on X11 with no window manager, on a Linux machine of its own.**
   `x11-vulkan-bare` is the `linux` binary, under `FNL_BACKEND=x11`,
   copied over ssh to another
@@ -418,7 +406,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   alone, as the library's own move (`FNL_GPU_DRIVER`) is; under Xorg,
   weston or cage the boot entry chooses the driver (DESIGN *Another kernel
   driver, with the window open*). The keys' nouveau entry puts NVIDIA's
-  Vulkan, layer and EGL files aside at boot; a round on a driver puts them
+  Vulkan and layer files aside at boot; a round on a driver puts them
   back for itself (`nvidia_userspace()`), and every other round first has
   the GPU and the files as the boot does (`Bare.as_booted()`).
   A bare round drives it as it drives the guests and the laptops, every
@@ -485,7 +473,7 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   subdev on a machine with an NVIDIA GPU (`debug=bus=fatal`, by
   modprobe.d: those faults are a VBIOS script's reads, DESIGN *Drawn
   across the move*), and fetches the debug info of every installed
-  Vulkan driver and layer and of Mesa's OpenGL by build id (DESIGN: a
+  Vulkan driver and layer by build id (DESIGN: a
   checker then names the driver's frames, which `tsan.supp` keys on).
   The KMS window cannot be resized, so the round's size sections
   declare `resizable` and are skipped there. `pace.py` has a column for
@@ -687,32 +675,28 @@ finding not on it is new.
 
 ## Invariants
 
-- **A consumer links `fenestal` plus the system's own libraries, and
-  nothing else** — `m`+`pthread` (and `CMAKE_DL_LIBS`, nothing from glibc
-  2.34) on Linux, `user32`+`gdi32`+`d3d12`+`dxgi`+`dxguid` (a static library
-  of interface ids) on Windows, AppKit (`-framework
-  Cocoa`)+QuartzCore+Metal on macOS, and OpenGL+IOSurface where the tree
-  has OpenGL. Every runtime that is not the system's
-  -- the Vulkan loader, `libEGL`, `libwayland-client`, `libwayland-egl`,
+- **A consumer links `fenestal` plus the system's own libraries, and nothing
+  else** — `m`+`pthread` (and `CMAKE_DL_LIBS`, nothing from glibc 2.34) on
+  Linux, `user32`+`gdi32`+`d3d12`+`dxgi`+`dxguid` (a static library of interface
+  ids) on Windows, AppKit (`-framework Cocoa`)+QuartzCore+Metal on macOS. Every
+  runtime that is not the system's -- the Vulkan loader, `libwayland-client`,
   `libxcb` -- is opened at run time through `src/core/dynlib.h`, its entry
-  points reached through pointers that a `#define` puts in each name's
-  place (`vk_fns.h`, `egl_dyn.h`, `wl_dyn.h`, `xcb_dyn.h`), so a machine
-  without one still loads the program and steps past what wanted it. **A
-  new call into one of them wants a row in that list**; missed, it fails
-  the shared object's link (`--no-undefined`) and `fenestal-dev`'s. A
-  caller's own Vulkan scene needs no loader either: it asks
-  `FnlVulkanGpu::get_instance_proc_addr` for its entries, as the examples'
-  do under `VK_NO_PROTOTYPES` (a caller that links one anyway has, in a
-  cross tree, the import library or MoltenVK stub synthesised from the
-  sources). KMS adds nothing: its DRM and evdev are ioctls and its
-  layout is read from xkeyboard-config's files. The X11 entry is *core* xcb and
-  nothing beside it, which is why that backend hand-encodes the extension
-  requests it needs and lays out two ICCCM structures itself. The Wayland
-  core protocol's interface objects are the library's own, generated from
-  the installed `wayland.xml`. FreeType and glslangValidator are tools this
-  project *runs* at build time and never links. When something needs a
-  library, the escape hatch is a subprocess, not a new entry on the link
-  line.
+  points reached through pointers that a `#define` puts in each name's place
+  (`vk_fns.h`, `wl_dyn.h`, `xcb_dyn.h`), so a machine without one still loads
+  the program and steps past what wanted it. **A new call into one of them wants
+  a row in that list**; missed, it fails the shared object's link
+  (`--no-undefined`) and `fenestal-dev`'s. A caller's own Vulkan scene needs no
+  loader either: it asks `FnlVulkanGpu::get_instance_proc_addr` for its entries,
+  as the examples' do under `VK_NO_PROTOTYPES` (a caller that links one anyway
+  has, in a cross tree, the import library or MoltenVK stub synthesised from the
+  sources). KMS adds nothing: its DRM and evdev are ioctls and its layout is
+  read from xkeyboard-config's files. The X11 entry is *core* xcb and nothing
+  beside it, which is why that backend hand-encodes the extension requests it
+  needs and lays out two ICCCM structures itself. The Wayland core protocol's
+  interface objects are the library's own, generated from the installed
+  `wayland.xml`. FreeType and glslangValidator are tools this project *runs* at
+  build time and never links. When something needs a library, the escape hatch
+  is a subprocess, not a new entry on the link line.
 - **The API is 0.9 and not yet stable** (`fenestal.h` *stability*, DESIGN
   *Compatibility*). A minor release may rename, change or remove anything,
   at the source and at the binary; `fnl_init()` refuses a header from
@@ -927,10 +911,9 @@ src/backend/cocoa/    /  (Objective-C: AppKit has no C interface)
 src/backend/kms/       no window server: the DRM node and evdev, and no
                        graphics API either
 src/renderer/vulkan/   \
-src/renderer/gl/        > one per graphics API; it names no window server,
-src/renderer/d3d12/    /  except the bridges (surface_*.c, GL's egl_*.c),
-src/renderer/metal/   /   the one place that must see both halves (Metal's
-                          are .m)
+src/renderer/d3d12/     > one per graphics API; it names no window server,
+src/renderer/metal/    /  except the bridges (surface_*.c), the one place
+                          that must see both halves (Metal's are .m)
 ```
 
 `tools/check-layering.py` turns that into a check rather than a claim --
@@ -950,7 +933,6 @@ One generated file is tracked: `src/backend/keysym_table.h`, made by
 Everything in `build/<target>/<variant>/generated/` is generated and untracked:
 `*-client-protocol.h` and `*-protocol.c` from `wayland-scanner`, `<shader>.h`
 SPIR-V arrays from `glslangValidator`, their translations from `spirv-cross` in
-`gl/` (GLSL 4.50, and its `.h` as a C string), `gl41/` (GLSL 4.10, for macOS),
 `hlsl/` and `msl/` (DESIGN *One shader source*), and `font_data.h` /
 `font_metrics.h` / `font_atlas.S` / `font_atlas.bin` / `font_cells.bin` from
 `tools/mkfont` (a tree that borrows its bake has `font_borrowed.S` and no blobs

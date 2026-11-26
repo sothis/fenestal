@@ -347,11 +347,11 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 	 * FNL_VK_VALIDATION=1 asks: what a checker round claims is this
 	 * library's Vulkan, and a caller's scene's, which is drawn on this
 	 * instance. The loader's VK_LOADER_LAYERS_ENABLE puts the layer in every
-	 * instance of the process -- Zink's and vkd3d-proton's, whose calls are
-	 * Mesa's and wine's -- and a lock-order inversion of the layer's own,
-	 * in Zink's instance, failed every ThreadSanitizer round that drew with
-	 * OpenGL on NVK. Named, not looked for first: a loader without it
-	 * refuses the instance, which is made again without it, and said. */
+	 * instance of the process -- vkd3d-proton's, whose calls are wine's --
+	 * and a lock-order inversion of the layer's own failed every
+	 * ThreadSanitizer round that drew through it. Named, not looked for
+	 * first: a loader without it refuses the instance, which is made again
+	 * without it, and said. */
 	static const char *const VALIDATION[] = { "VK_LAYER_KHRONOS_validation" };
 	const char *val = getenv("FNL_VK_VALIDATION");
 	if (val && val[0] == '1' && !val[1]) {

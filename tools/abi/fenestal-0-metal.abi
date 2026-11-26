@@ -155,10 +155,6 @@ offset FnlEvent.claim_focus.claim 16
 offset FnlEvent.color.color.space 16
 offset FnlEvent.color.color.sdr_scale 20
 offset FnlEvent.color.color.peak 24
-sizeof FnlGlSceneLayout 12
-offset FnlGlSceneLayout.samples 0
-offset FnlGlSceneLayout.color_format 4
-offset FnlGlSceneLayout.depth_format 8
 sizeof FnlMetalGpu 16
 offset FnlMetalGpu.device 0
 offset FnlMetalGpu.queue 8
@@ -189,9 +185,8 @@ enum FNL_LOG_INFO 2
 enum FNL_LOG_DEBUG 3
 enum FNL_RENDERER_DEFAULT 0
 enum FNL_RENDERER_VULKAN 1
-enum FNL_RENDERER_OPENGL 2
-enum FNL_RENDERER_D3D12 3
-enum FNL_RENDERER_METAL 4
+enum FNL_RENDERER_D3D12 2
+enum FNL_RENDERER_METAL 3
 enum FNL_RENDERERS_ANY 4294967295
 enum FNL_GPU_KIND_UNKNOWN 0
 enum FNL_GPU_KIND_INTEGRATED 1

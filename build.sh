@@ -6,19 +6,19 @@
 #
 #   ./build.sh                        every tree this host can build
 #   ./build.sh linux                  that target, release: Wayland, X11
-#                                     and KMS, drawn with Vulkan and OpenGL
+#                                     and KMS, drawn with Vulkan
 #   ./build.sh win64                  that target, release: Win32 with
 #                                     mingw-w64 on the Universal CRT, drawn
 #                                     with Direct3D 12 and Vulkan
 #   ./build.sh win64-msvc             the same, built natively by MSVC
 #   ./build.sh macos                  that target: Cocoa drawn with Metal,
-#                                     Vulkan on MoltenVK and OpenGL 4.1
+#                                     and Vulkan on MoltenVK
 #   ./build.sh macos-arm64            the macos tree for Apple's own
 #                                     processors, cross-compiled
 #   ./build.sh macos-universal        the two macOS trees joined into one
 #                                     set of universal binaries
 #   ./build.sh freebsd                FreeBSD, native: Wayland, X11 and KMS,
-#                                     drawn with Vulkan and OpenGL
+#                                     drawn with Vulkan
 #   ./build.sh linux-arm64            the linux tree for 64-bit ARM (the
 #                                     Raspberry Pi), cross-compiled
 #   ./build.sh linux asan             that target, that checker
@@ -589,8 +589,8 @@ TARGET=$1; shift
 case $TARGET in
     linux|win64|win64-msvc|macos|macos-arm64|macos-universal|freebsd|\
     linux-arm64) ;;
-    wayland-vulkan|wayland-gl|x11-vulkan|x11-gl|kms-vulkan|kms-gl|\
-    linux-vulkan|linux-gl|win64-vulkan|win64-d3d12|\
+    wayland-vulkan|x11-vulkan|kms-vulkan|linux-vulkan|\
+    win64-vulkan|win64-d3d12|\
     macos-metal|macos-vulkan)
         # The names the trees had when each was one platform or one
         # renderer; said rather than refused bare, since the hand still

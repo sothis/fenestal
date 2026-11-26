@@ -51,10 +51,6 @@ APIS = {
                r'GetWindowRect|AdjustWindowRect\w*|PostMessage\w*|'
                r'SendMessage\w*|SetWindowLongPtr\w*|GetWindowLongPtr\w*)\b',
     'vulkan':  r'\b(?:Vk[A-Z]\w*|vk[A-Z]\w*)\b',
-    # OpenGL and its bridge, EGL. GL_ and EGL_ are spelled by nothing else
-    # in the tree.
-    'gl':      r'\b(?:GL_[A-Z]\w*|EGL_\w+|egl[A-Z]\w*|'
-               r'GL[a-z]\w*|EGL[A-Z][a-z]\w*|CGL\w+|kCGL\w+)\b',
     # Direct3D 12 and DXGI, by their interfaces, their constants and their
     # entry points, none of which anything else spells.
     'd3d12':   r'\b(?:ID3D12\w+|IDXGI\w+|D3D12\w*|DXGI_\w+|D3D_\w+|'
@@ -94,7 +90,6 @@ ALLOWED = {
     'src/backend/kms':      'kms',
     'src/backend/cocoa':    'cocoa',
     'src/renderer/vulkan':  'vulkan',
-    'src/renderer/gl':      'gl',
     'src/renderer/d3d12':   'd3d12',
     'src/renderer/metal':   'metal',
 }
@@ -102,22 +97,11 @@ ALLOWED = {
 # (directory, api) -> files allowed to name that api anyway, each one argued
 # here.
 #
-# egl_wayland.c is the OpenGL renderer's bridge to Wayland, and EGL takes no
-# wl_surface: its native window is a wl_egl_window, which only
-# libwayland-egl's own calls make, size and destroy. The Vulkan bridges name
-# no window server because vkCreateWaylandSurfaceKHR takes the wl_surface as
-# it is; this one cannot.
-#
 # cocoa.m names the CAMetalLayer and nothing else of Metal's: it is the
 # layer the window's view hosts, made with the view, and the one both
 # graphics APIs a Mac has present into -- Vulkan through MoltenVK as well --
 # so it is the window's, as a Wayland surface is, and the bridges take it
 # from there.
-#
-# cgl.m is the OpenGL renderer's bridge on macOS, and the Mac's window has
-# one way in for frames, its Metal layer: the frame drawn into an IOSurface
-# is copied into the layer's drawable by Metal, so the bridge names Metal as
-# egl_wayland.c names Wayland, and no other file of the renderer does.
 #
 # present_dxgi.c is the Vulkan renderer's way to a DXGI swapchain on Win32,
 # where a swapchain of Vulkan's own is made anew at every size and Intel's
@@ -125,8 +109,6 @@ ALLOWED = {
 # Direct3D 11 and presented by it, so it names DXGI as a bridge names a
 # window server, and no other file of the renderer does.
 EXCUSED: dict[tuple[str, str], set[str]] = {
-    ('src/renderer/gl', 'wayland'): {'egl_wayland.c'},
-    ('src/renderer/gl', 'metal'): {'cgl.m'},
     ('src/renderer/vulkan', 'd3d12'): {'present_dxgi.c'},
     ('src/backend/cocoa', 'metal'): {'cocoa.m'},
 }
