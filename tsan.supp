@@ -238,6 +238,26 @@ race:amdgpu_bo_cpu_map
 race:si_pm4_emit_state
 race:si_shader_select
 
+# ---- Mesa's async debug queue ----------------------------------------------
+# Mesa's debug thread, `<program>:sh0`, formats a message (vasprintf, its
+# realloc and free) while whichever thread called into the GL emits or drains
+# one (_mesa_gl_vdebugf(), _u_async_debug_drain()): the queue is the driver's
+# and handed over through a util_queue fence TSan does not see. Checked
+# against the KMS tsan rounds on black in fenestal-console (radeonsi, Mesa
+# 26.0.8-1ubuntu0.3, 2026-11-26): 45 and 75 reports, every one the same three
+# pairs below, every frame between TSan's interceptor and the GL entry point
+# ours called is Mesa's, and every block is the debug queue's message --
+# si_schedule_initial_compile() is where radeonsi emits one while it schedules
+# a compile, not where a shader or a block of ours is touched. Keyed on the
+# functions, all Mesa's (src/gallium/auxiliary/util/u_async_debug.c,
+# src/mesa/main/errors.c, si_state_shaders.cpp), and none of the four names is
+# ours (`grep -rn` over src/). They match only where Mesa's debug info is
+# installed, as the radeonsi entries above do.
+race:_mesa_gl_vdebugf
+race:_u_async_debug_drain
+race:u_async_debug_message
+race:si_schedule_initial_compile
+
 # ---- NVIDIA's EGL against its own Wayland platform library -----------------
 # A lock-order inversion between two of NVIDIA's libraries, and between two
 # moments that never overlap. Every EGL call on a Wayland display takes
