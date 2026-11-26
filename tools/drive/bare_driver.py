@@ -259,6 +259,7 @@ DISTROS = {
         "dbus": "/usr/lib/x86_64-linux-gnu/libdbus-1.so.3",
         "egl_mesa": "/usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0",
         "radeon": "/usr/lib/x86_64-linux-gnu/libvulkan_radeon.so",
+        "intel": "/usr/lib/x86_64-linux-gnu/libvulkan_intel.so",
         "debuginfod": "https://debuginfod.debian.net",
     },
     "arch": {
@@ -294,6 +295,7 @@ DISTROS = {
         "dbus": "/usr/lib/libdbus-1.so.3",
         "egl_mesa": "/usr/lib/libEGL_mesa.so.0",
         "radeon": "/usr/lib/libvulkan_radeon.so",
+        "intel": "/usr/lib/libvulkan_intel.so",
         "debuginfod": "https://debuginfod.archlinux.org",
     },
 }
@@ -357,7 +359,9 @@ TSAN_EXTRA = os.path.join(ROOT, "tsan-lavapipe.supp")
 # leak made inside either reads as an "unknown module". RADV is kept so too
 # where the machine has an AMD GPU (DISTROS' "radeon"): this desktop's
 # console, where Mesa's display-WSI leak (lsan.supp) is keyed on a
-# function that only a loaded driver's frames can name.
+# function that only a loaded driver's frames can name. And ANV where the
+# machine has an Intel GPU (DISTROS' "intel"): schenker's display path, where
+# a lost device remakes the surface and the same leak is made again.
 ALSO_PINNED = ("/usr/lib/libvulkan_broadcom.so",)
 # Under ThreadSanitizer the drivers a report's frames are in are loaded
 # before the program starts, in its LD_PRELOAD behind TSan's runtime. GCC's
@@ -1969,6 +1973,7 @@ done""",
         self.runtimes = [os.path.basename(f) for f in runtimes]
         nv = shlex.quote(self.distro["nvidia"])
         amd = shlex.quote(self.distro["radeon"])
+        intel = shlex.quote(self.distro["intel"])
         if self.moves_driver:
             nvidia = "test -e %s && { %s; }" % (
                 nv,
@@ -1992,7 +1997,9 @@ done""",
                 for q in map(shlex.quote, ALSO_PINNED)
             )
             + "; grep -qs 0x1002 /sys/bus/pci/devices/*/vendor && "
-            "test -e %s && echo %s" % (amd, amd),
+            "test -e %s && echo %s" % (amd, amd)
+            + "; grep -qs 0x8086 /sys/bus/pci/devices/*/vendor && "
+            "test -e %s && echo %s" % (intel, intel),
             check=False,
         ).split()
         libdir = os.path.dirname(self.distro["lavapipe"])
