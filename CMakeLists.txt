@@ -2240,6 +2240,19 @@ target_link_libraries(fenestal_dev PRIVATE fenestal_static)
 # runner.
 target_compile_options(fenestal_dev PRIVATE ${FNL_WARNINGS} ${FNL_PREFIX_MAP})
 
+# ---- The MCP bridge -----------------------------------------------------------
+# fenestal-mcp, stdin and stdout to the port's socket (tools/mcpbridge.c): what
+# `socat - UNIX-CONNECT:<path>` is, for an MCP client's `command` on a machine
+# that has no socat. Links nothing of the library, and Winsock on Windows.
+add_executable(fenestal_mcp tools/mcpbridge.c)
+set_target_properties(fenestal_mcp PROPERTIES OUTPUT_NAME fenestal-mcp)
+if(WIN32)
+    # fenestal_usage, which has ws2_32 and, cross-compiled by clang-cl, the
+    # CRT's and the SDK's directories.
+    target_link_libraries(fenestal_mcp PRIVATE fenestal_usage)
+endif()
+target_compile_options(fenestal_mcp PRIVATE ${FNL_WARNINGS} ${FNL_PREFIX_MAP})
+
 # ---- The API reference's examples -----------------------------------------
 # examples/*.c, each a complete consumer of the installed headers,
 # built and linked in every tree and never run by the build: an example in
@@ -2483,7 +2496,7 @@ endforeach()
 # Inside somebody else's project the two fixtures are built only when asked
 # for by name: a consumer's `make` should not spend an LTO link on them.
 if(NOT FNL_IS_TOP_LEVEL)
-    set_target_properties(fenestal_testbed fenestal_dev
+    set_target_properties(fenestal_testbed fenestal_dev fenestal_mcp
                           ${FNL_SNIPPET_TARGETS}
                           PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()

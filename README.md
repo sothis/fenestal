@@ -307,6 +307,10 @@ starts a command reaches it through `socat`; in a project's `.mcp.json`:
         "command": "socat",
         "args": ["-", "UNIX-CONNECT:/run/user/1000/fenestal-1234.sock"] } } }
 
+Where there is no `socat` -- Windows -- every tree builds `fenestal-mcp`,
+which is the same bridge and finds the newest `fenestal-*.sock` by itself
+when it is given no path (`"command": "fenestal-mcp"`).
+
 (`FNL_MCP=/some/fixed.sock` names the path, which suits a `.mcp.json`.) Its
 tools are `state`, `events`, `key`, `text`, `pointer`, `capture` (a PNG of
 the frame as drawn, not as composited), `controls` (where the library's

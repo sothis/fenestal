@@ -299,7 +299,6 @@ struct Mcp {
 	uint32_t key_held[KEY_HELD_WORDS];
 	unsigned button_held;   /* bit per FnlButton */
 	double   ptr_x, ptr_y;  /* where the port last put the pointer */
-	bool     ptr_known;
 	double   press_s;       /* when it last pressed, for a click's spacing */
 
 	/* Everything below is under `lock`. `cond` has one waiter, the port's
@@ -316,6 +315,7 @@ struct Mcp {
 	int      ev_head, ev_n;
 	uint32_t ev_lost;       /* older lines pushed out of it */
 	double   ev_last_s;     /* when the newest arrived */
+	double   pub_x, pub_y;  /* the pointer as of the pump's last turn */
 
 	ShotState      shot;
 	unsigned char *shot_px; /* rows of shot_w * 4 bytes */
@@ -435,6 +435,10 @@ void mcp_drain(App *a)
 	In run[MCP_IN_MAX];
 	char text[MCP_TEXT_MAX];
 	fnl_mutex_lock(&m->lock);
+	/* The pointer wherever it came from -- a device's motion too -- is the
+	 * pump's own field, read here where it is written. */
+	m->pub_x = a->ptr_x;
+	m->pub_y = a->ptr_y;
 	const int n = m->in_n;
 	memcpy(run, m->in, sizeof run);
 	memcpy(text, m->text, sizeof text);
@@ -475,6 +479,8 @@ void mcp_drain(App *a)
 	}
 
 	fnl_mutex_lock(&m->lock);
+	m->pub_x = a->ptr_x;
+	m->pub_y = a->ptr_y;
 	m->in_done++;
 	fnl_cond_signal(&m->cond);
 	fnl_mutex_unlock(&m->lock);
@@ -1067,6 +1073,14 @@ static void held_set(Mcp *m, FnlKey k, bool down)
 		m->key_held[(unsigned)k / 32] &= ~bit;
 }
 
+/* How far the window's corner is from the frame's, in pixels: the grab ring
+ * a backend with no resize border of its own asks for round it
+ * (App::draw_margin, which the render thread owns: the same sum here). */
+static int grab_margin_px(const App *a)
+{
+	return scale_pt(deco_margin(a, fnl_is_fullscreen(a)), fnl_scale120(a));
+}
+
 /* ---- state --------------------------------------------------------------- */
 
 static const char *const AA_NAMES[]   = { "none", "fsaa", "mlaa", "taau" };
@@ -1191,6 +1205,9 @@ static bool tool_state(Mcp *m, const char *args, Sb *c)
 	sb_f(&s, "[%d,%d]", sw, sh);
 	sb_key(&s, "scale120");
 	sb_f(&s, "%d", fnl_scale120(a));
+	/* Where the window's corner is in a capture's pixels. */
+	sb_key(&s, "grab_margin_px");
+	sb_f(&s, "%d", grab_margin_px(a));
 	sb_key(&s, "output");
 	sb_jstr(&s, fnl_output_name(a));
 	sb_key(&s, "output_pt");
@@ -1207,13 +1224,14 @@ static bool tool_state(Mcp *m, const char *args, Sb *c)
 	sb_bool(&s, fnl_is_shown(a));
 	sb_key(&s, "pointer_captured");
 	sb_bool(&s, fnl_is_pointer_captured(a));
-	/* Where the port last put the pointer, in window points: null before
-	 * it has. A device's own motion is not seen from here. */
+	/* The pointer as the pump's last turn had it, a device's motion
+	 * included, in window points. Where the window server owns the pointer
+	 * it is the position the backend was told. */
+	fnl_mutex_lock(&m->lock);
+	const double px = m->pub_x, py = m->pub_y;
+	fnl_mutex_unlock(&m->lock);
 	sb_key(&s, "pointer_pt");
-	if (m->ptr_known)
-		sb_f(&s, "[%d,%d]", (int)lround(m->ptr_x), (int)lround(m->ptr_y));
-	else
-		sb_s(&s, "null");
+	sb_f(&s, "[%d,%d]", (int)lround(px), (int)lround(py));
 	sb_key(&s, "text_input");
 	sb_bool(&s, fnl_is_text_input(a));
 	sb_key(&s, "antialias");
@@ -1310,8 +1328,10 @@ static bool tool_events(Mcp *m, const char *args, Sb *c)
 	m->ev_lost = 0;
 	fnl_mutex_unlock(&m->lock);
 
-	if (*until && !matched)
+	if (*until && !matched && !stopping(m))
 		sb_f(&t, "(no event with '%s' within %d ms)\n", until, (int)wait_ms);
+	if (stopping(m))
+		sb_s(&t, "(the window is closing)\n");
 	const bool bad = t.bad;
 	if (bad)
 		say(c, "out of memory");
@@ -1616,7 +1636,6 @@ static bool tool_pointer(Mcp *m, const char *args, Sb *c)
 		m->press_s = now_seconds();
 		m->ptr_x = tx;
 		m->ptr_y = ty;
-		m->ptr_known = true;
 		return note(c, "drag: done");
 	}
 
@@ -1627,7 +1646,6 @@ static bool tool_pointer(Mcp *m, const char *args, Sb *c)
 	if (!relative) {
 		m->ptr_x     = x;
 		m->ptr_y     = y;
-		m->ptr_known = true;
 	}
 	if (pressing)
 		m->press_s = now_seconds();
@@ -1718,7 +1736,8 @@ static bool tool_capture(Mcp *m, const char *args, Sb *c)
 					  "swapchain, or one whose images cannot be copied)");
 	if (st != SHOT_DONE || !px)
 		return say(c, "no frame drawn within 2 s: is the window shown, and "
-					  "the program running?");
+					  "the program running? A display that is off or locked "
+					  "sends a window no frame callbacks, and draws nothing");
 
 	int x0 = 0, y0 = 0, cw = w, ch = h;
 	if (rv) {
@@ -1748,10 +1767,14 @@ static bool tool_capture(Mcp *m, const char *args, Sb *c)
 	sb_base64(c, png, png_n);
 	sb_s(c, "\"}");
 	free(png);
+	const int mx = grab_margin_px(m->app);
 	return note(c, "frame %dx%d px, region %d,%d %dx%d, image %dx%d (a pixel "
 				   "of it is %d of the frame's each way); scale120 %d: a "
-				   "window point is scale120/120 frame pixels",
-				w, h, x0, y0, cw, ch, ow, oh, f, fnl_scale120(m->app));
+				   "window point is scale120/120 frame pixels, and the "
+				   "window's own corner is at frame pixel %d,%d (a "
+				   "transparent grab ring, where the backend has none of "
+				   "its own, is round it)",
+				w, h, x0, y0, cw, ch, ow, oh, f, fnl_scale120(m->app), mx, mx);
 }
 
 /* ---- the library's own controls ------------------------------------------ */
@@ -2082,11 +2105,19 @@ static const struct {
 
 static bool send_all(Mcp *m, Sock fd, const char *p, size_t n)
 {
+	/* A port that is stopping still says what it has -- an `events` that the
+	 * window's close ended, with the line that did it -- for a second, and
+	 * no longer: the teardown waits on this thread. */
+	double grace = 0.0;
 	while (n) {
-		if (stopping(m))
-			return false;
+		if (stopping(m)) {
+			if (grace == 0.0)
+				grace = now_seconds() + 1.0;
+			if (now_seconds() > grace)
+				return false;
+		}
 		struct pollfd pf = { .fd = fd, .events = POLLOUT };
-		const int r = sock_poll(&pf, 1, MCP_POLL_MS);
+		const int r = sock_poll(&pf, 1, 50);
 		if (r < 0 && !sock_again(sock_err()))
 			return false;
 		if (r <= 0)
@@ -2366,23 +2397,33 @@ static void session(Mcp *m, Sock fd, char *line)
 		struct pollfd pf[2] = { { .fd = fd, .events = POLLIN },
 								{ .fd = m->listen_fd, .events = POLLIN } };
 		const int r = sock_poll(pf, 2, MCP_POLL_MS);
-		if (r < 0 && !sock_again(sock_err()))
+		if (r < 0 && !sock_again(sock_err())) {
+			fnl_log(FNL_LOG_INFO, "mcp: client ends: poll error %d",
+					sock_err());
 			break;
+		}
 		if (r <= 0)
 			continue;
 		if (!pf[0].revents) {
-			if ((pf[1].revents & POLLIN) && now_seconds() - last > MCP_IDLE_S)
+			if ((pf[1].revents & POLLIN) && now_seconds() - last > MCP_IDLE_S) {
+				fnl_log(FNL_LOG_INFO, "mcp: client idle %.0f s, gives way",
+						now_seconds() - last);
 				break;
+			}
 			/* Somebody waiting is no reason to spin on it. */
 			pause_s(m, 0.05);
 			continue;
 		}
 		const long got = sock_recv(fd, line + n, MCP_LINE_MAX - n);
-		if (got == 0)
+		if (got == 0) {
+			fnl_log(FNL_LOG_INFO, "mcp: client gone");
 			break;
+		}
 		if (got < 0) {
 			if (sock_again(sock_err()))
 				continue;
+			fnl_log(FNL_LOG_INFO, "mcp: client ends: read error %d",
+					sock_err());
 			break;
 		}
 		last = now_seconds();
@@ -2446,6 +2487,7 @@ static void *serve(void *arg)
 		m->ev_head = m->ev_n = 0;
 		m->ev_lost = 0;
 		fnl_mutex_unlock(&m->lock);
+		fnl_log(FNL_LOG_INFO, "mcp: client connected");
 		session(m, fd, line);
 		sock_close(fd);
 	}

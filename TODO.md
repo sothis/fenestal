@@ -59,6 +59,33 @@ UCRT one is driven on this desktop under wine.
   llvm-mingw is clang and has no `-fanalyzer`, so the checkers job skips
   that tree. MSYS2's UCRT64 gcc on Windows can run it.
 
+## The MCP port
+
+Run, with `tools/drive/mcp_check.py` and by hand, on schenker's KDE Wayland,
+KMS (release, asan, tsan), Xorg and weston, on Windows 11 with Vulkan and
+Direct3D 12 and on macOS with Metal and Vulkan (2026-11-26); DESIGN *Driven
+from inside*. Owed:
+
+- **FreeBSD, `linux-arm64` and the MSVC tree** compile and have never run
+  it: the Pi 4's KMS (`bare_run.py` there), FreeBSD's `vt(4)` console and a
+  native cl.exe build are the first places the socket, `fenestal-mcp` and
+  `pointer_warp` meet a system the check has not.
+- **Under a window server the pointer cannot be moved**
+  (`backend_noop_pointer_warp`): the program is told of a position the cursor
+  does not show. X11's `xcb_warp_pointer`, Win32's `SetCursorPos` and Cocoa's
+  `CGWarpMouseCursorPosition` could, at the cost of moving a hand's cursor
+  on a desktop somebody is using; left out until an agent on a desktop
+  asks for it.
+- **A display that is off or locked** sends a window no frame callbacks
+  (KDE's idle blank, found 2026-11-26): `capture` and `events` then time out,
+  and `state.shown` is still true. The library has no way to ask a
+  compositor whether it is drawing.
+- **The Windows agent wedges after a `native_run.py` that was killed**: the
+  next run says "the program's output stopped without its exit code" until
+  the `fenestal-agent` task is ended and run again (`schtasks /end`, `/run`,
+  then ~30 s), and the first run after a boot does too. The relay's port
+  and the agent's one-run-at-a-time are the places to look.
+
 ## HDR
 
 Written on 2026-11-25; every tree of the four targets was built the same

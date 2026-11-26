@@ -531,7 +531,10 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   in where the backend's would -- KMS's cursor follows it -- so it is no
   check on the window server's side. One client at a time; what it left
   pressed is released when it goes. Windows too, on Winsock's `AF_UNIX`
-  (`ws2_32`). DESIGN *Driven from inside*.
+  (`ws2_32`), where `fenestal-mcp` (built in every tree) is the socat.
+  `tools/drive/mcp_check.py <env> --socket|--command` is the check, run by
+  hand against a testbed started with `FNL_MCP=1 --text-input`. DESIGN
+  *Driven from inside*.
 - **The event echo is the library's** (`src/core/echo.c`, inside
   `fnl_poll_event()`): `FnlInitDesc::echo_events`, or `FNL_ECHO_EVENTS=1` in
   the environment for a program with no flag. The harness sets the variable

@@ -16,6 +16,15 @@ that day: counts of checks grow as checks are added, and a rate read before
 a change to the frame loop stays as it was read. `status.py` says what was
 last run where, and `docs/benchmarks.md` holds the latest full set.
 
+## The MCP port's check
+
+`python3 tools/drive/mcp_check.py <env> --socket <path>` (or `--command "ssh
+host fenestal-mcp"`, how Windows and a Mac are reached) drives a testbed that
+was started with `FNL_MCP=1 --text-input` as an agent would, and says PASS or
+FAIL for nineteen things; it is not part of `stress.py`, whose environments
+it does not start. What it found and where it has passed is DESIGN *Driven
+from inside*; TODO *The MCP port* has what is owed.
+
 ## The round
 
 ```sh

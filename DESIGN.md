@@ -11645,7 +11645,9 @@ with a line in the log, since taking it for a path would make a file of that
 name in whatever directory the program started in. The framing is MCP's stdio
 transport, a JSON-RPC message a line (or a batch of them, a JSON array), so a
 client that speaks stdio reaches it through a bridge, `socat -
-UNIX-CONNECT:<path>`; README has the `.mcp.json` line. A request before
+UNIX-CONNECT:<path>`, or `fenestal-mcp` (`tools/mcpbridge.c`, built in every tree,
+which finds the newest socket itself and runs where there is no socat); README
+has the `.mcp.json` line. A request before
 `initialize` is answered with -32002 (`ping` apart), and `jsonrpc` must be
 `"2.0"`. Its tools:
 
@@ -11693,12 +11695,22 @@ the readback a move already takes, on every renderer, and the frame comes
 back through `app_snapshot_set()`, which keeps it as a cover only when a
 veil is up; the events are copied as the program polls them, into a ring of
 256 that drops its oldest, which is what a client that reads late wants.
-A move under way is waited out up to 8 s; an HDR swapchain or one whose
+A frame's pixels start at the window's own corner plus the transparent grab
+ring a backend with no resize border of its own asks for (`grab_margin_px` in
+`state`, and in the capture's note), so a window point is `margin + point *
+scale120 / 120`. A move under way is waited out up to 8 s; an HDR swapchain or one whose
 images cannot be copied from is a capture refused with the reason. A call
 waits two seconds at most for the pump or for a frame. The PNG is Sub
 filtered and deflated with fixed Huffman codes and a hash chain (no zlib on
 the link line): a 1080p screen of this library's is under 200 KiB where
 the stored form was 8 MB.
+
+`tools/drive/mcp_check.py` is the check: run against a program started with
+`FNL_MCP=1 --text-input`, over the socket or through `fenestal-mcp` over ssh,
+it drives it as an agent would and says PASS or FAIL for each of nineteen things
+and two more for each GPU it can move to, and writes the ledger a line. It has passed on schenker's
+KDE Wayland, KMS, Xorg and weston, on Windows 11 with Vulkan and Direct3D 12,
+and on macOS with Metal and Vulkan (MoltenVK).
 
 `text` is cut into chunks of 100 code points, each posted when the queue
 has half its room free: the queue drops what it cannot hold (*The event
