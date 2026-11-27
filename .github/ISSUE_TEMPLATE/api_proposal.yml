@@ -11,8 +11,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        The API is 0.9 and not yet stable, but enum values are appended and
-        descriptors grow only at their end already. A pull request for an API
+        The API is 1.0: from now on it only grows -- enum values are appended
+        and descriptors grow only at their end -- and a change to what is
+        declared waits for a major release. A pull request for an API
         change touches the header, a caller in a program the build makes, the
         ABI baseline in `tools/abi/`, `CHANGELOG.md` and `DESIGN.md`; see
         CONTRIBUTING.md *Proposing a Change*.

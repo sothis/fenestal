@@ -742,8 +742,11 @@ static void cursor_update(App *a, Zone z, Edge edge)
 #define ICCCM_NORMAL_STATE 1u
 #define ICCCM_ICONIC_STATE 3u
 
+#define ICCCM_US_POSITION (1u << 0)
 #define ICCCM_P_MIN_SIZE (1u << 4)
 #define ICCCM_SIZE_HINTS_WORDS 18
+#define ICCCM_SIZE_HINTS_X 1
+#define ICCCM_SIZE_HINTS_Y 2
 #define ICCCM_SIZE_HINTS_MIN_W 5
 #define ICCCM_SIZE_HINTS_MIN_H 6
 
@@ -1540,6 +1543,13 @@ static void set_size_hints(App *a)
 
 	uint32_t hints[ICCCM_SIZE_HINTS_WORDS] = { 0 };
 	hints[0]                               = ICCCM_P_MIN_SIZE;
+	/* A position the caller named is the user's by ICCCM's reading, which
+	 * is what has a manager keep it instead of placing the window itself. */
+	if (a->init_positioned) {
+		hints[0] |= ICCCM_US_POSITION;
+		hints[ICCCM_SIZE_HINTS_X] = (uint32_t)p->win_x;
+		hints[ICCCM_SIZE_HINTS_Y] = (uint32_t)p->win_y;
+	}
 	hints[ICCCM_SIZE_HINTS_MIN_W]          = (uint32_t)scale_pt(min_w, s120);
 	hints[ICCCM_SIZE_HINTS_MIN_H]          = (uint32_t)scale_pt(min_h, s120);
 	p->hints_scale120                      = s120;
@@ -1583,12 +1593,16 @@ static void set_window_properties(App *a)
 	x11_set_title(a, a->title);
 
 	/* Instance and class, NUL-separated and NUL-terminated: what a manager
-	 * matches an icon and a window rule against. The library's own until there
-	 * is a descriptor field for it. */
-	static const char WM_CLASS_VALUE[] = "fenestal\0Fenestal";
+	 * matches an icon and a window rule against. The program's own
+	 * (FnlInitDesc::app_id and ::app_name). */
+	char wm_class[2 * APP_IDENT_MAX];
+	const size_t id_n = strlen(a->host->app_id) + 1;
+	const size_t name_n = strlen(a->host->app_name) + 1;
+	memcpy(wm_class, a->host->app_id, id_n);
+	memcpy(wm_class + id_n, a->host->app_name, name_n);
 	xcb_change_property(p->conn, XCB_PROP_MODE_REPLACE, p->window,
 						XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 8,
-						(uint32_t)sizeof WM_CLASS_VALUE, WM_CLASS_VALUE);
+						(uint32_t)(id_n + name_n), wm_class);
 
 	/* WM_DELETE_WINDOW makes the close button an event instead of a killed
 	 * client; _NET_WM_PING keeps "not responding" off a busy window; and

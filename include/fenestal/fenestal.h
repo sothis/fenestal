@@ -31,27 +31,63 @@
  *
  * ---- stability ------------------------------------------------------------
  *
- * Before 1.0 nothing here is promised. A minor release (0.9 to 0.10) may
- * rename, change or remove anything declared here, at the source and at the
- * binary, and CHANGELOG.md says what moved; a patch release does neither.
- * fnl_init() therefore refuses a header from another minor release, and the
- * shared object's soname carries the minor as well as the major.
+ * This is the 1.0 header. Before 1.0 a minor release (0.9 to 0.10) could
+ * rename, change or remove anything, and CHANGELOG.md says what moved then.
+ * From 1.0 the promise is this, at the source and at the binary, for the
+ * 64-bit systems the library is built for:
  *
- * What is practised already, and becomes the promise at 1.0:
- *
+ *   - a program built against 1.x builds and runs against every later 1.y.
+ *     fnl_init() accepts a header whose minor is not above the library's, and
+ *     the shared object's symbols are versioned by the release that added
+ *     them, so a program built against 1.3 is refused by a 1.1 loader and not
+ *     at its first call. The patch is never compared.
+ *   - nothing declared here is removed or changed in meaning within a major.
+ *     A function that is replaced is marked FNL_DEPRECATED, which warns, in a
+ *     release before the major that removes it.
  *   - an enum's values are kept and new values are appended. An event type,
  *     key or cursor you do not recognise is from a newer library: ignore it.
  *     The *_COUNT members are counts, not values, and grow when one is added.
- *   - a struct you pass in (FnlInitDesc, FnlWindowDesc, FnlCallbacks) grows at
- *     its end, and its `size` field is how an older caller is told apart.
- *   - a function that is replaced is marked FNL_DEPRECATED, which warns,
- *     before it goes.
+ *     The names fnl_key_name() returns, and fnl_key_from_name() accepts, are
+ *     stable: a program may keep them in a config file.
+ *   - a struct you pass in grows at its end, and its `size` field is how an
+ *     older caller is told apart: FnlInitDesc, FnlWindowDesc, FnlCallbacks
+ *     and the interop FnlVulkanSetup, and FnlFrameStats, which has `size`
+ *     too. FnlFrameSample and FnlFrameShown grow by their `stride`. A field is
+ *     only ever *appended*: what lies in the tail padding of a struct is not
+ *     a field, since an older caller leaves it indeterminate, and the ABI
+ *     check refuses a field placed there.
+ *   - a struct the library fills into your storage and that has neither
+ *     `size` nor `stride` is frozen: FnlEvent, FnlMode, FnlOutputColor,
+ *     FnlOverlayCounts, FnlColor and the interop Fnl*Gpu, *SceneLayout and
+ *     *Scene structs. A new kind of event does not grow FnlEvent: its
+ *     payload fits the union, or is fetched by length and a getter, as the
+ *     composition and the clipboard are. FnlFrame is the library's own,
+ *     handed to your callbacks by pointer, and may be appended to.
+ *   - a descriptor's strings (title, gpu_name, app_id, app_name) are copied
+ *     and cut where they are longer than the library keeps, on a character
+ *     boundary.
  *
- * Two kinds of thing will stay outside the promise, and say so where they
- * are declared: fields marked UNSTABLE, which are test fixtures and may
- * change meaning or stop doing anything in any release, and the text the
- * diagnostics print (echo_events, frame_times), which is for people and the
- * harness, not for parsing.
+ * What stays outside the promise: the text the diagnostics print
+ * (echo_events, frame_times, the log lines), which is for people and the
+ * harness and not for parsing; and the FNL_* environment variables that are
+ * diagnostics -- FNL_BACKEND, FNL_RENDERER, FNL_COLOR and FNL_GPU (a choice
+ * made from outside a program) are contract; FNL_VSYNC, FNL_ECHO_EVENTS,
+ * FNL_MCP, FNL_GPU_RANK, FNL_GPU_DRIVER, FNL_KMS_LAYOUT, FNL_SCALE120,
+ * FNL_LATE_LATCH_MS, FNL_VK_VALIDATION, FNL_NO_INPUT_METHOD and every
+ * other are test and tuning fixtures that may change meaning or go in any
+ * release.
+ *
+ * What 1.0 is not: touch, pen and gamepad input; window icons; always-on-top,
+ * opacity and attention requests; a runtime move or a minimum and maximum
+ * size of the window; clipboard images, rich text and drag and drop (plain
+ * text is in); popups and dialogs; 32-bit targets; fonts other than the baked
+ * faces; a log sink or a colour of a window's own (a host has one of each);
+ * a per-pixel motion input to FNL_AA_TAAU (the one vector is the contract);
+ * and the Vulkan, Direct3D 12 and Metal capabilities beyond what each interop
+ * header says. They are not promised and may be added in a 1.x. HDR
+ * (FNL_COLOR_EXTENDED_LINEAR, FNL_COLOR_PQ) is experimental until the
+ * semantics have been seen on panels: its API is stable, what a given
+ * output does with it is not promised.
  *
  * ---- thread affinity ------------------------------------------------------
  *
@@ -107,8 +143,8 @@ extern "C" {
 #define FNL_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
 #endif
 
-#define FNL_VERSION_MAJOR 0
-#define FNL_VERSION_MINOR 9
+#define FNL_VERSION_MAJOR 1
+#define FNL_VERSION_MINOR 0
 #define FNL_VERSION_PATCH 0
 #define FNL_VERSION                                                            \
 	((FNL_VERSION_MAJOR << 16) | (FNL_VERSION_MINOR << 8) | FNL_VERSION_PATCH)
@@ -138,7 +174,10 @@ typedef enum {
 	FNL_ERR_NO_DISPLAY       = -2, /* no compositor / no window server */
 	FNL_ERR_NO_DEVICE        = -3, /* no GPU that can present here */
 	FNL_ERR_OUT_OF_MEMORY    = -4,
-	FNL_ERR_DEVICE_LOST      = -5,
+	FNL_ERR_DEVICE_LOST      = -5, /* internal: no entry point returns it;
+	                                  the device is rebuilt and
+	                                  on_gpu_lost / on_gpu_created say so.
+	                                  Reserved, value pinned */
 	FNL_ERR_INVALID_ARGUMENT = -6,
 	FNL_ERR_VERSION_MISMATCH = -7,
 	FNL_ERR_SYSTEM           = -8, /* refused; see fnl_last_error */
@@ -186,6 +225,9 @@ typedef void (*FnlLogFn)(void *ud, FnlLogLevel lvl, const char *msg);
  * what went wrong. The diagnostics -- echo_events, --frame-times, the GPU
  * list -- print at INFO, so a caller that wants them wants FNL_LOG_DEBUG. */
 FNL_API void fnl_set_log_level(FnlLogLevel lvl); /* [any] */
+/* The log sink (FnlInitDesc::log) and this level are the process's, one of
+ * each: a second fnl_init() on another host re-points them for the first
+ * as well, and fnl_window_create() takes neither. */
 
 /* Which renderer draws: Vulkan, Direct3D 12 (Windows) or Metal (macOS). A build
  * has one or several -- every one its system has -- and the caller says which
@@ -205,6 +247,19 @@ typedef enum {
  * no API to name. */
 #define FNL_RENDERER_BIT(g) (1u << (unsigned)(g))
 #define FNL_RENDERERS_ANY 0xffffffffu
+
+/* Which window server the program is on, from fnl_backend(). Where one
+ * matters to a caller -- KMS, where the window is the output, or Wayland,
+ * where the compositor places the window -- compare this and not the name
+ * fnl_backend_name() prints. The values are pinned for FnlKey's reason. */
+typedef enum {
+	FNL_BACKEND_DEFAULT = 0, /* no window yet, or none this build knows */
+	FNL_BACKEND_WAYLAND = 1,
+	FNL_BACKEND_X11     = 2,
+	FNL_BACKEND_KMS     = 3,
+	FNL_BACKEND_WIN32   = 4,
+	FNL_BACKEND_COCOA   = 5
+} FnlBackend;
 
 /* ---- colour --------------------------------------------------------------
  *
@@ -249,6 +304,9 @@ typedef struct {
 
 typedef struct FnlApp FnlApp;
 
+/* Declared in fnl_vulkan.h; FnlInitDesc::vulkan_setup points at one. */
+struct FnlVulkanSetup;
+
 typedef struct {
 	size_t size;             /* sizeof(FnlInitDesc) -- see the note below */
 	uint32_t header_version; /* pass FNL_VERSION */
@@ -272,51 +330,38 @@ typedef struct {
 
 	/* Hold a frame's state until most of the display period it will sit
 	 * through has already passed, so what reaches the screen is that much
-	 * newer. On unless disabled, and self-tuning unless pinned:
-	 * late_latch_fixed above zero holds that delay in seconds instead. The
-	 * self-tuned delay differs between window servers and is expected to. */
+	 * newer. On unless disabled, and self-tuning unless pinned: a fixed
+	 * delay is the diagnostic FNL_LATE_LATCH_MS in the environment, in
+	 * milliseconds. The self-tuned delay differs between window servers and
+	 * is expected to. */
 	bool no_late_latch;
-	double late_latch_fixed; /* UNSTABLE: a tuning fixture */
 
-	/* Run at this surface scale instead of the one the desktop asks for, as
-	 * 120ths (120 = 100%). Zero means the desktop's own preference. A test
-	 * fixture rather than a setting -- it exists to put the client through a
-	 * density this desktop does not have. UNSTABLE. */
-	int scale_override120;
-
-	/* Which GPU, on a machine that has more than one. Zero is automatic: the
-	 * highest-ranked device that can present to this window, discrete ahead of
-	 * integrated -- except Mesa's NVK on an NVIDIA GPU older than Turing,
-	 * which runs at its boot clocks there and ranks after integrated.
+	/* Which GPU, on a machine that has more than one, by name: any part of
+	 * the device's name as the startup log prints it, letter case aside --
+	 * "intel", "1050". NULL or empty is no choice, and the pick is
+	 * automatic: the highest-ranked device that can present to this window,
+	 * discrete ahead of integrated, except Mesa's NVK on an NVIDIA GPU older
+	 * than Turing, which runs at its boot clocks there and ranks after
+	 * integrated. A name no device carries warns and falls back to
+	 * automatic, so read back fnl_gpu_name().
 	 *
-	 * Above zero it is a one-based index over the devices that can present, in
-	 * the order the driver enumerates them -- which is *not* the order the
-	 * automatic choice ranks them in -- or, once a ranking has figures for
-	 * the display, in the ranked list's (below). The library logs that
-	 * numbering at startup, a line per device, and fnl_gpu_count() and
-	 * fnl_gpu_name_at() read the list back once there is a window
-	 * (*choosing the GPU*). An index past the end warns and falls back to
-	 * automatic rather than failing, so read back fnl_gpu_name(). UNSTABLE:
-	 * the numbering is the driver's and moves (see gpu_name), so this is for
-	 * a test that knows the machine; gpu_name is the stable way to choose. */
-	int gpu_index;
-
-	/* The same choice by name, for where a number does not hold still: any
-	 * part of the device's name as the startup log prints it, letter case
-	 * aside -- "intel", "1050". The order of enumeration is the driver's and
-	 * Windows', and on a hybrid laptop it follows what the *executable* asks
-	 * of them (NvOptimusEnablement), so GPU 1 of one program is GPU 2 of the
-	 * next. NULL or empty is no choice; a name wins over gpu_index, and a
-	 * name no device carries warns and falls back as an index does.
+	 * A number is not a descriptor field: FNL_GPU in the environment is read
+	 * where no name is given, as an index (1 to 8) or else as a name, which
+	 * steers a program that has no option for it. The index is one-based over
+	 * the devices that can present, in the order the driver enumerates them
+	 * -- Windows', on a hybrid laptop, follows what the *executable* asks of
+	 * them (NvOptimusEnablement), so GPU 1 of one program is GPU 2 of the
+	 * next -- or, once a ranking has figures for the display, over the ranked
+	 * list's. The library logs that numbering at startup, a line per device,
+	 * and fnl_gpu_count() and fnl_gpu_name_at() read the list back once there
+	 * is a window (*choosing the GPU*). The numbering is the driver's and
+	 * moves: a number is for a test that knows the machine, a name is the
+	 * way to choose.
 	 *
 	 * On the KMS backend either may name a GPU that does not drive the
 	 * display -- a laptop's NVIDIA GPU beside the Intel one with the panel.
 	 * Its frames are then read back and copied onto the display, a few
 	 * milliseconds a frame more than the display's own GPU takes.
-	 *
-	 * With neither set the environment's FNL_GPU is read as one or the
-	 * other -- 1 to 8 is an index and anything else a name -- which is a
-	 * way to steer a program that has no option for it.
 	 *
 	 * On the KMS backend FNL_GPU_DRIVER in the environment offers a move
 	 * of an NVIDIA GPU between nouveau and NVIDIA's own kernel driver with
@@ -336,19 +381,16 @@ typedef struct {
 	 *
 	 * Nothing is measured unless the caller asks: FNL_GPU_RANK=calibrate,
 	 * or the GPU box's last row, which measures every entry and says so with
-	 * the time left, taking no input meanwhile, some 4 s an entry. An entry
-	 * with no figure for the display the window is on used to be measured as
-	 * soon as the window was up; it now opens on the automatic pick instead
-	 * (fnl_init()'s gpu_index above). The list is ordered by the window's
-	 * display's, best first, and a window that names no GPU opened on its
-	 * first entry; gpu_index and an index in FNL_GPU then count that list,
-	 * a name as before, and each still stands once a calibration ends: the
-	 * window goes to that entry of the list, or back to the GPU named,
-	 * where one asking for nothing goes to the first. FNL_GPU_RANK in the
-	 * environment: calibrate
-	 * measures again; keep uses a ranking and never measures; order orders
-	 * the list and moves nothing; off reads none (DESIGN *Ranked by
-	 * measured frame rate*). */
+	 * the time left, taking no input meanwhile, some 4 s an entry. A window
+	 * whose display has no figure yet opens on the automatic pick. The list
+	 * is ordered by the window's display's figures, best first, and a window
+	 * that names no GPU opens on its first entry; an index in FNL_GPU then
+	 * counts that list, a name as before, and each still stands once a
+	 * calibration ends: the window goes to that entry of the list, or back
+	 * to the GPU named, where one asking for nothing goes to the first.
+	 * FNL_GPU_RANK in the environment: calibrate measures again; keep uses a
+	 * ranking and never measures; order orders the list and moves nothing;
+	 * off reads none (DESIGN *Ranked by measured frame rate*). */
 	const char *gpu_name;
 
 	/* Report where each frame's wall clock went, a line each half second,
@@ -422,6 +464,34 @@ typedef struct {
 	 * as FNL_RENDERER does. A window of a second window's descriptor has
 	 * none: the colour is the host's, one device presenting them all. */
 	FnlColorSpace want_color;
+
+	/* The program's identity to the desktop, UTF-8 and copied, so a taskbar
+	 * and a launcher can tell it from every other program built on this
+	 * library. app_id is the reverse-DNS name the desktop file carries
+	 * (Wayland's app id, the first half of X11's WM_CLASS, Win32's
+	 * AppUserModelID); app_name is the name to show (X11's second WM_CLASS
+	 * string, Vulkan's pApplicationName). NULL or empty is "fenestal" and
+	 * "Fenestal". Each is cut at 127 bytes, on a character boundary. Cocoa
+	 * and KMS have no such identity at run time and ignore both. A second
+	 * window has the host's: FnlWindowDesc has none. */
+	const char *app_id;
+	const char *app_name;
+
+	/* Where the first window opens, in points from the primary output's
+	 * corner, when `positioned` is set: 0/0 is then a position like any
+	 * other, and not "let the window server place it". X11, Win32 and Cocoa
+	 * honour it; Wayland, where the compositor places windows, and KMS,
+	 * where the window is the output, ignore it. */
+	int x_pt, y_pt;
+	bool positioned;
+
+	/* What the scene needs of Vulkan beyond what the library itself
+	 * enables: extensions, core features, a feature chain, an API version.
+	 * NULL asks for nothing. Read when the instance and the device are
+	 * built, on every build of them -- a device loss rebuilds -- so the
+	 * structure and everything it points at must outlive the host. Used
+	 * only where the renderer is Vulkan; see fnl_vulkan.h. */
+	const struct FnlVulkanSetup *vulkan_setup;
 } FnlInitDesc;
 
 /* Every descriptor's first field is its own sizeof, which is the ABI story
@@ -449,33 +519,34 @@ typedef struct {
 	int width_pt, height_pt; /* presentable area; 0 for the default */
 
 	/* A position on the desktop, in points from the primary output's corner,
-	 * or 0/0 to let the window server place it. X11, Win32 and Cocoa honour
-	 * it; a window server that places windows itself (Wayland) or that is
-	 * the output (KMS) leaves it to the desktop, which is where those put a
-	 * window anyway. The first window's descriptor (FnlInitDesc) has no
-	 * position: a program that opens one window leaves it to the desktop. */
+	 * where `positioned` below is set; otherwise the window server places
+	 * the window. X11, Win32 and Cocoa honour it; a window server that
+	 * places windows itself (Wayland) or that is the output (KMS) leaves it
+	 * to the desktop, which is where those put a window anyway. */
 	int x_pt, y_pt;
 
-	/* Which GPU this window opens on, by the same rules as FnlInitDesc's:
-	 * gpu_index one-based into the renderer's list, gpu_name a part of the
-	 * name. A second window naming no GPU takes the host's ranking for its
-	 * display, and where none is kept its own automatic pick. Where the
-	 * renderer keeps one device for every window (Vulkan), the GPU is the
-	 * host's: a name or an index naming another is not used, and the log
-	 * says so for a name. */
-	int gpu_index;
+	/* Which GPU this window opens on, by name, as FnlInitDesc::gpu_name
+	 * (FNL_GPU in the environment is read as it is there). A second window
+	 * naming no GPU takes the host's ranking for its display, and where none
+	 * is kept its own automatic pick. Where the renderer keeps one device
+	 * for every window (Vulkan), the GPU is the host's: a name naming
+	 * another is not used, and the log says so. */
 	const char *gpu_name;
 
 	/* The window's own settings, as FnlInitDesc's: the presentable area is
 	 * the caller's interface (content_is_ui), the titlebar controls to leave
-	 * out (no_titlebar_controls), the scale override and the frame times. The
-	 * renderer and its list are the host's -- one graphics API a program --
-	 * and the callbacks are this window's, given to the door rather than
-	 * here. */
+	 * out (no_titlebar_controls) and the frame times. The renderer, its
+	 * list, the surface scale (FNL_SCALE120), the colour and the program's
+	 * identity are the host's -- one graphics API a program -- and the
+	 * callbacks are this window's, given to the door rather than here. */
 	bool content_is_ui;
 	uint32_t no_titlebar_controls;
-	int scale_override120;
 	bool frame_times;
+
+	/* x_pt and y_pt are a position, 0/0 included. Appended last: a field
+	 * placed in what was tail padding is an ABI change, not an addition
+	 * (see *stability*). */
+	bool positioned;
 } FnlWindowDesc;
 
 /* ---- the frame -----------------------------------------------------------
@@ -783,6 +854,12 @@ typedef enum {
 	 * fnl_output_color(); the frames' FnlFrame::color is the live answer,
 	 * this the edge. Since 0.9. */
 	FNL_EVENT_COLOR = 23, /* ev.color */
+
+	/* A notification, on the same terms: a monitor was plugged in or out, so
+	 * the list fnl_output_count() and fnl_output_name_at() read has other
+	 * entries now. Not posted when the window merely moves to another
+	 * output of the same list (FNL_EVENT_OUTPUT). Since 0.9. */
+	FNL_EVENT_OUTPUT_LIST = 24, /* ev.output_list */
 } FnlEventType;
 
 /* Each event's own fields, one struct a kind, named so that FnlEvent's union
@@ -795,8 +872,8 @@ typedef struct {
 	bool pressed;
 	/* An auto-repeat rather than a fresh press. Always false unless text
 	 * entry is on. Under fnl_set_text_input() a held key comes round again
-	 * as a press with this set and no release between, at the rate the
-	 * desktop is configured for -- where the window server says which
+	 * as a press with this set and no release between, at the system's own
+	 * repeat rate -- where the window server says which
 	 * press is a repeat, which XKB's detectable autorepeat lets it; a
 	 * server that cannot sends the release it synthesises, and the pair
 	 * then reads as a press and a release like any other. The library's
@@ -931,6 +1008,12 @@ typedef struct {
 	int w_pt, h_pt;
 } FnlOutputEvent;
 
+/* The outputs the window server lists, as fnl_output_count() reports
+ * them. */
+typedef struct {
+	int count;
+} FnlOutputListEvent;
+
 /* The GPU now in use, as an index into fnl_gpu_count()'s list, and the
  * renderer drawing on it. */
 typedef struct {
@@ -981,13 +1064,16 @@ typedef struct {
 		FnlImageLostEvent image_lost;
 		FnlClaimFocusEvent claim_focus;
 		FnlColorEvent color;
+		FnlOutputListEvent output_list;
 	};
 } FnlEvent;
 
 /* The library fills this struct into storage the *caller* declared, so its
- * size is a contract between two separately compiled objects. To grow it:
- * append to the union, bump FNL_VERSION_MINOR, update this and the ABI
- * baseline. */
+ * size is a contract between two separately compiled objects, and from 1.0 it
+ * does not change. A new kind of event takes a payload that fits the union
+ * as it stands, or has the payload fetched by length and a getter, as the
+ * composition and the clipboard have. Before 1.0 a union member may be added
+ * with the ABI baseline (tools/abi/) and FNL_VERSION_MINOR. */
 FNL_STATIC_ASSERT(sizeof(FnlEvent) == 48 || sizeof(FnlEvent) == 40,
 				  "FnlEvent changed size -- that is an ABI break; see the note "
 				  "above, then update this assertion deliberately");
@@ -1079,7 +1165,13 @@ FNL_API FnlResult fnl_init(const FnlInitDesc *desc, FnlApp **out); /* [main] */
  * on the renderer the first chose; a `FnlWindowDesc` names no renderer. A
  * window that names no GPU takes the host's ranking for its display, and the
  * ranking file is the host's -- a second window does not write it (DESIGN *A
- * second window*). */
+ * second window*).
+ *
+ * The limits are the contract: one renderer for the host; no move to another
+ * GPU while two windows are open, and no window created during a move; one
+ * pipeline cache; the colour, the surface scale (FNL_SCALE120), the log sink
+ * and the program's identity are the host's, so FnlWindowDesc has none of
+ * them; and a window is given no position change after it is open. */
 FNL_API FnlResult fnl_window_create(FnlApp *sibling,
 									const FnlWindowDesc *desc,
 									const FnlCallbacks *cb,
@@ -1221,8 +1313,9 @@ FNL_API const char *fnl_gpu_name(const FnlApp *app); /* [any] */
  * snapshot, on fnl_gpu_name()'s terms. */
 FNL_API const char *fnl_gpu_short_name(const FnlApp *app); /* [any] */
 /* Which renderer this window is drawn with, for a caller deciding which
- * interop header to reach for. With no window, the build's renderer where it
- * has one and DEFAULT where it has several. */
+ * interop header to reach for. With no window, or a window whose renderer is
+ * not built yet, the build's renderer where it has one and DEFAULT where it
+ * has several: from on_gpu_created on it is the one drawing. */
 FNL_API FnlRenderer fnl_renderer(const FnlApp *app); /* [any] */
 
 /* ---- choosing the GPU ------------------------------------------------------
@@ -1231,7 +1324,7 @@ FNL_API FnlRenderer fnl_renderer(const FnlApp *app); /* [any] */
  * rasteriser where one is installed (lavapipe, WARP) -- by every renderer
  * the program has a scene for (FnlInitDesc::renderers): first those of the
  * renderer the window started with, in the order it lists them, which is
- * the order FnlInitDesc::gpu_index and an index in FNL_GPU count from 1;
+ * the order an index in FNL_GPU counts from 1;
  * then each other renderer's, in the order fnl_init() tries them. Here
  * they count from 0. The window's own renderer lists at startup; the
  * others are listed once, after the first frame, which loads their
@@ -1250,7 +1343,7 @@ FNL_API FnlRenderer fnl_renderer(const FnlApp *app); /* [any] */
  * so on_gpu_created asks fnl_renderer() which scene to build. A GPU that
  * will not build is gone back from, with one line through the log sink.
  * An index past the list, or the GPU in use, does nothing. The choice
- * holds for later rebuilds as gpu_index does. While a second window is open
+ * holds for later rebuilds as an index in FNL_GPU does. While a second window is open
  * no move is made -- the device is every window's, and a move would rebuild
  * it under the other's scene -- so the request is dropped, with one line
  * through the log sink. Since 0.9. */
@@ -2160,9 +2253,9 @@ FNL_API void fnl_set_scene_size_px(FnlApp *app, int w_px, int h_px); /* [any] */
  * differently. fnl_present_mode() is the renderer's own name for what it
  * resolved to ("FIFO", "sync interval 1 (vsync)"), not a normalised enum.
  *
- * A window is always vsynced. FNL_VSYNC=0 in the environment is the one
- * way out, a diagnostic as FNL_ECHO_EVENTS is, read at fnl_init() and held
- * for the window's life. Off asks for the fastest present the surface
+ * A window is vsynced until asked otherwise: FNL_VSYNC=0 in the environment
+ * starts it unsynced, a diagnostic as FNL_ECHO_EVENTS is, read at fnl_init(),
+ * and fnl_set_vsync() changes it later. Off asks for the fastest present the surface
  * offers -- MAILBOX, then IMMEDIATE, under Vulkan; a swap or sync interval
  * of 0 elsewhere -- and may still be paced by the refresh where nothing
  * else is on offer (DESIGN *Vsync and present modes*). */
@@ -2185,10 +2278,13 @@ FNL_API bool fnl_vsync(const FnlApp *app);        /* [any] */
  * the first the session has -- Wayland where WAYLAND_DISPLAY is set, X11
  * where DISPLAY is, KMS where neither is -- or the one FNL_BACKEND names
  * in the environment ("wayland", "x11", "kms"), which it opens or fails.
- * For showing rather than branching on; the enum is for that.
- * fnl_gpu_name() is the *device*. Neither changes over a window's life, so
+ * For showing rather than branching on: fnl_backend() is the value for
+ * that. fnl_gpu_name() is the *device*. Neither changes over a window's life, so
  * the pointer keeps. Empty before there is a window. */
 FNL_API const char *fnl_backend_name(const FnlApp *app); /* [any] */
+/* The same backend as a value, to branch on: FNL_BACKEND_DEFAULT with no
+ * window. Fixed for the window's life. */
+FNL_API FnlBackend fnl_backend(const FnlApp *app); /* [any] */
 
 /* What the backend above is itself running on, where that is not the
  * machine: "wine on Wayland", "wine on X11", or "wine" when which of its
@@ -2239,7 +2335,7 @@ FNL_API unsigned fnl_output_refresh_mhz(const FnlApp *app); /* [any] */
  * FNL_EVENT_OUTPUT where the output did. Where the GPU drives the display
  * itself, either one rebuilds the device as a lost surface does:
  * on_gpu_lost and on_gpu_created run. */
-typedef struct FnlMode {
+typedef struct {
 	int w_px, h_px;
 	unsigned int refresh_mhz; /* millihertz: 59940 is 59.94 Hz */
 } FnlMode;

@@ -107,6 +107,7 @@ fnl_present_mode
 fnl_set_vsync
 fnl_vsync
 fnl_backend_name
+fnl_backend
 fnl_window_host
 fnl_renderer_name
 fnl_renderer_via

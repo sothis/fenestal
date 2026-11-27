@@ -857,37 +857,87 @@ a caller somewhere the build compiles.
 
 ### Compatibility
 
-Fenestal is 0.9, and nothing the public headers declare is
-promised yet: the API is still moving, and a promise made now would hold back
-the changes that 1.0 should come after. A minor release may rename, change or
-remove anything, at the source and at the binary, and a patch release does
-neither. Two things keep a mismatch loud rather than silent: `fnl_init()`
-compares the major and, below 1.0, the minor of the header the caller was
-built with, and the shared object's soname carries the minor
-(`libfenestal.so.0.9`), so a program linked against 0.9 is not loaded by
-0.10.
+Fenestal is 1.0, and what the public headers declare is promised: a program
+built against 1.x builds and runs against every later 1.y, at the source and
+at the binary, and a removal or a change waits for a major release and a
+`FNL_DEPRECATED` before it. Two things keep a mismatch loud rather than
+silent: `fnl_init()` and `fnl_window_create()` accept a header whose major
+equals the library's and whose minor is not above it (below 1.0 the minor had
+to match), and the shared object's symbols are versioned by the release that
+added them, so a program built against 1.3 is refused by a 1.1 loader and not
+at its first call. The soname is the major alone (`libfenestal.so.1`).
 
-The header's *stability* block says what 1.0 will promise, and the tree
-already works that way where it costs nothing: enum values are appended and
+The header's *stability* block is the promise, and the tree worked that way
+before it was made, where it cost nothing: enum values are appended and
 not renumbered, the descriptors a caller fills grow at their end behind
 their `size` field, and a replaced function is `FNL_DEPRECATED` before it
-goes. Outside it, then as now, are the fields marked `UNSTABLE` --
-`scale_override120`, `gpu_index` and `late_latch_fixed`, which are test
-fixtures -- and the text the two diagnostics print.
+goes. The test fixtures that were `UNSTABLE` descriptor fields --
+`scale_override120`, `gpu_index` and `late_latch_fixed` -- are the
+environment's now (`FNL_SCALE120`, `FNL_LATE_LATCH_MS` and a number in
+`FNL_GPU`), read by `fnl_init()` and `fnl_window_create()` alike, so 1.0
+does not freeze a fixture; outside the promise remain the text the two
+diagnostics print and the diagnostic variables.
 
-Three checks run in every build rather than in review (the ABI's in every
-native one: a cross build cannot run the dump):
+What 1.0 freezes, and the decisions behind it:
+
+- **Growth.** A struct a caller fills grows by appending behind `size`
+  (`FnlInitDesc`, `FnlWindowDesc`, `FnlCallbacks`, `FnlVulkanSetup`) or
+  `stride`. A field *in the tail padding* is not an append: an older caller
+  leaves that byte indeterminate and the library copies `size` bytes, so the
+  new field would read garbage. `tools/abi/check.cmake` refuses it. `FnlEvent`
+  is caller storage and never grows; a new payload fits the union or is
+  fetched by length and getter (composition, clipboard).
+- **Naming.** `set_` changes a setting; `request_` asks the window server and
+  may be refused. The getters keep their names. A uniform rename was weighed
+  against 41 call sites and no gain, and is permanent after 1.0 either way.
+- **One host, one of each.** The log sink and level are the process's; the
+  renderer, the colour, the scale and the identity are the host's. A second
+  window carries the first's, and a GPU move is refused while two are open.
+- **TAAU's motion is one vector**; a per-pixel texture is a new API.
+- **Direct3D 12 is created at feature level 11_0**, and the interop header
+  says so; Metal gives what every Mac device has. A request for more is a 1.x
+  addition.
+- **`FNL_ERR_DEVICE_LOST` is reserved and internal** (no entry returns it) and
+  `fnl_vulkan_queue_submit()` returns Vulkan's `VkResult`.
+- **The Vulkan seam asks for things.** `FnlInitDesc::vulkan_setup` carries
+  an API version, instance and device extensions and a feature chain; the
+  instance is made at the highest version the loader has, up to 1.3, and
+  `FnlVulkanGpu::api_version` says what the device got. `VK_EXT_memory_budget`
+  is enabled where offered, since the metrics panel's VRAM figure reads it.
+- **Identity and position.** `app_id` and `app_name` are the program's, to
+  the desktop (Wayland's app id, `WM_CLASS`, Win32's AppUserModelID,
+  Vulkan's `pApplicationName`); `x_pt`/`y_pt` with `positioned` make 0/0 a
+  position, and X11 marks it `USPosition`. `FnlBackend` and `fnl_backend()`
+  are the value `fnl_backend_name()` was told not to be branched on, and
+  `FNL_EVENT_OUTPUT_LIST` is the output list's `FNL_EVENT_GPU`.
+- **HDR is experimental** until a panel has shown it (TODO *HDR*).
+
+Checks run in every build rather than in review (the ABI's in every native
+one: a cross build cannot run the dump):
 
 - **The ABI against a baseline.** `tools/abidump` prints every public struct's
   size and offsets and every enum constant, and the build compares that and
   the export list with `tools/abi/`. A difference fails the build with the
   `diff` to read. An intended change is made by copying the new dump over the
   baseline in the same commit, with a line in `CHANGELOG.md`; the check
-  makes every change a decision, and from 1.0 it will allow only additions.
+  makes every change a decision, and from 1.0 it allows only additions: every
+  baseline size, offset and constant must stand, a new field must start at or
+  after its struct's old size, and every export must remain. The dump's lists
+  are written out, so `tools/check-abidump.py` reads the headers and fails
+  the build on a public field, struct or constant it does not name, and
+  `tools/abi/types.c` pins every field's type and every function's prototype
+  as `_Generic` assertions in the headers' C11 compile. The baseline is named
+  for the major (`fenestal-<major>*`), and configure says so when there is
+  none.
 - **The export list.** The archive's globals and the DLL's exports are the
   `FNL_API` prototypes, read out of the headers; the shared object's symbols
   are versioned `FENESTAL_0`, one node until 1.0, when each minor release
-  that adds gets a node of its own (`fenestal.map`).
+  that adds gets a node of its own and the wildcard goes for an explicit list
+  (`fenestal.map`). `tools/check-version-map.py` checks the map against the
+  headers, and after each ELF link that every exported `fnl_*` carries the
+  node the map gives it. Windows and macOS have no versions, and for them and
+  for a static build `fnl_init()` accepts a header whose minor is not above
+  the library's.
 - **The headers alone**, compiled as C11 and as C++11 through C++20, pedantic
   and warning-free (`tools/headercheck.c`).
 

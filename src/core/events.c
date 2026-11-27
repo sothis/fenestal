@@ -300,6 +300,9 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 	 * space and the unit when it builds the swapchain, and a backend or
 	 * renderer the peak as it learns it. */
 	const FnlOutputColor color = a->pub_color;
+	/* And the output list's generation and length, for the same reason. */
+	const uint32_t out_list_gen = a->out_list_gen;
+	const int out_list_n        = a->out_count;
 	fnl_mutex_unlock(&a->lock);
 
 	/* Seeded rather than compared on the first frame, or an application
@@ -319,6 +322,7 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 		memcpy(a->ev_last_output, ds->output, sizeof a->ev_last_output);
 		a->ev_last_out_w_pt   = ds->out_w_pt;
 		a->ev_last_out_h_pt   = ds->out_h_pt;
+		a->ev_last_out_list_gen = out_list_gen;
 		memcpy(a->ev_last_gpu, gpu_now, sizeof a->ev_last_gpu);
 		a->ev_last_gpu_renderer = gpu_rnd;
 		a->ev_last_gpu_n = gpu_n;
@@ -364,8 +368,11 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 	 * display's headroom is the same space, and the frames carry it. */
 	const bool d_color   = (int)color.space != a->ev_last_color_space ||
 						   color.sdr_scale != a->ev_last_sdr_scale;
+	/* The list's own names, which the current output's name above does not
+	 * see: a monitor that came or went is not the one the window is on. */
+	const bool d_out_list = out_list_gen != a->ev_last_out_list_gen;
 	if (!d_size && !d_scale && !d_window && !d_aa && !d_scene && !d_capture &&
-		!d_output && !d_gpu && !d_color)
+		!d_output && !d_out_list && !d_gpu && !d_color)
 		return;
 
 	FnlEvent ev;
@@ -444,6 +451,14 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 			a->ev_last_out_w_pt = ds->out_w_pt;
 			a->ev_last_out_h_pt = ds->out_h_pt;
 		}
+	}
+
+	if (d_out_list) {
+		const FnlEvent e = { .type = FNL_EVENT_OUTPUT_LIST, .time = t };
+		ev = e;
+		ev.output_list.count = out_list_n;
+		if (queue_push(a, &ev, &born0))
+			a->ev_last_out_list_gen = out_list_gen;
 	}
 
 	if (d_gpu) {

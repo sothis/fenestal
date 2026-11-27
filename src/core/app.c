@@ -17,6 +17,7 @@
 
 #include "core/app.h"
 
+#include <limits.h>
 #include <signal.h>
 
 /* ---- signals --------------------------------------------------------------
@@ -753,10 +754,13 @@ void app_publish_outputs(App *a, char (*names)[OUTPUT_NAME_MAX], int n,
 	}
 
 	fnl_mutex_lock(&a->lock);
-	bool same = a->out_count == count && a->out_current == cur;
-	for (int i = 0; same && i < count; i++)
-		same = strcmp(a->out_names[i], kept[i]) == 0;
+	bool names_same = a->out_count == count;
+	for (int i = 0; names_same && i < count; i++)
+		names_same = strcmp(a->out_names[i], kept[i]) == 0;
+	const bool same = names_same && a->out_current == cur;
 	if (!same) {
+		if (!names_same)
+			a->out_list_gen++; /* FNL_EVENT_OUTPUT_LIST */
 		memcpy(a->out_names, kept, (size_t)count * sizeof kept[0]);
 		a->out_count   = count;
 		a->out_current = cur;
@@ -764,6 +768,18 @@ void app_publish_outputs(App *a, char (*names)[OUTPUT_NAME_MAX], int n,
 		a->want_user_gen++;
 		fnl_cond_signal(&a->cond); /* for a loop at rest */
 	}
+	fnl_mutex_unlock(&a->lock);
+}
+
+/* A backend that keeps its own list of outputs (KMS) says it changed, for
+ * FNL_EVENT_OUTPUT_LIST: the names are the backend's to answer and the
+ * generation is all core compares. */
+void app_publish_outputs_changed(App *a)
+{
+	fnl_mutex_lock(&a->lock);
+	a->out_list_gen++;
+	display_gen_bump(a);
+	fnl_cond_signal(&a->cond); /* for a loop at rest */
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -2552,13 +2568,11 @@ const char *fnl_gpu_name(const App *a)
 	return r ? r->device_name(a) : "";
 }
 
-void app_title_copy(char dst[TITLE_MAX], const char *utf8)
+static void text_copy(char *dst, size_t cap, const char *utf8)
 {
-	if (!utf8 || !utf8[0])
-		utf8 = "Fenestal";
 	size_t n = strlen(utf8);
-	if (n > TITLE_MAX - 1) {
-		n = TITLE_MAX - 1;
+	if (n > cap - 1) {
+		n = cap - 1;
 		/* Back to the start of the character the cut fell in: a byte
 		 * 10xxxxxx continues one. */
 		while (n > 0 && ((unsigned char)utf8[n] & 0xC0u) == 0x80u)
@@ -2566,6 +2580,17 @@ void app_title_copy(char dst[TITLE_MAX], const char *utf8)
 	}
 	memcpy(dst, utf8, n);
 	dst[n] = '\0';
+}
+
+void app_title_copy(char dst[TITLE_MAX], const char *utf8)
+{
+	text_copy(dst, TITLE_MAX, utf8 && utf8[0] ? utf8 : "Fenestal");
+}
+
+void app_ident_copy(char dst[APP_IDENT_MAX], const char *utf8,
+					const char *fallback)
+{
+	text_copy(dst, APP_IDENT_MAX, utf8 && utf8[0] ? utf8 : fallback);
 }
 
 /* Whether `s` at `i` reads `word`. */
@@ -3087,6 +3112,62 @@ const char *fnl_font_licence(void)
 	return ubuntu_licence_txt;
 }
 
+/* Whether a caller's header may run against this library. Before 1.0 a
+ * minor release may break the one before it (fenestal.h *stability*), so
+ * the minor has to match as well as the major. From 1.0 the major must
+ * match and the header's minor may not exceed the library's: a header from
+ * 1.3 may name things 1.1 lacks, and a static, Windows or macOS build has no
+ * symbol versions to say so. The patch is never compared. */
+static bool header_accepted(uint32_t header)
+{
+	const uint32_t major = header >> 16, minor = (header >> 8) & 0xff;
+	if (major != FNL_VERSION_MAJOR)
+		return false;
+	return FNL_VERSION_MAJOR == 0 ? minor == FNL_VERSION_MINOR
+								  : minor <= FNL_VERSION_MINOR;
+}
+
+/* The two fixtures that were descriptor fields, now diagnostics: a test that
+ * wants a density this desktop does not have, or a late-latch delay pinned
+ * rather than tuned, says so in the environment. Read by fnl_init() and
+ * fnl_window_create() alike, so a second window has the first's scale. A
+ * value that is not a number in range is a warning and no override. */
+static int env_scale120(void)
+{
+	const char *v = getenv("FNL_SCALE120");
+	if (!v || !v[0])
+		return 0;
+	char *end;
+	long n = strtol(v, &end, 10);
+	if (*end || n < 1 || n > INT_MAX) {
+		fnl_log(FNL_LOG_WARN, "FNL_SCALE120 is \"%s\", not a scale in 120ths; "
+							  "ignored", v);
+		return 0;
+	}
+	const int s = clamp_scale120((int)n);
+	if (s != (int)n)
+		fnl_log(FNL_LOG_WARN,
+				"FNL_SCALE120 is %ld, which is outside %d to %d; using %d",
+				n, SCALE120_MIN, SCALE120_MAX, s);
+	return s;
+}
+
+static double env_late_latch_s(void)
+{
+	const char *v = getenv("FNL_LATE_LATCH_MS");
+	if (!v || !v[0])
+		return 0.0;
+	char *end;
+	double ms = strtod(v, &end);
+	if (*end || !(ms > 0.0) || ms >= 1000.0) {
+		fnl_log(FNL_LOG_WARN,
+				"FNL_LATE_LATCH_MS is \"%s\", not a delay in milliseconds "
+				"above 0 and under 1000; ignored", v);
+		return 0.0;
+	}
+	return ms / 1e3;
+}
+
 /* Which device, from the caller and then from the environment. The caller
  * comes first because a program that chose a device has a reason the person
  * starting it may not know; FNL_GPU is for the program that chose nothing,
@@ -3099,14 +3180,14 @@ static void gpu_choice(App *a, const FnlInitDesc *d)
 	app_frame_cost_reset(a);
 	fnl_atomic_store_u32(&a->cost_cpu_us, COST_UNKNOWN);
 	a->cost_counts = true;
-	a->gpu_index   = d->gpu_index > 0 ? d->gpu_index : 0;
+	a->gpu_index   = 0;
 	a->gpu_want[0] = '\0';
 	if (d->gpu_name && d->gpu_name[0]) {
 		snprintf(a->gpu_want, sizeof a->gpu_want, "%s", d->gpu_name);
 		return;
 	}
 	const char *v = getenv("FNL_GPU");
-	if (a->gpu_index > 0 || !v || !v[0])
+	if (!v || !v[0])
 		return;
 	/* A small number all the way through is an index and anything else a
 	 * name: no device is called "2", and plenty are called "1050". */
@@ -3185,10 +3266,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 						"FnlInitDesc::size is %zu, which is not a size this "
 						"struct has ever had; pass sizeof (FnlInitDesc)",
 						desc->size);
-	/* Before 1.0 a minor release may break the one before it (fenestal.h
-	 * *stability*), so there the minor has to match as well as the major. */
-	unsigned vshift = FNL_VERSION_MAJOR == 0 ? 8 : 16;
-	if ((desc->header_version >> vshift) != ((uint32_t)FNL_VERSION >> vshift))
+	if (!header_accepted(desc->header_version))
 		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
 						"header is version %u.%u, library is %u.%u",
 						desc->header_version >> 16,
@@ -3212,6 +3290,12 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	if (!h)
 		return fnl_fail(FNL_ERR_OUT_OF_MEMORY, "out of memory for the host");
 	memset(h, 0, sizeof(Host));
+	/* The identity is a program's, so the host's; copied, as the title is,
+	 * since the caller's strings may be locals. */
+	app_ident_copy(h->app_id, d.app_id, "fenestal");
+	app_ident_copy(h->app_name, d.app_name, "Fenestal");
+	h->app_id_given = d.app_id && d.app_id[0];
+	h->renderer_setup = d.vulkan_setup;
 
 	/* Aligned rather than plain malloc: App has FNL_ALIGNAS(64) members keeping
 	 * what each thread writes on cache lines of its own, and malloc guarantees
@@ -3251,7 +3335,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	 * have and every geometry site would then compute from. */
 	a->deco_h     = DECO_TITLEBAR_H;
 	a->late_latch = !d.no_late_latch;
-	a->late_fixed = d.late_latch_fixed;
+	a->late_fixed = env_late_latch_s();
 	/* "No measurement", which the memset cannot express: zero is a
 	 * legitimate reading for either. See App::present_block. */
 	a->present_block = -1.0;
@@ -3259,16 +3343,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	/* The one figure every layout number is multiplied by, so it is held to
 	 * app.h's range first: past it scale_pt() is a signed overflow. Clamped
 	 * and said out loud rather than refused. */
-	a->scale_override120 = d.scale_override120;
-	if (a->scale_override120 > 0) {
-		const int s = clamp_scale120(a->scale_override120);
-		if (s != a->scale_override120)
-			fnl_log(FNL_LOG_WARN,
-					"scale_override120 is %d, which is outside "
-					"%d to %d; using %d",
-					a->scale_override120, SCALE120_MIN, SCALE120_MAX, s);
-		a->scale_override120 = s;
-	}
+	a->scale_override120 = env_scale120();
 	gpu_choice(a, &d);
 	if ((rc = color_request(a, &d)) < 0)
 		goto fail;
@@ -3287,6 +3362,11 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	 * app.h); at or below zero is the library's default. */
 	a->init_w_pt = d.width_pt > 0 ? clamp_pt(d.width_pt) : 0;
 	a->init_h_pt = d.height_pt > 0 ? clamp_pt(d.height_pt) : 0;
+	/* A position only where `positioned` says so, so that 0/0 is a place
+	 * the caller can name; bounded as every point figure is. */
+	a->init_positioned = d.positioned;
+	a->init_x_pt       = d.positioned ? clamp_pt(d.x_pt) : 0;
+	a->init_y_pt       = d.positioned ? clamp_pt(d.y_pt) : 0;
 
 	/* Which renderers this caller may be handed, checked before anything is
 	 * built: one it has no scene for is refused rather than substituted.
@@ -3508,12 +3588,9 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
 						"FnlWindowDesc's size is not a multiple of its "
 						"alignment");
-	/* The minor-version check fnl_init() makes of FnlInitDesc, for the same
-	 * reason: before 1.0 a minor release may break the one before it, so a
-	 * caller from another minor is refused rather than read. */
-	unsigned vshift = FNL_VERSION_MAJOR == 0 ? 8 : 16;
-	if ((desc->header_version >> vshift) !=
-		((uint32_t)FNL_VERSION >> vshift))
+	/* The version check fnl_init() makes of FnlInitDesc, for the same
+	 * reason (header_accepted()). */
+	if (!header_accepted(desc->header_version))
 		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
 						"header is version %u.%u, library is %u.%u",
 						desc->header_version >> 16,
@@ -3601,16 +3678,7 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	a->late_fixed    = false;
 	a->present_block = -1.0;
 	a->late_held     = -1.0;
-	a->scale_override120 = d.scale_override120;
-	if (a->scale_override120 > 0) {
-		const int s = clamp_scale120(a->scale_override120);
-		if (s != a->scale_override120)
-			fnl_log(FNL_LOG_WARN,
-					"scale_override120 is %d, which is outside "
-					"%d to %d; using %d",
-					a->scale_override120, SCALE120_MIN, SCALE120_MAX, s);
-		a->scale_override120 = s;
-	}
+	a->scale_override120 = env_scale120();
 	a->content_is_ui        = d.content_is_ui;
 	a->no_titlebar_controls = d.no_titlebar_controls;
 	a->frame_times          = d.frame_times;
@@ -3631,11 +3699,11 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	 * that names none takes the host's ranking's pick for its display. */
 	a->gpu_list_cur = -1;
 	a->gpu_part_cur = -1;
-	a->gpu_index    = d.gpu_index > 0 ? d.gpu_index : 0;
+	a->gpu_index    = 0;
 	a->gpu_want[0]  = '\0';
 	if (d.gpu_name && d.gpu_name[0]) {
 		snprintf(a->gpu_want, sizeof a->gpu_want, "%s", d.gpu_name);
-	} else if (!a->gpu_index) {
+	} else {
 		const char *v = getenv("FNL_GPU");
 		if (v && v[0]) {
 			char *end;
@@ -3653,12 +3721,13 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	app_title_copy(a->title, d.title);
 	a->init_w_pt = d.width_pt > 0 ? clamp_pt(d.width_pt) : 0;
 	a->init_h_pt = d.height_pt > 0 ? clamp_pt(d.height_pt) : 0;
-	/* Where the caller asked for it, bounded as every point figure is; 0/0
-	 * leaves the window server to place it. A backend that places windows
-	 * itself (Wayland) or is the output (KMS) ignores it; X11, Win32 and
-	 * Cocoa honour it in their window_open(). */
-	a->init_x_pt = d.x_pt != 0 ? clamp_pt(d.x_pt) : 0;
-	a->init_y_pt = d.y_pt != 0 ? clamp_pt(d.y_pt) : 0;
+	/* Where the caller asked for it, bounded as every point figure is, where
+	 * `positioned` says so; otherwise the window server places it. A backend
+	 * that places windows itself (Wayland) or is the output (KMS) ignores
+	 * it; X11, Win32 and Cocoa honour it in their window_open(). */
+	a->init_positioned = d.positioned;
+	a->init_x_pt       = d.positioned ? clamp_pt(d.x_pt) : 0;
+	a->init_y_pt       = d.positioned ? clamp_pt(d.y_pt) : 0;
 
 	/* The title measured on this thread, as fnl_init() measures the first's:
 	 * the render thread draws it and the pump's thread hit-tests around it. */

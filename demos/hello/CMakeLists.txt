@@ -50,7 +50,7 @@ endforeach()
 # The shared library beside hello-dyn, which looks for it in its own folder
 # alone: the rpath is $ORIGIN or @loader_path, and Windows looks there
 # anyway. The file copied is the one the loader asks for, the DLL or the
-# soname's (libfenestal.so.0.9, libfenestal.0.9.dylib). One copy for every
+# soname's (libfenestal.so.1, libfenestal.1.dylib). One copy for every
 # demo in the tree, made by the first to get here, so no two write it at
 # once in a parallel build.
 if(NOT TARGET fenestal_demo_lib)

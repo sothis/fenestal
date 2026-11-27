@@ -56,7 +56,13 @@ typedef void *FnlMtlRenderEncoder;
 extern "C" {
 #endif
 
-/* Everything needed to make resources and submit alongside Fenestal. The
+/* What a scene may rely on of Metal is the device the library chose, as the
+ * system hands it over -- no feature is requested of it beyond what every
+ * Metal device on a Mac has -- and a scene that needs more checks the
+ * device's own supportsFamily: and supportsFeatureSet:. A request for
+ * capabilities is a candidate for a 1.x.
+ *
+ * Everything needed to make resources and submit alongside Fenestal. The
  * queue is shared, not handed over: work on it is ordered against the
  * frame's own.
  *

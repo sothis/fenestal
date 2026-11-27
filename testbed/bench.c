@@ -594,6 +594,10 @@ static void run_event(FnlApp *app, const FnlEvent *ev, int ph, uint64_t frame)
 		if (counting)
 			invalid("the window moved to another output");
 		break;
+	case FNL_EVENT_OUTPUT_LIST:
+		if (counting)
+			invalid("a monitor was plugged in or out");
+		break;
 	case FNL_EVENT_GPU:
 		if (counting)
 			invalid("the window moved to another GPU");
@@ -833,6 +837,15 @@ static void env_for_run(const BenchConfig *c)
 	else
 		set_env("FNL_RENDERER", bench_opt_enum_name(c, OPT_RENDERER));
 	set_env("FNL_VSYNC", bench_opt_bool(c, OPT_VSYNC) ? g_env.vsync : "0");
+	/* The tuning fixtures the descriptor no longer carries, set or cleared
+	 * for every run since one process makes several. */
+	char v[32];
+	const int s120 = bench_opt_scale120(c);
+	snprintf(v, sizeof v, "%d", s120);
+	set_env("FNL_SCALE120", s120 > 0 ? v : NULL);
+	snprintf(v, sizeof v, "%.6g", bench_opt_num(c, OPT_LATE_LATCH_MS));
+	set_env("FNL_LATE_LATCH_MS",
+			bench_opt_int(c, OPT_LATE_LATCH) == LATE_FIXED ? v : NULL);
 }
 
 static void new_id(char out[17])
@@ -908,11 +921,7 @@ static bool run_once(const FnlInitDesc *base, const FnlCallbacks *scene,
 	d.title     = "Fenestal testbed: benchmark";
 	d.width_pt  = bench_opt_int(c, OPT_WIDTH_PT);
 	d.height_pt = bench_opt_int(c, OPT_HEIGHT_PT);
-	d.scale_override120 = bench_opt_scale120(c);
 	d.no_late_latch = bench_opt_int(c, OPT_LATE_LATCH) == LATE_OFF;
-	d.late_latch_fixed = bench_opt_int(c, OPT_LATE_LATCH) == LATE_FIXED
-							  ? bench_opt_num(c, OPT_LATE_LATCH_MS) * 1e-3
-							  : 0.0;
 	d.gpu_name =
 		bench_opt_text(c, OPT_GPU)[0] ? bench_opt_text(c, OPT_GPU) : NULL;
 	d.frame_times = bench_opt_bool(c, OPT_FRAME_TIMES);

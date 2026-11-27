@@ -20,7 +20,7 @@ endif()
 # licence text into .rodata. MSVC has no assembler that takes them and
 # embeds the same blobs as generated C arrays instead (tools/bin2c.c), so
 # the language is enabled only where an assembler is what makes them.
-project(fenestal VERSION 0.9.0 LANGUAGES C)
+project(fenestal VERSION 1.0.0 LANGUAGES C)
 if(NOT MSVC)
     enable_language(ASM)
 endif()
@@ -1254,6 +1254,9 @@ if(d3d12 IN_LIST FNL_RENDERERS)
     endif()
 endif()
 set(_hc_src ${CMAKE_CURRENT_SOURCE_DIR}/tools/headercheck.c)
+# The types of every field and the prototype of every function, as C11
+# assertions (tools/abi/types.c): C's _Generic, so the C compile alone.
+set(_hc_types ${CMAKE_CURRENT_SOURCE_DIR}/tools/abi/types.c)
 if(MSVC)
     # /Zs is syntax-only. MSVC has no C++11 mode; its C++14 is the oldest.
     set(_hc_flags /nologo /Zs /W3)
@@ -1273,7 +1276,9 @@ if(MSVC)
         endforeach()
     endif()
     set(_hc_cmds COMMAND ${CMAKE_C_COMPILER} ${_hc_on} /std:c11 ${_hc_flags}
-                  ${_hc_inc} ${_hc_src})
+                  ${_hc_inc} ${_hc_src}
+                 COMMAND ${CMAKE_C_COMPILER} ${_hc_on} /std:c11 ${_hc_flags}
+                  ${_hc_inc} ${_hc_types})
     if(CMAKE_CXX_COMPILER)
         foreach(_std 14 17 20)
             list(APPEND _hc_cmds COMMAND ${CMAKE_CXX_COMPILER} ${_hc_on} /TP
@@ -1302,7 +1307,9 @@ else()
         list(APPEND _hc_cxx_on --sysroot=${CMAKE_SYSROOT})
     endif()
     set(_hc_cmds COMMAND ${CMAKE_C_COMPILER} ${_hc_c_on} -std=c11
-                  ${_hc_flags} ${_hc_inc} -x c ${_hc_src})
+                  ${_hc_flags} ${_hc_inc} -x c ${_hc_src}
+                 COMMAND ${CMAKE_C_COMPILER} ${_hc_c_on} -std=c11
+                  ${_hc_flags} ${_hc_inc} -x c ${_hc_types})
     if(CMAKE_CXX_COMPILER)
         foreach(_std 11 14 17 20)
             list(APPEND _hc_cmds COMMAND ${CMAKE_CXX_COMPILER} ${_hc_cxx_on}
@@ -1324,7 +1331,8 @@ add_custom_command(
     OUTPUT ${FNL_GEN_DIR}/headers_checked.stamp
     ${_hc_cmds}
     COMMAND ${CMAKE_COMMAND} -E touch ${FNL_GEN_DIR}/headers_checked.stamp
-    DEPENDS ${_hc_src} ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fenestal.h
+    DEPENDS ${_hc_src} ${_hc_types}
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fenestal.h
             ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_vulkan.h
             ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_metal.h
             ${CMAKE_CURRENT_SOURCE_DIR}/include/fenestal/fnl_d3d12.h
@@ -1342,12 +1350,13 @@ list(APPEND FNL_GEN_FILES ${FNL_GEN_DIR}/headers_checked.stamp)
 # A baseline per renderer set: the interop headers and the exports differ. The
 # layout holds fenestal.h's and Metal's whatever the build, Vulkan's where
 # the set has it and Direct3D 12's where it has that -- one of four
-# (fenestal-0 with Vulkan's, -metal with Metal's alone, -d3d12 with Direct3D
-# 12's and not Vulkan's, -d3d12-vulkan with both);
-# the exports are one list per set -- fenestal-0 for Vulkan alone, -d3d12
-# and -metal for one each, and -<set> for a system's several (d3d12-vulkan,
-# metal-vulkan). The portable part is in each, and a change to it updates
-# each.
+# (fenestal-<major> with Vulkan's, -metal with Metal's alone, -d3d12 with
+# Direct3D 12's and not Vulkan's, -d3d12-vulkan with both);
+# the exports are one list per set -- fenestal-<major> for Vulkan alone,
+# -d3d12 and -metal for one each, and -<set> for a system's several
+# (d3d12-vulkan, metal-vulkan). The portable part is in each, and a change to
+# it updates each. The major is the project's: the baselines are renamed, and
+# a new set made, when it goes up, and a configure that finds none says so.
 # The export list is compared in every tree, cross trees included: it is
 # written at configure from the headers, and needs no host tool. The layout
 # dump is the native trees' alone, as above.
@@ -1355,27 +1364,40 @@ set(_abi_dir ${CMAKE_CURRENT_SOURCE_DIR}/tools/abi)
 # The layout baseline is keyed by what the dump holds: Metal's structs
 # are in every one, Vulkan's where the set has it, Direct3D 12's where
 # it has that. The exports are one list per set, as below.
+set(_abi_base fenestal-${PROJECT_VERSION_MAJOR})
 if(d3d12 IN_LIST FNL_RENDERERS)
     if(vulkan IN_LIST FNL_RENDERERS)
-        set(_abi_layout fenestal-0-d3d12-vulkan)
+        set(_abi_layout ${_abi_base}-d3d12-vulkan)
     else()
-        set(_abi_layout fenestal-0-d3d12)
+        set(_abi_layout ${_abi_base}-d3d12)
     endif()
 elseif(vulkan IN_LIST FNL_RENDERERS)
-    set(_abi_layout fenestal-0)
+    set(_abi_layout ${_abi_base})
 else()
-    set(_abi_layout fenestal-0-metal)
+    set(_abi_layout ${_abi_base}-metal)
 endif()
 if(FNL_RENDERER_COUNT GREATER 1)
     # Named for the set, in the order fnl_init() tries them: Windows'
     # d3d12-vulkan, macOS' metal-vulkan.
     string(JOIN "-" _fnl_abi_set ${FNL_RENDERERS})
-    set(_abi_syms fenestal-0-${_fnl_abi_set})
+    set(_abi_syms ${_abi_base}-${_fnl_abi_set})
 elseif(vulkan IN_LIST FNL_RENDERERS)
-    set(_abi_syms fenestal-0)
+    set(_abi_syms ${_abi_base})
 else()
-    set(_abi_syms fenestal-0-${FNL_RENDERERS})
+    set(_abi_syms ${_abi_base}-${FNL_RENDERERS})
 endif()
+# A missing baseline is a configure error and not a custom command's failure
+# on the first build: the file's name says what to make.
+foreach(_f ${_abi_syms}.syms ${_abi_layout}.abi)
+    if(NOT FNL_GENERATED_DIR OR _f MATCHES "\\.syms$")
+        if(NOT EXISTS ${_abi_dir}/${_f})
+            message(FATAL_ERROR "No ABI baseline tools/abi/${_f}: this is "
+                    "major ${PROJECT_VERSION_MAJOR}, so create it from a "
+                    "build's generated/fenestal.abi or fenestal.syms "
+                    "(tools/abi/check.cmake)")
+        endif()
+    endif()
+endforeach()
 if(NOT FNL_GENERATED_DIR)
     fnl_host_tool(abidump tools/abidump.c)
     target_include_directories(abidump PRIVATE
@@ -1392,7 +1414,8 @@ if(NOT FNL_GENERATED_DIR)
         OUTPUT ${FNL_GEN_DIR}/abi_checked.stamp
         BYPRODUCTS ${FNL_GEN_DIR}/fenestal.abi
         COMMAND abidump ${FNL_GEN_DIR}/fenestal.abi
-        COMMAND ${CMAKE_COMMAND} -DABI=${FNL_GEN_DIR}/fenestal.abi
+        COMMAND ${CMAKE_COMMAND} -DMAJOR=${PROJECT_VERSION_MAJOR}
+                -DABI=${FNL_GEN_DIR}/fenestal.abi
                 -DSYMS=${FNL_GEN_DIR}/fenestal.syms
                 -DBASE_ABI=${_abi_dir}/${_abi_layout}.abi
                 -DBASE_SYMS=${_abi_dir}/${_abi_syms}.syms
@@ -1407,7 +1430,7 @@ if(NOT FNL_GENERATED_DIR)
 else()
     add_custom_command(
         OUTPUT ${FNL_GEN_DIR}/syms_checked.stamp
-        COMMAND ${CMAKE_COMMAND}
+        COMMAND ${CMAKE_COMMAND} -DMAJOR=${PROJECT_VERSION_MAJOR}
                 -DSYMS=${FNL_GEN_DIR}/fenestal.syms
                 -DBASE_SYMS=${_abi_dir}/${_abi_syms}.syms
                 -P ${_abi_dir}/check.cmake
@@ -1982,7 +2005,8 @@ set_target_properties(fenestal_static PROPERTIES LINKER_LANGUAGE C)
 # remember it.
 target_compile_definitions(fenestal_static INTERFACE FNL_STATIC)
 # Before 1.0 a minor release may break the one before it, so the soname
-# carries the minor too (libfenestal.so.0.9); from 1.0 the major alone.
+# carries the minor too (libfenestal.so.0.9); from 1.0 the major alone
+# (libfenestal.so.1).
 if(PROJECT_VERSION_MAJOR EQUAL 0)
     set(_fnl_soversion 0.${PROJECT_VERSION_MINOR})
 else()
@@ -2008,12 +2032,47 @@ include(CheckLinkerFlag)
 if(NOT MSVC)
     # MSVC's linker ignores the flag with a warning CMake's probe does not
     # catch, so it is asked of the GNU-style linkers alone.
-    set(_vs "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map")
+    # The committed map names every function of every interop header, which
+    # a tree of one renderer does not define, and lld refuses a name it does
+    # not find (GNU ld does not). So the tree links against the map cut to
+    # its own FNL_API_SYMBOLS: the same nodes and order, a line kept only
+    # where this tree has the function. The committed map is still the one
+    # tools/check-version-map.py proves against the headers.
+    set(_map_src ${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_map_src})
+    file(STRINGS ${_map_src} _map_lines)
+    set(_map_out)
+    foreach(_l IN LISTS _map_lines)
+        if(_l MATCHES "^[ \t]*(fnl_[a-z0-9_]+);[ \t]*$")
+            if(NOT "${CMAKE_MATCH_1}" IN_LIST FNL_API_SYMBOLS)
+                continue()
+            endif()
+        endif()
+        string(APPEND _map_out "${_l}\n")
+    endforeach()
+    file(WRITE ${FNL_GEN_DIR}/fenestal.map "${_map_out}")
+    set(_vs "-Wl,--version-script=${FNL_GEN_DIR}/fenestal.map")
     check_linker_flag(C "${_vs}" _has_version_script)
     if(_has_version_script)
         target_link_options(fenestal_shared PRIVATE "${_vs}")
         set_target_properties(fenestal_shared PROPERTIES
-            LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fenestal.map)
+            LINK_DEPENDS ${FNL_GEN_DIR}/fenestal.map)
+        # The linker applied it: every fnl_* the object exports carries the
+        # node the map puts it in (tools/check-version-map.py). ELF only, and
+        # where python3 and readelf are; a tree without them says so once.
+        find_program(_fnl_python NAMES python3 python)
+        find_program(_fnl_readelf NAMES readelf llvm-readelf)
+        if(NOT WIN32 AND NOT APPLE AND _fnl_python AND _fnl_readelf)
+            add_custom_command(TARGET fenestal_shared POST_BUILD
+                COMMAND ${_fnl_python}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check-version-map.py
+                        --so $<TARGET_FILE:fenestal_shared>
+                COMMENT "Checking the shared object's symbol versions"
+                VERBATIM)
+        elseif(NOT WIN32 AND NOT APPLE)
+            message(STATUS "No python3 or readelf: the symbol versions of the "
+                           "shared object go unchecked")
+        endif()
     endif()
 endif()
 # The DLL's exports: the same list as the archive's globals.

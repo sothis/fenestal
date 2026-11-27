@@ -39,8 +39,10 @@
 # named by FNL_RENDERER=vulkan (DESIGN *One build per operating system*).
 #
 # Every tree lands under build/<target>/<variant>, and a successful build
-# is followed by three checks of the source -- the layering
-# (tools/check-layering.py), the tables (tools/check-tables.py) and the API
+# is followed by checks of the source -- the layering
+# (tools/check-layering.py), the tables (tools/check-tables.py), the ABI
+# dump against the headers (tools/check-abidump.py), the version script
+# (tools/check-version-map.py) and the API
 # reference (tools/mkapidoc.py), any of which fails it -- and leaves
 # build/fenestal.zip and build/fenestal-commented.zip beside them
 # (tools/mkdist.py). There is no run step and no clean mode: `rm -rf build`
@@ -420,6 +422,14 @@ layering() {
     # of FnlDrawState against fnl_draw_state_eq(). Same terms as the layering.
     if [ -f tools/check-tables.py ]; then
         python3 tools/check-tables.py
+    fi
+    # The ABI dump against the headers (every public field and constant is
+    # named there) and the version script against the API's names.
+    if [ -f tools/check-abidump.py ]; then
+        python3 tools/check-abidump.py
+    fi
+    if [ -f tools/check-version-map.py ]; then
+        python3 tools/check-version-map.py
     fi
     # The API reference, build/api/index.html, made from the headers; it
     # fails on a function with no comment, no thread tag or no caller.

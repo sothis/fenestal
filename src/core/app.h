@@ -451,6 +451,12 @@ _Static_assert(CLAIMS_MAX == 64,
 /* Copy a title into `dst`, "Fenestal" for NULL or empty, cut at a character's
  * start rather than inside one where it is longer than TITLE_MAX - 1. */
 void app_title_copy(char dst[TITLE_MAX], const char *utf8); /* app.c */
+/* The program's identity to the desktop (FnlInitDesc::app_id, ::app_name),
+ * kept in the host: the same copy and the same cut as the title's, with the
+ * library's own name where the caller gave none. */
+#define APP_IDENT_MAX 128
+void app_ident_copy(char dst[APP_IDENT_MAX], const char *utf8,
+					const char *fallback); /* app.c */
 
 /* The device's name, one constant for the same reason: it is copied into a
  * per-thread snapshot. At least what any graphics API reports; each
@@ -1156,6 +1162,15 @@ _Static_assert(offsetof(GlyphCell, x) == 0 && offsetof(GlyphCell, y) == 2 &&
  * connection and puts what the window owns in App::backend_state. The backend's
  * state is thus the window's, and the connection's its host's. */
 struct Host {
+	/* The program's identity as the desktop is told it: FnlInitDesc::app_id
+	 * and ::app_name, or "fenestal" and "Fenestal". Set by fnl_init() and
+	 * never written again, so every window and every renderer's device reads
+	 * them without a lock. `app_id_given` is whether the caller named one, for
+	 * the backend that has nothing to say unless it did (Win32). */
+	char app_id[APP_IDENT_MAX];
+	char app_name[APP_IDENT_MAX];
+	bool app_id_given;
+
 	/* The backend the host's windows are on. Set once, by
 	 * backend_choose_and_open(); a window reads it through BACKEND(). */
 	const FnlBackendVtbl *backend;
@@ -1250,6 +1265,12 @@ struct Host {
 	 * freed by destroy_instance() for the last; opaque, in the renderer's
 	 * state header, and no file outside src/renderer/<g>/ reads it. */
 	void *renderer_host;
+
+	/* What the scene asked of its renderer beyond the library's own, as the
+	 * caller's descriptor carried it (FnlInitDesc::vulkan_setup): an opaque
+	 * pointer the caller keeps alive for the host's life, and read only by
+	 * the renderer it is for. Core never looks inside. */
+	const void *renderer_setup;
 };
 
 /* Tagged `FnlApp` and typedef'd `App`: `FnlApp` is what the installed header
@@ -1320,12 +1341,14 @@ struct FnlApp {
 	/* The presentable area asked for at fnl_init, in logical points, or 0 for
 	 * the library's own default. */
 	int init_w_pt, init_h_pt;
-	/* Where fnl_window_create() was asked to place the window, in points from
-	 * the primary output's corner, or 0/0 to let the window server place it.
-	 * Read once by the backend's window_open(); a window server that places
-	 * windows itself (Wayland) or that is the output (KMS) ignores it, and the
-	 * first window, which comes from fnl_init(), has no position. */
+	/* Where the caller asked for the window, in points from the primary
+	 * output's corner, valid where init_positioned is set -- 0/0 is then a
+	 * position, and not "let the window server place it". From
+	 * FnlInitDesc and FnlWindowDesc alike. Read once by the backend's
+	 * window_open(); a window server that places windows itself (Wayland)
+	 * or that is the output (KMS) ignores it. */
 	int init_x_pt, init_y_pt;
+	bool init_positioned;
 
 	/* FnlInitDesc::echo_events, or FNL_ECHO_EVENTS in the environment. */
 	bool echo_events;
@@ -1874,6 +1897,7 @@ struct FnlApp {
 	bool ev_last_captured;
 	char ev_last_output[OUTPUT_NAME_MAX];
 	int ev_last_out_w_pt, ev_last_out_h_pt;
+	uint32_t ev_last_out_list_gen;
 	/* The GPU in use as last reported, by name and renderer: not by
 	 * index, which the list can change around it, and not by how often it
 	 * changed, which a move and its way back count twice. */
@@ -2226,6 +2250,11 @@ struct FnlApp {
 	 * backend_published_outputs() answers. KMS keeps its own. */
 	char out_names[OUTPUTS_MAX][OUTPUT_NAME_MAX];
 	int out_count, out_current;
+	/* Bumped, under the lock, when the *names* in that list change -- not
+	 * when the window merely moves between them, which is
+	 * FNL_EVENT_OUTPUT's. events_post_state() diffs it into
+	 * FNL_EVENT_OUTPUT_LIST. */
+	uint32_t out_list_gen;
 	bool want_captured;
 	int want_cursor_x, want_cursor_y;
 	/* The scene size fnl_set_scene_size_px() asked for. The render thread
@@ -2992,6 +3021,8 @@ void app_publish_refresh(App *a, unsigned int mhz);
  * since nothing could ask for them. */
 void app_publish_outputs(App *a, char (*names)[OUTPUT_NAME_MAX], int n,
 						 int current);
+/* A backend that keeps its own list says it changed: FNL_EVENT_OUTPUT_LIST. */
+void app_publish_outputs_changed(App *a); /* app.c */
 /* Where a window at x, y of size w by h, in the room `from` of the output
  * it is on, goes in the room `to` of another: at the same offset from the
  * room's top-left, pulled back inside where it would overhang, and at the

@@ -1,7 +1,7 @@
 # Fenestal
 
 [![CI](https://github.com/sothis/fenestal/actions/workflows/ci.yml/badge.svg)](https://github.com/sothis/fenestal/actions/workflows/ci.yml)
-[![API version](https://img.shields.io/badge/API-0.9-blue)](include/fenestal/fenestal.h)
+[![API version](https://img.shields.io/badge/API-1.0-blue)](include/fenestal/fenestal.h)
 [![License: MIT + third-party notices](https://img.shields.io/badge/license-MIT%20%2B%20notices-green)](LICENSE)
 [![C standard](https://img.shields.io/badge/C-C11-orange)](CMakeLists.txt)
 [![Repository](https://img.shields.io/badge/github-sothis%2Ffenestal-lightgrey)](https://github.com/sothis/fenestal)
@@ -280,6 +280,8 @@ options that name one set it.
 | `FNL_BACKEND` | Linux: `wayland`, `x11` or `kms` opens that backend or fails |
 | `FNL_RENDERER` | `vulkan`, `d3d12` or `metal` draws with that renderer or fails |
 | `FNL_GPU` | the device, by its number in the startup log or by part of its name |
+| `FNL_SCALE120` | a test fixture: run at this surface scale in 120ths (120 is 100%) instead of the desktop's, for every window of the program |
+| `FNL_LATE_LATCH_MS` | a tuning fixture: hold the late-latch delay at this many milliseconds instead of tuning it |
 | `FNL_VSYNC=0` | draw flat out, for measuring; vsync is on by default, and `fnl_set_vsync()` turns it off at run time |
 | `FNL_ECHO_EVENTS=1` | print every event the program is handed, on stderr |
 | `FNL_COST_PARTS=1` | in the frame-times log (the testbed's `--frame-times`), what the two cost figures are made of (`docs/comparable-frame-costs.md`) |
@@ -332,15 +334,16 @@ compiles and links each of them that its renderers allow.
 
 ## Compatibility
 
-Fenestal is 0.9 and not yet stable. Until 1.0 a minor release may rename,
-change or remove anything `fenestal.h` and the renderers' headers declare,
-at the source and at the binary; `CHANGELOG.md` says what moved,
-`fnl_init()` refuses a header from another minor release, and the shared
-object's soname carries the minor (`libfenestal.so.0.9`). The header's
-*stability* block says what 1.0 will promise. The headers compile as C11
-and as C++11 through C++20. The library builds under MSVC as under the
-others, though the static archive keeps its internal symbols global there
-(DESIGN *Building*).
+Fenestal is 1.0. A program built against 1.x builds and runs against every
+later 1.y, at the source and at the binary: `fnl_init()` accepts a header whose
+minor is not above the library's, the shared object's symbols are versioned by
+the release that added them (`libfenestal.so.1`), and only additions are made.
+The header's *stability* block is the promise, and says what 1.0 is not
+(window icons, gamepad and touch, a runtime move, per-pixel TAAU motion) and
+what is experimental (HDR). `CHANGELOG.md` says what each release added. The
+headers compile as C11 and as C++11 through C++20. The library builds under
+MSVC as under the others, though the static archive keeps its internal
+symbols global there (DESIGN *Building*).
 
 ## On a bare display
 

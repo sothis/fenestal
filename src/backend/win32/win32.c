@@ -2467,6 +2467,30 @@ static FnlResult win32_host_open(App *a)
 	 * may already have had awareness set by a manifest. */
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+	/* The program's identity to the shell -- its taskbar group and its
+	 * jump list -- where the caller named one (FnlInitDesc::app_id).
+	 * shell32 is the system's, but its entry is reached at run time as the
+	 * rest of what is not the link line's is, so the Windows link line stays
+	 * user32, gdi32 and the three. Failure is a line and not an error: the
+	 * ID has rules (no spaces, 128 characters) the shell enforces. */
+	if (a->host->app_id_given) {
+		static const char *const shell[] = { "shell32.dll", NULL };
+		typedef HRESULT(WINAPI * SetAppId)(PCWSTR);
+		char why[96];
+		void *lib = fnl_lib_open(shell, why, sizeof why);
+		SetAppId set = lib ? (SetAppId)fnl_lib_sym(
+								 lib,
+								 "SetCurrentProcessExplicitAppUserModelID")
+						   : NULL;
+		wchar_t wid[APP_IDENT_MAX];
+		if (set && MultiByteToWideChar(CP_UTF8, 0, a->host->app_id, -1, wid,
+									   APP_IDENT_MAX) > 0 &&
+			FAILED(set(wid)))
+			fnl_log(FNL_LOG_WARN,
+					"the shell refused \"%s\" as the application's ID",
+					a->host->app_id);
+	}
+
 	/* The class's own cursor is the caller's default, as the window's table
 	 * would load it; the host registers the class before any window has one. */
 	HCURSOR def = LoadCursorW(
@@ -2584,10 +2608,9 @@ static FnlResult win32_open(App *a)
 	 * asked for (fnl_window_create()'s x_pt/y_pt) is honoured; CW_USEDEFAULT
 	 * leaves it where Windows would put it. */
 	const int ws120 = want_s120(a);
-	/* 0/0 is the sentinel for "the window server places it", so an explicit
-	 * zero on one axis is a position -- as X11 and Cocoa take it -- and not
-	 * CW_USEDEFAULT for that axis alone. */
-	const bool placed = a->init_x_pt != 0 || a->init_y_pt != 0;
+	/* `positioned` and not a non-zero figure: an explicit zero is a
+	 * position -- as X11 and Cocoa take it -- and not CW_USEDEFAULT. */
+	const bool placed = a->init_positioned;
 	const int cx = placed ? scale_pt(a->init_x_pt, ws120) : CW_USEDEFAULT;
 	const int cy = placed ? scale_pt(a->init_y_pt, ws120) : CW_USEDEFAULT;
 	p->hwnd =

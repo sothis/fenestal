@@ -27,10 +27,10 @@ Participants are expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 ## API changes and implementation changes
 
 Fenestal is a library with a public API (`include/fenestal/`) and a binary
-interface pinned against a baseline (`tools/abi/`). The API is 0.9 and not yet
-stable: a minor release may rename, change or remove anything, and
-`fnl_init()` refuses a header from another minor (`fenestal.h` *stability*,
-DESIGN.md *Compatibility*). It is already held to what 1.0 will promise in two
+interface pinned against a baseline (`tools/abi/`). The API is 1.0: only
+additions are made until a major release, and `fnl_init()` accepts a header
+whose minor is not above the library's (`fenestal.h` *stability*, DESIGN.md
+*Compatibility*). It is held to that in two
 ways: enum values are appended, never inserted or renumbered, and descriptors
 grow only at their end.
 

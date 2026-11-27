@@ -58,6 +58,8 @@ struct VkHost {
 	/* VK_EXT_swapchain_colorspace, an instance extension: the colour
 	 * spaces beyond sRGB's, which a surface lists only where it is on. */
 	bool        colorspace;
+	/* The version the instance was made at (make_instance()). */
+	uint32_t    api_version;
 	PFN_vkGetPhysicalDeviceFeatures2KHR get_features2;
 	PFN_vkGetPhysicalDeviceMemoryProperties2KHR get_memory2;
 	PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
@@ -76,6 +78,9 @@ struct VkHost {
 	 * makes the device without it, and a window that borrows that device
 	 * must not chain a scaled swapchain on it (create_device()). */
 	bool             present_scale;
+	/* Whether it was made with VK_EXT_memory_budget enabled: the device's,
+	 * as present_scale is, for a window that borrows it. */
+	bool             memory_budget;
 	/* The physical device's extension names, asked once for every window
 	 * (device_has_extension()). */
 	VkExtensionProperties *dev_exts;
@@ -529,10 +534,14 @@ struct RendererState {
 	PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR surface_caps2;
 	/* The same extension's memory query, and whether the device has
 	 * VK_EXT_memory_budget for it to read: the metrics panel's GPU memory
-	 * (vk_gpu_memory()). A physical device's query, so the extension is
-	 * asked of the device and not enabled on it. */
+	 * (vk_gpu_memory()). The query is a physical device's, but the heap
+	 * usage it reads is only reported where the extension is enabled on the
+	 * device, which create_device() does where the device offers it. */
 	PFN_vkGetPhysicalDeviceMemoryProperties2KHR get_memory2;
 	bool                  memory_budget;
+	/* The version the device was made for: the lesser of the instance's
+	 * and the physical device's (FnlVulkanGpu::api_version). */
+	uint32_t              api_version;
 	VkImage               font_image;
 	VkDeviceMemory        font_mem;
 	VkImageView           font_view;

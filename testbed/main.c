@@ -78,7 +78,6 @@ static bool g_second_window; /* --second-window: open it at startup */
  * they are parsed: the first window's descriptor has them; the second's is
  * made later, without it. */
 static uint32_t g_no_titlebar_controls;
-static int      g_scale_override120;
 static bool     g_frame_times;
 static FnlApp *g_second;     /* the second window's app, main thread's own */
 
@@ -488,6 +487,34 @@ static void usage(FILE *f, const char *prog)
 		prog);
 }
 
+/* The diagnostics that have no descriptor field -- a scale, a late-latch
+ * delay, a GPU's number -- are the library's environment, read in
+ * fnl_init(); the two spellings of setting one live here and nowhere else. */
+static void set_env_text(const char *name, const char *value)
+{
+#if defined(_WIN32)
+	char put[96];
+	snprintf(put, sizeof put, "%s=%s", name, value);
+	_putenv(put);
+#else
+	setenv(name, value, 1);
+#endif
+}
+
+static void set_env_int(const char *name, int value)
+{
+	char v[32];
+	snprintf(v, sizeof v, "%d", value);
+	set_env_text(name, v);
+}
+
+static void set_env_double(const char *name, double value)
+{
+	char v[32];
+	snprintf(v, sizeof v, "%.6g", value);
+	set_env_text(name, v);
+}
+
 /* Fills in the descriptor the library is initialised from. Returns false when
  * the program should stop -- either because something was wrong, or because
  * --help and --licence have already done everything they were asked to. */
@@ -694,7 +721,9 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 				*status = EXIT_FAILURE;
 				return false;
 			}
-			d->late_latch_fixed = ms / 1e3;
+			/* Read in fnl_init(), as --no-vsync's variable is: a tuning
+			 * fixture, with no descriptor field. */
+			set_env_double("FNL_LATE_LATCH_MS", ms);
 			continue;
 		}
 		if (!strncmp(arg, SCALE, sizeof SCALE - 1)) {
@@ -720,8 +749,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			/* To 120ths, the unit the whole scale path works in -- rounded to
 			 * nearest, so --scale=1.3 is the 156 nearest it rather than a
 			 * truncation that lands a 120th low. */
-			g_scale_override120 = (int)(s * 120.0 + 0.5);
-			d->scale_override120 = g_scale_override120;
+			set_env_int("FNL_SCALE120", (int)(s * 120.0 + 0.5));
 			continue;
 		}
 		if (!strncmp(arg, COLOUR, sizeof COLOUR - 1)) {
@@ -809,7 +837,8 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 				*status = EXIT_FAILURE;
 				return false;
 			}
-			d->gpu_index = (int)n;
+			/* A number is the diagnostic FNL_GPU, read in fnl_init(). */
+			set_env_int("FNL_GPU", (int)n);
 			continue;
 		}
 
@@ -842,7 +871,7 @@ static void name_window(FnlApp *app)
 {
 	const char *host = fnl_window_host(app);
 	char where[64];
-	if (!strcmp(fnl_backend_name(app), "Win32"))
+	if (fnl_backend(app) == FNL_BACKEND_WIN32)
 		snprintf(where, sizeof where, "Win32, %s", host[0] ? host : "native");
 	else
 		snprintf(where, sizeof where, "%s", fnl_backend_name(app));
@@ -1060,11 +1089,11 @@ static FnlResult second_open(FnlApp *sibling)
 		.height_pt      = 600,
 		.x_pt           = 120,
 		.y_pt           = 120,
+		.positioned     = true,
 		/* The settings the first window was given, as FnlWindowDesc's own:
 		 * a bar with its controls left out, a scale, frame times. The
 		 * renderer and its list are the host's either way. */
 		.no_titlebar_controls = g_no_titlebar_controls,
-		.scale_override120    = g_scale_override120,
 		.frame_times          = g_frame_times,
 	};
 	const FnlCallbacks second_cb = {

@@ -21,7 +21,7 @@ body:
     attributes:
       label: Version
       description: "`fnl_version()`, or the commit you built from."
-      placeholder: 0.9.0, or 4e20842
+      placeholder: 1.0.0, or 4e20842
     validations:
       required: true
 

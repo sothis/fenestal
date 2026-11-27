@@ -12,7 +12,7 @@
  * Shows: fnl_vulkan_gpu fnl_vulkan_scene_layout fnl_vulkan_scene_cmd
  *        fnl_vulkan_scene_rect fnl_set_antialias fnl_antialias fnl_max_samples
  *        fnl_offscreen_supported fnl_set_scene_size_px fnl_scene_size_px
- *        fnl_gpu_name fnl_renderer fnl_fps
+ *        fnl_gpu_name fnl_renderer fnl_fps FnlVulkanSetup
  */
 
 /* Every Vulkan call is asked of the library's loader, so the program links
@@ -111,6 +111,25 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 
 int main(void)
 {
+	/* What the scene needs of the device beyond the library's own, asked in
+	 * the descriptor: anisotropic filtering as a core feature, and timeline
+	 * semaphores as a feature of Vulkan 1.2's chain. Both are optional here
+	 * -- a device without them fails the window with the name in the log --
+	 * so a real program asks only for what it cannot draw without. The
+	 * setup and what it points at outlive the host: static. */
+	static const VkPhysicalDeviceFeatures features = {
+		.samplerAnisotropy = VK_TRUE,
+	};
+	static const VkPhysicalDeviceTimelineSemaphoreFeatures timeline = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES,
+		.timelineSemaphore = VK_TRUE,
+	};
+	static const FnlVulkanSetup setup = {
+		.size          = sizeof setup,
+		.api_version   = VK_API_VERSION_1_2,
+		.features      = &features,
+		.feature_chain = &timeline,
+	};
 	FnlInitDesc desc;
 	memset(&desc, 0, sizeof desc);
 	desc.size = sizeof desc;
@@ -119,6 +138,7 @@ int main(void)
 	/* The renderer the scene is written for, which a build of several
 	 * renderers must not trade for another. */
 	desc.renderer = FNL_RENDERER_VULKAN;
+	desc.vulkan_setup = &setup;
 
 	FnlApp *app;
 	if (fnl_init(&desc, &app) < 0)

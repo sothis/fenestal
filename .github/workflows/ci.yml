@@ -490,6 +490,24 @@ jobs:
                       "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                   echo "::endgroup::"
                   .github/stage.sh macos
+            # The layout baseline checked by Apple's own compiler: the tree
+            # above is a cross build, which cannot run the dump, and the
+            # Linux job's native tree holds the Vulkan set alone. The Mac's
+            # clang compiles tools/abidump.c against the headers and the
+            # Vulkan ones the job staged, and the output must be the
+            # baseline's, byte for byte before 1.0 and by tools/abi/
+            # check.cmake's rules after; the version is the project's major.
+            - name: ABI layout on macOS
+              run: |
+                  inc="$PWD/mac/include"
+                  major=$(sed -n 's/^#define FNL_VERSION_MAJOR //p' \
+                      include/fenestal/fenestal.h)
+                  cc -std=c11 -I include -I "$inc" -DFNL_ABI_VULKAN \
+                      tools/abidump.c -o /tmp/abidump
+                  /tmp/abidump /tmp/fenestal.abi
+                  cmake -DMAJOR=$major -DABI=/tmp/fenestal.abi \
+                      -DBASE_ABI=tools/abi/fenestal-$major.abi \
+                      -P tools/abi/check.cmake
             - name: Keep the macos archive
               # v7.0.2
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

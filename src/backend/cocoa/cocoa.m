@@ -1786,11 +1786,12 @@ static FnlResult cocoa_open(App *a)
 		p->key_up_monitor = (void *)CFBridgingRetain(mon);
 
 		[w center];
-		/* Where the caller asked for it, when it did (fnl_window_create()'s
-		 * x_pt/y_pt, as Win32 honours them): the library's y counts down from
-		 * the screen's top, AppKit's up from its bottom. Centred otherwise,
-		 * which is the answer a window server would give. */
-		if (a->init_x_pt || a->init_y_pt) {
+		/* Where the caller asked for it, when it did (the descriptor's
+		 * x_pt and y_pt with `positioned`, as Win32 honours them): the
+		 * library's y counts down from the screen's top, AppKit's up from
+		 * its bottom. Centred otherwise, which is the answer a window
+		 * server would give. */
+		if (a->init_positioned) {
 			NSScreen *on = screen ? screen : NSScreen.mainScreen;
 			NSRect sc = on.frame;
 			NSRect f  = w.frame;

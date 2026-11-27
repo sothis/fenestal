@@ -94,6 +94,12 @@ int headercheck(void)
 	wd.size          = sizeof wd;
 	wd.header_version = FNL_VERSION;
 	wd.title         = "second";
+	/* The program's identity and a position, from the descriptors. */
+	d.app_id         = "org.example.headercheck";
+	d.app_name       = "Headercheck";
+	d.positioned     = true;
+	wd.positioned    = true;
+	(void)fnl_backend(0);
 #ifdef FNL_CHECK_VULKAN
 	(void)gpu;
 	(void)layout;

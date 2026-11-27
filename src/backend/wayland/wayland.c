@@ -2740,9 +2740,9 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 	xdg_toplevel_add_listener(p->xdg_toplevel, &xdg_toplevel_listener, a);
 	/* The string the titlebar draws, so the two cannot disagree. */
 	xdg_toplevel_set_title(p->xdg_toplevel, a->title);
-	/* A desktop file's name, which a title cannot be turned into. No
-	 * descriptor field carries one, so this is the library's own. */
-	xdg_toplevel_set_app_id(p->xdg_toplevel, "fenestal");
+	/* A desktop file's name, which a title cannot be turned into: the
+	 * program's own (FnlInitDesc::app_id). */
+	xdg_toplevel_set_app_id(p->xdg_toplevel, a->host->app_id);
 	/* The titlebar's own floor. A request, so enforced again on arrival. */
 	int min_w, min_h;
 	deco_min_window(a, false, &min_w, &min_h);

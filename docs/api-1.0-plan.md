@@ -672,3 +672,28 @@ otherwise be measured against a baseline that cannot see it. The
 recommended order is Phase 0, then decisions D1-D10, then Phase 1, then the
 verification gates of Phase 2, then the 1.0 freeze. The API itself does not
 need a redesign.
+
+---
+
+## 7. Decisions taken and what was done
+
+Phase 0 and Phase 1 are in the tree (see `CHANGELOG.md`, *Unreleased*). The
+decisions of section 2, as executed:
+
+- **D1** the fixtures are removed from the descriptors; `FNL_SCALE120`,
+  `FNL_LATE_LATCH_MS` and a number in `FNL_GPU` replace them.
+- **D2** `FnlVulkanSetup`, `FnlVulkanGpu::api_version`, instance at the
+  highest version up to 1.3, `VK_EXT_memory_budget` enabled where offered.
+- **D3** names kept, convention documented, `FnlMode` anonymous.
+- **D4** in 1.0: identity, `FnlBackend`, the output-list event (KMS
+  included), position with `positioned`, the Vulkan setup. Deferred: TODO
+  *After 1.0*.
+- **D5** HDR stays experimental in the header until a panel has shown it.
+- **D6, D7, D8, D10** documented as the 1.0 contract.
+- **D9** Direct3D 12 stays at 11_0 and the interop header says so.
+
+Differences from the text above: after D1 removed fields the layout moved,
+so `FnlWindowDesc::positioned` is at offset 57 and not 72; the padding trap
+is closed by `tools/abi/check.cmake` instead (a new field must start at or
+after the old `sizeof`). The `.abi` baselines were worked out by hand and
+want the first native build's diff read once.

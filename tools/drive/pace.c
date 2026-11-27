@@ -475,7 +475,15 @@ int pace_main(int argc, char **argv)
 			if (!number("--late-latch", arg + sizeof LATE - 1, 0.0, true,
 						1000.0, &ms))
 				return EXIT_FAILURE;
-			desc.late_latch_fixed = ms * 1e-3;
+			/* A tuning fixture, read in fnl_init() from the environment. */
+			char put[48];
+#if defined(_WIN32)
+			snprintf(put, sizeof put, "FNL_LATE_LATCH_MS=%.6g", ms);
+			_putenv(put);
+#else
+			snprintf(put, sizeof put, "%.6g", ms);
+			setenv("FNL_LATE_LATCH_MS", put, 1);
+#endif
 			continue;
 		}
 		if (!strcmp(arg, "--settle") && i + 1 < argc) {

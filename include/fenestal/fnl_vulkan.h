@@ -26,6 +26,54 @@
 extern "C" {
 #endif
 
+/* What a scene needs of Vulkan beyond what the library enables for itself:
+ * handed to fnl_init() as FnlInitDesc::vulkan_setup, with `size` set to
+ * sizeof (FnlVulkanSetup) and everything you do not need left zero or NULL.
+ * The library builds the instance and the device from it, and again from it
+ * after every device loss, so it and everything it points at must stay valid
+ * until fnl_shutdown().
+ *
+ *   api_version    the Vulkan version to ask for, as VK_MAKE_API_VERSION
+ *                  builds it. 0 is the highest the loader offers, up to
+ *                  1.3. A version the loader or the physical device lacks
+ *                  is FNL_ERR_UNSUPPORTED rather than a lower one.
+ *   *_extensions   names added to the library's own, at most
+ *                  FNL_VULKAN_SETUP_EXTENSIONS_MAX of each. One the loader
+ *                  or the device does not offer fails the window's creation
+ *                  and the log names it: a scene that needs it has nothing
+ *                  to draw without it.
+ *   instance_pnext a structure chain for VkInstanceCreateInfo, such as
+ *                  VkValidationFeaturesEXT.
+ *   features       core features to enable, beside the library's own. One
+ *                  the device lacks fails with its name.
+ *   feature_chain  feature structures of the 1.1 to 1.3 promotions and the
+ *                  extensions, for VkDeviceCreateInfo::pNext -- timeline
+ *                  semaphores, dynamic rendering, buffer device address.
+ *                  Not a VkPhysicalDeviceFeatures2, which a device made with
+ *                  `features` cannot also take: that is refused. A feature
+ *                  the device lacks is the driver's refusal of the device,
+ *                  logged with its result.
+ *
+ * The library's own device extensions are VK_KHR_swapchain and what it
+ * finds offered of present wait and present id, present timing and
+ * calibrated timestamps, swapchain maintenance 1, memory budget and the
+ * portability subset; its core feature is dual-source blending. Names of
+ * these in a list are harmless. A scene that relies on none of this passes
+ * no setup, and is made at the highest version the loader has, which is
+ * what api_version above says it got. */
+#define FNL_VULKAN_SETUP_EXTENSIONS_MAX 32
+typedef struct FnlVulkanSetup {
+	size_t       size;
+	uint32_t     api_version;
+	uint32_t     instance_extension_count;
+	const char *const *instance_extensions;
+	const void  *instance_pnext;
+	uint32_t     device_extension_count;
+	const char *const *device_extensions;
+	const VkPhysicalDeviceFeatures *features;
+	const void  *feature_chain;
+} FnlVulkanSetup;
+
 /* Everything needed to allocate, upload and submit alongside Fenestal. The
  * queue is shared, not handed over: submissions on it are ordered against the
  * frame's own. Submitting on `queue` directly is safe only while no other
@@ -51,6 +99,11 @@ typedef struct {
 	uint32_t         queue_family;
 	VkPipelineCache  pipeline_cache;   /* shared: your pipelines warm it */
 	PFN_vkGetInstanceProcAddr get_instance_proc_addr;
+	/* The Vulkan version the device was made for: the lesser of the
+	 * instance's and the physical device's, as VK_MAKE_API_VERSION builds
+	 * it. What the core entry points and features of that version -- the
+	 * 1.1 to 1.3 promotions -- are to be asked for against. */
+	uint32_t         api_version;
 } FnlVulkanGpu;
 
 /* Read from the renderer's state, so valid on the render thread alone:
@@ -63,7 +116,11 @@ typedef struct {
  * nothing. False too where Vulkan does not draw this window. */
 FNL_API bool fnl_vulkan_gpu(FnlApp *app, FnlVulkanGpu *out);
 
-/* Submit on the shared queue, and wait for it to go idle, under the lock the
+/* These two return Vulkan's own VkResult, not an FnlResult: they stand where
+ * vkQueueSubmit and vkQueueWaitIdle would, and what they say is those calls'.
+ * Do not pass it to fnl_result_str().
+ *
+ * Submit on the shared queue, and wait for it to go idle, under the lock the
  * library takes for its own submits and presents. The queue is one for every
  * window on the host, so with two windows open another window's render thread
  * may be submitting while a scene's own does: a submit on the raw queue then

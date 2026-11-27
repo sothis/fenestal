@@ -4180,9 +4180,15 @@ static void outputs_rescan(App *a)
 		}
 	}
 	/* The lists changed under the titlebar -- every window's, since the
-	 * outputs are the host's card's and each bar draws the same list. */
-	for (App *w = a->host->windows; w; w = w->next)
+	 * outputs are the host's card's and each bar draws the same list. A
+	 * monitor that came or went is FNL_EVENT_OUTPUT_LIST's; one that only
+	 * came back from away is not. */
+	const bool listed = gone != was_gone || came;
+	for (App *w = a->host->windows; w; w = w->next) {
+		if (listed)
+			app_publish_outputs_changed(w);
 		fnl_invalidate(w);
+	}
 }
 
 /* ---- the seam ------------------------------------------------------------ */

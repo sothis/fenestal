@@ -37,11 +37,10 @@ with the reporter credited in `CHANGELOG.md` unless they ask otherwise.
 
 | Version | Supported |
 |---|---|
-| 0.9.x | Yes |
+| 1.0.x | Yes |
 
-The API is 0.9 and not yet stable (DESIGN.md *Compatibility*): a fix lands on
-the newest release only, and before 1.0 a minor release may change the API
-as well.
+A fix lands on the newest release of the newest minor only; the API only
+grows within a major (DESIGN.md *Compatibility*).
 
 ## In Scope
 

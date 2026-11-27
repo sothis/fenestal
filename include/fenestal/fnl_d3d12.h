@@ -38,7 +38,12 @@
 extern "C" {
 #endif
 
-/* Everything needed to allocate, upload and submit alongside Fenestal. The
+/* The device is created at feature level 11_0, which is the contract: a
+ * scene that needs the features of 12_0 or 12_1 -- or a shader model above
+ * 6.0 -- is outside it, and may check the device's own CheckFeatureSupport.
+ * A request for a higher level is a candidate for a 1.x.
+ *
+ * Everything needed to allocate, upload and submit alongside Fenestal. The
  * queue is shared, not handed over: work on it is ordered against the
  * frame's own. Not referenced for you: AddRef what you keep.
  *

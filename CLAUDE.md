@@ -705,16 +705,21 @@ finding not on it is new.
   `wayland.xml`. FreeType and glslangValidator are tools this project *runs* at
   build time and never links. When something needs a library, the escape hatch
   is a subprocess, not a new entry on the link line.
-- **The API is 0.9 and not yet stable** (`fenestal.h` *stability*, DESIGN
-  *Compatibility*). A minor release may rename, change or remove anything,
-  at the source and at the binary; `fnl_init()` refuses a header from
-  another minor, and the soname carries it (`libfenestal.so.0.9`). Enum
-  values are still appended rather than inserted, and descriptors still grow
-  at their end, because that is what 1.0 will promise. The build compares
-  the ABI and the export list against `tools/abi/` and fails on a
-  difference: a change, intended, updates the baseline in the same commit.
-  The version lives in the header and in `project()`, and configure refuses
-  a mismatch. `CHANGELOG.md` gets a line for anything a caller would notice.
+- **The API is 1.0** (`fenestal.h` *stability*, DESIGN *Compatibility*).
+  From 1.0 only additions are made, at the source and at the binary: a
+  program built against 1.x runs against every later 1.y, `fnl_init()`
+  accepts a header whose minor is not above the library's, and the shared
+  object's symbols are versioned by the release that added them
+  (`fenestal.map`, a node per minor, no wildcard; `libfenestal.so.1`). Enum
+  values are appended, descriptors grow at their end behind `size` and a
+  field placed in tail padding is refused. The build compares the ABI and the
+  export list against `tools/abi/fenestal-1*` and from 1.0 fails on anything
+  but an addition (`tools/abi/check.cmake`); `tools/check-abidump.py`,
+  `tools/abi/types.c` and `tools/check-version-map.py` make sure the baseline
+  covers every field, type, constant and name. A removal or a change waits
+  for 2.0 and a deprecation before it. The version lives in the header and
+  in `project()`, and configure refuses a mismatch. `CHANGELOG.md` gets a
+  line for anything a caller would notice.
   MSVC is supported for the Windows tree, with one relaxation: no objcopy
   means the static archive keeps its internals global (DESIGN *Building
   Windows with MSVC*).

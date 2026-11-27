@@ -4,8 +4,42 @@ What each release changed for a program that uses Fenestal. `DESIGN.md` is
 why; `fenestal.h` is the API, and its *stability* block says what is
 promised: before 1.0, nothing between minor releases.
 
-## Unreleased
+## 1.0.0
 
+The API and the ABI are stable from this release: `fenestal.h` *stability*
+is the promise, only additions are made within 1.x, the shared object's
+symbols are versioned (`FENESTAL_1_0`) and its soname is `libfenestal.so.1`.
+Everything below was changed on the way, and is source-breaking against 0.9.
+HDR is marked experimental in the header: no panel has shown it yet.
+
+- **Towards 1.0: the API and the ABI baseline** (docs/api-1.0-plan.md).
+  Source-breaking, as any 0.x release may be:
+  - `FnlInitDesc::late_latch_fixed`, `scale_override120` and `gpu_index`, and
+    `FnlWindowDesc::scale_override120` and `gpu_index`, are gone; the
+    behaviour is the environment's -- `FNL_LATE_LATCH_MS`, `FNL_SCALE120`
+    and a number in `FNL_GPU` -- and a second window takes the same.
+  - `FnlInitDesc` gains `app_id` and `app_name` (the program's identity to
+    the desktop), `x_pt`, `y_pt` and `positioned`, and `vulkan_setup`;
+    `FnlWindowDesc` gains `positioned`, so 0/0 is a position.
+  - `FnlVulkanSetup` (fnl_vulkan.h): an API version, instance and device
+    extensions, core features and a feature chain for the scene. The Vulkan
+    instance is made at the highest version the loader has, up to 1.3, and
+    `FnlVulkanGpu::api_version` says what the device was made for.
+    `VK_EXT_memory_budget` is now enabled where the device offers it, which
+    the metrics panel's VRAM figure needed.
+  - `FnlBackend` and `fnl_backend()`; `FNL_EVENT_OUTPUT_LIST` and
+    `FnlOutputListEvent` for a monitor plugged in or out.
+  - `FnlMode` is an anonymous typedef.
+  - `fnl_init()` and `fnl_window_create()` accept a header whose minor is not
+    above the library's (below 1.0 the minor had to match).
+  - `fenestal.map` names every function in `FENESTAL_1_0`; the ABI baselines
+    are `tools/abi/fenestal-1*`.
+  - The ABI dump now names every public field, constant and event payload
+    (it had missed three `FnlInitDesc` fields), `tools/check-abidump.py`
+    fails the build when it misses one again, `tools/abi/types.c` pins field
+    types and prototypes, `tools/abi/check.cmake` allows only additions from
+    1.0, and `tools/check-version-map.py` checks `fenestal.map` and the shared
+    object's symbol versions.
 - **One macOS target.** `./build.sh macos` builds both processors' slices
   into `build/macos-x86_64` and `build/macos-arm64` and joins them with
   `lipo` into `build/macos/<variant>`; `macos-arm64` and `macos-universal`

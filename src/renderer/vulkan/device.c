@@ -277,6 +277,75 @@ static bool exts_have(const char *const *exts, uint32_t n, const char *name)
 static const VkBridge *const BRIDGES[] = { FNL_BACKENDS(BRIDGE_ENTRY) };
 #undef BRIDGE_ENTRY
 
+/* The scene's FnlVulkanSetup (FnlInitDesc::vulkan_setup), copied into a
+ * zeroed one of this build's size so that a caller built against a shorter
+ * struct reads as zeros past its end, as the descriptors are. All zero where
+ * the caller passed none. A size too short to carry `size` itself, or longer
+ * than this build knows, is a refusal. */
+static FnlResult setup_read(const App *a, FnlVulkanSetup *out)
+{
+	memset(out, 0, sizeof *out);
+	const FnlVulkanSetup *s = a->host->renderer_setup;
+	if (!s)
+		return FNL_OK;
+	if (s->size > sizeof *s)
+		return fnl_fail(FNL_ERR_VERSION_MISMATCH,
+						"FnlVulkanSetup is %zu bytes; this build knows %zu",
+						s->size, sizeof *s);
+	if (s->size < offsetof(FnlVulkanSetup, api_version) ||
+		s->size % FNL_ALIGNOF(FnlVulkanSetup) != 0)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"FnlVulkanSetup::size is %zu; set it to sizeof "
+						"(FnlVulkanSetup)",
+						s->size);
+	memcpy(out, s, s->size);
+	if (out->instance_extension_count > FNL_VULKAN_SETUP_EXTENSIONS_MAX ||
+		out->device_extension_count > FNL_VULKAN_SETUP_EXTENSIONS_MAX)
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"FnlVulkanSetup names more than %d extensions of "
+						"one kind",
+						FNL_VULKAN_SETUP_EXTENSIONS_MAX);
+	if ((out->instance_extension_count && !out->instance_extensions) ||
+		(out->device_extension_count && !out->device_extensions))
+		return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+						"FnlVulkanSetup has an extension count and no list");
+	return FNL_OK;
+}
+
+/* VkPhysicalDeviceFeatures' members in order, all VkBool32: what a requested
+ * core feature the device lacks is named by. */
+static const char *const FEATURE_NAMES[] = {
+	"robustBufferAccess", "fullDrawIndexUint32", "imageCubeArray",
+	"independentBlend", "geometryShader", "tessellationShader",
+	"sampleRateShading", "dualSrcBlend", "logicOp", "multiDrawIndirect",
+	"drawIndirectFirstInstance", "depthClamp", "depthBiasClamp",
+	"fillModeNonSolid", "depthBounds", "wideLines", "largePoints",
+	"alphaToOne", "multiViewport", "samplerAnisotropy",
+	"textureCompressionETC2", "textureCompressionASTC_LDR",
+	"textureCompressionBC", "occlusionQueryPrecise",
+	"pipelineStatisticsQuery", "vertexPipelineStoresAndAtomics",
+	"fragmentStoresAndAtomics", "shaderTessellationAndGeometryPointSize",
+	"shaderImageGatherExtended", "shaderStorageImageExtendedFormats",
+	"shaderStorageImageMultisample", "shaderStorageImageReadWithoutFormat",
+	"shaderStorageImageWriteWithoutFormat",
+	"shaderUniformBufferArrayDynamicIndexing",
+	"shaderSampledImageArrayDynamicIndexing",
+	"shaderStorageBufferArrayDynamicIndexing",
+	"shaderStorageImageArrayDynamicIndexing", "shaderClipDistance",
+	"shaderCullDistance", "shaderFloat64", "shaderInt64", "shaderInt16",
+	"shaderResourceResidency", "shaderResourceMinLod", "sparseBinding",
+	"sparseResidencyBuffer", "sparseResidencyImage2D",
+	"sparseResidencyImage3D", "sparseResidency2Samples",
+	"sparseResidency4Samples", "sparseResidency8Samples",
+	"sparseResidency16Samples", "sparseResidencyAliased",
+	"variableMultisampleRate", "inheritedQueries",
+};
+#define FEATURE_COUNT (sizeof FEATURE_NAMES / sizeof FEATURE_NAMES[0])
+FNL_STATIC_ASSERT(sizeof(VkPhysicalDeviceFeatures) ==
+					  FEATURE_COUNT * sizeof(VkBool32),
+				  "FEATURE_NAMES must list every VkPhysicalDeviceFeatures "
+				  "member");
+
 /* One instance at a time, process-wide. MoltenVK asked for its first
  * instance from several threads at once refuses the surface extensions it
  * has -- VK_ERROR_EXTENSION_NOT_PRESENT for VK_KHR_surface and
@@ -306,20 +375,54 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 	InstanceExts warmed = prewarm_take(!a->gpu_cross);
 	FNL_TRY(vk_load_global());
 
-	/* The library's name, not the caller's: a driver matches its application
-	 * profiles against this string, and FnlInitDesc::title is user-facing
-	 * prose. */
+	FnlVulkanSetup setup;
+	FNL_TRY(setup_read(a, &setup));
+	/* The highest version the loader has, up to 1.3, unless the scene named
+	 * one: a loader with no vkEnumerateInstanceVersion is a 1.0 one, and
+	 * the entry is fetched by name since it is optional. A named version the
+	 * loader lacks is a refusal here and not vkCreateInstance's
+	 * VK_ERROR_INCOMPATIBLE_DRIVER, which reads as no driver at all. */
+	uint32_t loader_version = VK_API_VERSION_1_0;
+	{
+		const PFN_vkEnumerateInstanceVersion ask =
+			(PFN_vkEnumerateInstanceVersion)vkGetInstanceProcAddr(
+				NULL, "vkEnumerateInstanceVersion");
+		uint32_t v = 0;
+		if (ask && ask(&v) == VK_SUCCESS)
+			loader_version = v;
+	}
+	uint32_t api_version = setup.api_version;
+	if (!api_version)
+		api_version = loader_version < VK_API_VERSION_1_3
+						  ? loader_version
+						  : VK_API_VERSION_1_3;
+	else if (api_version > loader_version)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"the scene's Vulkan setup asks for version %u.%u, "
+						"the loader has %u.%u",
+						VK_API_VERSION_MAJOR(api_version),
+						VK_API_VERSION_MINOR(api_version),
+						VK_API_VERSION_MAJOR(loader_version),
+						VK_API_VERSION_MINOR(loader_version));
+	g->api_version = api_version;
+	/* The program's name (FnlInitDesc::app_name) and the library as the
+	 * engine: a driver matches its application profiles against these
+	 * strings, and FnlInitDesc::title is user-facing prose. */
 	VkApplicationInfo app_info = {
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-		.pApplicationName = "fenestal",
-		.apiVersion = VK_API_VERSION_1_0,
+		.pApplicationName = a->host->app_name,
+		.applicationVersion = 0,
+		.pEngineName = "Fenestal",
+		.engineVersion = FNL_VERSION,
+		.apiVersion = api_version,
 	};
 	/* The surface extensions are the backend's: this file must not know
 	 * which window server it presents to. */
 	uint32_t n_backend = 0, required = 0;
 	const char *const *backend =
 		g->bridge->instance_extensions(&n_backend, &required);
-	const char *exts[VK_BACKEND_EXTENSIONS_MAX + 5];
+	const char *exts[VK_BACKEND_EXTENSIONS_MAX + 5 +
+					 FNL_VULKAN_SETUP_EXTENSIONS_MAX];
 	uint32_t n = 0;
 	exts[n++] = VK_KHR_SURFACE_EXTENSION_NAME;
 	/* Across a move, of the drivers that open nothing of the GPU moved
@@ -332,6 +435,7 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 		.mode = VK_DIRECT_DRIVER_LOADING_MODE_EXCLUSIVE_LUNARG,
 		.pDrivers = direct,
 	};
+	direct_list.pNext = setup.instance_pnext;
 	if (cross) {
 		if (cross_drivers() == 0)
 			return fnl_fail(FNL_ERR_NO_DEVICE,
@@ -399,6 +503,22 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 				g->backend_ext_on |= 1u << (i - required);
 		}
 	}
+	/* The scene's own, after the library's so that a name in both is
+	 * enabled once. One the loader does not offer is a refusal: the scene
+	 * asked because it cannot draw without it. */
+	for (uint32_t i = 0; i < setup.instance_extension_count; i++) {
+		const char *want = setup.instance_extensions[i];
+		if (!want || exts_have(exts, n, want))
+			continue;
+		if (!instance_has(&offered, want)) {
+			free(offered.props);
+			return fnl_fail(FNL_ERR_UNSUPPORTED,
+							"the scene's Vulkan setup asks for the instance "
+							"extension %s, which the loader does not offer",
+							want);
+		}
+		exts[n++] = want;
+	}
 	free(offered.props);
 	g->surface_maint =
 		exts_have(exts, n, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
@@ -406,7 +526,7 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 		 exts_have(exts, n, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME));
 	VkInstanceCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-		.pNext = cross ? &direct_list : NULL,
+		.pNext = cross ? (const void *)&direct_list : setup.instance_pnext,
 		.flags =
 			portability ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0,
 		.pApplicationInfo = &app_info,
@@ -978,6 +1098,8 @@ static bool calibrates_monotonic(VkInstance inst, VkPhysicalDevice phys)
  * the device has but its own rebuild has not asked for. */
 static FnlResult create_device(App *a, VkDevice borrow)
 {
+	FnlVulkanSetup setup;
+	FNL_TRY(setup_read(a, &setup));
 	float prio = 1.0f;
 	VkDeviceQueueCreateInfo qci = {
 		.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -993,6 +1115,41 @@ static FnlResult create_device(App *a, VkDevice borrow)
 	vkGetPhysicalDeviceFeatures(VK(a)->phys, &have);
 	VK(a)->dual_src_blend = have.dualSrcBlend && !FNL_FAULT("no-dual-src");
 	VkPhysicalDeviceFeatures want = { .dualSrcBlend = VK(a)->dual_src_blend };
+	/* The scene's core features, added to the library's. Read as the array
+	 * of VkBool32 it is (FEATURE_NAMES asserts that); one the device lacks
+	 * is a refusal that names it, where vkCreateDevice would say only
+	 * VK_ERROR_FEATURE_NOT_PRESENT. */
+	if (setup.features) {
+		const VkBool32 *ask = (const VkBool32 *)setup.features;
+		const VkBool32 *got = (const VkBool32 *)&have;
+		VkBool32 *out       = (VkBool32 *)&want;
+		for (size_t i = 0; i < FEATURE_COUNT; i++) {
+			if (!ask[i])
+				continue;
+			if (!got[i])
+				return fnl_fail(FNL_ERR_UNSUPPORTED,
+								"the scene's Vulkan setup asks for the "
+								"feature %s, which this device lacks",
+								FEATURE_NAMES[i]);
+			out[i] = VK_TRUE;
+		}
+	}
+	/* The version: the instance's, held to what the physical device
+	 * reports. A scene that named one the device lacks has nothing to draw
+	 * with, as for an extension. */
+	VkPhysicalDeviceProperties pprops;
+	vkGetPhysicalDeviceProperties(VK(a)->phys, &pprops);
+	if (setup.api_version && setup.api_version > pprops.apiVersion)
+		return fnl_fail(FNL_ERR_UNSUPPORTED,
+						"the scene's Vulkan setup asks for version %u.%u, "
+						"this device has %u.%u",
+						VK_API_VERSION_MAJOR(setup.api_version),
+						VK_API_VERSION_MINOR(setup.api_version),
+						VK_API_VERSION_MAJOR(pprops.apiVersion),
+						VK_API_VERSION_MINOR(pprops.apiVersion));
+	VK(a)->api_version = VKH(a)->api_version < pprops.apiVersion
+							 ? VKH(a)->api_version
+							 : pprops.apiVersion;
 
 	/* Present wait, where both extensions and both features are there:
 	 * optional, and only the X11 resize handshake uses it. */
@@ -1025,7 +1182,7 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		.presentId = VK_TRUE,
 	};
 
-	const char *exts[20];
+	const char *exts[20 + FNL_VULKAN_SETUP_EXTENSIONS_MAX];
 	uint32_t n_exts = 0;
 	exts[n_exts++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
 	VK(a)->dxgi_exts = false;
@@ -1134,6 +1291,26 @@ static FnlResult create_device(App *a, VkDevice borrow)
 			VK(a)->present_scale = true;
 		}
 	}
+	/* Where the device offers it, so that vk_gpu_memory()'s query has
+	 * something to report: the extension only reads where it is enabled. */
+	const bool budget = VK(a)->get_memory2 && n_exts < 20 &&
+						device_has_extension(
+							a, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+	if (budget)
+		exts[n_exts++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+	/* The scene's extensions, after the library's, so a name in both is
+	 * enabled once. */
+	for (uint32_t i = 0; i < setup.device_extension_count; i++) {
+		const char *name = setup.device_extensions[i];
+		if (!name || exts_have(exts, n_exts, name))
+			continue;
+		if (!device_has_extension(a, name))
+			return fnl_fail(FNL_ERR_UNSUPPORTED,
+							"the scene's Vulkan setup asks for the device "
+							"extension %s, which this device lacks",
+							name);
+		exts[n_exts++] = name;
+	}
 	const void *features_next = VK(a)->present_wait ? &id_want : NULL;
 #ifdef VK_EXT_present_timing
 	if (VK(a)->present_timing)
@@ -1142,6 +1319,26 @@ static FnlResult create_device(App *a, VkDevice borrow)
 	if (VK(a)->present_scale) {
 		scale_want.pNext = (void *)features_next;
 		features_next = &scale_want;
+	}
+	/* The scene's feature chain goes on the end of ours. A
+	 * VkPhysicalDeviceFeatures2 in it would make `pEnabledFeatures` illegal
+	 * beside it, so it is refused, with the way out. The library's structs
+	 * are locals ending in NULL, so the tail is walked and written. */
+	for (const VkBaseInStructure *c = setup.feature_chain; c; c = c->pNext)
+		if (c->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
+			return fnl_fail(FNL_ERR_INVALID_ARGUMENT,
+							"FnlVulkanSetup::feature_chain holds a "
+							"VkPhysicalDeviceFeatures2; set its core "
+							"features in FnlVulkanSetup::features instead");
+	if (setup.feature_chain) {
+		if (!features_next) {
+			features_next = setup.feature_chain;
+		} else {
+			VkBaseOutStructure *tail = (VkBaseOutStructure *)features_next;
+			while (tail->pNext)
+				tail = tail->pNext;
+			tail->pNext = (VkBaseOutStructure *)setup.feature_chain;
+		}
 	}
 	VkDeviceCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -1159,6 +1356,7 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		 * extension must not chain a scaled swapchain on it, and one
 		 * borrowing a device that has it may. */
 		VK(a)->present_scale = VKH(a)->present_scale && !VK(a)->scale_refused;
+		VK(a)->memory_budget = VKH(a)->memory_budget && VK(a)->get_memory2;
 	} else {
 		/* The handle a driver leaves on failure is undefined, and
 		 * destroy_device_objects() reads VK_NULL_HANDLE as "nothing to
@@ -1167,10 +1365,9 @@ static FnlResult create_device(App *a, VkDevice borrow)
 		VK_TRY(vkCreateDevice(VK(a)->phys, &ci, NULL, &made));
 		VK(a)->device = made;
 		VKH(a)->present_scale = VK(a)->present_scale;
+		VKH(a)->memory_budget = budget;
+		VK(a)->memory_budget  = budget;
 	}
-	VK(a)->memory_budget =
-		VK(a)->get_memory2 &&
-		device_has_extension(a, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 	VK(a)->wait_for_present = NULL;
 	if (VK(a)->present_wait)
 		VK(a)->wait_for_present = (PFN_vkWaitForPresentKHR)vkGetDeviceProcAddr(
@@ -2178,6 +2375,7 @@ bool fnl_vulkan_gpu(App *a, FnlVulkanGpu *out)
 		.queue_family    = VK(a)->queue_family,
 		.pipeline_cache  = VK(a)->pipeline_cache,
 		.get_instance_proc_addr = fnl_vkGetInstanceProcAddr,
+		.api_version     = VK(a)->api_version,
 	};
 	*out = gpu;
 	return true;

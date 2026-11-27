@@ -1305,7 +1305,34 @@ FreeBSD sysroot and dxc by their pins. Owed:
 - **A push that started no run** (`1bd1c42`, the push said it failed and
   had landed): started by hand then; not seen since.
 
+## After 1.0: what the 1.0 plan left out
+
+Each is additive in a 1.x and is listed as a non-goal in the header's
+*stability* block (docs/api-1.0-plan.md):
+
+- window icon (B3); cursor names beside the key pair (B12);
+  `FNL_CURSOR_NONE` and capture without a click (B11);
+- minimum and maximum size, window flags (always-on-top, opacity,
+  attention), the work area, a runtime move (B9, B10, B13, B4);
+- a per-pixel motion texture for TAAU, MetalFX and FSR 2 (B16);
+- Direct3D 12 above feature level 11_0 and Metal capability requests, as
+  Vulkan's `FnlVulkanSetup` is (B25, B26);
+- gamepad and touch; multi-card KMS;
+- a log sink and level per host (B8).
+
 ## The ABI baseline
+
+- **The 1.0 baselines in `tools/abi/` (`fenestal-1*`) were worked out by
+  hand** and the Linux tree's dump is byte-identical to `fenestal-1.abi`;
+  the Direct3D 12 and Metal ones differ from it only by their sets and are
+  checked natively by a Windows or macOS build, which has not been done since
+  1.0.0 (the macOS CI job's ABI step is the first).
+- **Not seen before the 1.0.0 tag:** HDR on any panel (schenker's Mac was not
+  reachable; HDR is experimental in the header), the stress and platform
+  rounds, and the Windows and macOS natives. TAAU's cost was measured on
+  this desk (`bench.py`, 59 fps, GPU 0.196 ms against 0.068 without and 0.234
+  for MLAA); its two-presents-old history is still a picture question the
+  bench cannot answer.
 
 - **The Direct3D 12 baselines were dumped under wine**, by a mingw build of
   `tools/abidump` (the layout is the same on both 64-bit ABIs), and the

@@ -23,8 +23,10 @@
  * already in the baseline wants FNL_VERSION_MAJOR to go up with it.
  *
  * The lists below are written out rather than derived, so a new field or
- * constant is a line here too; a struct that grows without one still fails,
- * on its size.
+ * constant is a line here too. A struct that grows still fails on its size,
+ * but a field placed in tail padding does not change it: that is what
+ * tools/check-abidump.py is for, which reads the headers and fails the build
+ * on any public field or constant this file does not name.
  */
 
 #include <fenestal/fenestal.h>
@@ -67,14 +69,20 @@ int main(int argc, char **argv)
 	F(FnlInitDesc, install_signal_handlers);
 	F(FnlInitDesc, renderer);
 	F(FnlInitDesc, no_late_latch);
-	F(FnlInitDesc, late_latch_fixed);
-	F(FnlInitDesc, scale_override120);
-	F(FnlInitDesc, gpu_index);
 	F(FnlInitDesc, gpu_name);
 	F(FnlInitDesc, frame_times);
 	F(FnlInitDesc, echo_events);
 	F(FnlInitDesc, renderers);
+	F(FnlInitDesc, content_is_ui);
+	F(FnlInitDesc, no_titlebar_controls);
+	F(FnlInitDesc, no_gpu_ranking);
 	F(FnlInitDesc, want_color);
+	F(FnlInitDesc, app_id);
+	F(FnlInitDesc, app_name);
+	F(FnlInitDesc, x_pt);
+	F(FnlInitDesc, y_pt);
+	F(FnlInitDesc, positioned);
+	F(FnlInitDesc, vulkan_setup);
 	S(FnlWindowDesc);
 	F(FnlWindowDesc, size);
 	F(FnlWindowDesc, header_version);
@@ -83,12 +91,11 @@ int main(int argc, char **argv)
 	F(FnlWindowDesc, height_pt);
 	F(FnlWindowDesc, x_pt);
 	F(FnlWindowDesc, y_pt);
-	F(FnlWindowDesc, gpu_index);
 	F(FnlWindowDesc, gpu_name);
 	F(FnlWindowDesc, content_is_ui);
 	F(FnlWindowDesc, no_titlebar_controls);
-	F(FnlWindowDesc, scale_override120);
 	F(FnlWindowDesc, frame_times);
+	F(FnlWindowDesc, positioned);
 	S(FnlOutputColor);
 	F(FnlOutputColor, space);
 	F(FnlOutputColor, sdr_scale);
@@ -166,6 +173,70 @@ int main(int argc, char **argv)
 	F(FnlOverlayCounts, strokes_max);
 	F(FnlOverlayCounts, glyphs);
 	F(FnlOverlayCounts, glyphs_max);
+	S(FnlKeyEvent);
+	F(FnlKeyEvent, key);
+	F(FnlKeyEvent, pressed);
+	F(FnlKeyEvent, repeat);
+	S(FnlButtonEvent);
+	F(FnlButtonEvent, x);
+	F(FnlButtonEvent, y);
+	F(FnlButtonEvent, button);
+	F(FnlButtonEvent, pressed);
+	F(FnlButtonEvent, clicks);
+	S(FnlMotionEvent);
+	F(FnlMotionEvent, x);
+	F(FnlMotionEvent, y);
+	S(FnlRelativeEvent);
+	F(FnlRelativeEvent, dx);
+	F(FnlRelativeEvent, dy);
+	S(FnlScrollEvent);
+	F(FnlScrollEvent, x);
+	F(FnlScrollEvent, y);
+	F(FnlScrollEvent, dx);
+	F(FnlScrollEvent, dy);
+	S(FnlPresenceEvent);
+	F(FnlPresenceEvent, x);
+	F(FnlPresenceEvent, y);
+	S(FnlFocusEvent);
+	F(FnlFocusEvent, focused);
+	S(FnlResizeEvent);
+	F(FnlResizeEvent, w_pt);
+	F(FnlResizeEvent, h_pt);
+	F(FnlResizeEvent, w_px);
+	F(FnlResizeEvent, h_px);
+	S(FnlScaleEvent);
+	F(FnlScaleEvent, scale120);
+	S(FnlWindowEvent);
+	F(FnlWindowEvent, fullscreen);
+	F(FnlWindowEvent, maximized);
+	S(FnlImageLostEvent);
+	F(FnlImageLostEvent, lost);
+	S(FnlClaimFocusEvent);
+	F(FnlClaimFocusEvent, claim);
+	S(FnlAntialiasEvent);
+	F(FnlAntialiasEvent, aa);
+	S(FnlSceneEvent);
+	F(FnlSceneEvent, w_px);
+	F(FnlSceneEvent, h_px);
+	S(FnlCaptureEvent);
+	F(FnlCaptureEvent, captured);
+	S(FnlColorEvent);
+	F(FnlColorEvent, color);
+	S(FnlLostEvent);
+	F(FnlLostEvent, count);
+	S(FnlTextEvent);
+	F(FnlTextEvent, codepoint);
+	F(FnlTextEvent, utf8);
+	S(FnlLengthEvent);
+	F(FnlLengthEvent, length);
+	S(FnlOutputEvent);
+	F(FnlOutputEvent, w_pt);
+	F(FnlOutputEvent, h_pt);
+	S(FnlOutputListEvent);
+	F(FnlOutputListEvent, count);
+	S(FnlGpuEvent);
+	F(FnlGpuEvent, index);
+	F(FnlGpuEvent, renderer);
 	S(FnlEvent);
 	F(FnlEvent, type);
 	F(FnlEvent, time);
@@ -186,6 +257,8 @@ int main(int argc, char **argv)
 	F(FnlEvent, scroll.y);
 	F(FnlEvent, scroll.dx);
 	F(FnlEvent, scroll.dy);
+	F(FnlEvent, presence.x);
+	F(FnlEvent, presence.y);
 	F(FnlEvent, focus.focused);
 	F(FnlEvent, resize.w_pt);
 	F(FnlEvent, resize.h_pt);
@@ -212,6 +285,7 @@ int main(int argc, char **argv)
 	F(FnlEvent, color.color.space);
 	F(FnlEvent, color.color.sdr_scale);
 	F(FnlEvent, color.color.peak);
+	F(FnlEvent, output_list.count);
 #ifdef FNL_ABI_VULKAN
 	S(FnlVulkanGpu);
 	F(FnlVulkanGpu, instance);
@@ -221,6 +295,18 @@ int main(int argc, char **argv)
 	F(FnlVulkanGpu, queue_family);
 	F(FnlVulkanGpu, pipeline_cache);
 	F(FnlVulkanGpu, get_instance_proc_addr);
+	F(FnlVulkanGpu, api_version);
+	E(FNL_VULKAN_SETUP_EXTENSIONS_MAX);
+	S(FnlVulkanSetup);
+	F(FnlVulkanSetup, size);
+	F(FnlVulkanSetup, api_version);
+	F(FnlVulkanSetup, instance_extension_count);
+	F(FnlVulkanSetup, instance_extensions);
+	F(FnlVulkanSetup, instance_pnext);
+	F(FnlVulkanSetup, device_extension_count);
+	F(FnlVulkanSetup, device_extensions);
+	F(FnlVulkanSetup, features);
+	F(FnlVulkanSetup, feature_chain);
 	S(FnlVulkanSceneLayout);
 	F(FnlVulkanSceneLayout, render_pass);
 	F(FnlVulkanSceneLayout, subpass);
@@ -266,6 +352,12 @@ int main(int argc, char **argv)
 	E(FNL_ERR_INVALID_ARGUMENT);
 	E(FNL_ERR_VERSION_MISMATCH);
 	E(FNL_ERR_SYSTEM);
+	E(FNL_TITLEBAR_ANTIALIAS);
+	E(FNL_TITLEBAR_SCALE);
+	E(FNL_TITLEBAR_OUTPUT);
+	E(FNL_TITLEBAR_GPU);
+	E(FNL_TITLEBAR_MODE);
+	E(FNL_TITLEBAR_ALL);
 	E(FNL_LOG_ERROR);
 	E(FNL_LOG_WARN);
 	E(FNL_LOG_INFO);
@@ -276,6 +368,12 @@ int main(int argc, char **argv)
 	E(FNL_RENDERER_METAL);
 	/* A macro and not an enum, but a value a compiled caller passes. */
 	E(FNL_RENDERERS_ANY);
+	E(FNL_BACKEND_DEFAULT);
+	E(FNL_BACKEND_WAYLAND);
+	E(FNL_BACKEND_X11);
+	E(FNL_BACKEND_KMS);
+	E(FNL_BACKEND_WIN32);
+	E(FNL_BACKEND_COCOA);
 	E(FNL_GPU_KIND_UNKNOWN);
 	E(FNL_GPU_KIND_INTEGRATED);
 	E(FNL_GPU_KIND_DISCRETE);
@@ -399,6 +497,9 @@ int main(int argc, char **argv)
 	E(FNL_KEY_KP_SUBTRACT);
 	E(FNL_KEY_KP_ADD);
 	E(FNL_KEY_KP_ENTER);
+	E(FNL_KEY_VOLUME_DOWN);
+	E(FNL_KEY_VOLUME_UP);
+	E(FNL_KEY_MUTE);
 	E(FNL_BUTTON_LEFT);
 	E(FNL_BUTTON_MIDDLE);
 	E(FNL_BUTTON_RIGHT);
@@ -425,6 +526,10 @@ int main(int argc, char **argv)
 	E(FNL_EVENT_LEAVE);
 	E(FNL_EVENT_IMAGE_LOST);
 	E(FNL_EVENT_CLAIM_FOCUS);
+	E(FNL_EVENT_COLOR);
+	E(FNL_EVENT_OUTPUT_LIST);
+	E(FNL_IMAGE_RGBA8);
+	E(FNL_IMAGE_FORMAT_COUNT);
 	E(FNL_TEXT_BODY);
 	E(FNL_TEXT_LARGE);
 	E(FNL_TEXT_UI);

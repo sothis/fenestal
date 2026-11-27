@@ -42,7 +42,7 @@ has one. Each demo's programs land at the top of the tree:
 build/linux/release/hello    hello-dyn    motion   motion-dyn
                     motion2  motion2-dyn  texture  texture-dyn
                     texture2 texture2-dyn texture3 texture3-dyn
-                    libfenestal.so.0.9
+                    libfenestal.so.1
 ```
 
 A demo that has none of its renderers in a tree says so at configure and

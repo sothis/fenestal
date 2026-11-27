@@ -132,6 +132,10 @@ static void on_overlay(void *ud, FnlApp *app, const FnlFrame *frame)
 			snprintf(s->output, sizeof s->output, "%s", fnl_output_name(app));
 			fnl_invalidate(app);
 			break;
+		case FNL_EVENT_OUTPUT_LIST:
+			/* A monitor came or went: the list is read again when drawn. */
+			fnl_invalidate(app);
+			break;
 		default: break; /* a newer library may add types */
 		}
 	}

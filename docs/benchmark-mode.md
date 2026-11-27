@@ -108,7 +108,7 @@ that no longer holds says what does.
   must pass ruff (80 col) and mypy.
 - ABI: `tools/abi/check.cmake` byte-compares `.abi` (layouts, enum values;
   from `tools/abidump.c` `S()`/`F()` lines) and `.syms` (exports; three
-  files: `fenestal-0.syms`, `-metal.syms`, `-all.syms`). A new `FNL_API` needs
+  files: `fenestal-1.syms`, `-metal.syms` and the set-named ones). A new `FNL_API` needs
   a comment above it, a thread tag, and a caller in `examples/`
   ("Shows: ...") or `build.sh` fails (`tools/mkapidoc.py`).
 
@@ -153,7 +153,7 @@ references into the tree as it is today. Roughly 700-900 lines. Sections:
    (INIT, WxH[@Hz]: KMS's window is its output, so a run takes its size
    there this way, where the panel shows the output's modes from
    `fnl_mode_get()` instead), `fullscreen`, `scale` (INIT
-   `scale_override120`), `vsync` (INIT `FNL_VSYNC`), `late-latch` auto/off/
+   `FNL_SCALE120`), `vsync` (INIT `FNL_VSYNC`), `late-latch` auto/off/
    fixed + `late-latch-ms`, `antialias` (dim where `!fnl_offscreen_supported`),
    `scene-scale` (hold the scene at the area divided by this, the fetch then
    upscaling it -- 1 is native and unpinned, and >1 is what the render scale

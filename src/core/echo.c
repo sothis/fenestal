@@ -353,6 +353,9 @@ void echo_event(const App *app, const FnlEvent *ev)
 		echo(app, "output %d %d pt %s", ev->output.w_pt, ev->output.h_pt, name);
 		break;
 	}
+	case FNL_EVENT_OUTPUT_LIST:
+		echo(app, "outputs %d", ev->output_list.count);
+		break;
 	case FNL_EVENT_GPU: {
 		/* The index, the renderer's key and the name: what a harness moving
 		 * the window between GPUs checks it landed on. */

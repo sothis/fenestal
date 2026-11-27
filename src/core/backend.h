@@ -48,6 +48,14 @@ typedef enum {
 	BACKEND_COCOA
 } BackendId;
 
+/* fnl_backend() answers with BackendId's value as FnlBackend. */
+FNL_STATIC_ASSERT((int)BACKEND_WAYLAND == (int)FNL_BACKEND_WAYLAND &&
+				   (int)BACKEND_X11 == (int)FNL_BACKEND_X11 &&
+				   (int)BACKEND_KMS == (int)FNL_BACKEND_KMS &&
+				   (int)BACKEND_WIN32 == (int)FNL_BACKEND_WIN32 &&
+				   (int)BACKEND_COCOA == (int)FNL_BACKEND_COCOA,
+				  "FnlBackend and BackendId must agree");
+
 /* What a frame's pixels are, for FnlBackendVtbl::present_pixels -- the copy
  * path's, where the backend scans out what the renderer read back. The two
  * 8-bit orders are a byte a channel; PIXELS_RGB10 is one 32-bit word a

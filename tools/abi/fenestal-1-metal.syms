@@ -107,6 +107,7 @@ fnl_present_mode
 fnl_set_vsync
 fnl_vsync
 fnl_backend_name
+fnl_backend
 fnl_window_host
 fnl_renderer_name
 fnl_renderer_via
@@ -130,12 +131,6 @@ fnl_set_text_rect_pt
 fnl_clipboard_set
 fnl_clipboard_request
 fnl_clipboard_text
-fnl_d3d12_gpu
-fnl_d3d12_scene_layout
-fnl_d3d12_scene
-fnl_vulkan_gpu
-fnl_vulkan_queue_submit
-fnl_vulkan_queue_wait_idle
-fnl_vulkan_scene_layout
-fnl_vulkan_scene_cmd
-fnl_vulkan_scene_rect
+fnl_metal_gpu
+fnl_metal_scene_layout
+fnl_metal_scene

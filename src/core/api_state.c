@@ -897,6 +897,13 @@ const char *fnl_backend_name(const FnlApp *app)
 	return a && a->host->backend ? BACKEND(a)->name : "";
 }
 
+FnlBackend fnl_backend(const FnlApp *app)
+{
+	const App *a = (const App *)app;
+	return a && a->host->backend ? (FnlBackend)BACKEND(a)->id
+								 : FNL_BACKEND_DEFAULT;
+}
+
 const char *fnl_window_host(const FnlApp *app)
 {
 	const App *a = (const App *)app;
