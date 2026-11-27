@@ -6,6 +6,10 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **One macOS target.** `./build.sh macos` builds both processors' slices
+  into `build/macos-x86_64` and `build/macos-arm64` and joins them with
+  `lipo` into `build/macos/<variant>`; `macos-arm64` and `macos-universal`
+  are gone, and `build/macos` is the universal tree the harness drives.
 - **Performance and latency.** The scene fetch takes nine taps instead of
   sixteen when it stretches and one when it copies (1:1 under MSAA or TAAU);
   TAAU's resolve ping-pongs two images instead of copying into a history, and

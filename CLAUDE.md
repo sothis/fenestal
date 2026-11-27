@@ -71,11 +71,8 @@ and the questions left open for them. A question it lists is answered in
 ./build.sh win64-msvc             # the same: cl.exe on Windows, or clang-cl
                                   # cross here against the CRT and the SDK
 ./build.sh macos                  # that target: Cocoa, drawn with Metal,
-                                  # Vulkan on MoltenVK
-./build.sh macos-arm64            # the macos tree for Apple's own
-                                  # processors, cross-compiled; release
-                                  # and gc
-./build.sh macos-universal        # the two macOS trees joined by lipo
+                                  # Vulkan on MoltenVK; both processors'
+                                  # slices, joined by lipo; release and gc
 ./build.sh freebsd                # FreeBSD: Wayland, X11 and KMS --
                                   # natively, or cross here on a sysroot
 ./build.sh linux-arm64            # the linux tree for the Raspberry Pi 4,
@@ -88,14 +85,13 @@ and the questions left open for them. A question it lists is answered in
 ```
 
 Every tree lands under **`build/<target>/<variant>`**. Targets are
-`linux`, `win64`, `win64-msvc`, `macos`, `macos-arm64`,
-`macos-universal`, `freebsd` and `linux-arm64`; variants are `release`,
-`clang`, `asan`, `tsan`, `analyzer` and `gc`, each target taking the ones
-it can (below). Each tree holds `libfenestal.a` (or `libfenestal-static.lib`
-under MSVC), the shared object and two programs -- `fenestal-testbed`
-and `fenestal-dev`, the development instruments, whose modes are `pace` and
-`lifecycle` -- and each demo's two, `<name>` and `<name>-dyn`, as `.dll` and
-`.exe` in the Windows trees.
+`linux`, `win64`, `win64-msvc`, `macos`, `freebsd` and `linux-arm64`;
+variants are `release`, `clang`, `asan`, `tsan`, `analyzer` and `gc`, each
+target taking the ones it can (below). Each tree holds `libfenestal.a` (or
+`libfenestal-static.lib` under MSVC), the shared object and two programs --
+`fenestal-testbed` and `fenestal-dev`, the development instruments, whose
+modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
+`<name>-dyn`, as `.dll` and `.exe` in the Windows trees.
 
 - **`linux-arm64` is the `linux` tree for 64-bit ARM** (the Pi 4), built
   here by Ubuntu's `aarch64-linux-gnu-gcc` with its own glibc
@@ -135,11 +131,10 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
 - A bare `./build.sh` sweeps every valid target/variant pair this host can
   build: on Linux `linux`, `linux-arm64` (where its compiler is), `win64`
   (where a UCRT compiler is), `win64-msvc` (where clang-cl and the MSVC SDK
-  are), `macos`, `macos-arm64`, `macos-universal` and `freebsd` (against the
-  sysroot); on FreeBSD `freebsd`; on Windows `win64` and
-  `win64-msvc`; on a Mac the macOS three, where a Linux release tree's bake
-  has been placed for them to lend (CI stages one; a bare Mac checkout
-  builds none and says so). `release` comes first within
+  are), `macos` and `freebsd` (against the sysroot); on FreeBSD `freebsd`;
+  on Windows `win64` and `win64-msvc`; on a Mac the macOS tree, where a
+  Linux release tree's bake has been placed for it to lend (CI stages one;
+  a bare Mac checkout builds none and says so). `release` comes first within
   each — the cross trees borrow `build/linux/release`'s baked atlases, by
   that name, so that order is what keeps the sweep self-sufficient — and a
   target whose compiler is missing is skipped with one line. It stops at
@@ -189,12 +184,12 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   builds the native one on `windows-latest`.
 - Counts: `linux` six variants, `linux-arm64` four where its compiler is,
   `win64` three, `win64-msvc` two, `freebsd` four natively and two cross,
-  each macOS tree two, and `macos-universal` two joins. A sweep builds the
+  and the macOS tree two, each building both slices. A sweep builds the
   ones its host has.
 - **The macOS tree is cross-compiled here**, by clang-21 and `ld64.lld`
   (`lld-21`) against Apple's SDK, which `tools/macos_sdk.py --fetch` copies once
   from the Mac (schenker's stick, `ssh schenker-mac`) into
-  `~/.local/state/fenestal/macos-sdk/`; they borrow the host tree's bake as the
+  `~/.local/state/fenestal/macos-sdk/`; it borrows the host tree's bake as the
   Windows tree does and takes `release` and `gc`, the Debug tree there
   (`-dead_strip` where a GNU linker takes `--gc-sections`). `src/backend/cocoa/`
   and `src/renderer/metal/` are **Objective-C under ARC**; the archive's one
@@ -202,14 +197,13 @@ and `fenestal-dev`, the development instruments, whose modes are `pace` and
   since `ld64.lld` has no `-r`. MoltenVK goes beside the programs
   (`tools/moltenvk.py`), where the library opens it and hands it to the
   examples' Vulkan scenes. DESIGN *Cross-compiling for macOS*, *macOS*.
-  **`macos-arm64` is the same tree for Apple's own processors**
-  (`cmake/macos-arm64.cmake`: the x86-64 file, included with `FNL_MACOS_ARCH`
-  set), built here and run nowhere here, since the one Mac is an Intel one.
-  **`macos-universal`** builds both slices and joins every library and program
-  with `lipo` into `build/macos-universal/<variant>`
-  (`tools/macos_universal.py`); CI packs that tree as app bundles
-  (`.github/stage.sh`). `build/macos` stays the tree the harness drives on the
-  Mac.
+  **One target builds both processors' slices** -- `build/macos-x86_64` and
+  `build/macos-arm64`, one architecture each since the archive is one module
+  of bitcode, the arm64 toolchain file the x86-64 one included with
+  `FNL_MACOS_ARCH` set -- and joins every library and program with `lipo`
+  into `build/macos/<variant>` (`tools/macos_universal.py`). That joined tree
+  is the one the harness drives on the one Intel Mac here, whose x86-64 slice
+  it runs, and CI packs it as app bundles (`.github/stage.sh`).
 - **FreeBSD is native on that system and cross-compiled from this one**,
   with the base system's clang either way -- natively, and here by
   clang-21 told the target by its triple plus `ld.lld`

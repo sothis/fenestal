@@ -6,7 +6,8 @@
 # changed, and nothing else.
 #
 #   ./build.sh linux                 # the host build first, for the bake
-#   ./build.sh macos-arm64           # which is these two lines, spelled out:
+#   ./build.sh macos                 # builds both slices and joins them;
+#                                    # this is the arm64 slice, spelled out:
 #
 #   cmake -S . -B build/macos-arm64/release \
 #         -DCMAKE_TOOLCHAIN_FILE=cmake/macos-arm64.cmake \

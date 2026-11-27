@@ -547,8 +547,7 @@ Do not start these unasked. When asked:
 
 - Build every target and variant this host can build: `linux`
   release/clang/asan/tsan/analyzer/gc; `linux-arm64` release/asan/tsan/gc;
-  `win64` release/analyzer/gc; `macos` release/gc; `macos-arm64`
-  release/gc; `macos-universal` release/gc; `freebsd`
+  `win64` release/analyzer/gc; `macos` release/gc (both slices); `freebsd`
   release/asan/tsan/gc; and `win64-msvc` release/gc on Windows or CI.
 - Add a native macOS `abidump` step to the `macos` CI job: compile
   `tools/abidump.c` with the system compiler against `include` and

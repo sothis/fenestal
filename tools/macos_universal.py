@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Janos Sonntag
-"""Join the two macOS trees into one of universal binaries.
+"""Join the two macOS slices into the tree of universal binaries.
 
     tools/macos_universal.py [--variant release] [--out DIR]
 
-`build/macos/<variant>` and `build/macos-arm64/<variant>` are one
+`build/macos-x86_64/<variant>` and `build/macos-arm64/<variant>` are one
 architecture each, because the archive is made from one module of bitcode
-(DESIGN *Cross-compiling for macOS*). This copies the x86-64 tree to
-`build/macos-universal/<variant>` and replaces every library and program
-with the two slices joined by lipo. The static archive is one object in
-each: lipo joins the archives where it can, and otherwise the member is
-joined and the archive remade.
+(DESIGN *Cross-compiling for macOS*). This copies the x86-64 slice to
+`build/macos/<variant>` and replaces every library and program with the two
+slices joined by lipo. The static archive is one object in each: lipo joins
+the archives where it can, and otherwise the member is joined and the
+archive remade.
 
-The tree is for staging and for running on either processor; the harness
-still drives `build/macos`, whose x86-64 slice the one Intel Mac here
-runs. `lipo` is `FNL_LIPO`, else `llvm-lipo-21`, `llvm-lipo` or `lipo`.
-A Mac's `codesign`, where it exists, signs each joined file ad hoc, which
-Apple's processors require of all code.
+`build/macos` is the tree `./build.sh macos` makes and the harness drives,
+which runs on either processor. `lipo` is `FNL_LIPO`, else `llvm-lipo-21`,
+`llvm-lipo` or `lipo`. A Mac's `codesign`, where it exists, signs each
+joined file ad hoc, which Apple's processors require of all code.
 """
 
 import argparse
@@ -94,7 +93,7 @@ def archs(lipo, path):
 
 
 def merge_one(lipo, x86, arm, out):
-    """One Mach-O file, thin in each tree, joined into the output."""
+    """One Mach-O file, thin in each slice, joined into the output."""
     # A plain archive's -archs answer is llvm-lipo's to crash on -- a
     # Darwin archive's __.SYMDEF member is read as an object -- so an
     # archive goes straight to the join, which lipo takes whole.
@@ -191,17 +190,18 @@ def sign(path):
 
 def main(argv):
     parser = argparse.ArgumentParser(
-        description="Join the x86-64 and arm64 macOS trees into one of "
-                    "universal binaries.")
+        description="Join the x86-64 and arm64 macOS slices into the tree "
+                    "of universal binaries.")
     parser.add_argument("--variant", default="release",
                         help="the tree variant to join (default: release)")
     parser.add_argument("--x86", default=None,
-                        help="the x86-64 tree (default: build/macos/<v>)")
+                        help="the x86-64 slice (default: "
+                             "build/macos-x86_64/<v>)")
     parser.add_argument("--arm", default=None,
-                        help="the arm64 tree (default: build/macos-arm64/<v>)")
+                        help="the arm64 slice (default: "
+                             "build/macos-arm64/<v>)")
     parser.add_argument("--out", default=None,
-                        help="the joined tree (default: "
-                             "build/macos-universal/<v>)")
+                        help="the joined tree (default: build/macos/<v>)")
     parser.add_argument("--lipo", default=None, help="the lipo to run")
     args = parser.parse_args(argv)
 
@@ -212,11 +212,11 @@ def main(argv):
     if not ar:
         sys.exit("macos_universal: no ar (llvm-ar-21, llvm-ar, ar)")
 
-    x86 = args.x86 or os.path.join(ROOT, "build", "macos", args.variant)
+    x86 = args.x86 or os.path.join(ROOT, "build", "macos-x86_64",
+                                   args.variant)
     arm = args.arm or os.path.join(ROOT, "build", "macos-arm64",
                                    args.variant)
-    out = args.out or os.path.join(ROOT, "build", "macos-universal",
-                                   args.variant)
+    out = args.out or os.path.join(ROOT, "build", "macos", args.variant)
     for tree in (x86, arm):
         if not os.path.isdir(tree):
             sys.exit("macos_universal: no tree at %s" % tree)

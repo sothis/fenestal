@@ -12,10 +12,8 @@
 #                                     with Direct3D 12 and Vulkan
 #   ./build.sh win64-msvc             the same, built natively by MSVC
 #   ./build.sh macos                  that target: Cocoa drawn with Metal,
-#                                     and Vulkan on MoltenVK
-#   ./build.sh macos-arm64            the macos tree for Apple's own
-#                                     processors, cross-compiled
-#   ./build.sh macos-universal        the two macOS trees joined into one
+#                                     and Vulkan on MoltenVK; both
+#                                     processors' slices, joined into one
 #                                     set of universal binaries
 #   ./build.sh freebsd                FreeBSD, native: Wayland, X11 and KMS,
 #                                     drawn with Vulkan
@@ -64,9 +62,9 @@ SELF="$PWD/${0##*/}"
 # checks -- warning-clean under clang -- is about the code, which the
 # native clang tree already compiles but for the Windows sources.
 #
-# The macOS trees are clang's from the start and cross-compiled, and take
+# The macOS tree is clang's from the start and cross-compiled, and takes
 # release and gc: LLVM's sanitizer runtimes for Darwin are not part of the
-# Linux toolchain that builds them, and gcc's analyser does not target
+# Linux toolchain that builds it, and gcc's analyser does not target
 # Darwin. gc is the Debug tree there, for FNL_ASSERT and the fault sites,
 # its dead code stripped by ld64's -dead_strip where a GNU linker takes
 # --gc-sections.
@@ -84,11 +82,8 @@ refused() {
         win64:asan|win64:tsan|win64:clang) return 0 ;;
         win64-msvc:release|win64-msvc:gc) return 1 ;;
         win64-msvc:*) return 0 ;;
-        macos:release|macos:gc|macos-arm64:release|macos-arm64:gc)
-            return 1 ;;
-        macos:*|macos-arm64:*) return 0 ;;
-        macos-universal:release|macos-universal:gc) return 1 ;;
-        macos-universal:*) return 0 ;;
+        macos:release|macos:gc) return 1 ;;
+        macos:*) return 0 ;;
         freebsd:release|freebsd:asan|freebsd:tsan|freebsd:gc) return 1 ;;
         freebsd:*) return 0 ;;
         linux-arm64:release|linux-arm64:asan|linux-arm64:tsan|\
@@ -291,7 +286,7 @@ need_mingw_binutils() {
     exit 1
 }
 
-# lipo, for joining the two macOS trees. LLVM's name carries the version
+# lipo, for joining the two macOS slices. LLVM's name carries the version
 # here, as the toolchain file's other tools do.
 find_lipo() {
     for l in "${FNL_LIPO:-}" llvm-lipo-21 llvm-lipo lipo; do
@@ -330,12 +325,12 @@ have_llvm_tool() {
     fi
 }
 
-# Whether the macOS trees can be built here: Apple's SDK, copied once from a
-# Mac by tools/macos_sdk.py, and the tools their toolchain file names -- the
+# Whether the macOS tree can be built here: Apple's SDK, copied once from a
+# Mac by tools/macos_sdk.py, and the tools its toolchain files name -- the
 # compiler and the C++ driver it derives, the six LLVM tools it probes, and
 # ld64.lld, which its -fuse-ld=lld has clang drive for a Mach-O target. The
 # configure refuses with a line naming what is missing; the sweep asks the
-# same things first, so a host without them skips the trees with a line
+# same things first, so a host without them skips it with a line
 # instead of failing after the ones before it built.
 have_macos() {
     command -v python3 >/dev/null 2>&1 || return 1
@@ -489,17 +484,16 @@ fi
 
 # ---- no arguments: every tree this host can build --------------------------
 # A Linux host builds every cross tree -- the ARM one, both Windows ones,
-# the two macOS ones and their universal join, and FreeBSD against its
-# sysroot; a FreeBSD host builds its own tree; a Windows host builds the
-# mingw UCRT64 tree and the MSVC one; a macOS host builds the two macOS
-# trees and the universal join. A target whose compiler or sysroot is not
-# here is skipped with one line, never a failure -- as linux-arm64 has
+# the macOS one and FreeBSD against its sysroot; a FreeBSD host builds its
+# own tree; a Windows host builds the mingw UCRT64 tree and the MSVC one; a
+# macOS host builds the macOS tree. A target whose compiler or sysroot is
+# not here is skipped with one line, never a failure -- as linux-arm64 has
 # been.
 #
 # The order is load-bearing. Release comes first within a target because the
 # checker trees and the clang tree take its baked font, and linux comes
 # before the others because the cross trees take that one's and cannot
-# bake at all. macos-universal comes after its two slices, which it joins.
+# bake at all.
 #
 # One re-entry per tree and not a loop around the body: each tree assembles
 # its own configure line with `set --`, and POSIX sh has one argument list.
@@ -513,10 +507,9 @@ if [ $# -eq 0 ]; then
     MINGW*|MSYS*|CYGWIN*|Windows_NT)
         targets="win64 win64-msvc" ;;
     Darwin)
-        targets="macos macos-arm64 macos-universal" ;;
+        targets="macos" ;;
     *)
-        targets="linux linux-arm64 win64 win64-msvc macos macos-arm64\
- macos-universal freebsd" ;;
+        targets="linux linux-arm64 win64 win64-msvc macos freebsd" ;;
     esac
     for target in $targets; do
         case $target in
@@ -541,22 +534,21 @@ if [ $# -eq 0 ]; then
                 printf '\n==> freebsd skipped: not a FreeBSD host and no'
                 printf ' sysroot (tools/freebsd_sysroot.py --fetch)\n'
                 continue; } ;;
-        macos|macos-arm64|macos-universal)
+        macos)
             have_macos || {
-                printf '\n==> %s skipped: no macOS SDK or LLVM tools' "$target"
+                printf '\n==> macos skipped: no macOS SDK or LLVM tools'
                 printf ' (tools/macos_sdk.py --fetch)\n'
                 continue; }
-            # The trees take a Linux release tree's bake rather than making
+            # The tree takes a Linux release tree's bake rather than making
             # one (tools/mkfont runs during the build), and a Mac can make
-            # none: a sweep there skips them with the reason.
+            # none: a sweep there skips it with the reason.
             font_ready "$PWD/build/linux/release/generated" || {
-                printf '\n==> %s skipped: no Linux release bake to lend' \
-                       "$target"
+                printf '\n==> macos skipped: no Linux release bake to lend'
                 printf ' (build/linux/release/generated)\n'
                 continue; }
-            [ "$target" = macos-universal ] &&
-                ! find_lipo >/dev/null 2>&1 && {
-                printf '\n==> macos-universal skipped: no lipo\n'
+            # The one tree is universal: both slices are built and joined.
+            find_lipo >/dev/null 2>&1 || {
+                printf '\n==> macos skipped: no lipo\n'
                 continue; } ;;
         esac
         for variant in release clang asan tsan analyzer gc; do
@@ -587,8 +579,12 @@ fi
 
 TARGET=$1; shift
 case $TARGET in
-    linux|win64|win64-msvc|macos|macos-arm64|macos-universal|freebsd|\
-    linux-arm64) ;;
+    linux|win64|win64-msvc|macos|freebsd|linux-arm64) ;;
+    macos-arm64|macos-universal)
+        # Both slices are this one target's now.
+        echo "build.sh: ./build.sh macos builds both processors' trees" >&2
+        echo "          and joins them into build/macos/<variant> now." >&2
+        exit 1 ;;
     wayland-vulkan|x11-vulkan|kms-vulkan|linux-vulkan|\
     win64-vulkan|win64-d3d12|\
     macos-metal|macos-vulkan)
@@ -608,8 +604,7 @@ case $TARGET in
     *)
         echo "build.sh: unknown target '$TARGET'" >&2
         echo "          linux | win64 | win64-msvc | macos |" \
-             "macos-arm64 | macos-universal |" >&2
-        echo "          freebsd | linux-arm64 | dist" >&2
+             "freebsd | linux-arm64 | dist" >&2
         exit 1 ;;
 esac
 
@@ -627,14 +622,10 @@ esac
 
 if refused "$TARGET" "$VARIANT"; then
     case $TARGET in
-    macos|macos-arm64)
+    macos)
         echo "build.sh: the macOS tree is built by clang, cross, and" >&2
         echo "          takes release and gc: no Darwin sanitizer" >&2
         echo "          runtime or analyser here." >&2
-        exit 1 ;;
-    macos-universal)
-        echo "build.sh: the universal tree joins the two macOS trees" >&2
-        echo "          and takes release and gc." >&2
         exit 1 ;;
     win64-msvc)
         echo "build.sh: the MSVC tree takes release and gc: no" >&2
@@ -662,24 +653,40 @@ if refused "$TARGET" "$VARIANT"; then
     exit 1
 fi
 
+# The macOS tree is one directory of universal binaries: the two
+# one-architecture slices are built into build/macos-x86_64 and
+# build/macos-arm64, and tools/macos_universal.py joins their libraries and
+# programs with lipo into build/macos. One slice is one architecture, since
+# the archive is made from one module of bitcode (DESIGN *Cross-compiling
+# for macOS*), so the slices are configures of their own. The flags after
+# the variant go to both, as they would to either slice alone. A sweep's
+# child skips the source checks, which the sweep asks once.
+#
+# FNL_MACOS_SLICE is internal: it is how the two re-entries below pick their
+# toolchain and directory, and is not a second user-facing target.
 DIR="build/$TARGET/$VARIANT"
+if [ "$TARGET" = macos ]; then
+    case "${FNL_MACOS_SLICE:-}" in
+    x86_64) DIR="build/macos-x86_64/$VARIANT" ;;
+    arm64)  DIR="build/macos-arm64/$VARIANT" ;;
+    esac
+fi
 
-# ---- the two macOS trees, joined -------------------------------------------
-# Not a tree of its own: the two one-architecture trees are built (or found
-# already built) and tools/macos_universal.py joins their libraries and
-# programs with lipo. The flags after the variant go to both, as they would
-# to either tree alone. A sweep's child skips the source checks, which the
-# sweep asks once.
-if [ "$TARGET" = macos-universal ]; then
+if [ "$TARGET" = macos ] && [ -z "${FNL_MACOS_SLICE:-}" ]; then
     if ! LIPO=$(find_lipo); then
-        echo "build.sh: the universal tree needs lipo (llvm-lipo-21," \
-             "llvm-lipo or FNL_LIPO)" >&2
+        echo "build.sh: the macOS tree joins both processors' slices and" \
+             "needs lipo (llvm-lipo-21, llvm-lipo or FNL_LIPO)" >&2
         exit 1
     fi
-    FNL_NO_DIST=1 "$SELF" macos "$VARIANT" "$@"
-    FNL_NO_DIST=1 "$SELF" macos-arm64 "$VARIANT" "$@"
+    printf '\n==> macos %s x86_64 slice\n' "$VARIANT"
+    FNL_NO_DIST=1 FNL_MACOS_SLICE=x86_64 "$SELF" macos "$VARIANT" "$@"
+    printf '\n==> macos %s arm64 slice\n' "$VARIANT"
+    FNL_NO_DIST=1 FNL_MACOS_SLICE=arm64 "$SELF" macos "$VARIANT" "$@"
+    printf '\n==> macos %s joined\n' "$VARIANT"
     FNL_LIPO=$LIPO python3 tools/macos_universal.py \
-        --variant "$VARIANT" --out "$DIR"
+        --variant "$VARIANT" \
+        --x86 "build/macos-x86_64/$VARIANT" \
+        --arm "build/macos-arm64/$VARIANT" --out "$DIR"
     if [ "${FNL_NO_DIST:-}" != 1 ]; then
         layering
         dist
@@ -759,7 +766,7 @@ gc)
     # Mach-O keeps each function apart already; ld64 strips by -dead_strip.
     # The linker named again: these flags take the place of the toolchain
     # file's _INIT ones, which are what choose lld.
-    macos|macos-arm64) GC_C=; GC_LINK="-fuse-ld=lld -Wl,-dead_strip" ;;
+    macos) GC_C=; GC_LINK="-fuse-ld=lld -Wl,-dead_strip" ;;
     # And the same on FreeBSD: clang told a FreeBSD target still drives the
     # host's GNU ld unless lld is named, and lld is what reads a FreeBSD
     # image's notes. Native, base's lld is already the default.
@@ -957,10 +964,11 @@ freebsd)
                -DFNL_BACKEND=freebsd -DFNL_RENDERER=all \
                "-DFNL_GENERATED_DIR=$HOST_GEN" "$@"
     fi ;;
-macos|macos-arm64)
+macos)
     # The same borrowed bake as the Windows trees, for the same reason, and
     # Apple's SDK, copied once from a Mac (tools/macos_sdk.py). One toolchain
-    # file for each processor, the arm64 one the x86-64 one included.
+    # file for each processor, the arm64 one the x86-64 one included; the
+    # slice the re-entry named says which, x86-64 when none did.
     HOST_GEN="$PWD/build/linux/release/generated"
     if ! font_ready "$HOST_GEN"; then
         echo "build.sh: $TARGET needs the host build first, for a baked" >&2
@@ -971,7 +979,7 @@ macos|macos-arm64)
     fi
     SDK=$(python3 tools/macos_sdk.py --path)
     TOOLCHAIN=cmake/macos-x86_64.cmake
-    if [ "$TARGET" = macos-arm64 ]; then
+    if [ "${FNL_MACOS_SLICE:-x86_64}" = arm64 ]; then
         TOOLCHAIN=cmake/macos-arm64.cmake
     fi
     set -- "-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" \
@@ -1011,7 +1019,7 @@ esac
 # FNL_FONT_DIR would take its place.
 borrow=false
 case $TARGET:$VARIANT in
-macos:*|macos-arm64:*|linux-arm64:*|*:release|*:analyzer)
+macos:*|linux-arm64:*|*:release|*:analyzer)
     borrow=false ;;
 win64:*|win64-msvc:*)
     # The cross tree borrows FNL_GENERATED_DIR's bake; the native UCRT64
@@ -1044,7 +1052,7 @@ cmake --build "$DIR" -j "$JOBS"
 # MoltenVK beside the macOS programs, which is what Vulkan is on a Mac
 # (tools/moltenvk.py). A fetch that fails fails the build, as a pack that
 # fails does.
-if [ "$TARGET" = macos ] || [ "$TARGET" = macos-arm64 ]; then
+if [ "$TARGET" = macos ]; then
     python3 tools/moltenvk.py --into "$DIR"
 fi
 layering

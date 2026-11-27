@@ -78,8 +78,8 @@ KWin. DESIGN *Driven from inside*. Owed:
 ## HDR
 
 Written on 2026-11-25; every tree of the four targets was built the same
-day -- linux, win64 (release, analyzer and gc), macos (release and gc) and
-macos-arm64 (release and gc) -- warning-clean, their checks passing.
+day -- linux, win64 (release, analyzer and gc) and macos (release and gc,
+both slices) -- warning-clean, their checks passing.
 Direct3D 12 presents scRGB where the display is in an advanced colour
 mode, Metal the screen's extended range, Vulkan 10-bit PQ where the surface
 offers it, and KMS 10-bit PQ through its copy path where the connector's
@@ -1192,8 +1192,8 @@ opened on schenker (`open -n`, and run direct from `Contents/MacOS`),
 `codesign --verify --deep --strict` passing, MoltenVK loaded from
 `Contents/Frameworks` under Vulkan (dyld's own line), and Vulkan and Metal
 each drawing a complete record at 60 fps from the bundle; and
-`./build.sh macos-arm64` built here, an arm64 Mach-O, its first on this
-desktop. CI builds both trees and joins them with `lipo` into the
+`./build.sh macos` built the arm64 slice here, its first on this
+desktop. build.sh builds both slices and joins them with `lipo` into the
 ad-hoc signed bundles, MoltenVK in one only where its program has a
 Vulkan scene (`.github/stage.sh`). Owed, in this order:
 

@@ -73,7 +73,7 @@ Requires CMake ≥ 3.18, a C11 compiler, and:
 ./build.sh linux clang            # that target, built by clang
 ./build.sh win64                  # Windows, cross, on the UCRT
 ./build.sh win64-msvc             # the MSVC tree: cl.exe, or clang-cl here
-./build.sh macos-universal        # the two macOS trees joined by lipo
+./build.sh macos                  # macOS, both processors, joined by lipo
 ./build.sh freebsd                # FreeBSD, natively or cross
 ./build.sh linux release -DFNL_NATIVE_ARCH=ON  # for this CPU only
 ./build/linux/release/fenestal-testbed       # the platform it finds
@@ -83,27 +83,25 @@ FNL_BACKEND=x11 FNL_RENDERER=vulkan ./build/linux/release/fenestal-testbed
 Every tree lands under `build/<target>/<variant>`. Targets are `linux`,
 with Wayland, X11 and KMS and Vulkan in it, `win64` and
 `win64-msvc`, with Direct3D 12 and Vulkan, `freebsd`, with the same three
-backends and renderer as Linux, `macos`, with Metal and Vulkan on
-MoltenVK, and `macos-arm64` and `macos-universal`; variants are
-`release`, `clang`, `asan`, `tsan`, `analyzer` and `gc`. `linux` takes all
-six, `linux-arm64` four where its cross compiler is, `win64` three
-(release, analyzer and gc: mingw-w64 ships no sanitizer runtime, and clang
-against it would want a sysroot of its own), `win64-msvc` two (release and
-gc), `freebsd` four (release, asan, tsan and gc: its release already uses
-clang -- and two, release and gc, cross-compiled, whose sysroot has no
-sanitizer runtime), and each macOS one two (release and gc). `macos-universal` takes
-release and gc and joins the two slices of its variant; it is a tree of
-joined binaries, not a third compilation. The `clang` tree is the release
-build compiled by `clang-21` (or `FNL_CLANG`) with `-Wthread-safety` and
-`-Werror`: the tree is warning-clean under both compilers, and that tree is
-the check.
+backends and renderer as Linux, and `macos`, with Metal and Vulkan on
+MoltenVK; variants are `release`, `clang`, `asan`, `tsan`, `analyzer` and
+`gc`. `linux` takes all six, `linux-arm64` four where its cross compiler
+is, `win64` three (release, analyzer and gc: mingw-w64 ships no sanitizer
+runtime, and clang against it would want a sysroot of its own), `win64-msvc`
+two (release and gc), `freebsd` four (release, asan, tsan and gc: its
+release already uses clang -- and two, release and gc, cross-compiled,
+whose sysroot has no sanitizer runtime), and `macos` two (release and gc),
+each building both slices and joining them. The `clang` tree is the
+release build compiled by `clang-21` (or `FNL_CLANG`) with
+`-Wthread-safety` and `-Werror`: the tree is warning-clean under both
+compilers, and that tree is the check.
 
 The target and the optional variant are positional and come first; anything
 after them is forwarded to the configure step, so a flag on the command line
 beats one the script chose. A bare `./build.sh` sweeps every tree this host
-can build -- on Linux every cross tree, the two Windows ones and `freebsd`
-with the macOS trees and their join; `freebsd` on FreeBSD; the two Windows
-trees on Windows; the macOS trees and their join on a Mac -- host target
+can build -- on Linux every cross tree, the two Windows ones, `freebsd`
+and the macOS tree; `freebsd` on FreeBSD; the two Windows trees on
+Windows; the macOS tree on a Mac -- host target
 first and `release` first within it. The cross tree borrows the host release
 tree's baked atlases, so that order is what keeps the sweep self-sufficient;
 a target whose compiler is not installed is skipped with one line. It stops
@@ -381,12 +379,11 @@ here: 141 exports, every one `fnl_*`, in both variants.
 ```sh
 ./build.sh linux                  # the host tree first, release first
 python3 tools/macos_sdk.py --fetch   # once: Apple's SDK, from a Mac
-./build.sh macos                  # Cocoa drawn with Metal and Vulkan
-./build.sh macos-arm64            # the same for Apple's own processors
+./build.sh macos                  # both processors, joined: Metal and Vulkan
 ```
 
 The macOS tree is built here, as the Windows one is, and the Mac only
-runs what they make. The compiler is `clang-21`, the version the `clang`
+runs what it makes. The compiler is `clang-21`, the version the `clang`
 trees use, and the linker LLVM's Mach-O one, `ld64.lld`
 (`cmake/macos-x86_64.cmake`); nothing of Apple's toolchain is used but its
 SDK -- the headers and the `.tbd` text stubs of the system's libraries and
@@ -401,21 +398,23 @@ reason.
 
 The target is macOS 13 on x86-64: the oldest Apple still ships an SDK that
 reaches, and the last whose own drivers drive schenker's HD 630, the one Mac
-GPU here. `macos-arm64` is the same tree for Apple's own processors
+GPU here. The arm64 slice is the same tree for Apple's own processors
 (`cmake/macos-arm64.cmake`, which sets `FNL_MACOS_ARCH` and includes the
 x86-64 file): a Mac sold since 2020 has one, and runs an x86-64 program
 only through Rosetta 2, which Apple is retiring. It is built and never run
-here, with no such Mac at hand. One tree is one architecture, because the
-archive is made from one module of bitcode. `./build.sh macos-universal`
-builds both slices and joins every library and program with `lipo` into
-`build/macos-universal/<variant>` (`tools/macos_universal.py`): the
+here, with no such Mac at hand. One slice is one architecture, because the
+archive is made from one module of bitcode, so `./build.sh macos` builds
+both -- into `build/macos-x86_64/<variant>` and
+`build/macos-arm64/<variant>` -- and joins every library and program with
+`lipo` into `build/macos/<variant>` (`tools/macos_universal.py`): the
 archive's one object is joined and the archive remade where lipo cannot
 fatten an archive directly, and MoltenVK, already universal, is copied.
-`build/macos` stays the tree the harness drives on the one Intel Mac here.
-CI packs the joined tree, each program an app bundle that carries MoltenVK
-in its `Contents/Frameworks`, where the library also looks for it
-(`.github/stage.sh`). The two directories that speak to AppKit and Metal,
-`src/backend/cocoa/` and `src/renderer/metal/`, are **Objective-C** under ARC:
+`build/macos` is the tree the harness drives on the one Intel Mac here,
+whose x86-64 slice it runs. CI packs the joined tree, each program an app
+bundle that carries MoltenVK in its `Contents/Frameworks`, where the
+library also looks for it (`.github/stage.sh`). The two directories that
+speak to AppKit and Metal, `src/backend/cocoa/` and
+`src/renderer/metal/`, are **Objective-C** under ARC:
 neither has a C interface, and the alternative -- every call cast through
 `objc_msgSend` from C -- gives up the compiler's check on every one of them.
 So are, outside the library, the Metal scenes and the Mac's agent
@@ -1757,7 +1756,7 @@ cmake/linux-aarch64.cmake     the ARM Linux cross toolchain
 tools/bin2c.c                 a blob as a C array, for MSVC's stubs
 tools/check-crt.cmake         the import-table check that the mingw tree
                               imports the UCRT and not msvcrt.dll
-tools/macos_universal.py      joins the two macOS trees with lipo
+tools/macos_universal.py      joins the two macOS slices with lipo
 CMakeLists.txt the build of one tree
 build.sh       the build as one command: every tree, or one target and variant
 run_all.sh     the release testbed four ways at once, with the same options:
@@ -2206,8 +2205,9 @@ targets were `linux`, `win64` and `macos`, and
 `linux-arm64` and `macos-arm64` for the other processors, with the variants
 they took then: six of the native target, three of Windows and two of each
 macOS one, thirteen trees where there were forty-seven, and the ARM Linux
-one's four where its compiler is. `freebsd`, `win64-msvc` and
-`macos-universal` came after them; the Build section above and `build.sh`
+one's four where its compiler is. `freebsd` and `win64-msvc` came after
+them, then one `macos` target that builds both processors' slices and joins
+them; the Build section above and `build.sh`
 list what a tree is built as now. The cross trees borrow `linux/release`'s
 bake. A configure option keeps a build of one platform (`FNL_BACKEND`
 taking one name as well as `linux`, as it does now, and `FNL_RENDERER` one

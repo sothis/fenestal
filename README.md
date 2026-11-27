@@ -91,9 +91,8 @@ MSVC), and:
 ./build.sh win64                  # cross build on UCRT; needs linux first
 ./build.sh win64-msvc             # MSVC's tree: cl on Windows, else clang-cl
                                   # here against the CRT and the SDK
-./build.sh macos                  # cross build for macOS; needs linux
-./build.sh macos-arm64            # the same for Apple's own processors
-./build.sh macos-universal        # the two macOS trees, joined by lipo
+./build.sh macos                  # cross build for macOS, both processors;
+                                  # needs linux
 ./build.sh freebsd                # FreeBSD: Wayland, X11, KMS -- natively,
                                   # or cross from here against a sysroot
 ./build.sh linux-arm64            # cross build for ARM Linux; needs linux
@@ -111,24 +110,23 @@ FNL_RENDERER=vulkan wine build/win64/release/fenestal-testbed.exe
 ```
 
 Every tree lands under `build/<target>/<variant>`. The targets are one
-per operating system, plus the native-Windows and universal
-builds: `linux` (Wayland, X11 and KMS, drawn with Vulkan),
+per operating system, plus the native-Windows and universal builds:
+`linux` (Wayland, X11 and KMS, drawn with Vulkan),
 `win64` (mingw-w64 on the Universal CRT, Win32 drawn with Direct3D 12 or
 Vulkan) and `win64-msvc` (the same, built by cl.exe on Windows and by
-clang-cl here), `macos`
-(Cocoa drawn with Metal or Vulkan on MoltenVK), `macos-arm64`
-for Apple's own processors, `macos-universal` the two joined by lipo,
-and `freebsd` (Wayland, X11 and KMS, drawn with Vulkan; natively
+clang-cl here), `macos` (Cocoa drawn with Metal or Vulkan on MoltenVK,
+both processors' slices joined into universal binaries by lipo), and
+`freebsd` (Wayland, X11 and KMS, drawn with Vulkan; natively
 or cross from Linux), with `linux-arm64` the `linux` tree cross-compiled for
 the Raspberry Pi 4. Variants are `release`, `clang`, `asan`, `tsan`,
 `analyzer` and `gc`: `linux` takes all six, `linux-arm64` release, asan,
 tsan and gc where its cross compiler is, `win64` release, analyzer and
 gc, `win64-msvc` release and gc, `freebsd` release, asan, tsan and gc,
-and the macOS trees release and gc. `macos-universal` takes release and
-gc, and joins the two slices of its variant. Cross-compiled, `freebsd` takes
-release and gc: a checker tree needs runtimes a sysroot has none of. A Linux or FreeBSD program
-opens the backend its session has -- Wayland, else X11, else, with
-neither, KMS on the console -- and says which in its log;
+and `macos` release and gc, each building both slices. Cross-compiled,
+`freebsd` takes release and gc: a checker tree needs runtimes a sysroot
+has none of. A Linux or FreeBSD program opens the backend its session has
+-- Wayland, else X11, else, with neither, KMS on the console -- and says
+which in its log;
 `FNL_BACKEND=wayland`, `x11` or `kms` in its environment opens that one
 or fails. Every program draws with the first renderer that works there of
 those it has a scene for -- Direct3D 12, Vulkan on Windows; Vulkan on Linux
@@ -137,7 +135,7 @@ and FreeBSD; Metal, Vulkan on macOS -- and says which;
 Arguments after the target and variant go to the configure step. Clean is
 `rm -rf build`.
 
-The cross targets -- `win64`, `macos`, `macos-arm64` and `linux-arm64` --
+The cross targets -- `win64`, `macos` and `linux-arm64` --
 borrow the `linux` release tree's baked font, since the font tool runs
 during the build and would otherwise be compiled for the target. The
 Windows tree produces `libfenestal.dll`, `libfenestal.a` and the `.exe`
@@ -161,12 +159,13 @@ DLL still exports the API alone, but the archive's "API only" property is
 the gcc and clang trees'. `DESIGN` *Building* says so.
 
 The macOS tree is cross-compiled by clang and `ld64.lld` against Apple's
-SDK. It produces `libfenestal.dylib`, `libfenestal.a` and the programs,
-linking AppKit, QuartzCore and Metal, with MoltenVK
-beside the programs (`tools/moltenvk.py`, pinned by SHA-256), which the
+SDK, once for each processor and then joined by `lipo`. It produces
+`libfenestal.dylib`, `libfenestal.a` and the programs, universal, linking
+AppKit, QuartzCore and Metal, with MoltenVK beside the programs
+(`tools/moltenvk.py`, pinned by SHA-256), which the
 library opens when it draws with Vulkan and hands to a program's Vulkan
-scene. `macos-universal` builds the two slices and joins each library and
-program with `lipo` into `build/macos-universal/<variant>`
+scene. The two slices are built into `build/macos-x86_64` and
+`build/macos-arm64` and joined into `build/macos/<variant>`
 (`tools/macos_universal.py`). The harness drives `build/macos` on the
 Mac with each renderer; `TODO.md` *macOS* has what is owed.
 

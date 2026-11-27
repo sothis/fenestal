@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Janos Sonntag
-"""The macOS SDK the macos trees are cross-compiled against.
+"""The macOS SDK the macos tree is cross-compiled against.
 
     python3 tools/macos_sdk.py --fetch [HOST]   # copy it from a Mac, by ssh
     python3 tools/macos_sdk.py --path           # where it is, for build.sh
     python3 tools/macos_sdk.py --status         # which, or that it is not
 
-The macOS trees are built on this machine, as the Windows ones are, by
+The macOS tree is built on this machine, as the Windows ones are, by
 clang and ld64.lld against Apple's SDK: the headers and the .tbd stubs of
 the system's libraries and frameworks, no code. Apple ships it with the
 Command Line Tools, which only run on a Mac, so it is copied once from one

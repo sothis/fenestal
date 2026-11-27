@@ -366,25 +366,17 @@ jobs:
                   touch $g/font_verified.stamp
                   mkdir -p stage
                   cp -R mac/common stage/common
-            # Both processors' trees, joined into one archive of universal
-            # binaries and app bundles (.github/stage.sh).
-            - name: macos and macos-arm64 release
+            # Both processors' slices and the universal tree they join, in
+            # one target: build.sh makes the archive of universal binaries
+            # and app bundles (.github/stage.sh).
+            - name: macos release
               id: macos
               run: |
                   inc="$PWD/mac/include"
-                  for t in macos macos-arm64; do
-                      echo "::group::$t release"
-                      # Homebrew's opt has no version or prefix in its
-                      # name, which the toolchain file does not take on its
-                      # own.
-                      ./build.sh $t release "-DFNL_HOST_INCLUDE=$inc" \
-                          "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
-                          "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
-                      echo "::endgroup::"
-                  done
-                  echo "::group::macos-universal release"
-                  ./build.sh macos-universal release \
-                      "-DFNL_HOST_INCLUDE=$inc" \
+                  echo "::group::macos release"
+                  # Homebrew's opt has no version or prefix in its name,
+                  # which the toolchain file does not take on its own.
+                  ./build.sh macos release "-DFNL_HOST_INCLUDE=$inc" \
                       "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
                       "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                   echo "::endgroup::"
@@ -396,22 +388,14 @@ jobs:
                   path: ${{ steps.macos.outputs.archive }}
                   archive: false
                   if-no-files-found: error
-            # The Mac's checker trees, as the Linux job's: gc on both
-            # processors, with the same inputs as the release trees.
-            - name: macos and macos-arm64 gc
+            # The Mac's checker tree, as the Linux job's: gc on both
+            # processors, with the same inputs as the release tree.
+            - name: macos gc
               if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
               run: |
                   inc="$PWD/mac/include"
-                  for t in macos macos-arm64; do
-                      echo "::group::$t gc"
-                      ./build.sh $t gc "-DFNL_HOST_INCLUDE=$inc" \
-                          "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
-                          "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
-                      echo "::endgroup::"
-                  done
-                  echo "::group::macos-universal gc"
-                  ./build.sh macos-universal gc \
-                      "-DFNL_HOST_INCLUDE=$inc" \
+                  echo "::group::macos gc"
+                  ./build.sh macos gc "-DFNL_HOST_INCLUDE=$inc" \
                       "-DFNL_VULKAN_INCLUDE_DIR=$inc" \
                       "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                   echo "::endgroup::"

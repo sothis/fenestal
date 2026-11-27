@@ -5,13 +5,14 @@
 # clang and ld64.lld against Apple's SDK.
 #
 #   ./build.sh linux                 # the host build first, for the bake
-#   ./build.sh macos                 # which is these two lines, spelled out:
+#   ./build.sh macos                 # builds both slices and joins them;
+#                                    # this is the x86-64 slice, spelled out:
 #
-#   cmake -S . -B build/macos/release \
+#   cmake -S . -B build/macos-x86_64/release \
 #         -DCMAKE_TOOLCHAIN_FILE=cmake/macos-x86_64.cmake \
 #         -DFNL_MACOS_SDK=$(python3 tools/macos_sdk.py --path) \
 #         -DFNL_GENERATED_DIR=$PWD/build/linux/release/generated
-#   cmake --build build/macos/release -j
+#   cmake --build build/macos-x86_64/release -j
 #
 # The SDK is the headers and the .tbd stubs of the system's libraries and
 # frameworks, copied once from a Mac (tools/macos_sdk.py). FNL_GENERATED_DIR
@@ -25,7 +26,7 @@
 # cmake/macos-arm64.cmake is this file for Apple's own processors, setting
 # FNL_MACOS_ARCH before it includes it; nothing else differs. One tree is
 # one architecture, since the archive is made from one module of bitcode,
-# and CI joins the two trees' programs with lipo.
+# and `./build.sh macos` joins the two slices' programs with lipo.
 
 if(NOT FNL_MACOS_ARCH)
     set(FNL_MACOS_ARCH x86_64)
