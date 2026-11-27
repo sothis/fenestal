@@ -3276,10 +3276,28 @@ static void kms_present_pixels(App *a, const void *px, int w, int h,
 		ch = (int)p->scan.h;
 	const unsigned char *src = px;
 	const bool scan10        = p->scan.fourcc == DRM_FORMAT_XRGB2101010;
-	for (int y = 0; y < ch; y++) {
-		unsigned char *dst =
-			p->scan.map[back] + (size_t)y * p->scan.pitch;
-		scan_row(dst, src + (size_t)y * pitch, cw, fmt, scan10);
+	/* The 8-bit order both sides usually are: the frame's BGRA8 and the
+	 * scanout's XRGB8888 are the same four bytes in memory, the alpha's
+	 * place taken by the X the display ignores, so a row is a copy. Per pixel
+	 * it was a gather of three bytes and a shift apiece -- 2.1 million of
+	 * them a frame at 1080p, some 2 to 4 ms of the copy path's present, which
+	 * is most of what it costs (measured: 9.4 to 13.9 ms a frame there
+	 * against the display path's 0.2). A whole frame is one call where the
+	 * pitches agree, which they do for a mode-sized window. */
+	if (fmt == PIXELS_BGRA8 && !scan10) {
+		if ((size_t)cw * 4u == pitch && cw == (int)p->scan.w &&
+			(size_t)cw * 4u == p->scan.pitch)
+			memcpy(p->scan.map[back], src, (size_t)ch * pitch);
+		else
+			for (int y = 0; y < ch; y++)
+				memcpy(p->scan.map[back] + (size_t)y * p->scan.pitch,
+					   src + (size_t)y * pitch, (size_t)cw * 4u);
+	} else {
+		for (int y = 0; y < ch; y++) {
+			unsigned char *dst =
+				p->scan.map[back] + (size_t)y * p->scan.pitch;
+			scan_row(dst, src + (size_t)y * pitch, cw, fmt, scan10);
+		}
 	}
 	kms_scan_show(a, back);
 }

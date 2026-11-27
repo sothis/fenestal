@@ -66,7 +66,10 @@ promised: before 1.0, nothing between minor releases.
   once, and skips the frame it used to put on the output a moment before
   the console's own came back. The copy path's present no longer counts its
   readback and copy as the display's block, so the late latch holds against
-  the display: 60.0 fps with a p99 of 16.9 ms against 58.5 and 33.
+  the display: 60.0 fps with a p99 of 16.9 ms against 58.5 and 33. And the
+  copy's frame reaches the scanout buffer by `memcpy` where both sides are
+  8-bit BGRA (one call a frame), not a per-pixel gather: its present 9.4 to
+  13.9 ms to 6.9, and the process 34% of a core to 17.
 - **`fenestal-dev open`.** What a window costs from `fnl_init()` to its
   first frame, the cold open of a process and the warm ones after it, and
   the shutdown, on every backend and renderer the tree builds.

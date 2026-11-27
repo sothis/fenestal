@@ -5623,6 +5623,17 @@ lets the held display go (`let_display_go()`) and decides the way afresh:
   panel it names no display (`vkGetDrmDisplayEXT`, `VK_ERROR_UNKNOWN`) and
   has no `VK_EXT_headless_surface`.
 
+**The copy's own cost is the CPU copy.** What `present_copied()` hands the
+backend is the readback: BGRA8 for an SDR 8-bit frame, which is the four
+bytes of the scanout's XRGB8888 in the same order -- the alpha's place is
+the X the display ignores. It was converted per pixel, a gather of three
+bytes and a shift apiece, 2.1 million of them a frame at 1920x1080; a row is
+now a `memcpy`, a whole frame one call where the pitches agree. Measured on
+schenker's eDP with the GTX 1050 Ti drawing and copying onto it (the driver
+below leaves it no display): the present 9.4 to 13.9 ms to 6.9, and the
+process 34% of a core to 17. The 10-bit HDR orders and an RGBA8 readback are
+still converted, which is a channel swap and a different word.
+
 The headless surface stays ahead of no surface because it is the swapchain
 every other backend has, the one the rest of the renderer was measured on;
 the surfaceless window is for the driver that leaves no other way. The
