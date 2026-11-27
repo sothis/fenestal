@@ -468,8 +468,10 @@ static void usage(FILE *f, const char *prog)
 		"                     which is where a frame that is slow on the GPU\n"
 		"                     is slow and nowhere else.\n"
 		"\n"
-		"  --no-vsync         draw without vsync, flat out, for measuring;\n"
-		"                     FNL_VSYNC=0 in the environment does the same\n"
+		"  --vsync            present with vsync (the default is off, capped at\n"
+		"                     240 fps); FNL_VSYNC=1 does the same for any program\n"
+		"  --no-vsync         draw without vsync and without the cap, flat out,\n"
+		"                     for measuring; FNL_VSYNC=0 FNL_MAX_FPS=0 do the same\n"
 		"                     for any program built on the library.\n"
 		"\n"
 		"  --transition=MS    how long the first frames after a move to\n"
@@ -545,7 +547,7 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 	static const char *const CLASH[] = {
 		"--no-late-latch", "--late-latch=",     "--scale=", "--colour=",
 		"--gpu=",          "--custom-titlebar", "--text-input",
-		"--frame-times",   "--no-vsync",        "--transition=",
+		"--frame-times",   "--no-vsync", "--vsync",        "--transition=",
 		"--footprint-log", "--frame-cpu-log",   "--frame-stats-log",
 		"--reserve-log",   "--shapes",          "--freeze",
 		"--second-window", "--fps=",            "--width=",
@@ -669,8 +671,19 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			 * descriptor field, as --gpu-driver's variable is. */
 #if defined(_WIN32)
 			_putenv("FNL_VSYNC=0");
+			_putenv("FNL_MAX_FPS=0");
 #else
 			setenv("FNL_VSYNC", "0", 1);
+			setenv("FNL_MAX_FPS", "0", 1);
+#endif
+			continue;
+		}
+		if (!strcmp(arg, "--vsync")) {
+			/* As --no-vsync's, the other way: off is the default. */
+#if defined(_WIN32)
+			_putenv("FNL_VSYNC=1");
+#else
+			setenv("FNL_VSYNC", "1", 1);
 #endif
 			continue;
 		}

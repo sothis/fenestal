@@ -205,7 +205,7 @@ static void reasons(BenchJson *j, const char *key, const char *list)
 static void environment(BenchJson *j)
 {
 	static const char *const VARS[] = {
-		"FNL_BACKEND", "FNL_RENDERER", "FNL_GPU", "FNL_VSYNC",
+		"FNL_BACKEND", "FNL_RENDERER", "FNL_GPU", "FNL_VSYNC", "FNL_MAX_FPS",
 		"FNL_GPU_RANK", "FNL_GPU_DRIVER", "FNL_KMS_LAYOUT", "FNL_COLOR",
 		"MESA_VK_WSI_DEBUG", "VK_INSTANCE_LAYERS", "DRI_PRIME",
 	};

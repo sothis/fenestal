@@ -282,7 +282,8 @@ options that name one set it.
 | `FNL_GPU` | the device, by its number in the startup log or by part of its name |
 | `FNL_SCALE120` | a test fixture: run at this surface scale in 120ths (120 is 100%) instead of the desktop's, for every window of the program |
 | `FNL_LATE_LATCH_MS` | a tuning fixture: hold the late-latch delay at this many milliseconds instead of tuning it |
-| `FNL_VSYNC=0` | draw flat out, for measuring; vsync is on by default, and `fnl_set_vsync()` turns it off at run time |
+| `FNL_VSYNC=1` | present with vsync; it is off by default, and `fnl_set_vsync()` turns it on at run time |
+| `FNL_MAX_FPS=<n>` | the frame rate a window without vsync is capped at, 240 by default; `0` draws flat out, for measuring |
 | `FNL_ECHO_EVENTS=1` | print every event the program is handed, on stderr |
 | `FNL_COST_PARTS=1` | in the frame-times log (the testbed's `--frame-times`), what the two cost figures are made of (`docs/comparable-frame-costs.md`) |
 | `FNL_GPU_RANK` | the GPU list ranked by measured frame rate (the testbed's `--gpu-rank`) |
@@ -427,7 +428,8 @@ Its options, beside the environment variables above:
 | `--no-late-latch`, `--late-latch=<ms>` | sample state at the top of the frame, or at a fixed delay |
 | `--custom-titlebar` | the testbed draws the titlebar instead of the library |
 | `--frame-times` | where each frame's time went, a line each half second on stderr (`FNL_COST_PARTS=1` adds what the two cost figures are made of) |
-| `--no-vsync` | draw flat out, for measuring (`FNL_VSYNC=0` for any program); vsync is on by default, and `fnl_set_vsync()` turns it off at run time |
+| `--vsync` | present with vsync (`FNL_VSYNC=1` for any program); it is off by default, capped at 240 fps |
+| `--no-vsync` | draw flat out, for measuring: no vsync and no cap (`FNL_VSYNC=0 FNL_MAX_FPS=0` for any program) |
 | `--transition=<ms>` | how long the first frames after a move to another GPU, renderer or kernel driver dissolve from the last frame before it; the library's own is 250, and 0 is a cut |
 | `--echo-events` | print every event (`FNL_ECHO_EVENTS=1` for any program) |
 | `--text-input` | text entry on at startup: with `--echo-events` each character a key types is a line of its own, and Escape no longer closes the window, so close it from the titlebar |

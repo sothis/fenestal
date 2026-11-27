@@ -907,6 +907,11 @@ static inline bool fnl_draw_state_eq(const FnlDrawState *x,
  * moved. */
 #define TAAU_HISTORY 0.85f
 
+/* The most frames a second a window draws with vsync off, unless
+ * FNL_MAX_FPS says another figure (0: none). With vsync on the display
+ * paces the loop. */
+#define FRAME_CAP_HZ 240.0
+
 /* How far a history sample may sit behind this frame in eye depth, relative
  * to the pixel's own, before FNL_AA_TAAU drops it as having moved across a
  * depth discontinuity (TaauPush::jitter.w). Zero where the renderer has no
@@ -2474,9 +2479,14 @@ struct FnlApp {
 	 * pump's hit test; the rectangle is recomputed on both sides from this
 	 * and the window width. */
 	FnlAtomicU32 titlebar_reserved;
-	/* On unless FNL_VSYNC says "0", set once in fnl_init() before any
-	 * thread reads it. */
+	/* Off unless FNL_VSYNC says otherwise, set once in fnl_init() before
+	 * any thread reads it. */
 	FnlAtomicBool vsync;
+	/* The least time between two frames drawn without vsync, seconds; 0.0
+	 * for no cap. Set with `vsync` and read by the render thread, which
+	 * keeps `cap_at`, when the last such frame was let go (frame_cap_wait()). */
+	double fps_cap_period;
+	double cap_at;
 	/* Whether the present goes through Direct3D 11's swapchain -- the
 	 * Vulkan renderer's way on Win32 -- kept here because
 	 * fnl_present_mode() is [any] and its seam entry may not read

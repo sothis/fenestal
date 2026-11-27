@@ -28,6 +28,13 @@ HDR is marked experimental in the header: no panel has shown it yet.
   a notch's `axis_discrete` count is delivered less the smooth parts that
   already gave it, where the parts were dropped for the rest of the process
   once any count had come.
+- **Vsync is off by default, and the frame rate is capped at 240.** A window
+  presents on the fastest mode its surface offers until `fnl_set_vsync(app,
+  true)` or `FNL_VSYNC=1` asks for the display's pace, on every backend and
+  renderer; its frames wait for 1/240 s since the last one, where nothing
+  paced them before. `FNL_MAX_FPS` names another figure and `0` none, which is
+  how the testbed's `--no-vsync` and `fenestal-dev pace --no-vsync` draw flat
+  out. The testbed gains `--vsync`.
 - **A clipboard answer survives an event overflow**: the
   `FNL_EVENT_CLIPBOARD` dropped with the rest of a gap is delivered after
   `FNL_EVENT_LOST`, once the queue is drained, where a program had to ask

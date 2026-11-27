@@ -71,8 +71,8 @@
  * (echo_events, frame_times, the log lines), which is for people and the
  * harness and not for parsing; and the FNL_* environment variables that are
  * diagnostics -- FNL_BACKEND, FNL_RENDERER, FNL_COLOR and FNL_GPU (a choice
- * made from outside a program) are contract; FNL_VSYNC, FNL_ECHO_EVENTS,
- * FNL_MCP, FNL_GPU_RANK, FNL_GPU_DRIVER, FNL_KMS_LAYOUT, FNL_SCALE120,
+ * made from outside a program) are contract; FNL_VSYNC, FNL_MAX_FPS,
+ * FNL_ECHO_EVENTS, FNL_MCP, FNL_GPU_RANK, FNL_GPU_DRIVER, FNL_KMS_LAYOUT, FNL_SCALE120,
  * FNL_LATE_LATCH_MS, FNL_VK_VALIDATION, FNL_NO_INPUT_METHOD and every
  * other are test and tuning fixtures that may change meaning or go in any
  * release.
@@ -2255,17 +2255,19 @@ FNL_API void fnl_set_scene_size_px(FnlApp *app, int w_px, int h_px); /* [any] */
  * differently. fnl_present_mode() is the renderer's own name for what it
  * resolved to ("FIFO", "sync interval 1 (vsync)"), not a normalised enum.
  *
- * A window is vsynced until asked otherwise: FNL_VSYNC=0 in the environment
- * starts it unsynced, a diagnostic as FNL_ECHO_EVENTS is, read at fnl_init(),
- * and fnl_set_vsync() changes it later. Off asks for the fastest present the surface
- * offers -- MAILBOX, then IMMEDIATE, under Vulkan; a swap or sync interval
- * of 0 elsewhere -- and may still be paced by the refresh where nothing
- * else is on offer (DESIGN *Vsync and present modes*). */
+ * A window presents without vsync until asked otherwise: FNL_VSYNC=1 in the
+ * environment starts it vsynced, a diagnostic as FNL_ECHO_EVENTS is, read at
+ * fnl_init(), and fnl_set_vsync() changes it later. Off asks for the fastest
+ * present the surface offers -- MAILBOX, then IMMEDIATE, under Vulkan; a swap
+ * or sync interval of 0 elsewhere -- and may still be paced by the refresh
+ * where nothing else is on offer (DESIGN *Vsync and present modes*). The
+ * frames of a window without vsync are capped at 240 a second; FNL_MAX_FPS
+ * names another figure, 0 for none, read at fnl_init() as well. */
 FNL_API const char *fnl_output_name(const FnlApp *app);  /* [any] */
 FNL_API const char *fnl_present_mode(const FnlApp *app); /* [any] */
 
-/* Whether the window's presents wait for the display, on unless asked off --
- * by FNL_VSYNC=0 in the environment, or by this. A change lands at the next
+/* Whether the window's presents wait for the display, off unless asked on --
+ * by FNL_VSYNC=1 in the environment, or by this. A change lands at the next
  * frame, which builds the swapchain again: a tearing mode's is not the
  * vsynced one's. fnl_present_mode() says what the renderer resolved to, and
  * fnl_frame_samples() what the pacing then cost. */

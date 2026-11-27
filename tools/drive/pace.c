@@ -510,14 +510,23 @@ int pace_main(int argc, char **argv)
 		positional++;
 	}
 
-	/* Before fnl_init(), which reads it once. */
-	if (g_no_vsync) {
+	/* Before fnl_init(), which reads them once. The rows are vsynced unless
+	 * --no-vsync asks, which is flat out: the library's cap is off too. */
 #if defined(_WIN32)
+	if (g_no_vsync) {
 		_putenv("FNL_VSYNC=0");
-#else
-		setenv("FNL_VSYNC", "0", 1);
-#endif
+		_putenv("FNL_MAX_FPS=0");
+	} else if (!getenv("FNL_VSYNC")) {
+		_putenv("FNL_VSYNC=1");
 	}
+#else
+	if (g_no_vsync) {
+		setenv("FNL_VSYNC", "0", 1);
+		setenv("FNL_MAX_FPS", "0", 1);
+	} else {
+		setenv("FNL_VSYNC", "1", 0);
+	}
+#endif
 
 	FnlResult rc = fnl_init(&desc, &g_app);
 	if (rc < 0) {

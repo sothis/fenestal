@@ -1161,7 +1161,8 @@ and averages to `Get-Process`'s.
 | `--transition=<ms>` | how long the first frames after a move to another GPU, renderer or kernel driver dissolve from the last frame before it; the library's own is 250, and 0 is a cut — see *The veil, and what the screen shows across a move* |
 | `--custom-titlebar` | draw the titlebar in the testbed instead of the library — see *Replacing the titlebar* |
 | `--frame-times` | where each frame's wall clock went, a line each half second on stderr |
-| `--no-vsync` | draw flat out, for measuring; `FNL_VSYNC=0` in the environment does the same for any program (*Vsync and present modes*) |
+| `--vsync` | present with vsync; off, capped at 240 fps, is the default, and `FNL_VSYNC=1` in the environment does the same for any program (*Vsync and present modes*) |
+| `--no-vsync` | draw flat out, for measuring: no vsync and no cap, `FNL_VSYNC=0 FNL_MAX_FPS=0` for any program (*Vsync and present modes*) |
 | `--echo-events` | print every event the library delivers, for a test harness — the library's own echo, which `FNL_ECHO_EVENTS=1` switches on for any program built on it |
 | `--text-input` | text entry on at startup: with `--echo-events` each character a key types is a line of its own, a held key repeats, and Escape no longer closes the window, so close it from the titlebar — see *Text entry* |
 | `--footprint-log` | this process's CPU, RAM and VRAM, the metrics panel's figures, on stderr twice a second as `footprint: ...`, for a harness that cannot read the screen — see *The metrics panel*. It asks for cost sampling, which counts the frames the panel draws at rest |
@@ -5131,16 +5132,29 @@ which cell changes; the level does move between sittings, 250's 52.5 to
 
 ### Vsync and present modes
 
-A window is vsynced, on `FIFO`, unless a caller changes it: `fnl_set_vsync()`
-is live, and a change lands at the next frame, which builds the swapchain
-again -- the DXGI present's swapchain with the tearing flag recomputed, not
-only its interval. Off is the diagnostic: `FNL_VSYNC=0` in the
-environment, read once at `fnl_init()` as `FNL_ECHO_EVENTS` is, or
-`--no-vsync` to the testbed and to `fenestal-dev pace`, which set it. Off asks
-for the fastest mode the surface offers — `MAILBOX`, which does not tear,
-or `IMMEDIATE` — and keeps it. It is kept for what only a window drawn
-flat out shows: a present path that waits where the GPU does not, which
-is every figure here taken under `fenestal-pace --draw --no-vsync`. What
+A window presents without vsync, on the fastest mode the surface offers,
+unless a caller changes it: `fnl_set_vsync()` is live, and a change lands at
+the next frame, which builds the swapchain again -- the DXGI present's
+swapchain with the tearing flag recomputed, not only its interval. On is
+`FNL_VSYNC=1` in the environment, read once at `fnl_init()` as
+`FNL_ECHO_EVENTS` is, or `--vsync` to the testbed; `fenestal-dev pace` runs
+vsynced unless `--no-vsync`. Off asks for the fastest mode the surface
+offers — `MAILBOX`, which does not tear, or `IMMEDIATE` — and keeps it.
+
+**The cap.** Without vsync nothing paces the loop, and a window that draws a
+frame in a tenth of a millisecond would present ten thousand a second and
+keep a core and a GPU busy for nothing a display can show. So a frame drawn
+without vsync waits for `FRAME_CAP_HZ` (240) since the last one
+(`frame_cap_wait()`, the render thread's own `cap_at`): a high-resolution wait
+(`fnl_cond_wait_for()`, the waitable timer on Windows), the schedule kept
+where it ran a little long so the rate is the cap's and not a shade under it,
+and woken early for a quit or an urgent change. Not a rebuild or an urgent
+frame, which answer the window server, and not at rest, where the loop sleeps
+anyway; vsynced frames are the display's. `FNL_MAX_FPS` in the environment
+names another figure and `0` none, read once with `FNL_VSYNC`: it is how a
+measurement is taken flat out, which is every figure here taken under
+`fenestal-dev pace --draw --no-vsync` or a benchmark row with vsync off, and
+those two set it themselves. What
 a frame costs is `fnl_frame_gpu_ms()` and `fnl_frame_cpu_ms()`, vsync or
 not, and the stress round measures the off-screen skip on a vsynced
 window drawing every refresh (`DRAWING_FPS` in `stress.py`).

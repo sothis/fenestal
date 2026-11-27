@@ -3230,6 +3230,31 @@ static FnlResult color_request(App *a, const FnlInitDesc *d)
 	return FNL_OK;
 }
 
+/* Whether a window presents with vsync until asked otherwise: off, unless
+ * FNL_VSYNC names something but "0". */
+static bool vsync_default(void)
+{
+	const char *vs = getenv("FNL_VSYNC");
+	return vs && vs[0] && !(vs[0] == '0' && !vs[1]);
+}
+
+/* The shortest time between two frames a window presents without vsync,
+ * which would otherwise draw as fast as the GPU lets it: FRAME_CAP_HZ, or
+ * FNL_MAX_FPS in the environment, where 0 is no cap (for measuring). 0.0
+ * here is no cap. */
+static double fps_cap_period(void)
+{
+	double hz        = FRAME_CAP_HZ;
+	const char *cap = getenv("FNL_MAX_FPS");
+	if (cap && cap[0]) {
+		char *end        = NULL;
+		const double got = strtod(cap, &end);
+		if (end && !*end && got >= 0.0)
+			hz = got;
+	}
+	return hz > 0.0 ? 1.0 / hz : 0.0;
+}
+
 FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 {
 	FnlResult rc;
@@ -3311,10 +3336,11 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	h->windows_tail = a;
 	fnl_atomic_store_u32(&h->window_count, 1);
 
-	/* Vsync is the window's for its life; FNL_VSYNC=0 is the one way out,
-	 * a diagnostic read once, as FNL_ECHO_EVENTS is. */
-	const char *vs = getenv("FNL_VSYNC");
-	fnl_atomic_store_bool(&a->vsync, !(vs && vs[0] == '0' && !vs[1]));
+	/* Vsync is off and the frame rate capped, unless FNL_VSYNC and
+	 * FNL_MAX_FPS say otherwise: diagnostics read once, as FNL_ECHO_EVENTS
+	 * is. */
+	fnl_atomic_store_bool(&a->vsync, vsync_default());
+	a->fps_cap_period = fps_cap_period();
 	fnl_atomic_store_u32(&a->veil_out_ms, VEIL_MS);
 	fnl_atomic_store_u32(&a->veil_in_ms, VEIL_MS);
 	/* The metrics panel hidden, on F5 until the caller binds another key,
@@ -3655,8 +3681,8 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	 * window's, seeded as fnl_init() seeds the first's: the panel hidden on F5
 	 * until the caller binds another key, the default sizes and the library's
 	 * own titlebar. */
-	const char *vs = getenv("FNL_VSYNC");
-	fnl_atomic_store_bool(&a->vsync, !(vs && vs[0] == '0' && !vs[1]));
+	fnl_atomic_store_bool(&a->vsync, vsync_default());
+	a->fps_cap_period = fps_cap_period();
 	fnl_atomic_store_u32(&a->veil_out_ms, VEIL_MS);
 	fnl_atomic_store_u32(&a->veil_in_ms, VEIL_MS);
 	fnl_atomic_store_u32(&a->metrics_key, (uint32_t)FNL_KEY_F5);

@@ -160,6 +160,25 @@ static void hold_wait(App *a, double seconds, bool for_configure)
 	fnl_mutex_unlock(&a->lock);
 }
 
+/* A frame drawn without vsync waits for the cap's period since the last one
+ * (App::fps_cap_period), or the loop would present as fast as the GPU lets
+ * it. The schedule is kept where the wait ran a little long, so the rate is
+ * the cap's and not a shade under it, and restarted where the loop was held
+ * up for longer than a period. Wakes early for shutdown and an urgent change
+ * like any hold. */
+static void frame_cap_wait(App *a)
+{
+	if (!(a->fps_cap_period > 0.0))
+		return;
+	const double due = a->cap_at + a->fps_cap_period;
+	double t         = now_seconds();
+	if (t < due) {
+		hold_wait(a, due - t, false);
+		t = now_seconds();
+	}
+	a->cap_at = t < due || t - due > a->fps_cap_period ? t : due;
+}
+
 /* The delay in force: the pinned one where there is one. */
 static double late_hold(const App *a)
 {
@@ -2196,6 +2215,11 @@ void *render_loop(void *arg)
 						  ? BACKEND(a)->frame_wait(a, !rebuild)
 						  : pace_turn(a, rebuild, urgent, vsync, &spaced);
 		}
+		/* Without vsync nothing above held the turn: the cap does. Not a
+		 * rebuild or an urgent frame, which answer the window server, and
+		 * not at rest, where the loop sleeps on its own. */
+		if (!vsync && !rebuild && !urgent && !a->resting)
+			frame_cap_wait(a);
 		/* Whether or not either ran: a tearing frame that waited for nothing
 		 * reads as zero rather than being left out of the mean. */
 		if (a->timing) {

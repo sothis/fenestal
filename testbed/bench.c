@@ -811,7 +811,7 @@ static void *drive_thread(void *unused)
 /* What the environment said before any run changed it, so that "auto"
  * puts it back. */
 static struct {
-	char *backend, *renderer, *vsync;
+	char *backend, *renderer, *vsync, *maxfps;
 } g_env;
 
 static char *dup_env(const char *name)
@@ -836,7 +836,11 @@ static void env_for_run(const BenchConfig *c)
 		set_env("FNL_RENDERER", g_env.renderer);
 	else
 		set_env("FNL_RENDERER", bench_opt_enum_name(c, OPT_RENDERER));
-	set_env("FNL_VSYNC", bench_opt_bool(c, OPT_VSYNC) ? g_env.vsync : "0");
+	/* The library's default is vsync off and capped; a row measures one or
+	 * the other, and an unsynced one is flat out. */
+	const bool vsynced = bench_opt_bool(c, OPT_VSYNC);
+	set_env("FNL_VSYNC", vsynced ? (g_env.vsync ? g_env.vsync : "1") : "0");
+	set_env("FNL_MAX_FPS", vsynced ? g_env.maxfps : "0");
 	/* The tuning fixtures the descriptor no longer carries, set or cleared
 	 * for every run since one process makes several. */
 	char v[32];
@@ -1105,6 +1109,7 @@ static BenchAction panel_once(const FnlInitDesc *base,
 	 * run will use, so the panel is shown where the run will be. */
 	env_for_run(c);
 	set_env("FNL_VSYNC", g_env.vsync);
+	set_env("FNL_MAX_FPS", g_env.maxfps);
 	FnlInitDesc d = *base;
 	d.title = "Fenestal testbed: benchmark";
 	d.log = bench_log;
@@ -1234,6 +1239,7 @@ int testbed_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
 	g_env.backend  = dup_env("FNL_BACKEND");
 	g_env.renderer = dup_env("FNL_RENDERER");
 	g_env.vsync    = dup_env("FNL_VSYNC");
+	g_env.maxfps   = dup_env("FNL_MAX_FPS");
 
 	BenchResult *r = calloc(1, sizeof *r);
 	int status = r ? 0 : 1;
@@ -1289,6 +1295,8 @@ int testbed_bench_main(const FnlInitDesc *base, const FnlCallbacks *scene,
 	set_env("FNL_BACKEND", g_env.backend);
 	set_env("FNL_RENDERER", g_env.renderer);
 	set_env("FNL_VSYNC", g_env.vsync);
+	set_env("FNL_MAX_FPS", g_env.maxfps);
+	free(g_env.maxfps);
 	free(g_env.backend);
 	free(g_env.renderer);
 	free(g_env.vsync);
