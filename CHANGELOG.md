@@ -6,6 +6,10 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **X11: a window opened with `positioned` is placed from the primary
+  output's corner**, as the header says, and told to the window manager as the
+  user's choice (`USPosition`), so it is kept; before, the root's origin was
+  taken and the manager free to place it anyway.
 - **The titlebar's antialiasing is one drop-down, and vsync has a checkbox.**
   The `FSAA`, `MLAA` and `TAAU` checkboxes are a single box, `No AA` first,
   since the three exclude each other; a `VSync` checkbox drives

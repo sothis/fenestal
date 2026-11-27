@@ -2958,6 +2958,24 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	 * names, and that wait is the third. The properties follow it, so the
 	 * SYNC counter is advertised only once it answered. */
 	x11_ext_take(p, &ext_ask);
+	/* A position the caller named is from the primary output's corner
+	 * (FnlInitDesc::x_pt), and the root's origin is not that where the
+	 * desktop lays its monitors out around the primary. The monitors are
+	 * known only now, and the window is not mapped yet, so it is moved
+	 * here, before the hint below carries the place. */
+	if (a->init_positioned && p->monitor_count > 0) {
+		int idx = 0;
+		for (int i = 0; i < p->monitor_count; i++)
+			if (p->monitors[i].primary) {
+				idx = i;
+				break;
+			}
+		p->win_x += p->monitors[idx].x;
+		p->win_y += p->monitors[idx].y;
+		const uint32_t xy[2] = { (uint32_t)p->win_x, (uint32_t)p->win_y };
+		xcb_configure_window(p->conn, p->window,
+							 XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, xy);
+	}
 	set_window_properties(a);
 	/* The monitors are known from here, and a manager answers for itself. */
 	if (!p->ewmh)
