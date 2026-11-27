@@ -192,12 +192,15 @@ static void shape_boxf(App *a, float x, float y, float w, float h, float radius,
 	ShapeInstance *o =
 		(ShapeInstance *)(a->ovl_map[a->ovl_img] + OVERLAY_SHAPE_OFF) +
 		a->shape_count++;
-	o->p0[0] = surf_ptf(a, x, s120);
-	o->p0[1] = surf_ptf(a, y, s120);
+	/* Locals, stored once: the arena may be write-combined, and a read of
+	 * what was just written is not one the compiler is bound to forward. */
+	const float p0x = surf_ptf(a, x, s120), p0y = surf_ptf(a, y, s120);
+	o->p0[0] = p0x;
+	o->p0[1] = p0y;
 	o->p1[0] = surf_ptf(a, x + w, s120);
 	o->p1[1] = surf_ptf(a, y + h, s120);
-	o->p2[0] = o->p0[0];
-	o->p2[1] = o->p0[1];
+	o->p2[0] = p0x;
+	o->p2[1] = p0y;
 	/* The corner radius is points and scales with everything else; the
 	 * gradient's angle is degrees and does not, so the kind says which the
 	 * argument was and only the radius is converted. */
@@ -205,7 +208,11 @@ static void shape_boxf(App *a, float x, float y, float w, float h, float radius,
 	o->feather = STROKE_FEATHER_PX;
 	memcpy(o->color, color, sizeof o->color);
 	memcpy(o->color2, color2, sizeof o->color2);
+	/* The pad is written as well: the kind is fetched as a vec4, and a
+	 * partly filled line goes out of a write-combining buffer as a partial
+	 * write. */
 	o->shape_kind = kind;
+	o->pad[0] = o->pad[1] = o->pad[2] = 0.0f;
 }
 
 static void shape_box(App *a, int x, int y, int w, int h, float radius,
@@ -274,6 +281,7 @@ void overlay_elbow(App *a, float x0, float y0, float x1, float y1, float x2,
 	memcpy(o->color, color, sizeof o->color);
 	memcpy(o->color2, color, sizeof o->color2);
 	o->shape_kind = SHAPE_STROKE;
+	o->pad[0] = o->pad[1] = o->pad[2] = 0.0f;
 }
 
 void overlay_stroke(App *a, float x0, float y0, float x1, float y1, float width,
@@ -359,10 +367,21 @@ void text_draw(App *a, int x, int y, TextSize sz, const float color[4],
 		if (i > max_i)
 			break;
 
-		uint32_t cp;
-		s = utf8_next(s, &cp);
-
-		const GlyphCell *cl = cell_for(row, cp);
+		uint32_t cp = (unsigned char)*s;
+		const GlyphCell *cl;
+		if (cp < 0x80) {
+			/* Nearly everything drawn is ASCII, which has its own table: the
+			 * glyph without a decode or a call across files. A cell this
+			 * size does not bake goes the long way (cell_for()'s fallback
+			 * and notdef), as does anything the table lacks. */
+			s++;
+			const int gi = FONT_ASCII[cp];
+			cl = gi >= 0 && row[gi].x != FONT_CELL_ABSENT ? &row[gi]
+														  : cell_for(row, cp);
+		} else {
+			s  = utf8_next(s, &cp);
+			cl = cell_for(row, cp);
+		}
 		if (!cl)
 			continue;
 		/* Do not hoist the monospaced pen to a start and a step: that is

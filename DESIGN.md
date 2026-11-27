@@ -7532,15 +7532,19 @@ where `App::presents` moved by exactly one, so a rest, a pause, a dropped
 present and a rebuilt device each start the accumulation again rather than
 blending across the gap.
 
-The history is one image per frame slot rather than one for the device: a
-shared image would be written by the copy that fills it while another slot's
-resolve read it, and nothing orders those two -- a slot's fence covers its own
-submissions and no others. For the same reason a recording made under this mode
-is only reused in the slot it was made in (`RendererState::img_slot`), where
-nothing else in the renderer cares which slot a recording is submitted in. The
-fill itself is a `vkCmdCopyImage` and not a second colour attachment: the pass
-reads the image it would have to write, which is the one feedback loop the API
-rejects.
+The resolve is two images, one a frame slot, and the pass writes its slot's
+and mixes in the other's -- the frame before's result, which is what "follows"
+means above. There is no copy into a history: the pass's external dependency
+orders its write after every earlier read of the image (the fetch, and the next
+frame's resolve) and a later read after the write, across submissions, since a
+barrier's scope reaches the commands submitted before and after it on the
+queue. A recording made under this mode is only reused in the slot it was made
+in (`RendererState::img_slot`), where nothing else in the renderer cares which
+slot a recording is submitted in, because the sets name the images by slot. The
+earlier design read a history per slot filled by a `vkCmdCopyImage`, which
+meant a frame mixed in the result of the frame *two* before it against a motion
+vector for one, and paid the copy measured below. The costs that follow were
+taken with that copy; the Direct3D 12 and Metal resolves still have it.
 
 What it costs, measured (2026-11-22) by the same method as the table below:
 a pinned scene against a direct frame of the same pin, uncapped on `MAILBOX`,
@@ -11220,7 +11224,7 @@ target or an atlas replaced while a frame is in flight is simply let go,
 where Direct3D 12 drains its queue; only the overlay's arenas, which the CPU
 writes, wait for their frame slot. The layer's `nextDrawable` is the
 throttle, as Vulkan's acquire is, and `displaySyncEnabled` is vsync. The
-drawables are three, and a window that is covered is the occlusion state's
+drawables are two, for the latency (a third lets the scene be recorded a refresh early), and a window that is covered is the occlusion state's
 to report, through the bridge, since the layer still hands out drawables
 there that the window server never shows.
 

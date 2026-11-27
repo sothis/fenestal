@@ -2142,6 +2142,12 @@ struct FnlApp {
 
 	/* ---- shared: under App::lock -------------------------------------- */
 	FNL_ALIGNAS(64) FnlMutex lock;
+	/* Whether the render thread is inside rest_wait()'s wait: written under
+	 * `lock`, so a publisher that holds it can tell a signal has a taker.
+	 * The per-motion publishes (reticle, hover) signal only then; the late-
+	 * latch hold and every other wait on `cond` ignore them anyway, and each
+	 * was a futex wake and a context switch per report. */
+	bool rest_waiting;
 	FnlCond cond;
 	int want_w, want_h;
 	int want_scale120;
@@ -3200,6 +3206,15 @@ void ctl_motion(App *a, int win_w, int x, int y);
 /* Decode the baked glyph table. Must run before anything measures or draws
  * text, and before any thread starts. */
 FNL_MUST_USE FnlResult text_load_cells(void);
+/* Decode the atlas baked for scale index `si` on a thread of its own, ahead
+ * of the renderer that wants it ([main], once the backend has opened).
+ * text_atlas_take() joins it and hands over the decoded bytes -- `bytes`
+ * long, malloc'd, the caller's -- or null where nothing was started, it
+ * failed, or it was for another scale, and the caller decodes as before.
+ * One take settles the slot, and a take with nothing started is free, so a
+ * failed init calls it too. text_measure.c. */
+void text_atlas_prefetch(int si);
+unsigned char *text_atlas_take(int si, size_t bytes);
 /* The width to *reserve* for a string, in logical points: what no baked scale
  * would draw it wider than. It never reads the scale in force, so both
  * threads get the same answer. There is deliberately no measure in pixels;

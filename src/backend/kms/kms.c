@@ -1029,9 +1029,107 @@ static bool cursor_atomic_send(struct BackendState *p, uint32_t crtc,
 #define CURSOR_RECHECK_MS 50
 #define CURSOR_RECHECKS 100
 
+/* The display path's cursor moves, off the pump. A blocking atomic commit
+ * waits for the CRTC's flip, up to a refresh, and the pump that sat in it
+ * read no key and no button until it came back -- under a moving pointer,
+ * every key was a vblank late. Only the *place* of an already-shown shape
+ * goes this way; the thread sends the newest one it was handed, so moves
+ * coalesce, and the commit is the synchronous one Mesa's flips need
+ * (kms_atomic_cursor_set()). Anything else that touches the plane --
+ * a shape, a hide, a legacy ioctl, the close -- calls cursor_quiesce()
+ * first, which drops a move not yet begun and waits out one that has. */
+static void *cursor_mover(void *arg)
+{
+	struct BackendState *p = arg;
+	fnl_mutex_lock(&p->mv_lock);
+	while (!p->mv_quit) {
+		if (!p->mv_has) {
+			fnl_cond_wait_for(&p->mv_work, &p->mv_lock, 0.5);
+			continue;
+		}
+		const uint32_t crtc = p->mv_crtc, fb = p->mv_fb;
+		const uint32_t w = p->mv_w, h = p->mv_h;
+		const int x = p->mv_x, y = p->mv_y;
+		p->mv_has  = false;
+		p->mv_busy = true;
+		fnl_mutex_unlock(&p->mv_lock);
+		const bool ok =
+			kms_atomic_cursor_set(p->host->atomic, crtc, fb, x, y, w, h, true);
+		if (!ok)
+			fnl_atomic_store_bool(&p->mv_failed, true);
+		fnl_mutex_lock(&p->mv_lock);
+		p->mv_busy = false;
+		fnl_cond_signal(&p->mv_idle);
+	}
+	fnl_mutex_unlock(&p->mv_lock);
+	return NULL;
+}
+
+/* No move of ours is pending or in flight when this returns. */
+static void cursor_quiesce(struct BackendState *p)
+{
+	if (!p->mv_started)
+		return;
+	fnl_mutex_lock(&p->mv_lock);
+	p->mv_has = false;
+	while (p->mv_busy)
+		fnl_cond_wait_for(&p->mv_idle, &p->mv_lock, 0.1);
+	fnl_mutex_unlock(&p->mv_lock);
+}
+
+/* Hand the thread the place; false where it cannot be started, and the
+ * caller sends the move itself. */
+static bool cursor_move_post(struct BackendState *p, uint32_t crtc,
+							 KmsGlyph g, int x, int y)
+{
+	if (!p->mv_inited) {
+		fnl_mutex_init(&p->mv_lock);
+		fnl_cond_init(&p->mv_work);
+		fnl_cond_init(&p->mv_idle);
+		p->mv_inited = true;
+	}
+	if (!p->mv_started) {
+		p->mv_quit    = false;
+		p->mv_started = fnl_thread_start(&p->mv_thread, cursor_mover, p);
+		if (!p->mv_started)
+			return false;
+	}
+	fnl_mutex_lock(&p->mv_lock);
+	p->mv_crtc = crtc;
+	p->mv_fb   = p->glyph_fb[g];
+	p->mv_w    = p->cursor_w;
+	p->mv_h    = p->cursor_h;
+	p->mv_x    = x;
+	p->mv_y    = y;
+	p->mv_has  = true;
+	fnl_cond_signal(&p->mv_work);
+	fnl_mutex_unlock(&p->mv_lock);
+	return true;
+}
+
+static void cursor_mover_stop(struct BackendState *p)
+{
+	if (p->mv_started) {
+		fnl_mutex_lock(&p->mv_lock);
+		p->mv_quit = true;
+		p->mv_has  = false;
+		fnl_cond_signal(&p->mv_work);
+		fnl_mutex_unlock(&p->mv_lock);
+		fnl_thread_join(p->mv_thread);
+		p->mv_started = false;
+	}
+	if (p->mv_inited) {
+		fnl_cond_destroy(&p->mv_work);
+		fnl_cond_destroy(&p->mv_idle);
+		fnl_mutex_destroy(&p->mv_lock);
+		p->mv_inited = false;
+	}
+}
+
 /* Take the cursor off the CRTC it was last shown on, if it shows one. */
 static void cursor_hide(struct BackendState *p, bool wait)
 {
+	cursor_quiesce(p);
 	const uint32_t crtc = p->cursor_on;
 	if (crtc && p->glyph_shown != KMS_GLYPH_NONE &&
 		p->glyph_shown != KMS_GLYPH_UNSET) {
@@ -1076,6 +1174,14 @@ static void cursor_show(App *a, KmsGlyph g)
 	 * out would come back, so there it stays NONBLOCK. */
 	const bool wait = fnl_atomic_load_ptr(&p->host->display_owner) == a;
 	const int px = (int)p->ptr_x, py = (int)p->ptr_y;
+	/* A move the thread's commit was refused: the shape is sent afresh, by
+	 * the synchronous path that counts refusals and falls back to the
+	 * legacy ioctl. */
+	if (p->mv_started && fnl_atomic_load_bool(&p->mv_failed)) {
+		cursor_quiesce(p);
+		fnl_atomic_store_bool(&p->mv_failed, false);
+		p->glyph_shown = KMS_GLYPH_UNSET;
+	}
 	/* The CRTC driving the output now, asked of the kernel until there is
 	 * one: after a switch the render thread sets the mode, and the display
 	 * path's driver chooses the CRTC itself. Until then the open's guess,
@@ -1129,6 +1235,18 @@ static void cursor_show(App *a, KmsGlyph g)
 		}
 		return;
 	}
+
+	/* The display path's move of a shape already on the plane goes to the
+	 * thread. */
+	if (wait && g != KMS_GLYPH_NONE && g == p->glyph_shown &&
+		crtc == p->cursor_on && p->glyph_fb[g] && cursor_atomic(p, crtc) &&
+		cursor_move_post(p, crtc, g, px - GLYPHS[g].hot_x,
+						 py - GLYPHS[g].hot_y)) {
+		p->cursor_at_x = px;
+		p->cursor_at_y = py;
+		return;
+	}
+	cursor_quiesce(p);
 
 	/* The glyph's buffer, made once per shape and shared by both paths. */
 	if (g != KMS_GLYPH_NONE && !p->glyph_handle[g] && !glyph_make(p, g)) {
@@ -1262,6 +1380,8 @@ static void cursor_recheck(App *a)
 
 static void cursor_free(struct BackendState *p)
 {
+	cursor_quiesce(p);
+	cursor_mover_stop(p);
 	if (p->host->card_fd < 0)
 		return;
 	cursor_hide(p, false);

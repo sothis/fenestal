@@ -29,15 +29,16 @@ layout(location = 5) flat in float v_kind;  /* ShapeKind               */
 
 layout(location = 0) out vec4 out_color;
 
-/* Distance from p to the capsule spine a..b. */
-float segment_distance(vec2 p, vec2 a, vec2 b)
+/* Squared distance from p to the capsule spine a..b. */
+float segment_distance2(vec2 p, vec2 a, vec2 b)
 {
 	vec2  pa = p - a;
 	vec2  ba = b - a;
 	float len2 = dot(ba, ba);
 	/* len2 == 0 is a degenerate segment, i.e. a round dot at a. */
 	float h = len2 > 0.0 ? clamp(dot(pa, ba) / len2, 0.0, 1.0) : 0.0;
-	return length(pa - ba * h);
+	vec2  v = pa - ba * h;
+	return dot(v, v);
 }
 
 /* Distance from p to the *border* of the axis-aligned rectangle a..b: the
@@ -48,16 +49,6 @@ float box_border_distance(vec2 p, vec2 a, vec2 b)
 	vec2 half_e = 0.5 * abs(b - a);
 	vec2 q = abs(p - 0.5 * (a + b)) - half_e;
 	return abs(min(max(q.x, q.y), 0.0) + length(max(q, 0.0)));
-}
-
-/* The signed distance to a box a..b whose corners are rounded by `r`: the
- * length of the overflow past the box shrunk by r, less r. Negative inside,
- * so the coverage ramp straddles the border; r == 0 is the plain box. */
-float box_round_distance(vec2 p, vec2 a, vec2 b, float r)
-{
-	vec2 half_e = 0.5 * abs(b - a) - r;
-	vec2 q = abs(p - 0.5 * (a + b)) - half_e;
-	return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
 }
 
 void main()
@@ -94,9 +85,19 @@ void main()
 		/* A filled box: the signed distance to the box, rounded where the kind
 		 * says so -- 1 inside, falling to 0 across the feather at the border --
 		 * so the interior is opaque whatever half_w says. */
-		float sd = v_kind > 1.5
-				   ? box_round_distance(v_px, v_p0p1.xy, v_p0p1.zw, half_w)
-				   : box_round_distance(v_px, v_p0p1.xy, v_p0p1.zw, 0.0);
+		const float r = v_kind > 1.5 ? half_w : 0.0;
+		const vec2 half_e = 0.5 * abs(v_p0p1.zw - v_p0p1.xy) - r;
+		const vec2 q = abs(v_px - 0.5 * (v_p0p1.xy + v_p0p1.zw)) - half_e;
+		const float m = max(q.x, q.y);
+		/* Inside by more than the feather the coverage is exactly 1
+		 * (smoothstep is 0 at and below its lower edge), and the distance
+		 * there is m - r with no overflow past the box: so the sqrt and the
+		 * ramp, which a large panel pays at every pixel, are skipped. */
+		if (m <= min(0.0, r - feather)) {
+			out_color = v_color;
+			return;
+		}
+		const float sd = min(m, 0.0) + length(max(q, 0.0)) - r;
 		coverage = 1.0 - smoothstep(-feather, feather, sd);
 	} else {
 		/* One distance for the whole shape, so a join is covered once and is
@@ -106,10 +107,23 @@ void main()
 		 * the second arm to a point inside the first, a plain line; p2 == p0 with
 		 * p0 != p1 is the one thing an elbow can never mean, so it is read as p0
 		 * and p1 being opposite corners of a rectangle. */
-		float d = (v_p2hf.xy == v_p0p1.xy && v_p0p1.xy != v_p0p1.zw)
-					? box_border_distance(v_px, v_p0p1.xy, v_p0p1.zw)
-					: min(segment_distance(v_px, v_p0p1.xy, v_p0p1.zw),
-						  segment_distance(v_px, v_p0p1.zw, v_p2hf.xy));
+		float d;
+		if (v_p2hf.xy == v_p0p1.xy && v_p0p1.xy != v_p0p1.zw) {
+			d = box_border_distance(v_px, v_p0p1.xy, v_p0p1.zw);
+		} else {
+			/* Squared, and the reject before the root: most of a stroke's
+			 * box is outside it. A plain line (p2 == p1) has no second arm
+			 * -- the point at p1 is on the first arm's capsule already, so
+			 * the minimum is the first distance and the second is not
+			 * computed. The flat compare is the same for the whole stroke. */
+			float d2 = segment_distance2(v_px, v_p0p1.xy, v_p0p1.zw);
+			if (v_p2hf.xy != v_p0p1.zw)
+				d2 = min(d2, segment_distance2(v_px, v_p0p1.zw, v_p2hf.xy));
+			const float reach = half_w + feather;
+			if (d2 >= reach * reach)
+				discard;
+			d = sqrt(d2);
+		}
 		coverage = 1.0 - smoothstep(half_w - feather, half_w + feather, d);
 	}
 	if (coverage <= 0.0)

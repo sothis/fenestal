@@ -22,9 +22,13 @@
 /* The renderer's state, from an App. */
 #define MT(a) ((a)->renderer_state)
 
-/* Drawables the layer keeps: three, so that a frame on the display, one
- * queued and one drawn need not wait for one another. */
-#define MT_DRAWABLES 3
+/* Drawables the layer keeps: two, so that nextDrawable blocks until the queued
+ * frame is latched and on_record runs just in time. Three let the pump hand
+ * the scene a drawable at once with a frame on the display and one queued
+ * behind it, which is a refresh more of latency (69-70 ms latch to screen at
+ * 60 Hz, against Direct3D 12's 20). A frame longer than a refresh has no
+ * spare drawable to hide behind: that is the price of the latency. */
+#define MT_DRAWABLES 2
 
 /* The largest texture every Mac GPU Metal runs on makes (MTLGPUFamilyMac2),
  * which the scale is resolved against. */
@@ -102,12 +106,11 @@ struct RendererState {
 	bool     scene_ms_refused;
 	__strong id<MTLTexture> mlaa;
 	bool     mlaa_refused;
-	/* TAAU's resolve and the history it mixes in, one per frame slot: a
-	 * command buffer keeps every texture it names alive, so a slot's history
-	 * is never the one a frame in flight is writing. Both are written by a
-	 * render pass and read by a blit, which Metal allows on any private
-	 * texture -- the usage flags below are for the sampling. */
-	__strong id<MTLTexture> taau;
+	/* TAAU's resolve: one image a frame slot. A frame's pass writes its
+	 * slot's and mixes in the other's, the frame before's, and the fetch reads
+	 * the one written -- no blit. Metal tracks the hazards between the
+	 * passes of one queue, and a command buffer keeps every texture it names
+	 * alive. */
 	__strong id<MTLTexture> taau_hist[MAX_FRAMES_IN_FLIGHT];
 	bool     taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
 	bool     taau_refused;

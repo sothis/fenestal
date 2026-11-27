@@ -11,6 +11,10 @@
 
 #include "core/app.h"
 
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+
 /* ---- late latching -------------------------------------------------------
  *
  * The loop waits out most of the display period before sampling what it
@@ -1925,7 +1929,8 @@ static void rest_wait(App *a)
 	 * what keeps a post between the turn's event check and this wait from
 	 * being lost: it is either seen in `missed` or its signal reaches the
 	 * wait below. */
-	const bool missed = fnl_atomic_load_bool(&a->ev_wake);
+	const bool missed = fnl_atomic_load_bool(&a->ev_wake) ||
+						a->want_user_gen != a->last_draw.user_gen;
 	fnl_atomic_store_bool(&a->ev_wake, false);
 	/* Not past a time fnl_invalidate_in() asked for: the next frame is that
 	 * one, and a wait of a whole period would draw it late. */
@@ -1934,8 +1939,11 @@ static void rest_wait(App *a)
 		if (left < t)
 			t = left;
 	}
-	if (!a->quit && !a->want_urgent && !missed && t > 0.0)
+	if (!a->quit && !a->want_urgent && !missed && t > 0.0) {
+		a->rest_waiting = true;
 		fnl_cond_wait_for(&a->cond, &a->lock, t);
+		a->rest_waiting = false;
+	}
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -1988,6 +1996,13 @@ void *render_loop(void *arg)
 {
 	App *a = arg;
 	app_thread_set(APP_THREAD_RENDER);
+#if defined(__linux__)
+	/* The hold, the spacing and the rest wait are timed condition waits, and
+	 * the kernel lets a timer fire up to the thread's slack late to batch
+	 * wakeups: 50 us by default, a step of the late-latch controller's own.
+	 * 1 ns is the least it takes; a few more timer interrupts a second. */
+	(void)prctl(PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL);
+#endif
 	/* The window this thread draws for. app_renderer_state_ours() reads it to
 	 * tell this window's renderer state from another's, and the render-thread
 	 * paths that reach the App through a callback's pointer find it here. */
@@ -2180,6 +2195,13 @@ void *render_loop(void *arg)
 				frame_row.pace_ms = (float)(dt * 1e3);
 			}
 		}
+
+		/* The pacing wait is most of a display period, and a post (or a
+		 * deadline) that landed in it moved the draw state: drained only at
+		 * the top of the turn, its fn would run after the frame it asked for
+		 * was latched and recorded, and show a period late. */
+		app_post_drain(a);
+		draw_time_spend(a);
 
 		Latch l;
 		if (latch_take(a, &l, &urgent, &cb_at))

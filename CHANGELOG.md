@@ -6,6 +6,31 @@ promised: before 1.0, nothing between minor releases.
 
 ## Unreleased
 
+- **Performance and latency.** The scene fetch takes nine taps instead of
+  sixteen when it stretches and one when it copies (1:1 under MSAA or TAAU);
+  TAAU's resolve ping-pongs two images instead of copying into a history, and
+  now mixes in the frame before it (Vulkan; Direct3D 12 and Metal keep the
+  copy); a caller image's upload and destroy no longer drain the queue
+  (Vulkan); KMS's cursor moves on the display path no longer hold the input
+  thread for a vblank; the atlas is decoded on a thread while the renderer is
+  made; `fnl_text_elide()` is one pass; Metal keeps two drawables, not three.
+  Second round: Direct3D 12 and Metal resolve TAAU into a per-slot image
+  too (no copy); the window's depth is not cleared under an offscreen scene;
+  the shape shader skips the distance and the ramp inside a filled box, takes
+  one arm for a plain line and rejects before the root; the text shader has no
+  `pow`; the Vulkan loader and its drivers are scanned on a thread while the
+  window opens; an excess primitive is refused before its colour is converted.
+  Third round: a re-record waits for the frame that last drew the image, not
+  the newest frame, once the swapchain has more images than frame slots
+  (Vulkan); a resize with an antialiased scene waits for this window's frames
+  and not the whole queue (Vulkan); a post or a deadline that lands in the
+  late-latch hold is run before the frame is latched, not a display period
+  after it; `fnl_invalidate()` wakes the render thread only from its rest
+  wait; the render thread's timers carry no slack (Linux); the width memo
+  keys on the size, and text measure and elide look each glyph up once, not
+  once a scale, and compare instead of dividing; a wash after a rect no
+  longer flushes the rects; Metal's MLAA pass does not clear a depth nothing
+  reads; Vulkan keeps 32 caller-image uploads in flight, not 8.
 - **An MCP server inside the program, for an agent to drive the window.**
   `FNL_MCP=1` in the environment (or `FNL_MCP=<socket path>`; `0`, `false`,
   `off` and `no` are off, any other word refused) opens a Model Context

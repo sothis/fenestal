@@ -261,6 +261,15 @@ typedef struct FnlRendererVtbl {
 	 * whatever in flight still reads it. Render thread, outside a
 	 * recording. */
 	void (*cover_release)(App *a);
+	/* Optional, NULL for a renderer with nothing to warm. `prewarm` starts
+	 * the part of the renderer's first build that needs neither the window
+	 * nor a device -- Vulkan's loader and its driver scan -- on a thread of
+	 * its own, from fnl_init() before the backend opens, so it runs while
+	 * the window is made. `prewarm_end` joins it and lets go of what the
+	 * build did not take; called once the build has been tried, and on a
+	 * failed init. Main thread. */
+	void (*prewarm)(void);
+	void (*prewarm_end)(void);
 } FnlRendererVtbl;
 
 /* An entry with nothing to do, for a renderer to name in its table rather

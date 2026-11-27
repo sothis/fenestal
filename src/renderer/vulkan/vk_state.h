@@ -102,6 +102,9 @@ _Static_assert(GPU_NAME_MAX >= VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
  * submitted (FnlRendererVtbl::retire_tick); a burst deeper than this forces an
  * early flush. */
 #define MAX_RETIRED 4
+/* Caller images' uploads in flight at once; a burst past it waits the queue
+ * out and goes on. */
+#define IMAGE_UPLOADS_MAX 32
 /* Swapchains waiting for the reaper. A new one is retired every few frames
  * at most and destroyed in a third of that, so more than two waiting is a
  * reaper that has stopped; past this many they are destroyed in line. */
@@ -228,13 +231,13 @@ struct RendererState {
 	VkCommandBuffer       img_cmd[OVERLAY_MAX_IMAGES];
 	uint32_t              img_cmd_gen[OVERLAY_MAX_IMAGES];
 	/* The slot a recording was made in, and whether it was made with TAAU
-	 * on. The resolve reads a history image per slot, so a recording reused
-	 * in another slot would read the wrong one: under TAAU the slot is part
+	 * on. The resolve writes an image per slot, so a recording reused in
+	 * another slot would write the wrong one: under TAAU the slot is part
 	 * of what a recording is for, and frame_record() re-records rather than
 	 * submit one elsewhere. */
 	uint32_t img_slot[OVERLAY_MAX_IMAGES];
 	bool img_taau[OVERLAY_MAX_IMAGES];
-	/* Whether the recording mixed its slot's history in (App::presents and
+	/* Whether the recording mixed the frame before in (App::presents and
 	 * taau_hist_ok as record_taau_pass() read them). Baked into the push
 	 * constant, so a recording is only good while the answer stands: the
 	 * first frame after a rest, a pause or a dropped present is recorded
@@ -419,16 +422,15 @@ struct RendererState {
 	TargetImage           mlaa;
 	VkFramebuffer         mlaa_fb;
 	bool                  mlaa_refused;
-	/* TAAU's resolve (FNL_AA_TAAU): what the pass writes, at the scene's own
-	 * resolution and the same format, so the fetch then reads it as it reads
-	 * the filter's -- and the image it mixes in, which is the resolved frame
-	 * from before, per frame slot so that a frame of one slot never touches
-	 * a history the other is writing (each slot's own fence is what orders
-	 * its uses). frame_record() re-records rather than reusing a command
-	 * buffer in another slot, which is what keeps a set's history and the
-	 * slot it is submitted in the same one. */
-	TargetImage taau;
-	VkFramebuffer taau_fb;
+	/* TAAU's resolve (FNL_AA_TAAU): two images at the scene's own resolution
+	 * and the same format, one a frame slot. A frame's pass writes its slot's
+	 * and mixes in the other's, the frame before's; the fetch then reads the
+	 * one written, as it reads the filter's. `taau_hist_ok[s]` is whether
+	 * slot s's image holds a frame that reached the queue. frame_record()
+	 * re-records rather than reusing a command buffer in another slot, which
+	 * is what keeps a set's image and the slot it is submitted in the same
+	 * one. */
+	VkFramebuffer taau_fb[MAX_FRAMES_IN_FLIGHT];
 	TargetImage taau_hist[MAX_FRAMES_IN_FLIGHT];
 	bool taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
 	bool taau_refused;
@@ -438,13 +440,13 @@ struct RendererState {
 	uint64_t taau_present;
 	/* The resolve's own pipeline, layout and set layout -- two samplers and a
 	 * push block, which the fetch's layout has room for neither of -- and the
-	 * sets: one per frame slot reading the scene and that slot's history,
-	 * plus the fetch's set that reads the resolve. */
+	 * sets: one per frame slot reading the scene and the other slot's image,
+	 * plus the fetch's one per slot that reads the image its pass wrote. */
 	VkPipeline taau_pipeline;
 	VkPipelineLayout taau_layout;
 	VkDescriptorSetLayout taau_set_layout;
 	VkDescriptorSet taau_set[MAX_FRAMES_IN_FLIGHT];
-	VkDescriptorSet blit_set_taau;
+	VkDescriptorSet blit_set_taau[MAX_FRAMES_IN_FLIGHT];
 
 	/* The snapshot a move takes (App::snap_owed): whether the window's
 	 * images may be copied from -- TRANSFER_SRC among the surface's usage,
@@ -563,11 +565,23 @@ struct RendererState {
 	VkDescriptorSetLayout image_set_layout;
 	VkDescriptorPool      image_pool;
 	VkSampler             image_sampler;
-	/* Caller images destroyed while a recording was open, whose draws that
-	 * command buffer still names: a list through VkImageObj::retire_next,
-	 * let go by vk_images_retire() after the frame is submitted. overlay.c
-	 * owns the objects; this is the head. */
+	/* Caller images destroyed, whose draws a command buffer still being
+	 * recorded or still on the queue names: a list through
+	 * VkImageObj::retire_next, let go by vk_images_tick() on the frame
+	 * countdown (vk_images_retire() drains it). overlay.c owns the objects;
+	 * this is the head. */
 	void                 *img_retire;
+	int                   img_retire_n;
+	/* Caller images uploaded without a wait: the command buffer and the
+	 * staging pair, kept until the queue is past them (overlay.c). */
+	struct VkUpload {
+		VkCommandBuffer cb;
+		VkBuffer        stage;
+		VkDeviceMemory  mem;
+		void           *map;
+		int             left;
+	}                     uploads[IMAGE_UPLOADS_MAX];
+	int                   uploads_n;
 
 	/* Where the scene is being recorded, while on_record runs, and null
 	 * outside it. Stashed because the public callback signature carries no
@@ -587,6 +601,18 @@ struct RendererState {
 	/* ---- frame sync -------------------------------------------------- */
 	VkSemaphore           img_available[MAX_FRAMES_IN_FLIGHT];
 	VkFence               in_flight[MAX_FRAMES_IN_FLIGHT];
+	/* Which submits a fence wait has covered. A fence is reused every
+	 * MAX_FRAMES_IN_FLIGHT frames, so images_in_flight[] names the frame
+	 * *after* the one that last used an image once the swapchain has more
+	 * images than slots; waiting on it then waits for the newest frame, not
+	 * the old one. Each submit takes the next serial (slot_serial[], and
+	 * img_serial[] for the image it drew), and a wait on a slot's fence
+	 * moves done_serial to that slot's: the queue is in order, so every
+	 * submit up to it has finished too. An image whose serial is covered
+	 * needs no wait. */
+	uint64_t              submit_serial, done_serial;
+	uint64_t              slot_serial[MAX_FRAMES_IN_FLIGHT];
+	uint64_t              img_serial[OVERLAY_MAX_IMAGES];
 
 	/* The swapchain's format, and the format of the colour targets the
 	 * renderer draws into: the same as the swapchain's, or

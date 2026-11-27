@@ -45,12 +45,13 @@ enum {
 	RTV_SCENE_MS,
 	RTV_MLAA,
 	RTV_TAAU,
+	RTV_TAAU1, /* one a frame slot: RTV_TAAU + a->frame */
 	RTV_COUNT
 };
 enum { DSV_WINDOW = 0, DSV_SCENE, DSV_SCENE_MS, DSV_COUNT };
 /* TAAU's resolve reads two images in one draw, and a descriptor table reads
  * *consecutive* descriptors: so the pairs it hands the table are reserved as
- * pairs -- {scene, history 0} and {scene, history 1} -- rather than copied
+ * pairs -- {scene, the slot's other image} -- rather than copied
  * into place each frame, which would be work in the recording for a view
  * that never changes. The scene's views in those pairs are made again
  * wherever the scene's image is (d3d_scene_set_size()). */
@@ -60,6 +61,7 @@ enum {
 	SRV_MLAA,
 	SRV_COVER,
 	SRV_TAAU,
+	SRV_TAAU1, /* one a frame slot: SRV_TAAU + a->frame */
 	SRV_PAIR0,
 	SRV_PAIR0_H,
 	/* FNL_AA_TAAU's resolve reads three images in one draw -- the scene,
@@ -246,10 +248,10 @@ struct RendererState {
 	bool scene_ms_refused;
 	D3dTarget mlaa;
 	bool mlaa_refused;
-	/* TAAU's resolve and the history it mixes in, one per frame slot: the
-	 * resolve has an RTV and is copied from, the histories are copied into
-	 * and sampled. */
-	D3dTarget taau;
+	/* TAAU's resolve: one image a frame slot, each with an RTV and an SRV. A
+	 * frame's pass writes its slot's and mixes in the other's, the frame
+	 * before's; the fetch reads the one written. No copy: `taau_hist_ok[s]`
+	 * is whether slot s's image holds a frame that was recorded. */
 	D3dTarget taau_hist[MAX_FRAMES_IN_FLIGHT];
 	bool taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
 	bool taau_refused;

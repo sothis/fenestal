@@ -139,50 +139,52 @@ FnlResult create_scene_objects(App *a)
 	VK_TRY(vkCreateDescriptorSetLayout(VK(a)->device, &tdlci, NULL,
 									   &VK(a)->taau_set_layout));
 
-	/* Six sets for the life of the device: the fetch's three, one reading
-	 * TAAU's resolve, and the resolve's own one per frame slot -- each
+	/* Seven sets for the life of the device: the fetch's three, one a frame
+	 * slot reading TAAU's resolve, and the resolve's own one per frame slot -- each
 	 * pointed at its image when that image is built (see write_scene_set and
 	 * write_taau_sets) and chosen between at record time, so toggling a mode
 	 * never rewrites a descriptor a command buffer in flight names. MLAA's
 	 * own input is the second of the fetch's; the third is the cover's, the
-	 * frame read back before a move. Ten descriptors: the resolve's sets
+	 * frame read back before a move. Eleven descriptors: the resolve's sets
 	 * hold three apiece. */
 	/* HDR adds the encode's one a swapchain image (OVERLAY_MAX_IMAGES at
 	 * most), each a set of one sampler. */
 	const uint32_t extra = VK(a)->hdr ? OVERLAY_MAX_IMAGES : 0;
 	VkDescriptorPoolSize ps        = { .type =
 										   VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-									   .descriptorCount = 10 + extra };
+									   .descriptorCount = 11 + extra };
 	VkDescriptorPoolCreateInfo pci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.maxSets       = 6 + extra,
+		.maxSets       = 7 + extra,
 		.poolSizeCount = 1,
 		.pPoolSizes    = &ps,
 	};
 	VK_TRY(
 		vkCreateDescriptorPool(VK(a)->device, &pci, NULL, &VK(a)->blit_pool));
 
-	VkDescriptorSetLayout set_layouts[6] = {
+	VkDescriptorSetLayout set_layouts[7] = {
 		VK(a)->blit_set_layout, VK(a)->blit_set_layout, VK(a)->blit_set_layout,
-		VK(a)->blit_set_layout, VK(a)->taau_set_layout, VK(a)->taau_set_layout,
+		VK(a)->blit_set_layout, VK(a)->blit_set_layout, VK(a)->taau_set_layout,
+		VK(a)->taau_set_layout,
 	};
-	VkDescriptorSet sets[6] = {
-		VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE,
+	VkDescriptorSet sets[7] = {
+		VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE,
 		VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE
 	};
 	VkDescriptorSetAllocateInfo dai = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		.descriptorPool = VK(a)->blit_pool,
-		.descriptorSetCount = 6,
+		.descriptorSetCount = 7,
 		.pSetLayouts        = set_layouts,
 	};
 	VK_TRY(vkAllocateDescriptorSets(VK(a)->device, &dai, sets));
 	VK(a)->blit_set_scene = sets[0];
 	VK(a)->blit_set_mlaa  = sets[1];
 	VK(a)->blit_set_cover = sets[2];
-	VK(a)->blit_set_taau  = sets[3];
-	VK(a)->taau_set[0]    = sets[4];
-	VK(a)->taau_set[1]    = sets[5];
+	VK(a)->blit_set_taau[0] = sets[3];
+	VK(a)->blit_set_taau[1] = sets[4];
+	VK(a)->taau_set[0]    = sets[5];
+	VK(a)->taau_set[1]    = sets[6];
 
 	/* One for each image the encode may read, pointed at it when the
 	 * swapchain's images are made (write_encode_sets). */
@@ -376,7 +378,7 @@ static bool create_scene_mlaa(App *a)
 }
 
 /* The two sets the resolve reads through, one per frame slot: the scene this
- * frame draws and the history that slot owns. Written once when the images are
+ * frame draws and the image of the slot before it. Written once when the images are
  * built and never while they live -- a set a command buffer in flight names is
  * not rewritten. The sets are left naming views that are gone only until the
  * target is built again, and no recording that named them is submitted in
@@ -389,9 +391,10 @@ static bool create_scene_mlaa(App *a)
 static void write_taau_sets(App *a)
 {
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		const VkImageView view      = VK(a)->taau_hist[i].view != VK_NULL_HANDLE
-										  ? VK(a)->taau_hist[i].view
-										  : VK(a)->scene.view;
+		/* The other slot's image: the frame before this slot's. */
+		const VkImageView view = VK(a)->taau_hist[i ^ 1].view != VK_NULL_HANDLE
+									 ? VK(a)->taau_hist[i ^ 1].view
+									 : VK(a)->scene.view;
 		/* Where the depth is not -- a device that refused it -- the colour
 		 * image stands in and the resolve leaves the comparison off. */
 		const bool have_depth = VK(a)->scene_depth_resident;
@@ -424,10 +427,9 @@ static void write_taau_sets(App *a)
 
 static void destroy_scene_taau(App *a)
 {
-	vkDestroyFramebuffer(VK(a)->device, VK(a)->taau_fb, NULL);
-	VK(a)->taau_fb = VK_NULL_HANDLE;
-	destroy_target_image(a, &VK(a)->taau);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		vkDestroyFramebuffer(VK(a)->device, VK(a)->taau_fb[i], NULL);
+		VK(a)->taau_fb[i] = VK_NULL_HANDLE;
 		destroy_target_image(a, &VK(a)->taau_hist[i]);
 		VK(a)->taau_hist_ok[i] = false;
 	}
@@ -435,8 +437,8 @@ static void destroy_scene_taau(App *a)
 
 /* A history is read at the top of the resolve, before anything has written it,
  * so it is put in the layout that read declares at birth rather than left
- * UNDEFINED: what it holds is nothing until the first copy -- which the shader
- * weighs at nought -- but the layout is the API's to check. */
+ * UNDEFINED: what it holds is nothing until the first pass has written it --
+ * which the shader weighs at nought -- but the layout is the API's to check. */
 static bool taau_history_ready(App *a)
 {
 	const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
@@ -466,36 +468,32 @@ static bool taau_history_ready(App *a)
 	return end_oneshot(a, cb) >= 0;
 }
 
-/* What the resolve writes and what it mixes in. The history is written by a
- * copy rather than by the pass, so it takes TRANSFER_DST and no attachment
- * bit: the resolve has one output and the whole point of the copy is that the
- * image it reads is not the image it writes. */
+/* What the resolve writes and what it mixes in: one image a frame slot,
+ * each written by its slot's pass and read as the next slot's history, and
+ * by the fetch. */
 static bool create_scene_taau(App *a)
 {
 	const uint32_t w   = (uint32_t)a->scene_extent.w;
 	const uint32_t h   = (uint32_t)a->scene_extent.h;
 	const VkFormat fmt = VK(a)->color_format;
 
-	if (FNL_FAULT("scene-taau") ||
-		!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
-							 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-								 VK_IMAGE_USAGE_SAMPLED_BIT |
-								 VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-							 false, &VK(a)->taau))
+	if (FNL_FAULT("scene-taau"))
 		return false;
-	if (make_framebuffer(a, VK(a)->post_pass, 1, &VK(a)->taau.view, w, h,
-						 &VK(a)->taau_fb) != VK_SUCCESS)
-		return false;
-	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		if (!create_target_image(a, w, h, fmt, VK_SAMPLE_COUNT_1_BIT,
-								 VK_IMAGE_USAGE_SAMPLED_BIT |
-									 VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+								 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+									 VK_IMAGE_USAGE_SAMPLED_BIT,
 								 false, &VK(a)->taau_hist[i]))
 			return false;
+		if (make_framebuffer(a, VK(a)->post_pass, 1, &VK(a)->taau_hist[i].view,
+							 w, h, &VK(a)->taau_fb[i]) != VK_SUCCESS)
+			return false;
+	}
 	if (!taau_history_ready(a))
 		return false;
 	write_taau_sets(a);
-	write_scene_set(a, VK(a)->blit_set_taau, VK(a)->taau.view);
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		write_scene_set(a, VK(a)->blit_set_taau[i], VK(a)->taau_hist[i].view);
 	return true;
 }
 
@@ -543,7 +541,8 @@ bool scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 					a->scene_extent.w, a->scene_extent.h);
 		}
 	}
-	if (want_taau && VK(a)->taau_fb == VK_NULL_HANDLE && !VK(a)->taau_refused) {
+	if (want_taau && VK(a)->taau_fb[0] == VK_NULL_HANDLE &&
+	    !VK(a)->taau_refused) {
 		/* The resolve reads the depth, so it has to be resident; rebuilt
 		 * here rather than at every size, which is what keeps the memory
 		 * off the frames that never ask for the mode. */
@@ -677,7 +676,7 @@ void scene_set_size(App *a, int w, int h)
 	 * the images and their descriptors, and this runs from the rebuild path,
 	 * which recovers from a lost device rather than failing on one. */
 	if (VK(a)->scene.image) {
-		VkResult r = vk_queue_wait_idle(a);
+		VkResult r = vk_frames_idle(a);
 		if (vk_lost(a, r))
 			return;
 		/* Not VK_TRY: this returns nothing, so a drain that failed for another
@@ -862,7 +861,8 @@ void destroy_scene_objects(App *a)
 	VK(a)->blit_set_cover = VK_NULL_HANDLE;   /* freed with the pool */
 	VK(a)->taau_set[0]    = VK_NULL_HANDLE; /* likewise */
 	VK(a)->taau_set[1]    = VK_NULL_HANDLE;
-	VK(a)->blit_set_taau  = VK_NULL_HANDLE;
+	VK(a)->blit_set_taau[0] = VK_NULL_HANDLE;
+	VK(a)->blit_set_taau[1] = VK_NULL_HANDLE;
 	VK(a)->cover_gen = 0;
 	VK(a)->cover_live = false;
 	vkDestroyPipeline(VK(a)->device, VK(a)->taau_pipeline, NULL);

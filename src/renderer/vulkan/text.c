@@ -180,21 +180,29 @@ static FnlResult build_atlas(App *a, int si)
 	 *
 	 * Zeroed: a decode that succeeds has written every byte, which
 	 * -fanalyzer cannot follow through the range decoder. */
-	unsigned char *scratch = calloc(1, (size_t)bytes);
+	/* Decoded ahead on a thread of its own where the first build found one
+	 * for this scale (text_atlas_take()); the decode here is what a scale
+	 * change, or a guess that missed, costs. */
+	unsigned char *scratch = text_atlas_take(si, (size_t)bytes);
 	if (!scratch) {
-		rc = fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-					  "out of memory expanding the %ux%u glyph atlas", aw, ah);
-		goto fail;
-	}
-	/* A stream that does not decode to exactly this atlas is a corrupt
-	 * executable, but a library does not end the host process over it.
-	 * Checked before the mapping, so a corrupt blob never maps. */
-	if (!font_decode(src, FONT_ATLAS_LEN[si], scratch, (size_t)bytes)) {
-		free(scratch);
-		rc = fnl_fail(FNL_ERR_SYSTEM,
-					  "the baked atlas for scale %d does not decode to %ux%u",
-					  FONT_SCALE[si], aw, ah);
-		goto fail;
+		scratch = calloc(1, (size_t)bytes);
+		if (!scratch) {
+			rc = fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+						  "out of memory expanding the %ux%u glyph atlas", aw,
+						  ah);
+			goto fail;
+		}
+		/* A stream that does not decode to exactly this atlas is a corrupt
+		 * executable, but a library does not end the host process over it.
+		 * Checked before the mapping, so a corrupt blob never maps. */
+		if (!font_decode(src, FONT_ATLAS_LEN[si], scratch, (size_t)bytes)) {
+			free(scratch);
+			rc = fnl_fail(FNL_ERR_SYSTEM,
+						  "the baked atlas for scale %d does not decode to "
+						  "%ux%u",
+						  FONT_SCALE[si], aw, ah);
+			goto fail;
+		}
 	}
 	void *p;
 	if ((rc = VKR(vkMapMemory(VK(a)->device, smem, 0, bytes, 0, &p))) < 0) {

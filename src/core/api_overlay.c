@@ -234,7 +234,8 @@ void fnl_overlay_text(FnlApp *app, int x, int y, FnlTextSize sz, FnlColor c,
 					  const char *utf8)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a) || !utf8 || !size_ok(sz))
+	if (!overlay_here(a) || !utf8 || !size_ok(sz) ||
+	    a->text_count >= TEXT_MAX_GLYPHS)
 		return;
 	float col[4];
 	to_surface(a, c, col);
@@ -427,7 +428,8 @@ void fnl_overlay_image(FnlApp *app, int x, int y, int w, int h,
 void fnl_overlay_rect(FnlApp *app, int x, int y, int w, int h, FnlColor c)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a))
+	if (!overlay_here(a) ||
+	    a->rect_count >= OVERLAY_MAX_RECTS)
 		return;
 	float col[4];
 	to_surface(a, c, col);
@@ -439,9 +441,9 @@ void fnl_overlay_rect_blend(FnlApp *app, int x, int y, int w, int h, FnlColor c)
 	App *a = (App *)app;
 	if (!overlay_here(a))
 		return;
-	/* The solid stream is drawn before the blended one, so what a wash is
-	 * over is already there: the library's own background rules end here. */
-	overlay_flush_rects(a);
+	/* No flush: the solid stream is drawn before the shape stream a wash is
+	 * in, so what it is over is already there, and a flush here would turn
+	 * every alternating rect and wash into a draw of its own. */
 	float col[4];
 	to_surface(a, c, col);
 	overlay_rect_blend(a, clamp_pt(x), clamp_pt(y), clamp_pt(w), clamp_pt(h),
@@ -452,7 +454,8 @@ void fnl_overlay_rect_round(FnlApp *app, int x, int y, int w, int h,
 							float radius, FnlColor c)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a))
+	if (!overlay_here(a) ||
+	    a->shape_count >= OVERLAY_MAX_SHAPES)
 		return;
 	/* A corner past half the shorter side folds the box in on itself, so it
 	 * is held to the disc the box can carry -- the same clamp the shader's
@@ -503,7 +506,8 @@ void fnl_overlay_gradient(FnlApp *app, int x, int y, int w, int h, float angle,
 						  FnlColor c, FnlColor c2)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a))
+	if (!overlay_here(a) ||
+	    a->shape_count >= OVERLAY_MAX_SHAPES)
 		return;
 	float col[4], col2[4];
 	to_surface(a, c, col);
@@ -516,7 +520,8 @@ void fnl_overlay_stroke(FnlApp *app, float x0, float y0, float x1, float y1,
 						float width, FnlColor c)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a))
+	if (!overlay_here(a) ||
+	    a->shape_count >= OVERLAY_MAX_SHAPES)
 		return;
 	float col[4];
 	to_surface(a, c, col);
@@ -527,7 +532,8 @@ void fnl_overlay_elbow(FnlApp *app, float x0, float y0, float x1, float y1,
 					   float x2, float y2, float width, FnlColor c)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a))
+	if (!overlay_here(a) ||
+	    a->shape_count >= OVERLAY_MAX_SHAPES)
 		return;
 
 	/* p2 == p0 is how overlay_box() spells a rectangle to the shader (see
@@ -550,7 +556,8 @@ void fnl_overlay_box(FnlApp *app, float x0, float y0, float x1, float y1,
 					 float width, FnlColor c)
 {
 	App *a = (App *)app;
-	if (!overlay_here(a))
+	if (!overlay_here(a) ||
+	    a->shape_count >= OVERLAY_MAX_SHAPES)
 		return;
 	float col[4];
 	to_surface(a, c, col);

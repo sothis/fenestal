@@ -102,8 +102,12 @@ float to_srgb(float c)
 /* coverage -> the weight the blender wants, for one channel */
 float shape(float cov)
 {
-	float a = mix(cov, smoothstep(0.0, 1.0, cov), CONTRAST);
-	a = pow(a, GAMMA);
+	/* mix(cov, smoothstep(0, 1, cov), CONTRAST) with the Hermite curve
+	 * expanded, and pow(a, GAMMA) as a * a^(1/4): the same functions for the
+	 * two constants below, without a transcendental per channel per pixel.
+	 * Keep these tied to CONTRAST == 0.80 and GAMMA == 1.25. */
+	float a = cov * (0.2 + cov * (2.4 - 1.6 * cov));
+	a *= sqrt(sqrt(a));
 	return pc.srgb == 0u ? to_srgb(a) : a;
 }
 

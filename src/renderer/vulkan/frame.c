@@ -87,17 +87,18 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 static bool scene_taau(const App *a, const FnlDrawState *ds)
 {
 	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) &&
-		   VK(a)->taau_fb != VK_NULL_HANDLE;
+		   VK(a)->taau_fb[0] != VK_NULL_HANDLE;
 }
 
-/* Whether this frame's resolve may mix its slot's history in. One function
- * for the pass that bakes the answer into a push constant and for the cache
- * that decides whether a recording made with it still serves, so the two
- * cannot disagree. */
+/* Whether this frame's resolve may mix the frame before it in: the other
+ * slot's image, which that frame's pass wrote. One function for the pass
+ * that bakes the answer into a push constant and for the cache that decides
+ * whether a recording made with it still serves, so the two cannot
+ * disagree. */
 static bool taau_follows(const App *a)
 {
 	return app_taau_follows(a, VK(a)->taau_present,
-							VK(a)->taau_hist_ok[a->frame]);
+							VK(a)->taau_hist_ok[a->frame ^ 1u]);
 }
 
 /* The seam: the pass is begun, the viewport is set, and what goes in the
@@ -235,96 +236,20 @@ static void record_mlaa_pass(App *a, VkCommandBuffer cb)
 	vkCmdEndRenderPass(cb);
 }
 
-/* The resolve's result into this slot's history, so that the frame after this
- * one in the same slot -- the only frame that reads it -- accumulates on it.
- *
- * A copy rather than the pass writing two attachments: the image the pass would
- * write a second time is the image it reads, which is a feedback loop the API
- * rejects. Both images leave the layout they are read in and come back to it,
- * the fetch reading `taau` later in this recording.
- *
- * A barrier's first scope reaches the commands submitted before it, which is
- * what orders this against the previous copy into the same history; the
- * frame's own fence covers only its own slot's submissions, and the other
- * slot's history is not touched here. */
-static void record_taau_copy(App *a, VkCommandBuffer cb)
-{
-	const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
-											1 };
-	VkImageMemoryBarrier out            = {
-				   .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-				   .oldLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-				   .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				   .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				   .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				   .image               = VK(a)->taau.image,
-				   .subresourceRange    = range,
-				   .srcAccessMask =
-			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
-				   .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-	};
-	VkImageMemoryBarrier hist = out;
-	hist.newLayout            = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	hist.image                = VK(a)->taau_hist[a->frame].image;
-	hist.srcAccessMask =
-		VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-	hist.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-	const VkImageMemoryBarrier to[2] = { out, hist };
-	/* One barrier an image, each with the stages that wrote *it*: the pass
-	 * wrote the resolve target through the colour attachment, and the history
-	 * through the copy before it. One barrier over both would make each wait
-	 * on the other's stages, serialising the resolve against the copy for
-	 * nothing. */
-	vkCmdPipelineBarrier(cb,
-						 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-							 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
-						 &to[0]);
-	vkCmdPipelineBarrier(cb,
-						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-							 VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
-						 &to[1]);
-
-	const VkImageCopy copy = {
-		.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-		.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-		.extent = { (uint32_t)a->scene_extent.w, (uint32_t)a->scene_extent.h,
-					1 },
-	};
-	vkCmdCopyImage(cb, VK(a)->taau.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				   VK(a)->taau_hist[a->frame].image,
-				   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-
-	VkImageMemoryBarrier back[2] = { out, hist };
-	back[0].oldLayout            = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	back[0].newLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	back[0].srcAccessMask        = VK_ACCESS_TRANSFER_READ_BIT;
-	back[0].dstAccessMask        = VK_ACCESS_SHADER_READ_BIT;
-	back[1].oldLayout            = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	back[1].newLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	back[1].srcAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
-	back[1].dstAccessMask        = VK_ACCESS_SHADER_READ_BIT;
-	/* And likewise back: the copy read the one and wrote the other, and each
-	 * returns to the layout the fetch reads. */
-	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-							 VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 0, 0, NULL, 0, NULL, 1, &back[0]);
-	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
-							 VK_PIPELINE_STAGE_TRANSFER_BIT,
-						 0, 0, NULL, 0, NULL, 1, &back[1]);
-}
-
-/* The scene resolved against the frames before it: a pass of its own ahead of
+/* The scene resolved against the frame before it: a pass of its own ahead of
  * the fetch that puts the result on the window, as MLAA's is, and at the
  * scene's resolution for the same reason -- the samples the jitter gathers are
  * in the scene's own pixel grid.
  *
+ * Two resolve images, one a frame slot: the pass writes this slot's and reads
+ * the other's, which is the frame before's result, and the fetch reads the one
+ * written. There is no copy into a history. A pass's external dependency
+ * orders the write after every earlier read of the image (the fetch and the
+ * next frame's resolve both sample it) and the read after the earlier write,
+ * across submissions, as the queue's order carries them.
+ *
  * The history is mixed in only where this frame follows the one that wrote it:
- * App::presents moved by exactly one, and this slot's history has been written.
+ * App::presents moved by exactly one, and that slot's image has been written.
  * A rest, a pause, a dropped present and a rebuilt device all read as no
  * history, and no history is the picture the fetch would have drawn. */
 static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
@@ -333,7 +258,7 @@ static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 	VkRenderPassBeginInfo rp = {
 		.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass        = VK(a)->post_pass,
-		.framebuffer       = VK(a)->taau_fb,
+		.framebuffer       = VK(a)->taau_fb[a->frame],
 		.renderArea.extent = scene_vk_extent(a),
 	};
 	vkCmdBeginRenderPass(cb, &rp, VK_SUBPASS_CONTENTS_INLINE);
@@ -380,7 +305,6 @@ static void record_taau_pass(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 							 0, 0, NULL, 0, NULL, 1, &back);
 	}
 
-	record_taau_copy(a, cb);
 	VK(a)->taau_hist_ok[a->frame] = true;
 	VK(a)->taau_present           = a->presents;
 }
@@ -422,7 +346,7 @@ static void draw_scene(App *a, VkCommandBuffer cb, const FnlDrawState *ds)
 						  direct ? VK(a)->mlaa_win_pipeline
 								 : VK(a)->blit_pipeline);
 		VkDescriptorSet set = scene_mlaa(a, ds) ? VK(a)->blit_set_mlaa
-							  : scene_taau(a, ds) ? VK(a)->blit_set_taau
+							  : scene_taau(a, ds) ? VK(a)->blit_set_taau[a->frame]
 												: VK(a)->blit_set_scene;
 		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 								VK(a)->blit_layout, 0, 1, &set, 0, NULL);
@@ -767,9 +691,9 @@ static bool frame_bail(App *a, uint32_t frame, bool fence_reset)
 {
 	if (a->device_lost || a->surface_lost)
 		return false;
-	/* The recorded frame never reaches the queue, so the copy that defines
-	 * this slot's temporal history never runs: the slot must not claim
-	 * one (taau_follows()). */
+	/* The recorded frame never reaches the queue, so the resolve that
+	 * defines this slot's image never runs: the slot must not claim one
+	 * (taau_follows()). */
 	VK(a)->taau_hist_ok[frame] = false;
 	/* The image stays acquired: nothing presents it, and Vulkan 1.0 has no
 	 * other way to hand one back. A few bails in a row would hold every
@@ -796,6 +720,7 @@ static bool frame_bail(App *a, uint32_t frame, bool fence_reset)
 	 * its reset refused, leaves a signalled fence that lets the next acquire
 	 * hand over the semaphore this submit may still be waiting on.
 	 * Recovery is what makes both again. */
+	VK(a)->slot_serial[frame] = ++VK(a)->submit_serial;
 	const VkResult sr = vk_queue_submit(a, 1, &si, fence);
 	if (!vk_lost(a, sr) && (sr != VK_SUCCESS || fence == VK_NULL_HANDLE))
 		a->device_lost = true;
@@ -838,7 +763,9 @@ static void gpu_parts_read(App *a, uint32_t img, const uint64_t r[4])
 static void gpu_time_read(App *a, uint32_t img)
 {
 	const VkFence f = VK(a)->images_in_flight[img];
-	if (!VK(a)->ts_pool || !VK(a)->ts_unread[img] || f == VK_NULL_HANDLE ||
+	if (!VK(a)->ts_pool || !VK(a)->ts_unread[img] || f == VK_NULL_HANDLE)
+		return;
+	if (VK(a)->img_serial[img] > VK(a)->done_serial &&
 		vkGetFenceStatus(VK(a)->device, f) != VK_SUCCESS)
 		return;
 	uint64_t r[4];
@@ -896,7 +823,8 @@ static bool frame_record(App *a, uint32_t img, const FnlDrawState *ds,
 
 	/* This image's command buffer may still be executing from an earlier
 	 * frame; wait on that frame's fence before re-recording it. */
-	if (VK(a)->images_in_flight[img] != VK_NULL_HANDLE) {
+	if (VK(a)->images_in_flight[img] != VK_NULL_HANDLE &&
+		VK(a)->img_serial[img] > VK(a)->done_serial) {
 		VkResult wr =
 			vkWaitForFences(VK(a)->device, 1, &VK(a)->images_in_flight[img],
 									  VK_TRUE, UINT64_MAX);
@@ -1385,6 +1313,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	if (vk_lost(a, wr))
 		return false;
 	VK_TRY_FALSE(wr);
+	if (VK(a)->slot_serial[frame] > VK(a)->done_serial)
+		VK(a)->done_serial = VK(a)->slot_serial[frame];
 
 	/* Unconditional, unlike t_enter: under FIFO this acquire is where the CPU
 	 * sits out the display, and how long is what late latching goes on where
@@ -1463,6 +1393,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	if (!frame_record(a, img, ds, t_ready, &t_rec))
 		return frame_bail(a, frame, false);
 	VK(a)->images_in_flight[img] = VK(a)->in_flight[frame];
+	VK(a)->img_serial[img] = VK(a)->slot_serial[frame] =
+		++VK(a)->submit_serial;
 
 	/* A reset that failed left the fence signalled: the bail resets it
 	 * again and carries it, or, failing that too, submits without it and

@@ -32,6 +32,7 @@ FNL_MUST_USE FnlResult fnl_vk_result(const char *expr, const char *file,
 VkResult vk_queue_submit(App *a, uint32_t n, const VkSubmitInfo *s, VkFence f);
 VkResult vk_queue_present(App *a, const VkPresentInfoKHR *p);
 VkResult vk_queue_wait_idle(App *a);
+VkResult vk_frames_idle(App *a);
 VkResult vk_device_wait_idle(App *a);
 
 /* Wrap a Vulkan call as an FnlResult.
@@ -385,6 +386,9 @@ void destroy_instance_buffers(App *a, uint32_t count, VkBuffer *buf,
 /* Synchronous one-shot submit, for setup transfers. */
 VkCommandBuffer begin_oneshot(App *a);
 FNL_MUST_USE FnlResult end_oneshot(App *a, VkCommandBuffer cb);
+/* The same buffer ended and submitted, and not waited on: the caller owns
+ * `cb` and frees it once the queue is past it (overlay.c's image uploads). */
+FNL_MUST_USE FnlResult end_oneshot_nowait(App *a, VkCommandBuffer cb);
 
 /* ---- swapchain.c --------------------------------------------------------- */
 
@@ -444,10 +448,15 @@ void destroy_overlay_pipelines(App *a);
 bool vk_image_supported(const App *a);
 void vk_overlay_image(App *a, FnlImage *img, int x, int y, int w, int h);
 void vk_image_free(App *a, FnlImage *img);
-/* The images vk_image_free() deferred while a recording was open, let go
- * once that frame has been submitted: from vk_retire_tick(), and with the
- * device about to be destroyed. overlay.c. */
+/* The images vk_image_free() deferred, and the uploads that are still
+ * in flight, are let go as the swapchains are: once MAX_FRAMES_IN_FLIGHT
+ * further frames have been submitted (vk_images_tick(), from
+ * vk_retire_tick()). vk_images_retire() is the same with a drain, for a
+ * device about to be destroyed; vk_uploads_drain() frees the uploads' command
+ * buffers ahead of the pool they came from. overlay.c. */
+void vk_images_tick(App *a);
 void vk_images_retire(App *a);
+void vk_uploads_drain(App *a);
 void vk_images_device_gone(App *a);
 
 /* ---- frame.c ------------------------------------------------------------- */

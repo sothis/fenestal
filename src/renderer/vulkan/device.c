@@ -128,6 +128,70 @@ static InstanceExts instance_exts(void)
 	return e;
 }
 
+/* ---- the loader, warmed ahead ----------------------------------------------
+ *
+ * The loader's first call opens every driver's library (instance_exts()
+ * above), and the loader itself is a library to find and load: tens of
+ * milliseconds that need no window, spent between the window being open and
+ * its first frame. fnl_init() starts them on a thread before the backend
+ * opens (FnlRendererVtbl::prewarm); the first instance takes the answer
+ * instead of asking, so the single asking above still holds. make_instance()
+ * joins before it loads the loader itself, which vk_load_global()'s plain
+ * static is not safe to do twice at once. */
+static struct {
+	FnlThread    thread;
+	bool         started;
+	InstanceExts exts;
+} prewarm_slot;
+static FnlMutex prewarm_lock = FNL_MUTEX_STATIC;
+
+static void *prewarm_main(void *arg)
+{
+	(void)arg;
+	/* A refusal is the build's to say, in order: vk_load_global() remembers
+	 * it and the build's own call answers with it. */
+	if (vk_load_global() >= 0)
+		prewarm_slot.exts = instance_exts();
+	return NULL;
+}
+
+static void vk_prewarm(void)
+{
+	fnl_mutex_lock(&prewarm_lock);
+	if (!prewarm_slot.started)
+		prewarm_slot.started =
+			fnl_thread_start(&prewarm_slot.thread, prewarm_main, NULL);
+	fnl_mutex_unlock(&prewarm_lock);
+}
+
+/* Joined, and the list it asked for handed over -- or, with `keep` false,
+ * freed. After this the slot is empty and the loader is as the first
+ * make_instance() would have found it. */
+static InstanceExts prewarm_take(bool keep)
+{
+	InstanceExts e = { NULL, 0 };
+	fnl_mutex_lock(&prewarm_lock);
+	if (prewarm_slot.started) {
+		fnl_thread_join(prewarm_slot.thread);
+		prewarm_slot.started = false;
+		e                    = prewarm_slot.exts;
+		prewarm_slot.exts.props = NULL;
+		prewarm_slot.exts.n     = 0;
+	}
+	fnl_mutex_unlock(&prewarm_lock);
+	if (!keep) {
+		free(e.props);
+		e.props = NULL;
+		e.n     = 0;
+	}
+	return e;
+}
+
+static void vk_prewarm_end(void)
+{
+	(void)prewarm_take(false);
+}
+
 /* The drivers an instance made across a move to another kernel driver is
  * made of (App::gpu_cross, DESIGN *Drawn across the move*): Mesa's for
  * Intel's GPUs, the older ones', AMD's and its CPU rasteriser's, each of
@@ -236,6 +300,10 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 						"the Vulkan renderer has no "
 						"bridge to %s in this build",
 						BACKEND(a)->name);
+	/* Whatever the prewarm found, taken before the loader is asked for
+	 * again: joined first, so the two never load it at once. A move across
+	 * drivers asks the drivers directly and has no use for it. */
+	InstanceExts warmed = prewarm_take(!a->gpu_cross);
 	FNL_TRY(vk_load_global());
 
 	/* The library's name, not the caller's: a driver matches its application
@@ -282,7 +350,9 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 	/* The instance is 1.0, where a device's extended features are asked
 	 * through this extension: present wait's, here (create_device()).
 	 * Optional; without it present wait is simply not asked for. */
-	InstanceExts offered = cross ? cross_exts() : instance_exts();
+	InstanceExts offered = cross ? cross_exts()
+				 : warmed.props   ? warmed
+								  : instance_exts();
 	const bool props2 = instance_has(
 		&offered, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 	if (props2)
@@ -1401,6 +1471,7 @@ static FnlResult create_sync(App *a)
 		VK_TRY(vkCreateSemaphore(VK(a)->device, &sci, NULL,
 								 &VK(a)->img_available[i]));
 		VK_TRY(vkCreateFence(VK(a)->device, &fci, NULL, &VK(a)->in_flight[i]));
+		VK(a)->slot_serial[i] = 0;
 	}
 	return FNL_OK;
 }
@@ -1638,6 +1709,7 @@ static void destroy_device_objects(App *a, bool save_cache)
 	shown_stop(a);
 	reap_stop(a);
 	free_all_retired(a);
+	vk_uploads_drain(a); /* their command buffers go back to the pool below */
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroySemaphore(VK(a)->device, VK(a)->img_available[i], NULL);
 		vkDestroyFence(VK(a)->device, VK(a)->in_flight[i], NULL);
@@ -1892,6 +1964,21 @@ VkResult vk_queue_wait_idle(App *a)
 	return r;
 }
 
+/* This window's own frames waited out, and nothing else: every submit that
+ * names its scene images and their descriptors is a frame submit carrying
+ * one of these fences, which are each signalled or pending a submit. Unlike
+ * vkQueueWaitIdle() it takes no queue lock and does not wait for another
+ * window's work or a present, so a resize with an antialiased scene does not
+ * stall the rest of the host. A loss may leave a fence no submit will signal
+ * (frame_bail()), so it takes the queue's drain instead. */
+VkResult vk_frames_idle(App *a)
+{
+	if (a->device_lost || a->surface_lost)
+		return vk_queue_wait_idle(a);
+	return vkWaitForFences(VK(a)->device, MAX_FRAMES_IN_FLIGHT,
+						   VK(a)->in_flight, VK_TRUE, UINT64_MAX);
+}
+
 /* vkDeviceWaitIdle() is every queue's: Vulkan asks host access to all of
  * them to be externally synchronised. The host has one queue, submitted on
  * by every window, so it takes the same lock the queue's own calls do. */
@@ -2052,6 +2139,8 @@ const FnlRendererVtbl fnl_renderer_vulkan = {
 	.text_end              = vk_text_end,
 	.overlay_cover         = vk_overlay_cover,
 	.cover_release         = vk_cover_release,
+	.prewarm               = vk_prewarm,
+	.prewarm_end           = vk_prewarm_end,
 };
 
 /* ---- the public Vulkan interop --------------------------------------------

@@ -62,7 +62,7 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 static bool scene_taau(const App *a, const FnlDrawState *ds)
 {
 	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) &&
-		   MT(a)->taau != nil;
+		   MT(a)->taau_hist[0] != nil;
 }
 
 int mt_active_samples(const App *a, const FnlDrawState *ds)
@@ -91,7 +91,7 @@ static id<MTLRenderCommandEncoder> begin_pass(App *a, id<MTLCommandBuffer> cb,
 											  id<MTLTexture> color,
 											  id<MTLTexture> resolve,
 											  id<MTLTexture> depth,
-											  bool keep_depth)
+											  bool keep_depth, bool clear_depth)
 {
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor
 									   renderPassDescriptor];
@@ -109,7 +109,12 @@ static id<MTLRenderCommandEncoder> begin_pass(App *a, id<MTLCommandBuffer> cb,
 	 * store actions go with it, or the descriptor is inconsistent. */
 	if (depth) {
 		rp.depthAttachment.texture     = depth;
-		rp.depthAttachment.loadAction  = MTLLoadActionClear;
+		/* Not cleared where nothing reads it: the window's depth under an
+		 * offscreen scene is attached for the pipelines' format and tested
+		 * Always (ds_off), so a clear is bandwidth on an immediate-mode GPU
+		 * for nothing. */
+		rp.depthAttachment.loadAction  = clear_depth ? MTLLoadActionClear
+													 : MTLLoadActionDontCare;
 		rp.depthAttachment.clearDepth  = 1.0;
 		rp.depthAttachment.storeAction = keep_depth ? MTLStoreActionStore
 													: MTLStoreActionDontCare;
@@ -183,8 +188,8 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	const bool keep = scene_taau(a, ds);
 	id<MTLRenderCommandEncoder> enc =
 		ms ? begin_pass(a, cb, g->scene_ms.color, g->scene.color,
-						g->scene_ms.depth, false)
-		   : begin_pass(a, cb, g->scene.color, nil, g->scene.depth, keep);
+						g->scene_ms.depth, false, true)
+		   : begin_pass(a, cb, g->scene.color, nil, g->scene.depth, keep, true);
 	if (!enc)
 		return false;
 	record_scene(a, ds, cb, enc,
@@ -193,27 +198,26 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	[enc endEncoding];
 
 	if (scene_mlaa(a, ds)) {
-		enc = begin_pass(a, cb, g->mlaa, nil, g->scene.depth, false);
+		enc = begin_pass(a, cb, g->mlaa, nil, g->scene.depth, false, false);
 		if (!enc)
 			return false;
 		mt_fetch(a, enc, g->pso_mlaa, g->scene.color);
 		[enc endEncoding];
 	}
 
-	/* The resolve, then the blit that carries its result into this slot's
-	 * history for the frame after it -- not into the image it read, which a
-	 * pass may not do. The history is mixed in only where this frame follows
-	 * the one that wrote it: App::presents moved by one and the slot's history
-	 * has been written, so a rest, a pause, a dropped present and a rebuilt
-	 * device all read as no history. */
+	/* The resolve, into this slot's image, mixing in the other slot's: the
+	 * frame before's result. The history is mixed in only where this frame
+	 * follows the one that wrote it: App::presents moved by one and that
+	 * image has been written, so a rest, a pause, a dropped present and a
+	 * rebuilt device all read as no history. */
 	if (scene_taau(a, ds)) {
 		/* No depth attachment: the resolve samples the scene's depth at unit
 		 * 2, and a pass may not both attach and sample one texture. */
-		enc = begin_pass(a, cb, g->taau, nil, nil, false);
+		enc = begin_pass(a, cb, g->taau_hist[a->frame], nil, nil, false, true);
 		if (!enc)
 			return false;
 		const bool prev = app_taau_follows(a, g->taau_present,
-									   g->taau_hist_ok[a->frame]);
+									   g->taau_hist_ok[a->frame ^ 1u]);
 		const TaauPush pc = {
 			.jitter = { ds->jitter_x, ds->jitter_y,
 						prev ? TAAU_HISTORY : 0.0f,
@@ -223,23 +227,8 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 							ds->motion_y },
 		};
 		mt_fetch2(a, enc, g->pso_taau, g->scene.color,
-				  g->taau_hist[a->frame], g->scene.depth, &pc);
+				  g->taau_hist[a->frame ^ 1u], g->scene.depth, &pc);
 		[enc endEncoding];
-
-		id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
-		if (!blit)
-			return false;
-		[blit copyFromTexture:g->taau
-				  sourceSlice:0
-				  sourceLevel:0
-				 sourceOrigin:MTLOriginMake(0, 0, 0)
-				   sourceSize:MTLSizeMake((NSUInteger)a->scene_extent.w,
-										  (NSUInteger)a->scene_extent.h, 1)
-					toTexture:g->taau_hist[a->frame]
-			 destinationSlice:0
-			 destinationLevel:0
-			destinationOrigin:MTLOriginMake(0, 0, 0)];
-		[blit endEncoding];
 
 		g->taau_hist_ok[a->frame] = true;
 		g->taau_present           = a->presents;
@@ -276,7 +265,8 @@ static void draw_scene(App *a, const FnlDrawState *ds,
 	else
 		mt_fetch(a, enc, g->pso_blit,
 				 scene_mlaa(a, ds) ? g->mlaa
-								   : scene_taau(a, ds) ? g->taau : g->scene.color);
+								   : scene_taau(a, ds) ? g->taau_hist[a->frame]
+														 : g->scene.color);
 }
 
 /* Everything drawn this frame into `target`, the drawable's texture. False
@@ -290,7 +280,8 @@ static bool draw(App *a, const FnlDrawState *ds, uint32_t slot,
 		return false;
 
 	id<MTLRenderCommandEncoder> enc =
-		begin_pass(a, cb, target, nil, g->window_depth, false);
+		begin_pass(a, cb, target, nil, g->window_depth, false,
+					   !scene_offscreen(a, ds));
 	if (!enc)
 		return false;
 	draw_scene(a, ds, cb, enc);

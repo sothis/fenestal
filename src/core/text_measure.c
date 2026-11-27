@@ -203,12 +203,8 @@ const GlyphCell *cell_row(int si, TextSize sz)
  *
  * The fallback row is found from `row` itself rather than passed in, so no
  * caller can hand the pen one pair and the measure another. */
-const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
+static const GlyphCell *cell_at(const GlyphCell *row, int gi)
 {
-	int gi = glyph_index_or_notdef(cp);
-	if (gi < 0)
-		return NULL;
-
 	const GlyphCell *cl = &row[gi];
 	if (cl->x != FONT_CELL_ABSENT)
 		return cl;
@@ -227,6 +223,12 @@ const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
 
 	int nd = glyph_index(TEXT_NOTDEF_CP);
 	return nd < 0 ? NULL : &row[nd];
+}
+
+const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
+{
+	const int gi = glyph_index_or_notdef(cp);
+	return gi < 0 ? NULL : cell_at(row, gi);
 }
 
 /* The width to reserve for a string, in logical points: no baked scale draws it
@@ -260,8 +262,10 @@ const GlyphCell *cell_for(const GlyphCell *row, uint32_t cp)
  * call what it cost before and bounds the memory. Safe while the cells are
  * loaded once, before any thread exists: a reload would want the table
  * cleared with it. */
-#define WIDTH_MEMO 32
-#define WIDTH_MEMO_KEY 32
+/* Sized for a UI's whole set of labels, with room for a line that runs
+ * long: 32 slots of 32 bytes collided at about twenty live strings. */
+#define WIDTH_MEMO 128
+#define WIDTH_MEMO_KEY 64
 
 typedef struct {
 	TextSize sz;
@@ -292,22 +296,33 @@ static int text_width_uncached(const char *s, TextSize sz)
 		return w > OVERLAY_COORD_MAX ? OVERLAY_COORD_MAX : (int)w;
 	}
 
+	/* Every scale advanced together: a character is decoded once, not once
+	 * a scale. */
+	const GlyphCell *rows[FONT_SCALE_COUNT];
+	long long px[FONT_SCALE_COUNT] = { 0 };
+	for (int si = 0; si < FONT_SCALE_COUNT; si++) {
+		rows[si] = cell_row(si, sz);
+		if (!rows[si])
+			return 0; /* nothing decoded yet; cell_for() would fault */
+	}
+	for (const char *p = s; *p;) {
+		uint32_t cp;
+		p = utf8_next(p, &cp);
+		const int gi = glyph_index_or_notdef(cp);
+		if (gi < 0)
+			continue;
+		for (int si = 0; si < FONT_SCALE_COUNT; si++) {
+			const GlyphCell *cl = cell_at(rows[si], gi);
+			if (cl)
+				px[si] += cl->adv;
+		}
+	}
+
 	long long worst = 0;
 	for (int si = 0; si < FONT_SCALE_COUNT; si++) {
-		const GlyphCell *row = cell_row(si, sz);
-		if (!row)
-			return 0; /* nothing decoded yet; cell_for() would fault */
-		long long px = 0;
-		for (const char *p = s; *p;) {
-			uint32_t cp;
-			p                   = utf8_next(p, &cp);
-			const GlyphCell *cl = cell_for(row, cp);
-			if (cl)
-				px += cl->adv;
-		}
 		/* Back to points, rounded up: a point that only half covers what will
 		 * be drawn is a point the next thing along may not have. */
-		const long long pt = (px * 120 + FONT_SCALE[si] - 1) / FONT_SCALE[si];
+		const long long pt = (px[si] * 120 + FONT_SCALE[si] - 1) / FONT_SCALE[si];
 		if (pt > worst)
 			worst = pt;
 	}
@@ -324,7 +339,8 @@ int text_width(const char *s, TextSize sz)
 	/* One slot, hash-tagged and compared in full: a collision is a miss, so a
 	 * wrong answer is never returned, and the table is bounded however many
 	 * strings a caller measures. */
-	m = &width_memo[width_hash(s, n) % WIDTH_MEMO];
+	m = &width_memo[(width_hash(s, n) ^ ((unsigned)sz * 0x9e3779b1u)) %
+					WIDTH_MEMO];
 	if (m->len == n && m->sz == sz && memcmp(m->key, s, n) == 0)
 		return m->w;
 
@@ -364,14 +380,18 @@ int scale_index(int s120)
 	return best;
 }
 
+static size_t prefix_fit(const char *s, size_t n, int max_w, TextSize sz,
+						 const long long *seed);
+
 /* See fnl_text_elide(). A cut lands on a code point boundary and is ended in
  * "..." -- a glyph that does not fit cannot be clipped instead, since the
  * frame's glyphs are one draw.
  *
- * Binary search over where to cut, measuring the buffer itself: backing off a
- * character at a time costs a measure per character dropped, which is a title
- * in a narrow column times two. text_width() is monotone in the prefix, every
- * advance being non-negative, so the search is sound. */
+ * One forward pass over where to cut (prefix_fit, seeded with the dots), not a
+ * measure of the whole line per probe: that was every scale of every
+ * character a probe, log n probes, each one evicting a label from the width
+ * memo. The width is monotone in the prefix, every advance being
+ * non-negative, so the first prefix that does not fit ends the search. */
 void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 {
 	if (!dst || cap == 0)
@@ -408,34 +428,32 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
 		return;
 	}
 
-	/* The longest prefix whose dots still fit. Each probe measures the line
-	 * with the dots written over its end: the reserve width of a concatenation
-	 * is not the sum of the two, since each takes the widest of the baked
-	 * scales, so it has to be measured whole. The bytes a probe wrote are put
-	 * back, so every probe sees the whole line. */
-	size_t lo = 0, hi = n;
-	while (lo < hi) {
-		size_t mid = lo + (hi - lo + 1) / 2;
-		while (mid > lo && ((unsigned char)dst[mid] & 0xc0) == 0x80)
-			mid--;
-		if (mid == lo) {
-			/* None in the lower half: the next boundary above, if any. */
-			mid = lo + 1;
-			while (mid <= hi && ((unsigned char)dst[mid] & 0xc0) == 0x80)
-				mid++;
-			if (mid > hi)
-				break; /* no whole code point left between */
+	/* The longest prefix whose dots still fit, in one pass. A scale's width
+	 * is a sum of advances, so the dots are a head start on each scale's
+	 * sum; the reserve is the widest scale, which is why they cannot be
+	 * subtracted from the budget on a proportional face. text_width()
+	 * clamps at OVERLAY_COORD_MAX, so a budget past it holds every line. */
+	size_t lo;
+	if (max_w >= OVERLAY_COORD_MAX) {
+		lo = n;
+	} else if (text_is_mono(sz)) {
+		lo = text_prefix_fit(dst, n, max_w - 3 * text_advance(sz), sz);
+	} else {
+		long long dots[FONT_SCALE_COUNT] = { 0 };
+		for (int si = 0; si < FONT_SCALE_COUNT; si++) {
+			const GlyphCell *row = cell_row(si, sz);
+			const GlyphCell *cl  = row ? cell_for(row, '.') : NULL;
+			if (cl)
+				dots[si] = 3 * (long long)cl->adv;
 		}
-		char tail[4];
-		memcpy(tail, dst + mid, sizeof tail);
-		memcpy(dst + mid, "...", 4);
-		const bool fits = text_width(dst, sz) <= max_w;
-		memcpy(dst + mid, tail, sizeof tail);
-		if (fits)
-			lo = mid;
-		else
-			hi = mid - 1;
+		lo = prefix_fit(dst, n, max_w, sz, dots);
 	}
+	/* A cut on a byte that begins a sequence, by the byte's own bits: the
+	 * decoder takes a stray continuation byte for a character of its own, so
+	 * the pass can stop between two of them. Backing off to the boundary
+	 * keeps it a prefix that fits, the width being monotone. */
+	while (lo > 0 && ((unsigned char)dst[lo] & 0xc0) == 0x80)
+		lo--;
 	dst[lo] = '\0';
 	memcpy(dst + lo, "...", dots_n + 1); /* the terminator with them */
 }
@@ -447,7 +465,8 @@ void text_elide(char *dst, size_t cap, const char *src, int max_w, TextSize sz)
  *
  * The measures of a *substring* that no terminator ends, which is what a
  * wrapper needs and text_width() cannot do. */
-size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
+static size_t prefix_fit(const char *s, size_t n, int max_w, TextSize sz,
+						 const long long *seed)
 {
 	if (max_w <= 0)
 		return 0;
@@ -473,6 +492,18 @@ size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
 	}
 
 	long long px[FONT_SCALE_COUNT] = { 0 };
+	if (seed)
+		for (int si = 0; si < FONT_SCALE_COUNT; si++)
+			px[si] = seed[si];
+	/* ceil(px * 120 / scale) > max_w is px * 120 > max_w * scale for a whole
+	 * max_w, so the per-character test is a compare against a limit made once
+	 * and not a 64-bit division a scale. */
+	const GlyphCell *rows[FONT_SCALE_COUNT];
+	long long lim[FONT_SCALE_COUNT];
+	for (int si = 0; si < FONT_SCALE_COUNT; si++) {
+		rows[si] = cell_row(si, sz);
+		lim[si]  = (long long)max_w * FONT_SCALE[si];
+	}
 	size_t i = 0, last = 0;
 	while (i < n && s[i]) {
 		uint32_t cp;
@@ -480,23 +511,26 @@ size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
 		const size_t len = (size_t)(q - s) - i;
 		if (i + len > n)
 			break;
-		long long worst = 0;
+		const int gi = glyph_index_or_notdef(cp);
+		bool over    = false;
 		for (int si = 0; si < FONT_SCALE_COUNT; si++) {
-			const GlyphCell *row = cell_row(si, sz);
-			const GlyphCell *cl  = row ? cell_for(row, cp) : NULL;
+			const GlyphCell *cl =
+				rows[si] && gi >= 0 ? cell_at(rows[si], gi) : NULL;
 			if (cl)
 				px[si] += cl->adv;
-			const long long pt =
-				(px[si] * 120 + FONT_SCALE[si] - 1) / FONT_SCALE[si];
-			if (pt > worst)
-				worst = pt;
+			over |= px[si] * 120 > lim[si];
 		}
-		if (worst > max_w)
+		if (over)
 			break;
 		i += len;
 		last = i;
 	}
 	return last;
+}
+
+size_t text_prefix_fit(const char *s, size_t n, int max_w, TextSize sz)
+{
+	return prefix_fit(s, n, max_w, sz, NULL);
 }
 
 /* See fnl_text_wrap(). Greedy: the longest prefix that fits, backed up to the

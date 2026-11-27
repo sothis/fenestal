@@ -130,6 +130,8 @@ static void image_frames_reset(App *a)
 									MAX_FRAMES_IN_FLIGHT];
 	for (uint32_t i = 0; i < OVERLAY_MAX_IMAGES; i++) {
 		VK(a)->images_in_flight[i] = seed;
+		VK(a)->img_serial[i] = VK(a)->slot_serial[(a->frame +
+								MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT];
 		VK(a)->img_cmd_gen[i]      = 0;
 		/* A pair the retired swapchain left unread would be read against the
 		 * seed fence, which is signalled, and folded in under the old run's
@@ -1062,6 +1064,7 @@ void destroy_swapchain(App *a)
 	retired_destroy(a, &r, false);
 	/* The fences these named go with the device. */
 	memset(VK(a)->images_in_flight, 0, sizeof VK(a)->images_in_flight);
+	memset(VK(a)->img_serial, 0, sizeof VK(a)->img_serial);
 	memset(VK(a)->img_cmd_gen, 0, sizeof VK(a)->img_cmd_gen);
 }
 
@@ -1231,8 +1234,7 @@ void vk_retire_tick(App *a)
 			retired_destroy(a, &VK(a)->retired[i], true);
 			VK(a)->retired[i] = VK(a)->retired[--VK(a)->retired_count];
 		}
-	/* And the caller's images destroyed inside the frame that was just
-	 * submitted: their draws are in that frame's command buffers, which the
-	 * drain above (or the call's own) makes safe to let go. */
-	vk_images_retire(a);
+	/* And the caller's images destroyed since, and their uploads: each is
+	 * let go on the same countdown, with no drain of its own. */
+	vk_images_tick(a);
 }

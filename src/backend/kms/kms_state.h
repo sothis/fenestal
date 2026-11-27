@@ -385,6 +385,19 @@ struct BackendState {
 	int          cursor_refused;
 	/* The one line naming the atomic cursor plane, said at the first shape. */
 	bool         cursor_atomic_said;
+	/* The display path's moves, sent by a thread of their own (kms.c's
+	 * cursor_mover()): a synchronous commit sits out a vblank, and the pump
+	 * that waited on it read no key meanwhile. The pump posts the newest
+	 * place and goes on; every commit that is not a move quiesces the thread
+	 * first, so the two are never in flight together. `mv_failed` is the
+	 * thread's refusal, said to the pump, which sends the shape afresh. */
+	FnlThread    mv_thread;
+	FnlMutex     mv_lock;
+	FnlCond      mv_work, mv_idle;
+	bool         mv_inited, mv_started, mv_has, mv_busy, mv_quit;
+	uint32_t     mv_crtc, mv_fb, mv_w, mv_h;
+	int          mv_x, mv_y;
+	FnlAtomicBool mv_failed;
 
 	/* [render] The copy path's two scanout buffers
 	 * (RendererState::present_copy): made at the first frame, shown one

@@ -72,7 +72,9 @@ static bool pipeline_cache_path(App *a, char *buf, size_t n, bool make_dir)
 	return more >= 0 && (size_t)more < n - (size_t)len;
 }
 
-/* The blob read at startup, as a size and an FNV-1a hash rather than a kept
+/* The blob read at startup, as a size and a hash (FNV-1a over eight bytes a
+ * step: a cache is megabytes, and the byte-serial form is a multiply a byte
+ * at startup and again at exit) rather than a kept
  * copy, so a run that compiled nothing new writes nothing back. The
  * window's (RendererState::cache_loaded_*): two windows on one device share
  * the file but each reads it, and each compares its own blob against what
@@ -82,7 +84,14 @@ static uint64_t blob_hash(const void *data, size_t n)
 {
 	const unsigned char *p = data;
 	uint64_t h = 0xcbf29ce484222325ull;
-	for (size_t i = 0; i < n; i++)
+	size_t i = 0;
+	for (; i + 8 <= n; i += 8) {
+		uint64_t w;
+		memcpy(&w, p + i, sizeof w);
+		h = (h ^ w) * 0x100000001b3ull;
+		h ^= h >> 29; /* the word's high bytes reach the low ones */
+	}
+	for (; i < n; i++)
 		h = (h ^ p[i]) * 0x100000001b3ull;
 	return h;
 }
@@ -827,4 +836,17 @@ FnlResult end_oneshot(App *a, VkCommandBuffer cb)
 	}
 	vkFreeCommandBuffers(VK(a)->device, VK(a)->cmd_pool, 1, &cb);
 	return rc;
+}
+
+FnlResult end_oneshot_nowait(App *a, VkCommandBuffer cb)
+{
+	FnlResult rc = VKR(vkEndCommandBuffer(cb));
+	if (rc < 0)
+		return rc;
+	VkSubmitInfo si = {
+		.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers    = &cb,
+	};
+	return VKR(vk_queue_submit(a, 1, &si, VK_NULL_HANDLE));
 }

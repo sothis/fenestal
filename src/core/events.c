@@ -228,10 +228,16 @@ void app_event(App *a, FnlEvent *ev)
 	 * App::lock. The signal is still sent under that lock after the flag
 	 * is set, so a poster and the waiter clearing it cannot lose each
 	 * other (rest_wait()). */
-	if (fnl_atomic_add_u32(&a->ev_wake, 1) == 0) {
+	if (!fnl_atomic_load_bool(&a->ev_wake) &&
+	    fnl_atomic_add_u32(&a->ev_wake, 1) == 0) {
+		/* The lock is only the barrier rest_wait() relies on -- the waiter
+		 * is inside its wait, or has not yet read the flag -- and the
+		 * signal goes after it: sent under the lock, the woken thread
+		 * finds it held and sleeps again, a second wake on the path an
+		 * input event takes to a loop at rest. */
 		fnl_mutex_lock(&a->lock);
-		fnl_cond_signal(&a->cond);
 		fnl_mutex_unlock(&a->lock);
+		fnl_cond_signal(&a->cond);
 	}
 }
 
@@ -253,10 +259,16 @@ void app_event_post(App *a, FnlEvent *ev)
 	 * App::lock. The signal is still sent under that lock after the flag
 	 * is set, so a poster and the waiter clearing it cannot lose each
 	 * other (rest_wait()). */
-	if (fnl_atomic_add_u32(&a->ev_wake, 1) == 0) {
+	if (!fnl_atomic_load_bool(&a->ev_wake) &&
+	    fnl_atomic_add_u32(&a->ev_wake, 1) == 0) {
+		/* The lock is only the barrier rest_wait() relies on -- the waiter
+		 * is inside its wait, or has not yet read the flag -- and the
+		 * signal goes after it: sent under the lock, the woken thread
+		 * finds it held and sleeps again, a second wake on the path an
+		 * input event takes to a loop at rest. */
 		fnl_mutex_lock(&a->lock);
-		fnl_cond_signal(&a->cond);
 		fnl_mutex_unlock(&a->lock);
+		fnl_cond_signal(&a->cond);
 	}
 }
 

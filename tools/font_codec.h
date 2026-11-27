@@ -61,6 +61,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* The match finder hashes four bytes, so that is the shortest it finds. */
 #define FONT_CODEC_MIN_MATCH 4
@@ -123,16 +124,16 @@ static inline unsigned font_rc_bit(FontRcDec *d, uint16_t *p)
 		d->code = (d->code << 8) | b;
 	}
 
+	/* Branch-free: the bit of an entropy-coded stream is a coin the
+	 * predictor cannot call, and a mispredict costs more than the select. */
 	const uint32_t bound = (d->range >> FONT_RC_BITS) * *p;
-	if (d->code < bound) {
-		d->range = bound;
-		*p = (uint16_t)(*p + ((FONT_RC_ONE - *p) >> FONT_RC_MOVE));
-		return 0;
-	}
-	d->range -= bound;
-	d->code  -= bound;
-	*p = (uint16_t)(*p - (*p >> FONT_RC_MOVE));
-	return 1;
+	const uint32_t bit = d->code >= bound;
+	const uint32_t m = 0u - bit;            /* all ones for a 1 */
+	d->range = (bound & ~m) | ((d->range - bound) & m);
+	d->code -= bound & m;
+	*p = (uint16_t)(*p + (((FONT_RC_ONE - *p) >> FONT_RC_MOVE) & ~m) -
+					((*p >> FONT_RC_MOVE) & m));
+	return bit;
 }
 
 /* `bits` bits, MSB first, through the bit tree at `t`: node 1 is the root and
@@ -191,12 +192,19 @@ static inline int font_decode(const unsigned char *in, size_t in_len,
 			/* `off` is zero only for a repeat with no match before it. */
 			if (off == 0 || off > o || len > out_len - o)
 				return 0;
-			/* Byte at a time: the copy may overlap itself, and a wider move
-			 * would read ahead of what it has written. */
-			for (size_t k = 0; k < len; k++, o++) {
-				prev = out[o - off];
-				out[o] = (unsigned char)prev;
-			}
+			/* A run (offset 1) and a copy that does not overlap itself move
+			 * wide; only an overlapping one goes a byte at a time, since a
+			 * wider move would read ahead of what it has written. */
+			const size_t from = o - off; /* no wrap: off <= o, above */
+			if (off == 1)
+				memset(out + o, out[from], len);
+			else if (off >= len)
+				memcpy(out + o, out + from, len);
+			else
+				for (size_t k = 0; k < len; k++)
+					out[o + k] = out[from + k];
+			o += len;
+			prev = out[o - 1];
 			last_off = off;
 			after_match = 1;
 		}

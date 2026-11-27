@@ -247,7 +247,13 @@ void fnl_invalidate(FnlApp *app)
 	/* A frame is coming now, so a time asked for is spent: fnl_invalidate_in()
 	 * schedules the next one, and this is it. */
 	a->want_draw_at = 0.0;
-	fnl_cond_signal(&a->cond);
+	/* Only the rest wait ends for this: the late-latch hold and the display
+	 * wait ignore it, and a wake there is a futex (SetEvent on Windows,
+	 * which stays set) and a turn of the render thread for nothing. A
+	 * change landing just before the wait is seen by rest_wait()'s own
+	 * look at user_gen. */
+	if (a->rest_waiting)
+		fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
 }
 
@@ -272,7 +278,8 @@ void fnl_invalidate_in(FnlApp *app, int ms)
 	fnl_mutex_lock(&a->lock);
 	if (a->want_draw_at <= 0.0 || at < a->want_draw_at)
 		a->want_draw_at = at;
-	fnl_cond_signal(&a->cond);       /* for a loop at rest: wake and re-plan */
+	if (a->rest_waiting)             /* the one wait that re-plans */
+		fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
 }
 

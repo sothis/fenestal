@@ -97,7 +97,6 @@ static void destroy_scene_target(App *a)
 	g->scene = (MtTarget){ nil, nil };
 	g->scene_ms = (MtTarget){ nil, nil };
 	g->mlaa = nil;
-	g->taau = nil;
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		g->taau_hist[i] = nil;
 		g->taau_hist_ok[i] = false;
@@ -148,26 +147,25 @@ bool mt_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 					"MLAA is off at this size", w, h);
 		}
 	}
-	if (want_taau && !g->taau && !g->taau_refused) {
+	if (want_taau && !g->taau_hist[0] && !g->taau_refused) {
+		bool all = false;
 		if (!FNL_FAULT("scene-taau")) {
-			g->taau = make_image(a, MT(a)->color_format, w, h, 1, true);
-			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			all = true;
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 				g->taau_hist[i] = make_image(a, MT(a)->color_format, w, h, 1,
 											 true);
+				all = all && g->taau_hist[i] != nil;
+			}
 		}
-		bool all = g->taau != nil;
-		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-			all = all && g->taau_hist[i] != nil;
 		if (all) {
 			built = true;
 		} else {
-			g->taau = nil;
 			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 				g->taau_hist[i] = nil;
 			g->taau_refused = true;
 			fnl_log(FNL_LOG_WARN,
-					"no room for a %dx%d resolved scene image and its "
-					"history; TAAU is off at this size", w, h);
+					"no room for the resolved scene images; TAAU is off at "
+					"this size");
 		}
 	}
 	return built;

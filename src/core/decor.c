@@ -276,7 +276,8 @@ void deco_publish_hover(App *a, Zone z)
 		return;
 	fnl_mutex_lock(&a->lock);
 	a->hovered_button = lit;
-	fnl_cond_signal(&a->cond);             /* for a loop at rest */
+	if (a->rest_waiting)                   /* for a loop at rest */
+		fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
 	if (!BACKEND(a)->invites)
 		app_mark_urgent(a);

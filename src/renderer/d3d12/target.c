@@ -391,7 +391,6 @@ static void destroy_scene_target(App *a)
 	destroy_target(&D3D(a)->scene);
 	destroy_target(&D3D(a)->scene_ms);
 	destroy_target(&D3D(a)->mlaa);
-	destroy_target(&D3D(a)->taau);
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		destroy_target(&D3D(a)->taau_hist[i]);
 		D3D(a)->taau_hist_ok[i] = false;
@@ -440,33 +439,32 @@ bool d3d_scene_ensure_aa(App *a, bool want_ms, bool want_mlaa, bool want_taau)
 					w, h);
 		}
 	}
-	if (want_taau && !g->taau.color && !g->taau_refused) {
+	if (want_taau && !g->taau_hist[0].color && !g->taau_refused) {
 		bool all = false;
 		if (!FNL_FAULT("scene-taau")) {
-			all = make_target(a, &g->taau, w, h, 1, RTV_TAAU, -1, SRV_TAAU);
+			all = true;
 			for (int i = 0; all && i < MAX_FRAMES_IN_FLIGHT; i++)
-				all = make_target(a, &g->taau_hist[i], w, h, 1, -1, -1, -1);
+				all = make_target(a, &g->taau_hist[i], w, h, 1, RTV_TAAU + i, -1,
+								  SRV_TAAU + i);
 			if (all) {
 				/* The resolve's two-descriptor table reads consecutive
-				 * descriptors, so the pairs are: {scene, history 0} and
-				 * {scene, history 1}. */
+				 * descriptors, so the pairs are: {scene, the other slot's
+				 * image} for each slot. */
 				sampled_view(a, g->scene.color, SRV_PAIR0);
-				sampled_view(a, g->taau_hist[0].color, SRV_PAIR0_H);
+				sampled_view(a, g->taau_hist[1].color, SRV_PAIR0_H);
 				sampled_view(a, g->scene.color, SRV_PAIR1);
-				sampled_view(a, g->taau_hist[1].color, SRV_PAIR1_H);
+				sampled_view(a, g->taau_hist[0].color, SRV_PAIR1_H);
 			}
 		}
 		if (all) {
 			built = true;
 		} else {
-			destroy_target(&g->taau);
 			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 				destroy_target(&g->taau_hist[i]);
 			g->taau_refused = true;
 			fnl_log(FNL_LOG_WARN,
-					"no room for a %dx%d resolved scene image and its "
-					"history; TAAU is off at this size",
-					w, h);
+					"no room for the resolved scene images; TAAU is off at "
+					"this size");
 		}
 	}
 	return built;

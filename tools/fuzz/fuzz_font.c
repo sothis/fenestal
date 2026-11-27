@@ -24,7 +24,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		return 0;
 	size_t out_len = ((size_t)data[0] | (size_t)data[1] << 8 |
 					  (size_t)data[2] << 16 | (size_t)data[3] << 24) % OUT_MAX;
-	unsigned char *out = malloc(out_len ? out_len : 1);
+	/* Zeroed, as every caller's scratch is: a copy reads only what the decode
+	 * has written, which -fanalyzer cannot follow through the range decoder. */
+	unsigned char *out = calloc(1, out_len ? out_len : 1);
 	if (!out)
 		return 0;
 	(void)font_decode(data + 4, size - 4, out, out_len);

@@ -79,7 +79,7 @@ static bool scene_mlaa(const App *a, const FnlDrawState *ds)
 static bool scene_taau(const App *a, const FnlDrawState *ds)
 {
 	return ds->aa == FNL_AA_TAAU && scene_offscreen(a, ds) &&
-		   D3D(a)->taau.color;
+		   D3D(a)->taau_hist[0].color;
 }
 
 int d3d_active_samples(const App *a, const FnlDrawState *ds)
@@ -217,21 +217,24 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		target_to(a, &g->mlaa, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	}
 
-	/* The resolve, then the copy that carries its result into this slot's
-	 * history for the frame after it. The history is mixed in only where
-	 * this frame follows the one that wrote it: App::presents moved by one
-	 * and the slot's history has been written, so a rest, a pause, a dropped
-	 * present and a rebuilt device all read as no history. */
+	/* The resolve, into this slot's image, mixing in the other slot's: the
+	 * frame before's result. The history is mixed in only where this frame
+	 * follows the one that wrote it: App::presents moved by one and that
+	 * image has been written, so a rest, a pause, a dropped present and a
+	 * rebuilt device all read as no history. The barriers order this write
+	 * after every earlier read of the image (the fetch and the next frame's
+	 * resolve), as the queue's order carries them across lists. */
 	if (scene_taau(a, ds)) {
 		const bool prev = app_taau_follows(a, D3D(a)->taau_present,
-									   D3D(a)->taau_hist_ok[a->frame]);
+									   D3D(a)->taau_hist_ok[a->frame ^ 1u]);
 		const TaauPush pc = {
 			.jitter = { ds->jitter_x, ds->jitter_y, prev ? TAAU_HISTORY : 0.0f,
 						D3D(a)->scene.depth ? TAAU_DEPTH_REJECT : 0.0f },
 			.texel  = { 1.0f / (float)w, 1.0f / (float)h, ds->motion_x,
 							ds->motion_y },
 		};
-		const D3D12_CPU_DESCRIPTOR_HANDLE trtv = d3d_rtv(a, RTV_TAAU);
+		const D3D12_CPU_DESCRIPTOR_HANDLE trtv =
+			d3d_rtv(a, (int)(RTV_TAAU + a->frame));
 		const int pair = a->frame ? SRV_PAIR1 : SRV_PAIR0;
 
 		/* The resolve reads the depth the scene pass wrote, and the next
@@ -240,19 +243,14 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		if (!ms)
 			depth_to(a, &g->scene, D3D12_RESOURCE_STATE_DEPTH_WRITE,
 					   D3D12_RESOURCE_STATE_DEPTH_READ);
-		target_to(a, &g->taau, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		target_to(a, &g->taau_hist[a->frame], D3D12_RESOURCE_STATE_RENDER_TARGET);
 		begin_target(a, &trtv, NULL, w, h);
 		d3d_fetch2(a, g->pso_taau, pair, &pc);
 		if (!ms)
 			depth_to(a, &g->scene, D3D12_RESOURCE_STATE_DEPTH_READ,
 					   D3D12_RESOURCE_STATE_DEPTH_WRITE);
-		target_to(a, &g->taau, D3D12_RESOURCE_STATE_COPY_SOURCE);
-		target_to(a, &g->taau_hist[a->frame], D3D12_RESOURCE_STATE_COPY_DEST);
-		ID3D12GraphicsCommandList_CopyResource(
-			g->list, g->taau_hist[a->frame].color, g->taau.color);
 		target_to(a, &g->taau_hist[a->frame],
 				  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		target_to(a, &g->taau, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 		g->taau_hist_ok[a->frame] = true;
 		g->taau_present           = a->presents;
 	}
@@ -292,7 +290,7 @@ static void draw_scene(App *a, const FnlDrawState *ds,
 	else
 		d3d_fetch(a, g->pso_blit,
 				  scene_mlaa(a, ds)   ? SRV_MLAA
-				  : scene_taau(a, ds) ? SRV_TAAU
+				  : scene_taau(a, ds) ? (int)(SRV_TAAU + a->frame)
 									  : SRV_SCENE);
 }
 
@@ -335,7 +333,11 @@ static bool draw(App *a, const FnlDrawState *ds, uint32_t slot, UINT img)
 
 	const D3D12_CPU_DESCRIPTOR_HANDLE rtv = d3d_rtv(a, RTV_BACK0 + (int)img);
 	const D3D12_CPU_DESCRIPTOR_HANDLE dsv = d3d_dsv(a, DSV_WINDOW);
-	begin_target(a, &rtv, &dsv, a->extent.w, a->extent.h);
+	/* A scene drawn offscreen is fetched under no depth (draw_scene()), so
+	 * the window's is neither bound nor cleared: a full-window clear that
+	 * nothing reads. */
+	begin_target(a, &rtv, scene_offscreen(a, ds) ? NULL : &dsv, a->extent.w,
+				 a->extent.h);
 	clear_grab_ring(a, rtv);
 	draw_scene(a, ds, rtv);
 

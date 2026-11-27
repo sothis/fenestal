@@ -96,10 +96,12 @@ void main()
 	 * picture having moved across a discontinuity, and is dropped rather
 	 * than smeared; at nought the compare is off, which is every renderer
 	 * that has no depth to compare. */
-	const float ec = 1.0 / max(dep, 1e-5);
-	const float eh = 1.0 / max(prev.w, 1e-5);
+	/* |1/h - 1/c| > k / c is |c - h| > k * h for positive c and h: the same
+	 * test with the two reciprocals gone. */
+	const float ec = max(dep, 1e-5);
+	const float eh = max(prev.w, 1e-5);
 	const bool moved_on =
-		pc.jitter.w > 0.0 && abs(eh - ec) > pc.jitter.w * ec;
+		pc.jitter.w > 0.0 && abs(ec - eh) > pc.jitter.w * eh;
 
 	/* At weight nought the history holds nothing worth having -- a slot's
 	 * image before its first copy, or the frame after a rest -- and is not

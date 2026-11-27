@@ -278,11 +278,54 @@ typedef struct VkImageObj {
 	VkImageView view;
 	VkDescriptorSet set;
 	struct VkImageObj *retire_next;
+	int retire_left; /* frames still to be submitted before it is let go */
 } VkImageObj;
+
+/* A destroyed image is let go once this many frames have been submitted: the
+ * frame being recorded may name it, and every submit waits the fence of the
+ * one MAX_FRAMES_IN_FLIGHT before it, so by then no list that named it is
+ * still on the queue. One more than the swapchain's count, since the frame
+ * that was open when it was destroyed has not been submitted yet. */
+#define IMAGE_RETIRE_FRAMES (MAX_FRAMES_IN_FLIGHT + 1)
+/* More than this waiting is an app that churns images, and the next destroy
+ * outside a recording drains instead of letting the pool's sets and the
+ * device memory pile up. */
+#define IMAGE_RETIRE_MAX 8
 
 bool vk_image_supported(const App *a)
 {
 	return a->renderer_state != NULL && VK(a)->image_pipeline != VK_NULL_HANDLE;
+}
+
+static void upload_free(App *a, struct VkUpload *u)
+{
+	vkFreeCommandBuffers(VK(a)->device, VK(a)->cmd_pool, 1, &u->cb);
+	destroy_instance_buffers(a, 1, &u->stage, &u->mem, &u->map);
+}
+
+/* Take over a submitted upload's command buffer and staging pair. A full
+ * table waits the queue out first, which is the old cost, once a burst. */
+static void upload_keep(App *a, VkCommandBuffer cb, VkBuffer stage,
+						VkDeviceMemory mem, void *map)
+{
+	if (VK(a)->uploads_n == IMAGE_UPLOADS_MAX)
+		vk_uploads_drain(a);
+	VK(a)->uploads[VK(a)->uploads_n++] = (struct VkUpload){
+		.cb = cb, .stage = stage, .mem = mem, .map = map,
+		.left = IMAGE_RETIRE_FRAMES,
+	};
+}
+
+/* Every upload's buffers freed, the queue waited out first: with the device
+ * about to be destroyed, or the table full. A lost device answers at once. */
+void vk_uploads_drain(App *a)
+{
+	if (VK(a)->uploads_n == 0)
+		return;
+	(void)vk_lost(a, vk_queue_wait_idle(a));
+	for (int i = 0; i < VK(a)->uploads_n; i++)
+		upload_free(a, &VK(a)->uploads[i]);
+	VK(a)->uploads_n = 0;
 }
 
 /* One image's device object, from the copy the library kept. False where
@@ -377,10 +420,19 @@ static bool image_upload(App *a, FnlImage *img, VkImageObj **out)
 	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
 						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0,
 						 NULL, 1, &to_read);
-	const FnlResult rc = end_oneshot(a, cb); /* frees the command buffer */
-	destroy_instance_buffers(a, 1, &stage, &smem, &smap);
-	if (rc < 0)
+	/* Submitted and not waited on: the frame that draws the image is
+	 * submitted after this on the same queue, and the barrier above makes the
+	 * copy visible to everything behind it, so nothing here needs the GPU to
+	 * be done. The command buffer and the staging pair are kept until the
+	 * queue is past them (upload_keep()). A wait here was a drain of the
+	 * whole queue, with the frame being recorded behind it, once an image. */
+	const FnlResult rc = end_oneshot_nowait(a, cb);
+	if (rc < 0) {
+		vkFreeCommandBuffers(VK(a)->device, VK(a)->cmd_pool, 1, &cb);
+		destroy_instance_buffers(a, 1, &stage, &smem, &smap);
 		goto fail;
+	}
+	upload_keep(a, cb, stage, smem, smap);
 
 	if (make_image_view(a, o->image, fmt, VK_IMAGE_ASPECT_COLOR_BIT,
 						&o->view) != VK_SUCCESS)
@@ -475,17 +527,19 @@ static void image_obj_destroy(App *a, VkImageObj *o)
 	free(o);
 }
 
-/* Let go the images destroyed while a recording was open: their draws are in
- * the command buffer that frame submitted, so this runs after a submit (the
- * frame's retire) or with the device about to go, and waits it out first. One
- * wait covers the lot. A lost device answers at once and is recorded, and
- * every destroy is legal there. */
+/* Let go the images destroyed while a recording was open, and the ones
+ * destroyed since, with a wait: their draws are in command buffers that may
+ * still be on the queue. For a device about to go, and for a churn past
+ * IMAGE_RETIRE_MAX; the steady path is vk_images_tick(). One wait covers the
+ * lot. A lost device answers at once and is recorded, and every destroy is
+ * legal there. */
 void vk_images_retire(App *a)
 {
 	VkImageObj *o = VK(a)->img_retire;
 	if (!o)
 		return;
-	VK(a)->img_retire = NULL;
+	VK(a)->img_retire   = NULL;
+	VK(a)->img_retire_n = 0;
 	(void)vk_lost(a, vk_device_wait_idle(a));
 	while (o) {
 		VkImageObj *next = o->retire_next;
@@ -494,29 +548,60 @@ void vk_images_retire(App *a)
 	}
 }
 
+/* After a frame is submitted: each destroyed image and each upload is one
+ * frame closer to being let go, with no wait. Every submit waits the fence
+ * of the frame MAX_FRAMES_IN_FLIGHT before it, which the queue order makes
+ * the end of everything submitted earlier -- the argument vk_retire_tick()
+ * makes for a swapchain. */
+void vk_images_tick(App *a)
+{
+	VkImageObj **pp = (VkImageObj **)&VK(a)->img_retire;
+	while (*pp) {
+		VkImageObj *o = *pp;
+		if (--o->retire_left > 0) {
+			pp = &o->retire_next;
+			continue;
+		}
+		*pp = o->retire_next;
+		VK(a)->img_retire_n--;
+		image_obj_destroy(a, o);
+	}
+	struct VkUpload *u = VK(a)->uploads;
+	int kept           = 0;
+	for (int i = 0; i < VK(a)->uploads_n; i++) {
+		if (--u[i].left > 0)
+			u[kept++] = u[i];
+		else
+			upload_free(a, &u[i]);
+	}
+	VK(a)->uploads_n = kept;
+}
+
 void vk_image_free(App *a, FnlImage *img)
 {
 	VkImageObj *o = img->gpu;
 	if (!o)
 		return;
 	img->gpu = NULL;
-	/* A recording is open: the command buffer being recorded names the view
-	 * and the set, and a wait does not cover a buffer that has not been
-	 * submitted. It is let go once the frame is (vk_images_retire()), which
-	 * is the same wait, one submit later. Outside a recording the wait below
-	 * is the whole story: every submitted list is done with it. */
-	if (a->overlay_open) {
-		o->retire_next    = VK(a)->img_retire;
-		VK(a)->img_retire = o;
+	/* The command buffer being recorded, or the other frame slot's list
+	 * still on the queue, may name the view and the set, which the slot
+	 * gives back for a later picture to write. A wait here was the caller's
+	 * toggle cost, and a drain of the frame behind it; the object is let go
+	 * on the frame countdown instead (vk_images_tick()). Outside a recording
+	 * a churn past IMAGE_RETIRE_MAX is drained as it was: nothing open
+	 * names the others, and the pool has sets to give back. Inside one the
+	 * list cannot be drained, since this frame's draws of them are not
+	 * submitted yet. */
+	if (!a->overlay_open && VK(a)->img_retire_n >= IMAGE_RETIRE_MAX) {
+		vk_images_retire(a);
+		(void)vk_lost(a, vk_device_wait_idle(a));
+		image_obj_destroy(a, o);
 		return;
 	}
-	/* The other frame slot's list may still sample the view and read the
-	 * descriptor set, which the slot gives back below for a later picture to
-	 * write. Drained first, as d3d_image_free() drains: a destroy waits and a
-	 * frame does not, so the cost is the caller's toggle. A lost device
-	 * answers at once and is recorded, and the destroy is legal there. */
-	(void)vk_lost(a, vk_device_wait_idle(a));
-	image_obj_destroy(a, o);
+	o->retire_left    = IMAGE_RETIRE_FRAMES;
+	o->retire_next    = VK(a)->img_retire;
+	VK(a)->img_retire = o;
+	VK(a)->img_retire_n++;
 }
 
 /* Every image's device object let go, before the device it names is destroyed

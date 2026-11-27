@@ -1638,7 +1638,8 @@ endif()
 
 set(FNL_CORE_SOURCES
     src/core/app.c src/core/error.c src/core/frame.c
-    src/core/decor.c src/core/text_measure.c src/core/draw.c
+    src/core/decor.c src/core/text_measure.c src/core/text_atlas.c
+    src/core/draw.c
     src/core/overlay.c src/core/api_overlay.c src/core/api_state.c
     src/core/events.c src/core/controls.c src/core/echo.c
     src/core/fault.c src/core/drivers.c src/core/rank.c

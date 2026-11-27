@@ -855,7 +855,8 @@ void app_reticle_publish(App *a)
 	a->want_captured = on;
 	a->want_cursor_x = x;
 	a->want_cursor_y = y;
-	fnl_cond_signal(&a->cond); /* for a loop at rest */
+	if (a->rest_waiting) /* for a loop at rest; a report a thousand a second */
+		fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
 	if (flipped && !BACKEND(a)->invites)
 		app_mark_urgent(a);
@@ -3315,8 +3316,28 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	a->started_at = now_seconds();
 	fnl_atomic_store_u32(&a->input_lat_us, COST_UNKNOWN);
 
-	if ((rc = backend_choose_and_open(a)) < 0)
+	/* The first candidate renderer's loader and drivers, warmed on a thread
+	 * while the window is made (FnlRendererVtbl::prewarm). The choice is
+	 * asked quietly -- the build asks again, and says what it picks -- and
+	 * a guess the ranking overrules costs a thread's work and nothing else. */
+	const FnlRendererVtbl *warm[RENDERER_COUNT];
+	const FnlRendererVtbl *warmed = NULL;
+	{
+		size_t wn;
+		const char *wnamed;
+		if (!fnl_atomic_load_ptr(&a->host->renderer) &&
+			renderer_candidates(&d, warm, &wn, &wnamed) >= 0 && wn > 0 &&
+			warm[0]->prewarm) {
+			warmed = warm[0];
+			warmed->prewarm();
+		}
+	}
+	rc = backend_choose_and_open(a);
+	if (rc < 0) {
+		if (warmed)
+			warmed->prewarm_end();
 		goto fail;
+	}
 	/* Recorded as well as done: the backends' teardown asks whether there is a
 	 * handler that could still reach app_wakeup() before it decides whether
 	 * its wakeup descriptors may be closed. See Host::installed_signals. */
@@ -3325,6 +3346,9 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 		install_signal_handlers(a);
 	}
 	BACKEND(a)->update_scale(a);
+	/* The atlas of the scale the renderer will most likely draw at, decoded
+	 * while it is made (text_atlas_prefetch()). */
+	text_atlas_prefetch(scale_index(a->want_scale120));
 
 	/* Before any renderer: a GPU moved to another driver is a GPU every
 	 * renderer then finds on it. */
@@ -3332,7 +3356,11 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	/* Before the pick, which a ranking may take an index from. */
 	app_rank_start(a);
 
-	if ((rc = renderer_choose_and_build(a, &d)) < 0)
+	rc = renderer_choose_and_build(a, &d);
+	/* Whatever the build did not take of the warm-up is let go. */
+	if (warmed)
+		warmed->prewarm_end();
+	if (rc < 0)
 		goto fail;
 
 	/* The floor grew with the GPU list the build published: the GPU box
@@ -3352,6 +3380,7 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	return FNL_OK;
 
 fail:
+	free(text_atlas_take(-1, 0)); /* a decode nobody will use is joined */
 	app_teardown(a);
 	/* The host goes with its last window: the first window never made it
 	 * this far, so there is nothing else on it. host_close() takes the
