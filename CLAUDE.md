@@ -52,11 +52,12 @@ and the questions left open for them. A question it lists is answered in
   nothing else -- never `history`, `--all` or `--mirror`; the local
   `pre-push` hook refuses any other ref there. GitHub's CI
   (`.github/workflows/ci.yml`) builds each target's release tree on a
-  push to `main` and on a pull request -- macOS on a Mac runner, against
-  its Xcode's SDK, `win64-msvc` with cl.exe on a Windows runner, and
-  FreeBSD in a VM -- and runs ruff; a push builds no checker tree and
-  opens no window, and the scheduled or hand-asked run builds the checker
-  and clang trees and runs none of them.
+  push to `main` and on a pull request -- every Linux-buildable tree on
+  the Ubuntu runner, by the cross compiles `./build.sh` runs here, and
+  macOS on a Mac runner, against its Xcode's SDK, since Apple's SDK
+  reaches no other machine -- and runs ruff; a push builds no checker
+  tree and opens no window, and the scheduled or hand-asked run builds
+  the checker and clang trees and runs none of them.
   This tree's own work takes no PR flow — do not propose one;
   pull requests are how others send changes (`CONTRIBUTING.md`).
 
@@ -181,7 +182,7 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   (`FNL_EMBED_C`). The SDK's headers and libraries reach clang-cl by
   `INCLUDE`/`LIB` and, for the build itself, through `fenestal_usage`.
   DESIGN *Building Windows with MSVC*, *Cross-compiling the MSVC tree*. CI
-  builds the native one on `windows-latest`.
+  builds the cross one on Linux, as here; no cl.exe is exercised there.
 - Counts: `linux` six variants, `linux-arm64` four where its compiler is,
   `win64` three, `win64-msvc` two, `freebsd` four natively and two cross,
   and the macOS tree two, each building both slices. A sweep builds the
@@ -219,7 +220,7 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   `/dev/input` on a deadline, and the NVIDIA/nouveau move is Linux's
   alone. **Native it takes `release`, `asan`, `tsan` and `gc`; cross,
   `release` and `gc`**, the sysroot having no sanitizer runtime. CI builds
-  the native tree in a FreeBSD VM; the harness has no FreeBSD environment
+  the cross tree on Linux, as here; the harness has no FreeBSD environment
   yet (TODO *FreeBSD*). DESIGN *Cross-compiling for FreeBSD*.
 - **`clang` is the release build compiled by clang** (`clang-21`, or
   `FNL_CLANG`), optimised, with `-Wthread-safety` and `-Werror`

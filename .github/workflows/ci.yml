@@ -5,12 +5,10 @@
 # request, and ruff over tools/. A push of a v* tag is a release: the same
 # trees, and a job that attaches what they made to a GitHub Release. The
 # weekly run, and one asked for by hand, builds the checker trees too --
-# clang, asan, tsan, analyzer and gc -- on Linux, ARM Linux, Windows and the
-# Macs, though not every variant each of them takes (win64-msvc's gc and
-# FreeBSD's checkers are not among them), which a push does not; they are
-# compiled there and never run. The run's
-# artifacts are the commented source zip and an archive of what each
-# target made (.github/stage.sh). A
+# clang, asan, tsan, analyzer and gc -- for Linux, ARM Linux and both
+# Windows trees, and gc for the Mac; a push builds the release trees alone.
+# They are compiled and never run. The run's artifacts are the commented
+# source zip and an archive of what each target made (.github/stage.sh). A
 # build that succeeds has run verifyfont, verifykeymap, the fuzz replay,
 # the ABI comparison, the layering, the tables and the API reference's
 # caller check, so a green Linux build is those as well.
@@ -19,13 +17,19 @@
 # harness (tools/drive/) drives desktops and machines of its own; a change in
 # how a window behaves is still checked by hand.
 #
-# Linux runs in Ubuntu 26.04, the release the tree is developed on, so gcc's
-# warnings are the ones a developer sees. The macOS tree is built on a Mac,
-# whose Xcode has Apple's SDK: the SDK is licensed to Apple's machines, so it
-# is never copied to Linux here, where a cache or an artifact would hand it
-# to anyone. It is still the cross build, clang-21 and ld64.lld, once for
-# x86-64 and once for arm64, with what a Linux machine supplies to it -- the
-# baked font and the Vulkan headers -- handed over from the Linux job.
+# Every tree a Linux machine can build is built on the Linux runner, by the
+# same cross compiles `./build.sh` runs there: linux, linux-arm64, win64,
+# win64-msvc (clang-cl against the MSVC CRT and SDK tools/msvc_sdk.py
+# fetches) and freebsd (clang-21 and lld against tools/freebsd_sysroot.py's
+# sysroot). The fetched halves are cached, keyed on their pins. Linux runs
+# in Ubuntu 26.04, the release the tree is developed on, so gcc's warnings
+# are the ones a developer sees. Only the macOS tree needs a runner that is
+# not Linux: Apple's SDK is licensed to Apple's machines, so it is never
+# copied to Linux here, where a cache or an artifact would hand it to
+# anyone. It is still the cross build, clang-21 and ld64.lld, both
+# processors' slices joined by lipo, with what a Linux machine supplies to
+# it -- the baked font and the Vulkan headers -- handed over from the Linux
+# job.
 #
 # Actions are pinned by commit, the tag above each.
 
@@ -56,13 +60,15 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-    # One job for the three trees a Linux machine builds: the cross trees
-    # borrow the Linux tree's baked font, which build.sh lends only when its
-    # files are newer than their sources and its check newer than the bake.
+    # One job for every release tree a Linux machine builds -- the two
+    # Windows ones and FreeBSD as well as its own, by the cross compiles it
+    # runs by hand; their checkers are the job below. The cross trees borrow
+    # the Linux tree's baked font, which build.sh lends only when its files
+    # are newer than their sources and its check newer than the bake.
     linux:
-        name: linux, win64, linux-arm64
+        name: linux, win64, win64-msvc, linux-arm64, freebsd
         runs-on: ubuntu-latest
-        timeout-minutes: 60
+        timeout-minutes: 150
         container:
             image: ubuntu:26.04
         env:
@@ -71,8 +77,9 @@ jobs:
         outputs:
             bake: ${{ steps.linux.outcome }}
         steps:
-            # What every Linux tree needs (README *Building*), the two cross
-            # compilers, and git, which mkdist.py reads the file list from:
+            # What every Linux tree needs (README *Building*), the two gcc
+            # cross compilers, LLVM 21 for the clang-cl and FreeBSD cross
+            # trees, and git, which mkdist.py reads the file list from:
             # checked out without it, the tree is a tarball, and build.sh
             # skips the pack silently.
             - name: Install packages
@@ -84,7 +91,8 @@ jobs:
                       libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
                       xz-utils zstd curl binutils-mingw-w64-x86-64 \
-                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                      clang-21 lld-21 llvm-21
             # mingw-w64's Ubuntu packaging is built for msvcrt, and the tree
             # links the Universal CRT. llvm-mingw's UCRT release is the cross
             # compiler the win64 tree takes; build.sh refuses any other.
@@ -100,6 +108,35 @@ jobs:
                   echo "FNL_MINGW_PREFIX=/opt/llvm-mingw/bin/x86_64-w64-mingw32-" >> "$GITHUB_ENV"
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            # The MSVC CRT and SDK, the FreeBSD sysroot and dxc are fetched
+            # once into ~/.local/state by the tools the trees' toolchain
+            # files name, and what was fetched is kept: the key is the
+            # tools' pins, so a pin change is a new cache and never a stale
+            # SDK, and the checkers job restores what this job saved.
+            - name: The fetches' pins
+              id: pins
+              run: |
+                  key=$(python3 - <<'EOF'
+                  import sys
+                  sys.path.insert(0, "tools")
+                  import dxc, freebsd_sysroot, msvc_sdk
+                  print(msvc_sdk.VERSION, msvc_sdk.SHA256,
+                        freebsd_sysroot.VERSION,
+                        freebsd_sysroot.BASE_SHA256,
+                        freebsd_sysroot.INDEX_SHA256, dxc.VERSION, dxc.SHA256)
+                  EOF
+                  )
+                  echo "key=$(printf '%s' "$key" | sha256sum | cut -c1-16)" \
+                      >> "$GITHUB_OUTPUT"
+            - name: The fetched toolchains
+              # v6.1.0
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: |
+                      ~/.local/state/fenestal/msvc-sdk
+                      ~/.local/state/fenestal/freebsd-sysroot
+                      ~/.local/state/fenestal/dxc
+                  key: fenestal-fetched-${{ steps.pins.outputs.key }}
             # The checkout is the runner's user's and the container runs as
             # root, so git calls it dubious and answers nothing -- and
             # build.sh, finding no checkout, skips the pack as silently as
@@ -192,13 +229,50 @@ jobs:
                   path: ${{ steps.arm64.outputs.archive }}
                   archive: false
                   if-no-files-found: error
+            # The two Windows trees and FreeBSD are cross-compiled here, as
+            # they are by hand: clang-cl against the fetched MSVC CRT and
+            # SDK, and clang-21 and lld against the fetched FreeBSD sysroot.
+            # Each borrows the Linux bake like win64 and linux-arm64.
+            - name: win64-msvc release
+              id: msvc
+              if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+              env:
+                  FNL_NO_DIST: 1
+              run: |
+                  ./build.sh win64-msvc release
+                  .github/stage.sh win64-msvc
+            - name: Keep the win64-msvc archive
+              if: ${{ !cancelled() && steps.msvc.outcome == 'success' }}
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  path: ${{ steps.msvc.outputs.archive }}
+                  archive: false
+                  if-no-files-found: error
+            - name: freebsd release
+              id: freebsd
+              if: ${{ !cancelled() && steps.linux.outcome == 'success' }}
+              env:
+                  FNL_NO_DIST: 1
+              run: |
+                  ./build.sh freebsd release
+                  .github/stage.sh freebsd
+            - name: Keep the freebsd archive
+              if: ${{ !cancelled() && steps.freebsd.outcome == 'success' }}
+              # v7.0.2
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  path: ${{ steps.freebsd.outputs.archive }}
+                  archive: false
+                  if-no-files-found: error
 
     # The checker trees, which a push does not build: the weekly run and one
     # asked for by hand do. They have a job and a container of their own:
     # TSan's shadow cannot share the runner's ASLR layout, and it disables
     # ASLR itself with personality(), which the default seccomp profile
     # refuses -- so this job's container is the one unconfined, and no
-    # push's. The bake comes from the Linux job's cache, as the Mac's does.
+    # push's. The bake and the fetched toolchains come from the Linux job's
+    # caches, as the Mac's inputs do.
     checkers:
         name: checkers
         needs: linux
@@ -207,7 +281,7 @@ jobs:
                 (github.event_name == 'schedule' ||
                  github.event_name == 'workflow_dispatch') }}
         runs-on: ubuntu-latest
-        timeout-minutes: 60
+        timeout-minutes: 150
         container:
             image: ubuntu:26.04
             options: --security-opt seccomp=unconfined
@@ -223,7 +297,8 @@ jobs:
                       libwayland-dev libwayland-bin libxcb1-dev \
                       libfreetype-dev glslang-tools spirv-cross xkb-data \
                       xz-utils zstd clang-21 curl binutils-mingw-w64-x86-64 \
-                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                      lld-21 llvm-21
             # The win64 checker trees need the same UCRT compiler the Linux
             # job builds the release tree with; see that job's step.
             - name: Install llvm-mingw's UCRT toolchain
@@ -238,6 +313,32 @@ jobs:
                   echo "FNL_MINGW_PREFIX=/opt/llvm-mingw/bin/x86_64-w64-mingw32-" >> "$GITHUB_ENV"
             # v7.0.1
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            # What the Linux job fetched, by the same pins, for the two
+            # cross trees whose checkers are here.
+            - name: The fetches' pins
+              id: pins
+              run: |
+                  key=$(python3 - <<'EOF'
+                  import sys
+                  sys.path.insert(0, "tools")
+                  import dxc, freebsd_sysroot, msvc_sdk
+                  print(msvc_sdk.VERSION, msvc_sdk.SHA256,
+                        freebsd_sysroot.VERSION,
+                        freebsd_sysroot.BASE_SHA256,
+                        freebsd_sysroot.INDEX_SHA256, dxc.VERSION, dxc.SHA256)
+                  EOF
+                  )
+                  echo "key=$(printf '%s' "$key" | sha256sum | cut -c1-16)" \
+                      >> "$GITHUB_OUTPUT"
+            - name: The fetched toolchains
+              # v6.1.0
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: |
+                      ~/.local/state/fenestal/msvc-sdk
+                      ~/.local/state/fenestal/freebsd-sysroot
+                      ~/.local/state/fenestal/dxc
+                  key: fenestal-fetched-${{ steps.pins.outputs.key }}
             # The font tools run during the build and a cross or checker
             # tree takes the host's bake rather than making one; the Linux
             # job saved it with verifyfont's pass, which a lender needs.
@@ -286,6 +387,14 @@ jobs:
                       fi
                       echo "::group::win64 $v"
                       ./build.sh win64 $v
+                      echo "::endgroup::"
+                  done
+                  # The cross trees whose release trees the Linux job makes:
+                  # their gc is here. They take the MSVC SDK and the FreeBSD
+                  # sysroot the cache step put back.
+                  for t in win64-msvc freebsd; do
+                      echo "::group::$t gc"
+                      ./build.sh $t gc
                       echo "::endgroup::"
                   done
 
@@ -400,102 +509,6 @@ jobs:
                       "-DFNL_LLVM_OPT=$(brew --prefix llvm@21)/bin/opt"
                   echo "::endgroup::"
 
-    # Native Windows with cl.exe: no mingw, no cross sysroot. FreeType comes
-    # from vcpkg, so mkfont and verifyfont are built by MSVC and the tree
-    # bakes its own font -- the native bake path, not a borrowed one. The
-    # shader tools and Vulkan headers are MSYS2's UCRT64 packages, and dxc
-    # is Microsoft's Windows release through tools/dxc.py. The library opens
-    # the Vulkan loader at run time and links none, so headers without a
-    # .lib are enough.
-    windows:
-        name: win64-msvc
-        runs-on: windows-latest
-        timeout-minutes: 60
-        steps:
-            # v7.0.1
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-            - name: Install FreeType with vcpkg
-              run: vcpkg install freetype:x64-windows
-            # UCRT64's glslang, spirv-cross and Vulkan headers, and the
-            # shell, CMake, Ninja and Python the build runs under. Python is
-            # the UCRT64 build: os.name is "nt", which is how tools/dxc.py
-            # chooses the Windows release.
-            - name: Install MSYS2's tools
-              # v2.34.0
-              uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c
-              with:
-                  msystem: UCRT64
-                  update: false
-                  # The MSVC environment above is a PATH the step sets, and
-                  # the default path type drops it; cl is found through it.
-                  path-type: inherit
-                  install: >-
-                      git
-                      mingw-w64-ucrt-x86_64-cmake
-                      mingw-w64-ucrt-x86_64-ninja
-                      mingw-w64-ucrt-x86_64-python
-                      mingw-w64-ucrt-x86_64-glslang
-                      mingw-w64-ucrt-x86_64-spirv-cross
-                      mingw-w64-ucrt-x86_64-vulkan-headers
-            # cl, link, lib and the Windows SDK on PATH for the step below.
-            - name: Enter the MSVC environment
-              # v1.13.0
-              uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
-              with:
-                  arch: x64
-            - name: win64-msvc release
-              id: msvc
-              shell: msys2 {0}
-              run: |
-                  export FNL_DXC="$(python3 tools/dxc.py --path)"
-                  export GITHUB_OUTPUT="$(cygpath -u "$GITHUB_OUTPUT")"
-                  ./build.sh win64-msvc release \
-                      "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
-                      "-DVCPKG_TARGET_TRIPLET=x64-windows" \
-                      "-DVulkan_INCLUDE_DIR=$(cygpath -w /ucrt64/include)"
-                  .github/stage.sh common
-                  .github/stage.sh win64-msvc
-            - name: Keep the win64-msvc archive
-              if: ${{ !cancelled() && steps.msvc.outcome == 'success' }}
-              # v7.0.2
-              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-              with:
-                  path: ${{ steps.msvc.outputs.archive }}
-                  archive: false
-                  if-no-files-found: error
-
-    # FreeBSD, in a VM: the native build and the checks it runs. No hosted
-    # FreeBSD runner exists, and this builds, never drives, the programs.
-    freebsd:
-        name: freebsd
-        runs-on: ubuntu-latest
-        timeout-minutes: 60
-        steps:
-            # v7.0.1
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-            - name: Build and pack on FreeBSD
-              # v1.6.0
-              uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b
-              with:
-                  usesh: true
-                  prepare: |
-                      pkg install -y cmake pkgconf python3 git \
-                          wayland libxcb libdrm \
-                          vulkan-headers glslang spirv-cross freetype2 \
-                          xkeyboard-config llvm
-                  run: |
-                      set -e
-                      ./build.sh freebsd release
-                      .github/stage.sh common
-                      GITHUB_OUTPUT= .github/stage.sh freebsd
-            - name: Keep the freebsd archive
-              # v7.0.2
-              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-              with:
-                  path: stage/fenestal-freebsd-*.tar.xz
-                  archive: false
-                  if-no-files-found: error
-
     ruff:
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -515,7 +528,7 @@ jobs:
     # tag with no section falls back to GitHub's generated notes.
     release:
         name: publish
-        needs: [linux, macos, windows, freebsd, ruff]
+        needs: [linux, macos, ruff]
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -591,7 +604,7 @@ jobs:
         # `workflow_run` because that trigger fires for every completed run,
         # and when the retry job's `if` then skips it GitHub still creates the
         # run and lists it as skipped.
-        needs: [linux, checkers, macos, windows, freebsd, ruff, release]
+        needs: [linux, checkers, macos, ruff, release]
         # A real failure is handed over too; the retry workflow tells it apart
         # and leaves the run alone. A cancelled job is the shortage's own
         # signature; `!cancelled()` keeps out a run superseded by a newer

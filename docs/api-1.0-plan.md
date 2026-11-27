@@ -105,10 +105,11 @@ block in the header, README and DESIGN are not written down as a sequence.
 why A1 happened. A text checker comparing the public headers' structs and
 enums against `abidump.c`'s `S`/`F`/`E` calls would have caught A1-A3.
 
-**A15. The D3D12/Metal layout baselines have no native macOS check.** The
-macOS CI job builds the cross tree, which skips the layout dump. The
-Windows MSVC job does run `abidump` natively, so D3D12 and Metal layouts are
-checked with Microsoft's compiler, but Apple's compiler layout is not.
+**A15. The D3D12/Metal layout baselines have no native check in CI.** The
+macOS and win64-msvc CI trees are cross builds, which skip the layout
+dump, and the Linux job's native tree checks the Vulkan set alone. The
+D3D12 baselines were dumped under wine, and Apple's compiler layout is
+checked nowhere.
 
 **A16. `VK_EXT_memory_budget` is tested but never enabled.**
 `device.c:1096-1098` sets `memory_budget` from `device_has_extension()`,

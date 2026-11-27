@@ -291,8 +291,9 @@ compiler: natively by cl.exe from a Windows shell with the Visual Studio
 environment set and Ninja on `PATH`; and, since the CRT and the SDK are
 fetchable, on Linux by clang-cl. CMake is driven with
 `-DCMAKE_C_COMPILER=cl` there and with clang-cl here
-(*Cross-compiling the MSVC tree*). CI builds the native one on every push
-(`windows-latest`), which is where cl.exe compiles it at all. Its first
+(*Cross-compiling the MSVC tree*). CI built the native one on every push
+(`windows-latest`) until 2026-11-27, and has built the cross one since, as
+this machine does; a native cl.exe is exercised nowhere now. Its first
 compile there passed on 2026-11-25, library and programs:
 `/experimental:c11atomics` took the testbed's and `fenestal-dev`'s atomics,
 the DLL's exports are the `/DEF:` list, and the archive and import library

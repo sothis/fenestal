@@ -470,8 +470,7 @@ each wants.
   `seed_held_keys()` asks ~230 scancodes per focus gain; Cocoa runs
   `update_scale()` twice for one backing change and `screens_named()` is
   O(n²) per forced publish; KMS re-enumerates the CRTCs five times per mode
-  set; CI's macOS job builds each slice and then the universal tree builds
-  them again; X11 asks a whole property before checking its limit, re-reads
+  set; X11 asks a whole property before checking its limit, re-reads
   `_NET_WM_STATE` inside dispatch, retries a refused pointer grab on every
   motion while a capture is suspended, and pays three round trips for the
   default cursor before the opening waits on a scaled desktop.
@@ -1209,16 +1208,19 @@ and named Vulkan it refuses with the loader's own line.
 ## CI
 
 `.github/workflows/ci.yml`: each target's release tree on a push to `main`
-and on a pull request -- Linux, Windows and ARM Linux in an Ubuntu 26.04
-container, macOS x86-64 and arm64 on a `macos-26` runner -- and ruff. A
-push of a `v*` tag builds the same trees and attaches their archives to a
-GitHub Release, named for the tag. A Monday run, or one asked for by
-hand, builds the checker trees too -- clang, asan, tsan, analyzer and gc
-on Linux, asan, tsan and gc on ARM, analyzer and gc on Windows, gc on
-both Macs -- and runs none of them. The run's artifacts are the commented
-source zip and one archive per target, uploaded as they are (`.tar.xz` for
-Linux, `.zip` for Windows and macOS); the Linux job hands the Mac its font
-and headers through the cache. Owed:
+and on a pull request -- Linux, ARM Linux, both Windows trees and FreeBSD
+in an Ubuntu 26.04 container, by the same cross compiles `./build.sh` runs
+here, and macOS on a `macos-26` runner, since Apple's SDK reaches no other
+machine -- and ruff. A push of a `v*` tag builds the same trees and
+attaches their archives to a GitHub Release, named for the tag. A Monday
+run, or one asked for by hand, builds the checker trees too -- clang,
+asan, tsan, analyzer and gc on Linux, asan, tsan and gc on ARM, analyzer
+and gc on win64, gc on win64-msvc and FreeBSD, and gc on the Mac -- and
+runs none of them. The run's artifacts are the commented source zip and
+one archive per target, uploaded as they are (`.tar.xz` for Linux and
+FreeBSD, `.zip` for Windows and macOS); the Linux job hands the Mac its
+font and headers through the cache, and caches the fetched MSVC SDK,
+FreeBSD sysroot and dxc by their pins. Owed:
 
 - **A push that started no run** (`1bd1c42`, the push said it failed and
   had landed): started by hand then; not seen since.
@@ -1228,8 +1230,9 @@ and headers through the cache. Owed:
 - **The Direct3D 12 baselines were dumped under wine**, by a mingw build of
   `tools/abidump` (the layout is the same on both 64-bit ABIs), and the
   Metal lines in every baseline natively on this desktop. The native trees'
-  own dumps check them, so the Windows runner's and the Mac's release builds
-  are the first to say so for theirs; a difference fails that tree's check.
+  own dumps check them; in CI every tree is a cross one or the Vulkan
+  set's, and skips the dump, so a difference is caught only by a native
+  build by hand.
 
 ## Direct3D 12
 
