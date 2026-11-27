@@ -945,6 +945,32 @@ The version is said in two places, `FNL_VERSION_*` in the header and
 `project()` in `CMakeLists.txt`, and configure refuses them disagreeing.
 `CHANGELOG.md` is what each release changed.
 
+**Never run on the hardware** (and not planned to be; `TODO.md` lists only what
+can be done here). What was written and compiled, and exercised as far as the
+machines in the lab reach, and has never been seen on the real thing:
+
+- **HDR** on any panel: Direct3D 12's scRGB, Metal's extended range, Vulkan's
+  10-bit PQ where a surface lists it, and KMS's `HDR_OUTPUT_METADATA`,
+  `Colorspace` and `XRGB2101010` scanout. It is experimental in the header,
+  with it the float target's cost, MLAA's threshold under linear light, the
+  veil (declined under HDR) and a Windows HDR switch mid-run.
+- **macOS**: Apple silicon in any form (the arm64 slice is cross-built and
+  never run), MetalFX (not written), Metal on a Mac with two GPUs, two
+  monitors of one model, and Cocoa's per-entry autorelease pools under a
+  round.
+- **Windows laptops** past what was measured in *Measured on Windows itself*:
+  a second monitor on Intel, the hybrid copy to an NVIDIA output, sleep with
+  the lid, battery saver, a panel above 60 Hz or with variable refresh, the
+  Direct3D 12 debug layer's opinion of the TAAU resolve, and a real input
+  method.
+- **FreeBSD** on a machine: KMS under `vt(4)`, the hotplug that is rescanned
+  rather than heard, devfs access, and the sanitizers there.
+- **KMS** with a tablet or touchscreen, a CRTC with no cursor plane, a forced
+  connector status that sends a uevent, two cards, a GPU plugged in or out, an
+  AMD GPU's driver moves, and a machine whose display card is the NVIDIA one.
+- **A server of another lineage than X.Org's** for the X11 auto-repeat filter,
+  and any compositor's hi-res wheel beyond GNOME's and weston's.
+
 Toolchains: gcc, which the build defaults to, and clang, which the `clang`
 trees build warning-free, on Linux; a UCRT-targeted mingw-w64 for the
 Windows cross tree; cl.exe for `win64-msvc`; and FreeBSD's base clang. The
@@ -8249,8 +8275,10 @@ That is 19,181,568 raw atlas bytes, coded to 16% of them overall and 13% at
 2.0: a fuller atlas repeats more, so the wider set costs less per glyph than
 its area alone would say. The ladder has since gained 175% (210), so the bake
 carries a seventh atlas -- between 5/3's and 2.0's in height, and about a
-quarter more raw area for the set -- and the totals here are the six-scale
-bake's; re-measuring them is owed (`TODO.md`). The shelf is 3072 texels wide so that no atlas is
+quarter more raw area for the set -- and the table is the six-scale bake's.
+The seven-scale bake (2026-11-27, `verifyfont` passing) is **3,644,359 bytes**
+of atlas and 97,768 of cell table; the per-scale rows and the decode time
+have not been taken again. The shelf is 3072 texels wide so that no atlas is
 taller than it is wide — 4096 is the smallest `maxImageDimension2D` a Vulkan
 device may offer — and `mkfont` fails the bake rather than make one past it.
 

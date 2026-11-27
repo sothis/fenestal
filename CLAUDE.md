@@ -34,9 +34,11 @@ section before changing behaviour it describes. A comment's `DESIGN *Name*`
 names a section there. `README.md` is only the user's introduction: build,
 consume, the API reference, compatibility; detail goes in `DESIGN.md`.
 
-`TODO.md` is what is owed rather than what is known: platforms not yet tested
-and the questions left open for them. A question it lists is answered in
-`DESIGN.md`, with the measurement, and then taken off the list.
+`TODO.md` is what is owed rather than what is known: defects found by reading,
+reports to send and checks that can be run on the machines here. A question it
+lists is answered in `DESIGN.md`, with the measurement, and then taken off the
+list; hardware the lab does not have is recorded in `DESIGN.md` *Compatibility*,
+*Never run on the hardware*, and is not a to-do.
 
 ## Working agreement
 
