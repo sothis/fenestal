@@ -62,7 +62,22 @@ static Sock dial(const char *path)
 	return s;
 }
 
-/* The newest fenestal-*.sock that answers, connected; the path in `out`. */
+/* A socket found in the directory, and when it was last written. */
+typedef struct {
+	char path[512];
+	unsigned long long when;
+	bool tried;
+} Cand;
+/* shortcut: the first 64 found are the ones considered, dead programs' left
+ * sockets beyond that are not looked at; raise it if a directory ever holds
+ * more live ones. */
+#define CAND_MAX 64
+
+/* The newest fenestal-*.sock that answers, connected; the path in `out`.
+ * The candidates are listed first and dialled newest first, so no socket is
+ * held across a turn of the directory loop: that is also the shape -fanalyzer
+ * can follow, which read a socket kept in `best` through the loop as a
+ * second connect on one descriptor. */
 static Sock find(char *out, size_t cap)
 {
 #if defined(_WIN32)
@@ -85,56 +100,60 @@ static Sock find(char *out, size_t cap)
 		dir = "/tmp";
 #endif
 
-	Sock best = SOCK_NONE;
+	Cand c[CAND_MAX];
+	int n = 0;
 	char path[512];
 #if defined(_WIN32)
-	FILETIME best_t = { 0, 0 };
 	WIN32_FIND_DATAA fd;
 	snprintf(path, sizeof path, "%s%cfenestal-*.sock", dir, SEP);
 	HANDLE h = FindFirstFileA(path, &fd);
 	if (h == INVALID_HANDLE_VALUE)
 		return SOCK_NONE;
 	do {
-		snprintf(path, sizeof path, "%s%c%s", dir, SEP, fd.cFileName);
-		if (best != SOCK_NONE &&
-			CompareFileTime(&fd.ftLastWriteTime, &best_t) <= 0)
-			continue;
-		const Sock s = dial(path);
-		if (s == SOCK_NONE)
-			continue;
-		if (best != SOCK_NONE)
-			closesocket(best);
-		best   = s;
-		best_t = fd.ftLastWriteTime;
-		snprintf(out, cap, "%s", path);
+		if (n == CAND_MAX)
+			break;
+		snprintf(c[n].path, sizeof c[n].path, "%s%c%s", dir, SEP,
+				 fd.cFileName);
+		c[n].when = ((unsigned long long)fd.ftLastWriteTime.dwHighDateTime
+					 << 32) |
+					fd.ftLastWriteTime.dwLowDateTime;
+		c[n++].tried = false;
 	} while (FindNextFileA(h, &fd));
 	FindClose(h);
 #else
-	time_t best_t = 0;
 	DIR *d = opendir(dir);
 	if (!d)
 		return SOCK_NONE;
-	for (struct dirent *e; (e = readdir(d));) {
+	for (struct dirent *e; n < CAND_MAX && (e = readdir(d));) {
 		struct stat st;
 		if (strncmp(e->d_name, "fenestal-", 9) != 0 ||
 			!strstr(e->d_name, ".sock"))
 			continue;
 		snprintf(path, sizeof path, "%s%c%s", dir, SEP, e->d_name);
-		if (stat(path, &st) != 0 || !S_ISSOCK(st.st_mode) ||
-			(best != SOCK_NONE && st.st_mtime <= best_t))
+		if (stat(path, &st) != 0 || !S_ISSOCK(st.st_mode))
 			continue;
-		const Sock s = dial(path);
-		if (s == SOCK_NONE)
-			continue;
-		if (best != SOCK_NONE)
-			close(best);
-		best   = s;
-		best_t = st.st_mtime;
-		snprintf(out, cap, "%s", path);
+		snprintf(c[n].path, sizeof c[n].path, "%s", path);
+		c[n].when  = (unsigned long long)st.st_mtime;
+		c[n].tried = false;
+		n++;
 	}
 	closedir(d);
 #endif
-	return best;
+	for (int round = 0; round < n; round++) {
+		int at = -1;
+		for (int i = 0; i < n; i++)
+			if (!c[i].tried && (at < 0 || c[i].when > c[at].when))
+				at = i;
+		if (at < 0)
+			break;
+		c[at].tried   = true;
+		const Sock s = dial(c[at].path);
+		if (s != SOCK_NONE) {
+			snprintf(out, cap, "%s", c[at].path);
+			return s;
+		}
+	}
+	return SOCK_NONE;
 }
 
 #if defined(_WIN32)
