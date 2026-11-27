@@ -357,6 +357,11 @@ static void usage(FILE *f, const char *prog)
 		"                     laptop; the name is. FNL_GPU in the\n"
 		"                     environment is read the same way when the\n"
 		"                     option is not given.\n"
+		"  --app-id=<id>      the program's identity to the desktop, as\n"
+		"                     FnlInitDesc::app_id: Wayland's app id, X11's\n"
+		"                     WM_CLASS instance, Win32's AppUserModelID.\n"
+		"  --app-name=<name>  the name to show, as ::app_name (X11's WM_CLASS\n"
+		"                     class, Vulkan's application name).\n"
 		"  --layout=<spec>    on KMS, type through this layout instead of\n"
 		"                     the console's (/etc/default/keyboard or\n"
 		"                     /etc/vconsole.conf): <layout>[(<variant>)],\n"
@@ -525,6 +530,8 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 	static const char SCALE[]      = "--scale=";
 	static const char COLOUR[]     = "--colour=";
 	static const char GPU[]        = "--gpu=";
+	static const char APP_ID[]     = "--app-id=";
+	static const char APP_NAME[]   = "--app-name=";
 	static const char DRIVER[]     = "--gpu-driver=";
 	static const char RANK[]       = "--gpu-rank=";
 	static const char LAYOUT[]     = "--layout=";
@@ -813,6 +820,16 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 			setenv("FNL_KMS_LAYOUT", v, 1);
 			continue;
 #endif
+		}
+		if (!strncmp(arg, APP_ID, sizeof APP_ID - 1)) {
+			/* argv outlives the library, so the pointer is kept; the
+			 * library copies it anyway. */
+			d->app_id = arg + sizeof APP_ID - 1;
+			continue;
+		}
+		if (!strncmp(arg, APP_NAME, sizeof APP_NAME - 1)) {
+			d->app_name = arg + sizeof APP_NAME - 1;
+			continue;
 		}
 		if (!strncmp(arg, GPU, sizeof GPU - 1)) {
 			const char *v = arg + sizeof GPU - 1;
