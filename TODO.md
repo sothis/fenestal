@@ -523,9 +523,12 @@ the two left, with what each wants.
   FSAA, MLAA and TAAU became one box, vsync a checkbox): the run is 39 points
   narrower, so `deco_min_window()` is 575 (644 with the GPU box, 602 and 671
   where the window is the output) and the output box gives way below 753; the
-  figures above were measured before it. `FLOOR_W` is 644 in `environment.py`
-  on that arithmetic. Owed: one screen measurement of the new floor and of the
-  753 / 751 give-way widths (the testbed's `--width`).
+  figures above were measured before it. **Measured (2026-11-27, X11, the
+  testbed's `--width` and the MCP port's `controls`):** the floor is 644 with
+  the GPU box (600 and 500 clamp to it), the output box is present at 753 and
+  gone at 752, and no control overlaps another at either width -- so
+  `FLOOR_W = 644` and the give-way at 753 hold. Not measured on the other
+  backends.
 
 ## The output box under a window server
 

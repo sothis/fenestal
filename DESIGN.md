@@ -2623,8 +2623,14 @@ at 790. The antialiasing drop-down then replaced the three antialiasing
 checkboxes and a vsync checkbox joined (the run is 39 points narrower: two
 checkboxes, 52 points and 16 characters, an antialiasing box and its gap, 69,
 and the size box, against four checkboxes and the size box), so the floor is
-575 and the three widths are **759, 753 and 751** at the body advance of 8
-points. Derived from the run's own arithmetic, not yet measured on a screen.
+575, and the output box is **present at 753 and gone at 752**, the GPU box
+in its place, at the body advance of 8 points. Measured on 2026-11-27 on X11
+through the MCP port's `controls` with the testbed's `--width` (760 to 750
+step by step; every width reads back as the window's own): the box is listed
+at 760, 759, 758, 754 and 753 and not at 752, 751, 750 or 700; a request for
+600 or 500 opens at 644, the floor with the GPU box, and at 644 and at 753
+the controls' rectangles run from 11 to the window buttons with eight points
+between each pair and no overlap.
 
 **The size list is derived, not shipped.** A hand-written list of resolutions
 would be a product decision, and the library has no business having one. What
