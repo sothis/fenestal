@@ -191,14 +191,17 @@ typedef enum {
 } FnlLogLevel;
 
 /* One of the library's own titlebar controls, for
- * FnlInitDesc::no_titlebar_controls. The antialiasing checkboxes -- FSAA,
- * MLAA and TAAU -- count as one: they are three names for the choice of how
- * the scene is sampled. */
-#define FNL_TITLEBAR_ANTIALIAS (1u << 0) /* the FSAA, MLAA and TAAU boxes */
+ * FnlInitDesc::no_titlebar_controls. The antialiasing modes -- FSAA, MLAA
+ * and TAAU, and none -- are one drop-down and one bit: they are the choice of
+ * how the scene is sampled, and exclude each other. The vsync checkbox has a
+ * bit of its own: a program that leaves the other controls out by name has to
+ * name it too, or pass FNL_TITLEBAR_ALL. */
+#define FNL_TITLEBAR_ANTIALIAS (1u << 0) /* the antialiasing drop-down */
 #define FNL_TITLEBAR_SCALE (1u << 1)     /* the render-scale checkbox  */
 #define FNL_TITLEBAR_OUTPUT (1u << 2)    /* the output box             */
 #define FNL_TITLEBAR_GPU (1u << 3)       /* the GPU box                */
 #define FNL_TITLEBAR_MODE (1u << 4)      /* the size or mode drop-down */
+#define FNL_TITLEBAR_VSYNC (1u << 5)     /* the vsync checkbox         */
 #define FNL_TITLEBAR_ALL (0xffffffffu)
 
 /* A result's name, a string literal the library owns for its life. It leaves

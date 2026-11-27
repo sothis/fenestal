@@ -91,7 +91,7 @@ void deco_min_window(const App *a, bool fullscreen, int *w, int *h)
 	/* The size list is filtered against this floor and offers nothing below
 	 * CONTENT_MIN_W, so a floor above it would empty the list. Not where
 	 * the window is the output: its list is the output's modes, unfiltered,
-	 * and its run, with the output and GPU boxes, is past 640 (652). The
+	 * and its run, with the output and GPU boxes, is wider (671). The
 	 * run's width is the baked font's advance, so this cannot be a static
 	 * assert. */
 	FNL_ASSERT(BACKEND(a)->is_output || *w <= CONTENT_MIN_W);

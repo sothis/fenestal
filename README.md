@@ -354,7 +354,7 @@ session has neither `WAYLAND_DISPLAY` nor `DISPLAY`, or named with
 output whole, so its user wants groups `video` and `input`. The window is the
 output, opened at its preferred mode and maximized for its whole life, so its
 titlebar has fullscreen and close and no minimize or maximize; `F11` takes the
-titlebar away and brings it back. Beside the checkboxes the titlebar lists the
+titlebar away and brings it back. Beside the controls the titlebar lists the
 output's display modes, refresh and all, and the card's other connected
 outputs: a pick sets the mode, or moves the window to that output at its
 preferred mode and turns the one left off -- what `fnl_request_mode()` and
@@ -393,7 +393,8 @@ is a test pattern. `fenestal-dev`, beside it in every tree, is the
 harness's own instrument (its `pace` and `lifecycle` modes).
 
 The titlebar is the library's, as in every program: window buttons, a
-size drop-down, the `FSAA`, `MLAA`, `TAAU` and `Fs Upsample` checkboxes, and a GPU
+size drop-down, the `VSync` and `Fs Upsample` checkboxes, an antialiasing
+drop-down (`No AA`, `FSAA`, `MLAA`, `TAAU`), and a GPU
 drop-down that moves the window onto another GPU while it stays open -- a
 second card, lavapipe beside the hardware, or a GPU of another renderer,
 Direct3D 12's beside Vulkan's -- drawn dim where there is only one; and before

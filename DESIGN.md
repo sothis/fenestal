@@ -1738,7 +1738,7 @@ src/core/      every platform's. Names no window server and no graphics API,
                  window measurements
   decor.c        the client titlebar's layout, its hit test, and what a
                  left press, a drag and a release do in it
-  controls.c     the titlebar's four checkboxes and its output, GPU and size
+  controls.c     the titlebar's two checkboxes and its antialiasing, output, GPU and size
                  drop-downs
   overlay.c      the three primitives, appended, and the palette
   text_measure.c UTF-8, the glyph table, the width of a string
@@ -2534,10 +2534,15 @@ told.
 
 ### The titlebar controls
 
-Beside the four window buttons the bar carries four checkboxes — `FSAA`,
-`MLAA`, `TAAU`, `Fs Upsample` (two buttons, and no `Fs Upsample`, where the
-window is the output) — an output drop-down, a GPU drop-down and a size
-drop-down. They are the library's, drawn in `src/core/controls.c`, and the
+Beside the four window buttons the bar carries two checkboxes — `VSync` and
+`Fs Upsample` (two buttons, and no `Fs Upsample`, where the window is the
+output) — an antialiasing drop-down, an output drop-down, a GPU drop-down and
+a size drop-down. The three antialiasing modes are one drop-down because they
+exclude each other, `No AA` is its first row and the way out of the others,
+and a mode the renderer cannot draw (FSAA without a sample count worth having,
+TAAU without a resolve) is a row left out; without the offscreen target the
+box is dim and inert. Vsync is `fnl_set_vsync()`, the tick drawn from the knob
+itself. They are the library's, drawn in `src/core/controls.c`, and the
 test for whether a control belongs there is simple: **it turns a knob the
 library already owns.** All of them do — `fnl_set_antialias()`,
 `fnl_set_scene_size_px()`, `fnl_request_size_pt()`, `fnl_request_output()`,
@@ -2552,9 +2557,9 @@ into the library. What follows a click is the ordinary
 diff (see *The event queue*) rather than posted by the control. So a change made
 by the bar and one made by the application arrive identically, and neither can
 be missed by a control forgetting to announce itself. The other way round
-holds too: the `FSAA` and `MLAA` boxes are drawn from the antialiasing mode the
-frame latched, not from a tick of their own, so a mode the application set
-with `fnl_set_antialias()` shows as ticked, and a click turns that mode off.
+holds too: the antialiasing box names the mode the frame latched, and the
+vsync box is drawn from the knob, so a mode or a vsync the application set
+with `fnl_set_antialias()` or `fnl_set_vsync()` shows as it is.
 The scaling box keeps a tick of its own, since the size it holds is the
 drop-down's pick, which nothing else records.
 
@@ -2601,8 +2606,8 @@ window alone. A fullscreen window on the Mac is a Space of its own, entered
 and left through AppKit's animation, and is not moved.
 
 Under a window server the box is **the one control that gives way.** Its
-109 points on the run would put the floor at 792, past `CONTENT_MIN_W`;
-so it joins the run where the window is 792 wide or more
+109 points on the run would put the floor at 753, past `CONTENT_MIN_W`;
+so it joins the run where the window is 753 wide or more
 (`ctl_output_in()`), and the floor is the run without it. On KMS it is
 always there, and in the floor. Like every rectangle here it is a function
 of the window width alone.
@@ -2612,10 +2617,14 @@ between the checkboxes and `GPU 1` at 740 points, is still drawn at 734,
 and is gone at 732, where the GPU box has taken its place. The fourth
 checkbox (TAAU, 2026-11-21) is 58 points of run -- measured in
 `deco_min_window()`, and 614 against the 556 it was -- so those three widths
-move to 798, 792 and 790 by the same difference. Re-measured on the screen
-(2026-11-22) with the testbed's `--width`: the box is drawn at 800 and at 792
-and gone at 790, the GPU box in its place, and at 700 the bar still fits every
-control with room to spare -- so the shift is confirmed, not only derived.
+moved to 798, 792 and 790 by the same difference; re-measured on the screen
+(2026-11-22) with the testbed's `--width`: drawn at 800 and at 792 and gone
+at 790. The antialiasing drop-down then replaced the three antialiasing
+checkboxes and a vsync checkbox joined (the run is 39 points narrower: two
+checkboxes, 52 points and 16 characters, an antialiasing box and its gap, 69,
+and the size box, against four checkboxes and the size box), so the floor is
+575 and the three widths are **759, 753 and 751** at the body advance of 8
+points. Derived from the run's own arithmetic, not yet measured on a screen.
 
 **The size list is derived, not shipped.** A hand-written list of resolutions
 would be a product decision, and the library has no business having one. What
@@ -2821,11 +2830,11 @@ presentable area: the smallest size worth *offering*. It is what
 `fnl_min_content_size_pt()` reports and what a caller filtering a list of sizes
 should filter against. It is not a size the window refuses to go below.
 
-**Enforced.** `deco_min_window()` is **614x34** points of window geometry (641
+**Enforced.** `deco_min_window()` is **575x34** points of window geometry (602
 wide where the window is the output, whose run has an output box and a wider
 mode box; each with the GPU box's 69 in it once a renderer has listed its GPUs:
-683 and 710; under a window server the output box is not in it, and gives way
-below 792 instead -- *The titlebar controls*), and both figures come straight
+644 and 671; under a window server the output box is not in it, and gives way
+below 753 instead -- *The titlebar controls*), and both figures come straight
 off the decorations they protect:
 the width is one point above where `ctl_run_x()` drops the controls' run — the
 button strip (`DECO_MIN_W`, 157), the group gap and the run — and the height is
@@ -2843,17 +2852,17 @@ no constant, so `deco_min_window()` asserts at run time, in a Debug tree,
 that the floor stays under `CONTENT_MIN_W` — above it the size list, which
 is filtered against the floor, would offer nothing. Not where the window is
 the output: its list is the output's modes, which the floor does not
-filter, and its 710 is past 700.
+filter (its 671 is under 700 since the antialiasing box was one).
 
 The floor grows once after `open()`: the GPU box joins the run when the
 renderer's first pick publishes its list, and the window server, told the
 floor at open, is told it again then (`apply_size_bounds()` from
 `fnl_init()`); missed, X11's manager held the window to 556. Measured by the
 round (`stress.py`, the corner carried to the window's own left edge): 683
-on X11 for both renderers, on Win32 on both laptops and under wine's X11
+(644 since the titlebar's antialiasing became one box; `FLOOR_W`) on X11 for both renderers, on Win32 on both laptops and under wine's X11
 driver. Confirmed by a width sweep of the testbed's `--width` (2026-11-22):
 requesting 700 and 690 opens at those widths and 670 and 650 both clamp to
-683, and at 683 the bar draws every control it should -- the four checkboxes,
+683, and at 683 the bar draws every control it should -- the four checkboxes (then),
 the GPU box, the size box and the four window buttons -- with no overlap or
 truncation, the output box already given way. Wine's Wayland driver lets the
 compositor take the window to 119,
@@ -2894,7 +2903,7 @@ With the floor this low, every layout threshold above it is reachable, so each
 one has to be a *give-way* rather than an assumption. The rule, throughout:
 
 **buttons and the library's controls never yield (but for the output box under
-a window server, below 734); the title yields to those; a
+a window server, below 753); the title yields to those; a
 caller's run yields to all three; a panel you can turn off yields to one you
 cannot; everything yields to the titlebar.**
 
@@ -2910,7 +2919,7 @@ natural way to use it, so it stores the width only when it moved: the pump's
 hit test reads the same word. Measured on 2026-11-05 through the testbed's
 `--reserve-log`: with its title, a 120-point caller's run is invisible until
 the window is about 1300 points wide -- the run yields to the title long
-before the output box gives way at 734 -- and where it is visible its left
+before the output box gives way at 734 (753 since the antialiasing box) -- and where it is visible its left
 edge holds 855 points in from the window's right edge as the window widens.
 The last two are a caller's own, and `testbed/overlay.c` is one worked answer.
 

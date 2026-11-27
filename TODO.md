@@ -519,6 +519,14 @@ the two left, with what each wants.
   the answer; that is a change to the ring's invariant, so it wants a
   design pass.
 
+- **The titlebar's run after the antialiasing drop-down** (the checkboxes
+  FSAA, MLAA and TAAU became one box, vsync a checkbox): the run is 39 points
+  narrower, so `deco_min_window()` is 575 (644 with the GPU box, 602 and 671
+  where the window is the output) and the output box gives way below 753; the
+  figures above were measured before it. `FLOOR_W` is 644 in `environment.py`
+  on that arithmetic. Owed: one screen measurement of the new floor and of the
+  753 / 751 give-way widths (the testbed's `--width`).
+
 ## The output box under a window server
 
 Written by reading (DESIGN *The titlebar controls*); its stress check was

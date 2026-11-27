@@ -300,13 +300,11 @@ typedef FnlEdge Edge;
 #define EDGE_COUNT ((Edge)(FNL_EDGE_BOTTOM_RIGHT + 1))
 
 /* ---- the library's titlebar controls ---------------------------------------
- * Four checkboxes and the output, GPU and size drop-downs, in
- * src/core/controls.c. The indices are here because App carries their
+ * Two checkboxes (vsync, the scaling pin) and the antialiasing, output, GPU
+ * and size drop-downs, in src/core/controls.c. The indices are here because App carries their
  * state. */
 enum {
-	CTL_CHECK_FSAA = 0,
-	CTL_CHECK_MLAA,
-	CTL_CHECK_TAAU,
+	CTL_CHECK_VSYNC = 0,
 	CTL_CHECK_SCALE,
 	CTL_CHECK_COUNT
 };
@@ -2449,13 +2447,13 @@ struct FnlApp {
 	 * ctl_pin_* is the size the drop-down last picked, in pixels of the
 	 * presentable area. It survives the checkbox being unticked, so
 	 * re-ticking it spends the same size. ctl_check is the scaling box's
-	 * tick; the antialiasing boxes' entries are unused, since those two
-	 * show the mode in force (ctl_ticked()). */
+	 * tick; the vsync box's entry is unused, since it shows the knob
+	 * itself (ctl_ticked()). */
 	FnlAtomicBool ctl_check[CTL_CHECK_COUNT];
 	FnlAtomicU32 ctl_pin_w, ctl_pin_h;
 	/* Which drop-down is open: none, the size box, the output box or the
-	 * GPU box (CTL_SHUT, CTL_OPEN_SIZE, CTL_OPEN_OUTPUT, CTL_OPEN_GPU in
-	 * controls.c). */
+	 * GPU box or the antialiasing box (CTL_SHUT, CTL_OPEN_SIZE,
+	 * CTL_OPEN_OUTPUT, CTL_OPEN_GPU, CTL_OPEN_AA in controls.c). */
 	FnlAtomicU32 ctl_combo_open;
 	/* The row under the pointer, plus one, so that zero is "none". */
 	FnlAtomicU32 ctl_combo_hover1;
@@ -3221,7 +3219,7 @@ FNL_MUST_USE FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds,
 									  int win_w);
 /* Which control is at a point inside the bar: -1, a checkbox index,
  * CTL_CHECK_COUNT for the size box, one past it for the output box, two
- * past it for the GPU box. */
+ * past it for the GPU box, three for the antialiasing box. */
 int ctl_hit(const App *a, int win_w, int x, int y);
 /* One control, window button or row of the open drop-down, for
  * ctl_describe(): its name, rectangle in window points, whether it acts, and

@@ -193,18 +193,49 @@ def run(port, gpu=True, fullscreen=True):
        t.startswith("typed 7") and r.count("EV text") == 7, "%s %d" % (
            t, r.count("EV text")))
 
-    box = control("fsaa")
+    def aa_row(label):
+        for c in parse(port.text("controls"))["controls"]:
+            if c["name"] == "aa_row" and c.get("label") == label:
+                return c
+        return None
+
+    box = control("aa")
     if box:
+        # The antialiasing drop-down: open it, pick FSAA, open it again and
+        # pick its first row, none.
         x, y = middle(box["rect_pt"])
         port.text("pointer", action="click", x=x, y=y)
-        time.sleep(0.8)
-        ok("a click on a control from `controls`",
+        time.sleep(0.5)
+        row = aa_row("FSAA")
+        if row:
+            rx, ry = middle(row["rect_pt"])
+            port.text("pointer", action="click", x=rx, y=ry)
+            time.sleep(0.8)
+        ok("a pick in a drop-down from `controls`",
            st()["antialias"] == "fsaa", st()["antialias"])
         port.text("pointer", action="click", x=x, y=y)
-        time.sleep(0.8)
-        ok("and back", st()["antialias"] == "none")
+        time.sleep(0.5)
+        row = aa_row("No AA")
+        if row:
+            rx, ry = middle(row["rect_pt"])
+            port.text("pointer", action="click", x=rx, y=ry)
+            time.sleep(0.8)
+        ok("and back to none", st()["antialias"] == "none")
     else:
         ok("controls lists the antialiasing box", False)
+    # The vsync checkbox is the knob: a click flips it, a second flips it back.
+    vbox = control("vsync")
+    if vbox:
+        was = st()["vsync"]
+        x, y = middle(vbox["rect_pt"])
+        port.text("pointer", action="click", x=x, y=y)
+        time.sleep(0.8)
+        ok("a click on the vsync box flips vsync", st()["vsync"] != was)
+        port.text("pointer", action="click", x=x, y=y)
+        time.sleep(0.8)
+        ok("and back", st()["vsync"] == was)
+    else:
+        ok("controls lists the vsync box", False)
     port.text("window", antialias="mlaa")
     time.sleep(0.8)
     ok("window sets the antialiasing", st()["antialias"] == "mlaa")

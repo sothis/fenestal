@@ -3,7 +3,8 @@
  *
  * Copyright (c) 2026 Janos Sonntag
  *
- * The controls in the titlebar: three checkboxes and a size drop-down; a
+ * The controls in the titlebar: two checkboxes -- *VSync* and *Fs Upsample* --
+ * an antialiasing drop-down and a size drop-down; a
  * GPU drop-down before the size one, dim where the renderer lists one GPU;
  * an output drop-down before that, naming the monitor the window is on and
  * dim where there is one, or where the bar cannot move the window
@@ -13,7 +14,9 @@
  * (ctl_check_shown()).
  *
  * The library's own, because each drives a knob the library already owns --
- * FSAA, MLAA, TAAU, the render-scale pin, the window size, the GPU
+ * vsync, the antialiasing mode (one drop-down, since FSAA, MLAA and TAAU
+ * exclude each other and *No AA* is the way out of all three), the
+ * render-scale pin, the window size, the GPU
  * (fnl_request_gpu()), the output (fnl_request_output()), and where the
  * window is the output its display mode. They call the same public
  * knobs a caller would, so the event that reports a change comes out of the
@@ -60,15 +63,30 @@ typedef struct {
 	unsigned int mhz;
 } CtlRes;
 
-/* Which drop-down is open: none, the size box, the output box or the GPU
- * box. */
-enum { CTL_SHUT = 0, CTL_OPEN_SIZE = 1, CTL_OPEN_OUTPUT = 2, CTL_OPEN_GPU = 3 };
-/* What ctl_hit() answers past the checkboxes: the three boxes. */
+/* Which drop-down is open: none, the size box, the output box, the GPU box
+ * or the antialiasing box. */
+enum {
+	CTL_SHUT        = 0,
+	CTL_OPEN_SIZE   = 1,
+	CTL_OPEN_OUTPUT = 2,
+	CTL_OPEN_GPU    = 3,
+	CTL_OPEN_AA     = 4
+};
+/* What ctl_hit() answers past the checkboxes: the four boxes. */
 enum {
 	CTL_HIT_SIZE   = CTL_CHECK_COUNT,
 	CTL_HIT_OUTPUT = CTL_CHECK_COUNT + 1,
-	CTL_HIT_GPU    = CTL_CHECK_COUNT + 2
+	CTL_HIT_GPU    = CTL_CHECK_COUNT + 2,
+	CTL_HIT_AA     = CTL_CHECK_COUNT + 3
 };
+
+/* The antialiasing modes as the box names them, by FnlAntialias's value. The
+ * first is the way out of the other three, which is why they are one box. */
+static const char *const CTL_AA_NAME[] = { "No AA", "FSAA", "MLAA", "TAAU" };
+#define CTL_AA_COUNT ((int)(sizeof CTL_AA_NAME / sizeof CTL_AA_NAME[0]))
+#define CTL_AA_WIDEST "No AA"
+FNL_STATIC_ASSERT((int)FNL_AA_TAAU == 3,
+				  "CTL_AA_NAME is indexed by FnlAntialias");
 
 static const struct {
 	int w, h;
@@ -406,9 +424,7 @@ static const struct {
 	const char *text;
 	int chars;
 } CTL_LABEL[CTL_CHECK_COUNT] = {
-	CTL_LABEL_OF("FSAA"),
-	CTL_LABEL_OF("MLAA"),
-	CTL_LABEL_OF("TAAU"),
+	CTL_LABEL_OF("VSync"),
 	CTL_LABEL_OF("Fs Upsample"),
 };
 
@@ -428,10 +444,8 @@ static bool ctl_wanted(const App *a, uint32_t bit)
 
 static bool ctl_check_shown(const App *a, int i)
 {
-	/* The antialiasing boxes are one choice of sampling and one bit; the
-	 * render scale is the other checkbox and has its own. */
 	if (!ctl_wanted(a, i == CTL_CHECK_SCALE ? FNL_TITLEBAR_SCALE
-											: FNL_TITLEBAR_ANTIALIAS))
+											: FNL_TITLEBAR_VSYNC))
 		return false;
 	return i != CTL_CHECK_SCALE || !BACKEND(a)->is_output;
 }
@@ -469,6 +483,20 @@ static int ctl_combo_w(const App *a)
 										   : (int)(sizeof CTL_SIZE_WIDEST - 1));
 }
 
+/* The antialiasing box, and the gap after it: one box for the three modes
+ * and the way out, as wide as its widest name. */
+static int ctl_aa_w(const App *a)
+{
+	return ctl_wanted(a, FNL_TITLEBAR_ANTIALIAS)
+			   ? ctl_box_w((int)(sizeof CTL_AA_WIDEST - 1))
+			   : 0;
+}
+
+static int ctl_aa_gap(const App *a)
+{
+	return ctl_wanted(a, FNL_TITLEBAR_ANTIALIAS) ? CTL_CHECK_PAD : 0;
+}
+
 /* The output box with the gap after it. */
 static int ctl_output_room(void)
 {
@@ -499,8 +527,9 @@ int ctl_run_w(const App *a)
 	 * and an empty stretch in the run would answer presses as the size
 	 * box's. */
 	const bool out = BACKEND(a)->is_output && ctl_wanted(a, FNL_TITLEBAR_OUTPUT);
-	return ctl_checks_w(a) + (out ? ctl_output_room() : 0) + ctl_gpu_w(a) +
-		   ctl_gpu_gap(a) + ctl_combo_w(a);
+	return ctl_checks_w(a) + ctl_aa_w(a) + ctl_aa_gap(a) +
+		   (out ? ctl_output_room() : 0) + ctl_gpu_w(a) + ctl_gpu_gap(a) +
+		   ctl_combo_w(a);
 }
 
 /* Whether the output box is in the run of a window w wide. Where the window
@@ -538,9 +567,14 @@ int ctl_run_w_at(const App *a, int w)
 }
 
 /* Where each box starts, from the run's left edge. */
-static int ctl_output_x(const App *a, int rx)
+static int ctl_aa_x(const App *a, int rx)
 {
 	return rx + ctl_checks_w(a);
+}
+
+static int ctl_output_x(const App *a, int rx)
+{
+	return ctl_aa_x(a, rx) + ctl_aa_w(a) + ctl_aa_gap(a);
 }
 
 static int ctl_gpu_x(const App *a, int w, int rx)
@@ -601,23 +635,50 @@ static int ctl_output_count(const App *a)
 	return ctl_outputs(a, &e, names, &now);
 }
 
-/* Whether a checkbox can act. All four need the offscreen target; FSAA also
- * needs a sample count worth having, TAAU a renderer that draws it, and the
- * scaling box a size to hold.
+/* Whether a checkbox can act. Vsync is a knob of the swapchain and needs
+ * nothing; the scaling box needs the offscreen target and a size to hold.
  * `n_sizes` is passed in because the frame path has already built the list,
  * and filtering it again is another crossing of App::lock. */
 static bool ctl_check_enabled(const App *a, int i, int n_sizes)
 {
+	if (i == CTL_CHECK_VSYNC)
+		return true;
 	const FnlRendererVtbl *r = renderer_any(a);
 	if (!r || !r->offscreen_scene)
 		return false;
-	if (i == CTL_CHECK_FSAA)
-		return r->max_samples(a) > 1;
-	if (i == CTL_CHECK_TAAU)
-		return r->temporal_upscale;
-	if (i == CTL_CHECK_SCALE)
-		return n_sizes > 0;
-	return true;
+	return n_sizes > 0;
+}
+
+/* The modes the antialiasing box offers, as FnlAntialias values, in the
+ * box's order -- none first -- and how many. Only those the renderer can
+ * draw: FSAA needs a sample count worth having and TAAU a renderer that
+ * does it. None at all without the offscreen target, which every mode
+ * needs, and the box is then dim and inert. `*now` is the row in force. */
+static int ctl_aa_modes(const App *a, FnlAntialias *out, int *now)
+{
+	const FnlRendererVtbl *r = renderer_any(a);
+	int n = 0;
+	*now  = -1;
+	if (!r || !r->offscreen_scene)
+		return 0;
+	const FnlAntialias cur = fnl_antialias(a);
+	for (int m = 0; m < CTL_AA_COUNT; m++) {
+		if (m == (int)FNL_AA_MSAA && r->max_samples(a) <= 1)
+			continue;
+		if (m == (int)FNL_AA_TAAU && !r->temporal_upscale)
+			continue;
+		if (cur == (FnlAntialias)m)
+			*now = n;
+		out[n++] = (FnlAntialias)m;
+	}
+	return n;
+}
+
+static int ctl_aa_count(const App *a)
+{
+	FnlAntialias modes[CTL_AA_COUNT];
+	int now;
+	return ctl_aa_modes(a, modes, &now);
 }
 
 /* ---- what the box reads out ----------------------------------------------
@@ -672,19 +733,14 @@ static void ctl_output_label(const App *a, char *buf, size_t n)
 
 /* ---- drawing ------------------------------------------------------------- */
 
-/* Whether box `i` is ticked. The three antialiasing boxes show the mode the
- * frame was latched with, whoever set it -- a tick of their own would stay
- * off when the caller turns FSAA on with fnl_set_antialias(). The scaling
- * box keeps its own: the size it holds is the drop-down's pick, which the
- * library's state does not record. */
-static bool ctl_ticked(const App *a, const FnlDrawState *ds, int i)
+/* Whether box `i` is ticked. Vsync shows the knob itself, whoever set it
+ * (fnl_set_vsync() invalidates, so the frame that follows draws it). The
+ * scaling box keeps a tick of its own: the size it holds is the drop-down's
+ * pick, which the library's state does not record. */
+static bool ctl_ticked(const App *a, int i)
 {
-	if (i == CTL_CHECK_FSAA)
-		return ds->aa == FNL_AA_MSAA;
-	if (i == CTL_CHECK_MLAA)
-		return ds->aa == FNL_AA_MLAA;
-	if (i == CTL_CHECK_TAAU)
-		return ds->aa == FNL_AA_TAAU;
+	if (i == CTL_CHECK_VSYNC)
+		return fnl_vsync(a);
 	return CTL_CHECKED(a, i);
 }
 
@@ -758,10 +814,18 @@ void ctl_draw(App *a, const FnlDrawState *ds, int win_w, int area_w, int area_h)
 	for (int i = 0; i < CTL_CHECK_COUNT; i++) {
 		if (!ctl_check_shown(a, i))
 			continue;
-		ctl_draw_check(a, i, x, ry, rh, ctl_ticked(a, ds, i),
+		ctl_draw_check(a, i, x, ry, rh, ctl_ticked(a, i),
 					   ctl_check_enabled(a, i, n), ds->is_active);
 		x += ctl_check_w(a, i);
 	}
+	/* The antialiasing mode the frame was latched with, whoever set it: a
+	 * mode the caller chose with fnl_set_antialias() reads here too. */
+	if (ctl_aa_w(a) > 0)
+		ctl_draw_combo(a, ctl_aa_x(a, rx), ry, ctl_aa_w(a), rh,
+					   CTL_AA_NAME[(int)ds->aa >= 0 && (int)ds->aa < CTL_AA_COUNT
+									   ? (int)ds->aa
+									   : 0],
+					   ds->is_active && ctl_aa_count(a) > 0);
 	if (ctl_output_w(a, win_w) > 0) {
 		char on[OUTPUT_NAME_MAX];
 		ctl_output_label(a, on, sizeof on);
@@ -789,7 +853,7 @@ void ctl_draw(App *a, const FnlDrawState *ds, int win_w, int area_w, int area_h)
  * One function for the draw and both hit tests, so a row is drawn exactly
  * where it is clicked. False when no list is open or it has no rows. */
 typedef struct {
-	int which;           /* CTL_OPEN_SIZE, _OUTPUT or _GPU */
+	int which;           /* CTL_OPEN_SIZE, _OUTPUT, _GPU or _AA */
 	int x, y, w, n, now; /* `now` the row in force, or -1 */
 	CtlRes size[CTL_MAX_ITEMS];
 	char name[OUTPUTS_MAX][OUTPUT_NAME_MAX];
@@ -797,6 +861,8 @@ typedef struct {
 	 * calibration the ranking offers (app_rank_recalibrates()). */
 	char gpu[GPU_LIST_MAX + 1][CTL_GPU_ROW_MAX];
 	int gpu_n;
+	/* The antialiasing box's rows, as FnlAntialias values. */
+	FnlAntialias aa[CTL_AA_COUNT];
 } CtlList;
 
 /* A list as wide as its widest row of `widest` characters where that is
@@ -837,6 +903,13 @@ static bool ctl_list(const App *a, int win_w, CtlList *l)
 		if (widest > CTL_GPU_ROW_MAX - 1) /* what a row is drawn from */
 			widest = CTL_GPU_ROW_MAX - 1;
 		ctl_list_hang(l, ctl_output_x(a, rx), ctl_output_w(a, win_w), widest);
+	} else if (l->which == CTL_OPEN_AA) {
+		/* No box, no list, as for the size box below. */
+		if (ctl_aa_w(a) <= 0)
+			return false;
+		l->n = ctl_aa_modes(a, l->aa, &l->now);
+		ctl_list_hang(l, ctl_aa_x(a, rx), ctl_aa_w(a),
+					  (int)(sizeof CTL_AA_WIDEST - 1));
 	} else if (l->which == CTL_OPEN_GPU) {
 		const CtlEnv e = ctl_env(a);
 		l->n = l->gpu_n = ctl_gpus(a, &e, l->gpu, &l->now);
@@ -929,6 +1002,9 @@ FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds, int win_w)
 		} else if (l.which == CTL_OPEN_GPU) {
 			snprintf(item, sizeof item, "%s", l.gpu[i]);
 			picked = i == l.now;
+		} else if (l.which == CTL_OPEN_AA) {
+			snprintf(item, sizeof item, "%s", CTL_AA_NAME[l.aa[i]]);
+			picked = i == l.now;
 		} else {
 			ctl_size_name(item, sizeof item, &l.size[i]);
 			/* The size already picked, in the live ink: the box above shows
@@ -956,7 +1032,8 @@ FnlResult ctl_draw_popup(App *a, const FnlDrawState *ds, int win_w)
 
 /* Which control is at a point in the band. -1 for none, 0..CTL_CHECK_COUNT-1
  * for a checkbox, CTL_HIT_SIZE for the size box, CTL_HIT_OUTPUT for the
- * output box, CTL_HIT_GPU for the GPU box. */
+ * output box, CTL_HIT_GPU for the GPU box, CTL_HIT_AA for the
+ * antialiasing box. */
 int ctl_hit(const App *a, int win_w, int x, int y)
 {
 	int rx, ry, rw, rh;
@@ -972,6 +1049,9 @@ int ctl_hit(const App *a, int win_w, int x, int y)
 			return i;
 		cx += cw;
 	}
+	const int ax = ctl_aa_x(a, rx);
+	if (x >= ax && x < ax + ctl_aa_w(a))
+		return CTL_HIT_AA;
 	const int ox = ctl_output_x(a, rx);
 	if (x >= ox && x < ox + ctl_output_w(a, win_w))
 		return CTL_HIT_OUTPUT;
@@ -989,7 +1069,7 @@ int ctl_hit(const App *a, int win_w, int x, int y)
 int ctl_describe(const App *a, int win_w, CtlInfo *out, int max)
 {
 	static const char *const CHECK_NAME[CTL_CHECK_COUNT] = {
-		"fsaa", "mlaa", "taau", "fs_upsample"
+		"vsync", "fs_upsample"
 	};
 	int n = 0;
 	if (!deco_client(fnl_is_fullscreen(a)) || fnl_titlebar_owned(a))
@@ -1021,19 +1101,19 @@ int ctl_describe(const App *a, int win_w, CtlInfo *out, int max)
 	CtlRes opts[CTL_MAX_ITEMS];
 	int now;
 	const int n_sizes = ctl_options(a, opts, CTL_MAX_ITEMS, &now);
-	const FnlAntialias aa = fnl_antialias(a);
 	int x = rx;
 	for (int i = 0; i < CTL_CHECK_COUNT; i++) {
 		if (!ctl_check_shown(a, i))
 			continue;
-		const bool on = i == CTL_CHECK_FSAA   ? aa == FNL_AA_MSAA
-						: i == CTL_CHECK_MLAA ? aa == FNL_AA_MLAA
-						: i == CTL_CHECK_TAAU ? aa == FNL_AA_TAAU
-											  : CTL_CHECKED(a, i);
 		PUT(CHECK_NAME[i], x, ry, ctl_check_w(a, i) - CTL_CHECK_PAD, rh,
-			ctl_check_enabled(a, i, n_sizes), on);
+			ctl_check_enabled(a, i, n_sizes), ctl_ticked(a, i));
 		x += ctl_check_w(a, i);
 	}
+	/* The box names the mode in force as its list does: `on` is that
+	 * mode's value, FNL_AA_NONE (0) included. */
+	if (ctl_aa_w(a) > 0)
+		PUT("aa", ctl_aa_x(a, rx), ry, ctl_aa_w(a), rh, ctl_aa_count(a) > 0,
+			(int)fnl_antialias(a));
 	if (ctl_output_w(a, win_w) > 0)
 		PUT("output", ctl_output_x(a, rx), ry, ctl_output_w(a, win_w), rh,
 			ctl_output_count(a) > 1, -1);
@@ -1050,7 +1130,7 @@ int ctl_describe(const App *a, int win_w, CtlInfo *out, int max)
 	static FNL_THREAD_LOCAL CtlList l;
 	if (CTL_OPEN(a) != CTL_SHUT && ctl_list(a, win_w, &l)) {
 		static const char *const ROW[] = { "", "size_row", "output_row",
-										   "gpu_row" };
+										   "gpu_row", "aa_row" };
 		for (int i = 0; i < l.n && n < max; i++) {
 			CtlInfo *o = &out[n++];
 			*o = (CtlInfo){ .name = ROW[l.which], .x = l.x,
@@ -1063,6 +1143,8 @@ int ctl_describe(const App *a, int win_w, CtlInfo *out, int max)
 			else if (l.which == CTL_OPEN_GPU)
 				snprintf(o->label, sizeof o->label, "%.*s", (int)sizeof o->label - 1,
 						 l.gpu[i]);
+			else if (l.which == CTL_OPEN_AA)
+				snprintf(o->label, sizeof o->label, "%s", CTL_AA_NAME[l.aa[i]]);
 			else
 				ctl_size_name(o->label, sizeof o->label, &l.size[i]);
 		}
@@ -1105,18 +1187,10 @@ static void ctl_toggle(App *a, int which)
 	if (!ctl_check_enabled(a, which, ctl_size_count(a)))
 		return;
 
-	/* The antialiasing boxes are one knob publicly -- they solve the same
-	 * problem three ways and the library takes one answer -- so each turns
-	 * its own mode on, or off where it is the one in force, and ticking any
-	 * of them unticks the others by the same token. Read off the knob itself,
-	 * as the boxes are drawn from it. */
-	if (which == CTL_CHECK_FSAA || which == CTL_CHECK_MLAA ||
-		which == CTL_CHECK_TAAU) {
-		const FnlAntialias mode = which == CTL_CHECK_FSAA   ? FNL_AA_MSAA
-								  : which == CTL_CHECK_MLAA ? FNL_AA_MLAA
-															: FNL_AA_TAAU;
-		fnl_set_antialias(a, fnl_antialias(a) == mode ? FNL_AA_NONE : mode);
-		fnl_invalidate(a);
+	/* Vsync is the knob itself, read off it as the box is drawn from it; the
+	 * swapchain is built again at the next frame (fnl_set_vsync()). */
+	if (which == CTL_CHECK_VSYNC) {
+		fnl_set_vsync(a, !fnl_vsync(a));
 		return;
 	}
 
@@ -1153,6 +1227,11 @@ static void ctl_select(App *a, int win_w, int item)
 	const CtlRes *opts = l.size;
 	if (l.which == CTL_OPEN_OUTPUT) {
 		fnl_request_output(a, l.name[item]);
+	} else if (l.which == CTL_OPEN_AA) {
+		/* The mode of the row, which is a pick and not a toggle: the
+		 * first row, none, is the way out of the others. */
+		fnl_set_antialias(a, l.aa[item]);
+		fnl_invalidate(a);
 	} else if (l.which == CTL_OPEN_GPU) {
 		/* A row is its place in the list (ctl_gpus()), and the one after
 		 * the GPUs the calibration. */
@@ -1202,12 +1281,15 @@ void ctl_press(App *a, int win_w, int x, int y, int row)
 		return;
 	}
 	/* A box opens its list, shuts it, or swaps the other's for its own. */
-	if (what == CTL_HIT_SIZE || what == CTL_HIT_OUTPUT || what == CTL_HIT_GPU) {
+	if (what == CTL_HIT_SIZE || what == CTL_HIT_OUTPUT || what == CTL_HIT_GPU ||
+		what == CTL_HIT_AA) {
 		const int want = what == CTL_HIT_SIZE     ? CTL_OPEN_SIZE
 						 : what == CTL_HIT_OUTPUT ? CTL_OPEN_OUTPUT
+						 : what == CTL_HIT_AA     ? CTL_OPEN_AA
 												  : CTL_OPEN_GPU;
 		const bool any = what == CTL_HIT_SIZE     ? ctl_size_count(a) > 0
 						 : what == CTL_HIT_OUTPUT ? ctl_output_count(a) > 1
+						 : what == CTL_HIT_AA     ? ctl_aa_count(a) > 1
 												  : ctl_gpu_count(a) > 1;
 		if (CTL_OPEN(a) == want)
 			ctl_set_open(a, CTL_SHUT);

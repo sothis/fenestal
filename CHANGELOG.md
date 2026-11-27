@@ -4,6 +4,17 @@ What each release changed for a program that uses Fenestal. `DESIGN.md` is
 why; `fenestal.h` is the API, and its *stability* block says what is
 promised: before 1.0, nothing between minor releases.
 
+## Unreleased
+
+- **The titlebar's antialiasing is one drop-down, and vsync has a checkbox.**
+  The `FSAA`, `MLAA` and `TAAU` checkboxes are a single box, `No AA` first,
+  since the three exclude each other; a `VSync` checkbox drives
+  `fnl_set_vsync()`. The run is narrower, so the size floor is lower.
+  `FNL_TITLEBAR_VSYNC` (new) leaves the vsync box out and `FNL_TITLEBAR_ALL`
+  still leaves out everything; a program that named every other control to
+  leave them out now names this one too. The MCP port's controls are
+  `vsync`, `fs_upsample` and `aa`, with the rows `aa_row`.
+
 ## 1.0.0
 
 The API and the ABI are stable from this release: `fenestal.h` *stability*
