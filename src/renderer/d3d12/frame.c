@@ -142,10 +142,12 @@ static void depth_to(App *a, D3dTarget *t, D3D12_RESOURCE_STATES from,
 
 /* The depth as the resolve reads it: through a shader resource view in the
  * pixel shader, which a pixel-shader read wants stated -- DEPTH_READ alone is
- * the depth test's state -- and the two read states combine. */
+ * the depth test's state -- and the two read states combine. The cast is what
+ * says the combination is a state: the OR is an int, which clang's
+ * -Wassign-enum refuses at depth_to() without one. */
 #define DEPTH_SAMPLED \
-	(D3D12_RESOURCE_STATE_DEPTH_READ | \
-	 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+	((D3D12_RESOURCE_STATES)(D3D12_RESOURCE_STATE_DEPTH_READ | \
+							 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE))
 
 /* The seam: the list, its render target bound and cleared, the viewport on
  * the rectangle, and what is drawn the caller's -- stashed for
