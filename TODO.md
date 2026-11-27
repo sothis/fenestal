@@ -729,6 +729,31 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
 
 ## Linux
 
+- **The copy path's 33 ms hiccup is the late-latch controller, not the copy
+  (2026-11-27).** Four runs in ten on schenker's eDP with the GTX 1050 Ti
+  drew every frame in 16.7 ms (GPU 1.82, present 6.86, hold 9.3); the other
+  six held nothing (hold 0.00), their present was 3 ms longer (9.8 to 12.7)
+  and every frame missed the vblank (p99 33.3, 1 % low 30). The GPU's clock
+  is not it: `nvidia-smi -lgc 1500,1911` changed nothing. A fixed hold is
+  worse still -- 6 or 9 ms gave 47 to 52 fps and a GPU span of 4.9 to 5.8,
+  since a hold the copy cannot spare is a frame the copy then overruns. So
+  the self-tuned hold is right and the controller's *decision* to drop it is
+  what to look at: a turn whose device block is 4.2 ms of a 16.6 ms period
+  reads as over budget and the hold is cut to nothing, which is the state it
+  then stays in. Not changed: the controller is shared by every backend and
+  the display path's figures depend on it.
+- **A second lit output costs an open 200 ms.** With schenker's HDMI monitor
+  on as well as eDP, a KMS open was 343 to 358 ms warm (init 334 to 348) and
+  the exit 152 to 164; with the HDMI output off, 126 to 150 warm and 83 to
+  143 exit. The window's own output is all it draws on, so the other output's
+  mode is set and restored for nothing. Not changed: which outputs a KMS
+  window lights is a policy question (DESIGN *KMS: no window server*), and
+  the harness's own rounds put every output on.
+- **The display path's latch is neutral, measured three ways** (eDP, the
+  harness's hands): auto 23.1 ms read-to-shown, late latching off 22.8, a
+  fixed 4 ms hold 23.0. The 20.5 ms latch-to-shown is where the latch sits,
+  not latency an event waits for.
+
 - **The KMS copy path is at its floor, by measurement (2026-11-27).** The
   frame is drawn on a headless surface, read back into cached host memory and
   copied into the scanout buffer by the CPU -- 9.2 MB twice a frame at
