@@ -574,8 +574,8 @@ void app_frame_answered(App *a, uint64_t index)
 {
 	fnl_mutex_lock(&a->lock);
 	fnl_atomic_store_u32(&a->frame_answered, (uint32_t)(index + 1));
-	fnl_cond_signal(&a->cond);
 	fnl_mutex_unlock(&a->lock);
+	fnl_cond_signal(&a->cond); /* after the unlock: no wake into a held mutex */
 }
 
 int fnl_frame_shown(FnlApp *app, FnlFrameShown *out, int max, size_t stride,

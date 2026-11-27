@@ -61,22 +61,10 @@ void main()
 		/* A gradient: t is the position along the box's x axis turned by
 		 * half_w degrees, and the two colours are the ends. No coverage ramp
 		 * -- the box is the whole primitive -- so the edge is the scissor's. */
-		float a = radians(half_w);
-		vec2  dir = vec2(cos(a), sin(a));
-		vec2  lo = v_p0p1.xy, hi = v_p0p1.zw;
-		/* The rectangle's extent along the axis, and the corner the axis
-		 * enters by: the low corner on each axis the direction runs
-		 * forward on and the high one where it runs back. The extent is
-		 * not the diagonal's projection -- that is right only where the
-		 * two components share a sign, and is zero on a square at 45
-		 * degrees and its reverse, which would paint it flat. A box with
-		 * no extent along the axis has no ramp to run, and its answer is
-		 * the first colour. */
-		const vec2  size = abs(hi - lo);
-		const float ext  = size.x * abs(dir.x) + size.y * abs(dir.y);
-		vec2 from = vec2(dir.x >= 0.0 ? lo.x : hi.x,
-						 dir.y >= 0.0 ? lo.y : hi.y);
-		float t = ext > 1e-6 ? dot(v_px - from, dir) / ext : 0.0;
+		/* shape.vert has turned the instance into the corner the axis enters
+		 * by and the axis (v_p0p1), and the reciprocal of the box's extent
+		 * along it (v_p2hf.x, 0 for a box with no ramp to run). */
+		float t = dot(v_px - v_p0p1.xy, v_p0p1.zw) * v_p2hf.x;
 		out_color = mix(v_color, v_color2, clamp(t, 0.0, 1.0));
 		return;
 	}

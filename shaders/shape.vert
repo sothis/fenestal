@@ -57,6 +57,23 @@ void main()
 	v_px     = px;
 	v_p0p1   = i_p0p1;
 	v_p2hf   = i_p2hf;
+	if (i_kind.x > 2.5 && i_kind.x < 3.5) {
+		/* The gradient's axis, the corner it enters by and the reciprocal of
+		 * its extent depend on the instance alone: worked out here, four
+		 * times a box, and not at every pixel of it. The extent is not the
+		 * diagonal's projection -- that is right only where the two
+		 * components share a sign, and is zero on a square at 45 degrees --
+		 * and a box with no extent along the axis has no ramp to run, so
+		 * its reciprocal is 0 and t stays 0, the first colour. */
+		float a = radians(i_p2hf.z);
+		vec2  dir = vec2(cos(a), sin(a));
+		vec2  lo = i_p0p1.xy, hi = i_p0p1.zw;
+		float ext = abs(hi.x - lo.x) * abs(dir.x) +
+					abs(hi.y - lo.y) * abs(dir.y);
+		v_p0p1 = vec4(dir.x >= 0.0 ? lo.x : hi.x, dir.y >= 0.0 ? lo.y : hi.y,
+					  dir);
+		v_p2hf = vec4(ext > 1e-6 ? 1.0 / ext : 0.0, 0.0, 0.0, 0.0);
+	}
 	v_color  = i_color;
 	v_color2 = i_color2;
 	v_kind   = i_kind.x;

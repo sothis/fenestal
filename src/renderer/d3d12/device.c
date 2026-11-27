@@ -550,7 +550,7 @@ static void destroy_device_objects(App *a, bool save_cache)
 		(void)d3d_wait_idle(a);
 	/* A caller's image destroyed inside a recording that was still open: its
 	 * texture and slot are let go before the heaps go (d3d_images_retire()). */
-	d3d_images_retire(a);
+	d3d_images_retire(a, true);
 	d3d_destroy_overlay(a);
 	d3d_destroy_targets(a);
 	d3d_release_window_images(a);

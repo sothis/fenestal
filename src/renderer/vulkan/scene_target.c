@@ -465,7 +465,16 @@ static bool taau_history_ready(App *a)
 	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 						 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0,
 						 NULL, MAX_FRAMES_IN_FLIGHT, b);
-	return end_oneshot(a, cb) >= 0;
+	/* Submitted and not waited on: the frame that reads the histories is
+	 * submitted after this on the same queue, and the barrier's second scope
+	 * covers it, so a drain here -- once a resize step -- buys nothing. The
+	 * command buffer is let go on the upload countdown. */
+	if (end_oneshot_nowait(a, cb) < 0) {
+		vkFreeCommandBuffers(VK(a)->device, VK(a)->cmd_pool, 1, &cb);
+		return false;
+	}
+	vk_oneshot_keep(a, cb);
+	return true;
 }
 
 /* What the resolve writes and what it mixes in: one image a frame slot,

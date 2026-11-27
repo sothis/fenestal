@@ -232,8 +232,10 @@ static void *rawin_main(void *arg)
 {
 	struct RawIn *r = arg;
 	/* Its time is the report's only while it is woken at once: above the
-	 * pump and the render thread, for the microseconds a report costs. */
-	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+	 * pump and the render thread, for the microseconds a report costs. One
+	 * step above normal is enough for that and does not outrank the render
+	 * thread's own boost, as HIGHEST did at every report of a 1-8 kHz mouse. */
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
 	r->hwnd = CreateWindowExW(0, RAWIN_CLASS, L"", 0, 0, 0, 0, 0,
 							  HWND_MESSAGE, NULL, r->instance, r);
 	if (r->hwnd) {

@@ -278,12 +278,17 @@ static void key_text(App *a, const xcb_key_press_event_t *e, bool repeat)
 	/* Through the composer: an accent key is held there and comes back on the
 	 * letter that follows. What it holds is reported as the composition, so a
 	 * text field can show the accent waiting. */
+	const uint32_t was = p->compose.dead;
 	const uint32_t c = keymap_type(&p->keymap, &p->compose, e->detail, &mods,
 								   repeat);
-	char held[8];
-	keymap_composing(&p->compose, held);
 	app_text(a, c);
-	app_compose_set(a, held);
+	/* Reported only when the held accent moved: the report takes text_lock
+	 * and compares, on every key, to find nothing changed. */
+	if (p->compose.dead != was) {
+		char held[8];
+		keymap_composing(&p->compose, held);
+		app_compose_set(a, held);
+	}
 }
 
 /* No input method to enable here, but a field that closed mid-accent must not

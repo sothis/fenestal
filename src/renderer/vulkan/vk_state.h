@@ -613,6 +613,10 @@ struct RendererState {
 	uint64_t              submit_serial, done_serial;
 	uint64_t              slot_serial[MAX_FRAMES_IN_FLIGHT];
 	uint64_t              img_serial[OVERLAY_MAX_IMAGES];
+	/* A one-shot submitted with no fence (vk_oneshot_keep()), which no frame
+	 * has followed yet: a drain by the frame fences would not cover it, so
+	 * vk_frames_idle() drains the queue while this is set. */
+	bool                  oneshot_pending;
 
 	/* The swapchain's format, and the format of the colour targets the
 	 * renderer draws into: the same as the swapchain's, or

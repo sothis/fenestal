@@ -445,9 +445,11 @@ void mcp_drain(App *a)
 	m->pub_x = a->ptr_x;
 	m->pub_y = a->ptr_y;
 	const int n = m->in_n;
-	memcpy(run, m->in, sizeof run);
-	memcpy(text, m->text, sizeof text);
-	m->in_n = 0;
+	if (n) {
+		memcpy(run, m->in, (size_t)n * sizeof run[0]);
+		memcpy(text, m->text, sizeof text);
+		m->in_n = 0;
+	}
 	fnl_mutex_unlock(&m->lock);
 	if (!n)
 		return;

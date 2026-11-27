@@ -1970,11 +1970,16 @@ VkResult vk_queue_wait_idle(App *a)
  * vkQueueWaitIdle() it takes no queue lock and does not wait for another
  * window's work or a present, so a resize with an antialiased scene does not
  * stall the rest of the host. A loss may leave a fence no submit will signal
- * (frame_bail()), so it takes the queue's drain instead. */
+ * (frame_bail()), and a one-shot carries none, so those take the queue's
+ * drain instead. */
 VkResult vk_frames_idle(App *a)
 {
-	if (a->device_lost || a->surface_lost)
-		return vk_queue_wait_idle(a);
+	if (a->device_lost || a->surface_lost || VK(a)->oneshot_pending) {
+		const VkResult r = vk_queue_wait_idle(a);
+		if (r == VK_SUCCESS)
+			VK(a)->oneshot_pending = false;
+		return r;
+	}
 	return vkWaitForFences(VK(a)->device, MAX_FRAMES_IN_FLIGHT,
 						   VK(a)->in_flight, VK_TRUE, UINT64_MAX);
 }

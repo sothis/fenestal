@@ -389,6 +389,7 @@ FNL_MUST_USE FnlResult end_oneshot(App *a, VkCommandBuffer cb);
 /* The same buffer ended and submitted, and not waited on: the caller owns
  * `cb` and frees it once the queue is past it (overlay.c's image uploads). */
 FNL_MUST_USE FnlResult end_oneshot_nowait(App *a, VkCommandBuffer cb);
+void vk_oneshot_keep(App *a, VkCommandBuffer cb);
 
 /* ---- swapchain.c --------------------------------------------------------- */
 

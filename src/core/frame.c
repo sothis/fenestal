@@ -1436,11 +1436,22 @@ static bool swapchain_adopt(App *a, const Latch *l, int m)
 	 * whenever one is made again. */
 	a->draw_color = l->color;
 	/* Glyphs are rasterised for a pixel size. A failure costs the text, not
-	 * the frame: none is drawn until a later scale change succeeds. */
+	 * the frame: none is drawn until a later scale change succeeds.
+	 *
+	 * The atlas for a scale that is new is decoded on a thread from here, so
+	 * the 17-45 ms of it overlaps the drain the renderer makes before it
+	 * replaces the texture, and not after it. From this thread, which is
+	 * also the one that takes it. */
+	if (scale_index(l->s) != a->font_si)
+		text_atlas_prefetch(scale_index(l->s));
 	if (RENDERER(a)->scale_changed(a, l->s) < 0)
 		fnl_log(FNL_LOG_WARN,
 				"no glyph atlas for this scale; text is not drawn "
 				"until one loads");
+	/* A decode the renderer did not take (a loss, a refusal) is joined and
+	 * let go here, so the slot is free for the next scale; nothing started
+	 * is free. */
+	free(text_atlas_take(-1, 0));
 	if (!RENDERER(a)->recreate_swapchain(a)) {
 		/* Ask again next turn: the draw_* above have taken the new size, so
 		 * a failure that was not a device loss would otherwise leave the old

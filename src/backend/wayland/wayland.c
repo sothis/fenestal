@@ -577,7 +577,12 @@ static void key_repeat_fire(struct BackendHostState *hs)
 	}
 	app_key_repeat(a, key_from_evdev(hs->repeat_key));
 	key_type(a, hs->repeat_key, true);
-	hs->repeat_due = now_seconds() + hs->repeat_period;
+	/* From the deadline, not from now: a wake that lands late would stretch
+	 * every period by its lateness. One repeat however late, as above. */
+	const double now = now_seconds();
+	hs->repeat_due += hs->repeat_period;
+	if (hs->repeat_due < now)
+		hs->repeat_due = now + hs->repeat_period;
 }
 
 /* The keys already down arrive with focus. Seeded, not replayed through
@@ -2280,9 +2285,10 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time)
 	a->frame_cb_at = now_seconds();
 	/* Destroyed here only if taken from a slot here: one in neither was
 	 * displaced, and present_drop() destroys it (frame_cb_orphan). */
-	bool taken = false;
+	bool taken = false, wake = false;
 	if (p->frame_cb == cb) {
 		taken          = true;
+		wake           = true;
 		p->frame_cb    = NULL;
 		p->frame_ready = true;
 		/* The first callback asked of a surface made at a renew: the
@@ -2290,13 +2296,16 @@ static void frame_done(void *data, struct wl_callback *cb, uint32_t time)
 		 * (present_settle()). */
 		if (p->present_old_marked)
 			p->present_old_shown = true;
-		fnl_cond_signal(&a->cond);
 	}
 	if (p->frame_cb_orphan == cb) {
 		taken              = true;
 		p->frame_cb_orphan = NULL;
 	}
 	fnl_mutex_unlock(&a->lock);
+	/* After the unlock: the render thread this starts a frame on would wake
+	 * into the mutex still held here and sleep again. */
+	if (wake)
+		fnl_cond_signal(&a->cond);
 	if (taken)
 		wl_callback_destroy(cb);
 }

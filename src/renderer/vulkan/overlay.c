@@ -316,6 +316,14 @@ static void upload_keep(App *a, VkCommandBuffer cb, VkBuffer stage,
 	};
 }
 
+/* A one-shot submitted without a wait whose command buffer is let go on the
+ * same countdown, with no staging pair: scene_target.c's layout change. */
+void vk_oneshot_keep(App *a, VkCommandBuffer cb)
+{
+	upload_keep(a, cb, VK_NULL_HANDLE, VK_NULL_HANDLE, NULL);
+	VK(a)->oneshot_pending = true;
+}
+
 /* Every upload's buffers freed, the queue waited out first: with the device
  * about to be destroyed, or the table full. A lost device answers at once. */
 void vk_uploads_drain(App *a)
@@ -593,8 +601,9 @@ void vk_image_free(App *a, FnlImage *img)
 	 * list cannot be drained, since this frame's draws of them are not
 	 * submitted yet. */
 	if (!a->overlay_open && VK(a)->img_retire_n >= IMAGE_RETIRE_MAX) {
+		/* The list is not empty (the count says so), so this drains, and the
+		 * object being destroyed was submitted before it. */
 		vk_images_retire(a);
-		(void)vk_lost(a, vk_device_wait_idle(a));
 		image_obj_destroy(a, o);
 		return;
 	}

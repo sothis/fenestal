@@ -1102,8 +1102,8 @@ static bool cursor_move_post(struct BackendState *p, uint32_t crtc,
 	p->mv_x    = x;
 	p->mv_y    = y;
 	p->mv_has  = true;
-	fnl_cond_signal(&p->mv_work);
 	fnl_mutex_unlock(&p->mv_lock);
+	fnl_cond_signal(&p->mv_work); /* after the unlock: no held-lock wake */
 	return true;
 }
 
@@ -2056,9 +2056,14 @@ static bool input_read(App *a, KmsInput *d)
 									   (uint64_t)e->input_event_usec / 1000u);
 		/* For fnl_input_latency_ms(), whatever this event turns out to
 		 * hand in: a report's motion goes at its SYN_REPORT, on that
-		 * stamp. */
-		loop_input_us(a, (uint64_t)e->input_event_sec * 1000000u +
-							 (uint64_t)e->input_event_usec);
+		 * stamp. Only an event that hands something in takes one -- a
+		 * report's REL_X, REL_Y and ABS parts are overwritten by the next --
+		 * since each is a clock read. */
+		if (e->type == EV_SYN || e->type == EV_KEY ||
+			(e->type == EV_REL &&
+			 (e->code == REL_WHEEL || e->code == REL_HWHEEL)))
+			loop_input_us(a, (uint64_t)e->input_event_sec * 1000000u +
+								 (uint64_t)e->input_event_usec);
 		if (e->type == EV_SYN) {
 			if (e->code == SYN_DROPPED) {
 				d->dropped = true;
@@ -2406,6 +2411,10 @@ static bool flip_wait(App *a, int ms)
 	 * poll, and a timeout restarted at each would never run out while that
 	 * window flips faster than `ms`. */
 	const double deadline = now_seconds() + ms / 1000.0;
+	/* Set when another thread took our completion between the poll's wake and
+	 * the lock: it routes it a moment later (flip_complete()), and the next
+	 * poll must not sleep through that for a completion that is gone. */
+	bool raced = false;
 	for (;;) {
 		fnl_mutex_lock(&hs->flip_lock);
 		const bool pending = p->flip_pending;
@@ -2413,25 +2422,22 @@ static bool flip_wait(App *a, int ms)
 		if (!pending)
 			return true;
 		struct pollfd pf = { .fd = hs->card_fd, .events = POLLIN };
-		fnl_mutex_lock(&hs->ev_lock);
-		/* A completion another thread read while this one waited for the
-		 * queue cleared this window's flag with it, and there is nothing
-		 * left to poll for. */
-		fnl_mutex_lock(&hs->flip_lock);
-		const bool still = p->flip_pending;
-		fnl_mutex_unlock(&hs->flip_lock);
-		if (!still) {
-			fnl_mutex_unlock(&hs->ev_lock);
-			return true;
-		}
 		const double left = deadline - now_seconds();
-		/* Past it, still one look that does not wait: a completion already
-		 * queued is read, which is all a wait of 0 ms asks. */
-		const int r = poll(&pf, 1, left > 0.0 ? (int)(left * 1000.0) + 1 : 0);
-		if (r < 0 && errno == EINTR) {
-			fnl_mutex_unlock(&hs->ev_lock);
+		/* Waited for with no lock held: ev_lock across this poll made every
+		 * window's flip wait out the slowest output's vblank, a completion
+		 * already queued for a faster one included. Past the deadline, still
+		 * one look that does not wait: a completion already queued is read,
+		 * which is all a wait of 0 ms asks. */
+		int wait_ms = left > 0.0 ? (int)(left * 1000.0) + 1 : 0;
+		if (raced && wait_ms > 1)
+			wait_ms = 1;
+		raced = false;
+		const int r = poll(&pf, 1, wait_ms);
+		if (r < 0 && errno == EINTR)
 			continue;
-		}
+		if (r == 0 && wait_ms > 0 && left > 0.0 &&
+			(int)(left * 1000.0) + 1 > wait_ms)
+			continue; /* the short wait of a race: look at the flag again */
 		if (r == 0) {
 			/* Timed out: another window's thread may have read this
 			 * window's completion while we polled -- the flag is the
@@ -2439,16 +2445,35 @@ static bool flip_wait(App *a, int ms)
 			fnl_mutex_lock(&hs->flip_lock);
 			const bool owed = p->flip_pending;
 			fnl_mutex_unlock(&hs->flip_lock);
-			fnl_mutex_unlock(&hs->ev_lock);
 			return !owed;
 		}
-		if (r < 0) {
-			fnl_mutex_unlock(&hs->ev_lock);
+		if (r < 0)
 			return false;
-		}
+		/* The read is the one thing the lock is for, and it is asked again
+		 * under it without waiting: a completion another thread's read took
+		 * while this one was polling is gone, and a read begun now would
+		 * block for it. */
 		_Alignas(struct drm_event) char buf[1024];
-		const ssize_t n = read(hs->card_fd, buf, sizeof buf);
+		ssize_t n = 0;
+		fnl_mutex_lock(&hs->ev_lock);
+		fnl_mutex_lock(&hs->flip_lock);
+		const bool still = p->flip_pending;
+		fnl_mutex_unlock(&hs->flip_lock);
+		if (!still) {
+			fnl_mutex_unlock(&hs->ev_lock);
+			return true;
+		}
+		pf.revents = 0;
+		const int again = poll(&pf, 1, 0);
+		if (again > 0)
+			n = read(hs->card_fd, buf, sizeof buf);
 		fnl_mutex_unlock(&hs->ev_lock);
+		if (again == 0) {
+			raced = true; /* taken by another; the flag decides at the top */
+			continue;
+		}
+		if (again < 0 && errno == EINTR)
+			continue;
 		if (n <= 0)
 			return false;
 		for (ssize_t off = 0; off + (ssize_t)sizeof(struct drm_event) <= n;) {

@@ -196,17 +196,23 @@ static FnlResult build_atlas(App *a, int si)
 	const int ah = (int)FONT_ATLAS_H[si];
 	const size_t bytes = (size_t)aw * (size_t)ah;
 
-	unsigned char *scratch = calloc(1, bytes);
-	if (!scratch)
-		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"out of memory expanding the %dx%d glyph atlas",
-						aw, ah);
-	if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si],
-					 FONT_ATLAS_LEN[si], scratch, bytes)) {
-		free(scratch);
-		return fnl_fail(FNL_ERR_SYSTEM,
-						"the baked atlas for scale %d does not decode to "
-						"%dx%d", FONT_SCALE[si], aw, ah);
+	/* Decoded ahead on a thread of its own where fnl_init() found the scale
+	 * (text_atlas_take()); the decode here is what a scale change, or a guess
+	 * that missed, costs. */
+	unsigned char *scratch = text_atlas_take(si, bytes);
+	if (!scratch) {
+		scratch = calloc(1, bytes);
+		if (!scratch)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"out of memory expanding the %dx%d glyph atlas",
+							aw, ah);
+		if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si],
+						 FONT_ATLAS_LEN[si], scratch, bytes)) {
+			free(scratch);
+			return fnl_fail(FNL_ERR_SYSTEM,
+							"the baked atlas for scale %d does not decode to "
+							"%dx%d", FONT_SCALE[si], aw, ah);
+		}
 	}
 
 	MTLTextureDescriptor *d = [MTLTextureDescriptor

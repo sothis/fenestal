@@ -31,6 +31,18 @@ promised: before 1.0, nothing between minor releases.
   once a scale, and compare instead of dividing; a wash after a rect no
   longer flushes the rects; Metal's MLAA pass does not clear a depth nothing
   reads; Vulkan keeps 32 caller-image uploads in flight, not 8.
+  Fourth: Direct3D 12 uploads a caller's image without a drain and lets a
+  destroyed one go on the fence, as Vulkan does; its depth is transitioned to
+  the state the resolve's shader read wants; its MLAA and TAAU images and
+  Metal's are not cleared before a covering triangle overwrites them; the
+  fetch passes keep one topology; Direct3D 12 and Metal take the atlas
+  decoded ahead, and a new scale's is decoded while the renderer drains; the
+  gradient's axis is worked out per vertex, and the veil is a filled box;
+  Vulkan's TAAU histories are laid out without a drain; KMS's flip wait no
+  longer holds the event lock across its poll, the cursor and frame signals
+  go out after their unlock, and an evdev report takes one clock read; X11
+  reports a held accent only when it moves; Wayland's key repeat keeps its
+  period; the Win32 raw-input thread runs one step above normal.
 - **An MCP server inside the program, for an agent to drive the window.**
   `FNL_MCP=1` in the environment (or `FNL_MCP=<socket path>`; `0`, `false`,
   `off` and `no` are off, any other word refused) opens a Model Context

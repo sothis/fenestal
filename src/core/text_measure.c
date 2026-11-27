@@ -93,6 +93,14 @@ static int glyph_index(uint32_t cp)
 	if (cp < 128)
 		return FONT_ASCII[cp];
 
+	/* The range the last lookup landed in, tried first: a string is mostly
+	 * one script, so a run of Cyrillic or CJK is one compare a glyph and not
+	 * seven. Per thread, the pump measures and the render thread draws. */
+	static FNL_THREAD_LOCAL int last_range;
+	if (cp >= FONT_RANGE[last_range].first && cp <= FONT_RANGE[last_range].last)
+		return (int)(FONT_RANGE[last_range].base +
+					 (cp - FONT_RANGE[last_range].first));
+
 	int lo = 0, hi = FONT_RANGE_COUNT - 1;
 	while (lo <= hi) {
 		int mid = (lo + hi) / 2;
@@ -100,8 +108,10 @@ static int glyph_index(uint32_t cp)
 			hi = mid - 1;
 		else if (cp > FONT_RANGE[mid].last)
 			lo = mid + 1;
-		else
+		else {
+			last_range = mid;
 			return (int)(FONT_RANGE[mid].base + (cp - FONT_RANGE[mid].first));
+		}
 	}
 	return -1;
 }

@@ -309,6 +309,9 @@ struct RendererState {
 	 * d3d_images_retire() after the frame is submitted. overlay.c owns the
 	 * objects; this is the head. */
 	void *img_retire;
+	/* The uploads submitted and not yet known done: D3dUpload, overlay.c's;
+	 * let go by d3d_images_retire(). */
+	void *upl_keep;
 
 	/* Whether the overlay is being drawn: a flush outside it draws
 	 * nothing, as one outside a Vulkan recording does. */

@@ -91,12 +91,16 @@ static id<MTLRenderCommandEncoder> begin_pass(App *a, id<MTLCommandBuffer> cb,
 											  id<MTLTexture> color,
 											  id<MTLTexture> resolve,
 											  id<MTLTexture> depth,
-											  bool keep_depth, bool clear_depth)
+											  bool keep_depth, bool clear_depth,
+											  bool clear_color)
 {
 	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor
 									   renderPassDescriptor];
 	rp.colorAttachments[0].texture = color;
-	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+	/* Not cleared where a covering triangle writes every pixel (MLAA's and
+	 * TAAU's images): a clear is bandwidth for nothing. */
+	rp.colorAttachments[0].loadAction = clear_color ? MTLLoadActionClear
+													: MTLLoadActionDontCare;
 	rp.colorAttachments[0].clearColor = BLACK;
 	if (resolve) {
 		rp.colorAttachments[0].resolveTexture = resolve;
@@ -188,8 +192,9 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	const bool keep = scene_taau(a, ds);
 	id<MTLRenderCommandEncoder> enc =
 		ms ? begin_pass(a, cb, g->scene_ms.color, g->scene.color,
-						g->scene_ms.depth, false, true)
-		   : begin_pass(a, cb, g->scene.color, nil, g->scene.depth, keep, true);
+						g->scene_ms.depth, false, true, true)
+		   : begin_pass(a, cb, g->scene.color, nil, g->scene.depth, keep, true,
+						true);
 	if (!enc)
 		return false;
 	record_scene(a, ds, cb, enc,
@@ -198,7 +203,8 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	[enc endEncoding];
 
 	if (scene_mlaa(a, ds)) {
-		enc = begin_pass(a, cb, g->mlaa, nil, g->scene.depth, false, false);
+		enc = begin_pass(a, cb, g->mlaa, nil, g->scene.depth, false, false,
+						 false);
 		if (!enc)
 			return false;
 		mt_fetch(a, enc, g->pso_mlaa, g->scene.color);
@@ -213,7 +219,8 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 	if (scene_taau(a, ds)) {
 		/* No depth attachment: the resolve samples the scene's depth at unit
 		 * 2, and a pass may not both attach and sample one texture. */
-		enc = begin_pass(a, cb, g->taau_hist[a->frame], nil, nil, false, true);
+		enc = begin_pass(a, cb, g->taau_hist[a->frame], nil, nil, false, true,
+					   false);
 		if (!enc)
 			return false;
 		const bool prev = app_taau_follows(a, g->taau_present,
@@ -281,7 +288,7 @@ static bool draw(App *a, const FnlDrawState *ds, uint32_t slot,
 
 	id<MTLRenderCommandEncoder> enc =
 		begin_pass(a, cb, target, nil, g->window_depth, false,
-					   !scene_offscreen(a, ds));
+					   !scene_offscreen(a, ds), true);
 	if (!enc)
 		return false;
 	draw_scene(a, ds, cb, enc);

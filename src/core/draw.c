@@ -397,15 +397,15 @@ static void draw_decorations(App *a, const FnlDrawState *ds, int w, int h,
  * read back and drawn over the whole window by the renderer
  * (FnlRendererVtbl::overlay_cover); or black, where this transition has
  * no frame to show (App::veil_black) or the renderer would not upload it,
- * as one capsule stroke down the window's middle, `w` and `h` the window
- * in points, wide enough that every pixel of the window lies inside its
- * body -- half the height, plus two points past the feather -- so the
- * stroke pipeline, which blends and keeps the alpha channel "over",
- * darkens the whole window in one draw with no pipeline of its own in any
- * renderer. Scissored to the window either way: the capsule's round ends
+ * as one filled box grown two points past the window on every side, `w`
+ * and `h` the window in points, so the shape pipeline, which blends and
+ * keeps the alpha channel "over", darkens the whole window in one draw with
+ * no pipeline of its own in any renderer -- and, being a box, takes the
+ * shader's inside-the-box exit and not a capsule's distance and ramp at every
+ * pixel of the window. Scissored to the window either way: the box's edge
  * and its feather fall outside it, the frame read back has the grab ring
  * in it, and the ring is not the window's to paint. After text, which is
- * one draw for the whole frame, so the glyphs are under it too. A stroke
+ * one draw for the whole frame, so the glyphs are under it too. A shape
  * arena a caller has filled drops the black, as it drops the caller's
  * own. */
 static void draw_veil(App *a, float alpha, int w, int h)
@@ -414,10 +414,9 @@ static void draw_veil(App *a, float alpha, int w, int h)
 	if (!overlay_clip(a, 0, 0, w, h, &win))
 		return;
 	const float black[4] = { 0.0f, 0.0f, 0.0f, alpha };
-	const float mid      = (float)h * 0.5f;
 	overlay_scissor(a, &win);
 	if (a->veil_black || !RENDERER(a)->overlay_cover(a, alpha)) {
-		overlay_stroke(a, 0.0f, mid, (float)w, mid, (float)h + 4.0f, black);
+		overlay_rect_blend(a, -2, -2, w + 4, h + 4, black);
 		overlay_flush_shapes(a);
 	}
 	overlay_scissor(a, NULL);

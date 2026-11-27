@@ -103,12 +103,17 @@ static void set_rect(App *a, int x, int y, int w, int h)
  * the whole of it -- what a Vulkan pass's load-op clear leaves. A null
  * `dsv` binds no depth. */
 static void begin_target(App *a, const D3D12_CPU_DESCRIPTOR_HANDLE *rtv,
-						 const D3D12_CPU_DESCRIPTOR_HANDLE *dsv, int w, int h)
+						 const D3D12_CPU_DESCRIPTOR_HANDLE *dsv, int w, int h,
+						 bool clear_color)
 {
 	ID3D12GraphicsCommandList *l = D3D(a)->list;
 	d3d_own_state(a);
 	ID3D12GraphicsCommandList_OMSetRenderTargets(l, 1, rtv, FALSE, dsv);
-	ID3D12GraphicsCommandList_ClearRenderTargetView(l, *rtv, BLACK, 0, NULL);
+	/* Not where a covering triangle writes every pixel (MLAA's image and
+	 * TAAU's): a clear is bandwidth for nothing. */
+	if (clear_color)
+		ID3D12GraphicsCommandList_ClearRenderTargetView(l, *rtv, BLACK, 0,
+														NULL);
 	if (dsv)
 		ID3D12GraphicsCommandList_ClearDepthStencilView(
 			l, *dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
@@ -134,6 +139,13 @@ static void depth_to(App *a, D3dTarget *t, D3D12_RESOURCE_STATES from,
 }
 
 /* ---- the scene ----------------------------------------------------------- */
+
+/* The depth as the resolve reads it: through a shader resource view in the
+ * pixel shader, which a pixel-shader read wants stated -- DEPTH_READ alone is
+ * the depth test's state -- and the two read states combine. */
+#define DEPTH_SAMPLED \
+	(D3D12_RESOURCE_STATE_DEPTH_READ | \
+	 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
 
 /* The seam: the list, its render target bound and cleared, the viewport on
  * the rectangle, and what is drawn the caller's -- stashed for
@@ -191,7 +203,7 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		d3d_dsv(a, ms ? DSV_SCENE_MS : DSV_SCENE);
 
 	target_to(a, t, D3D12_RESOURCE_STATE_RENDER_TARGET);
-	begin_target(a, &rtv, &dsv, w, h);
+	begin_target(a, &rtv, &dsv, w, h, true);
 	record_scene(a, ds, rtv, dsv,
 				 ms ? FNL_TARGET_OFFSCREEN_MS : FNL_TARGET_OFFSCREEN, 0, 0, w,
 				 h);
@@ -212,7 +224,7 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 	if (scene_mlaa(a, ds)) {
 		const D3D12_CPU_DESCRIPTOR_HANDLE mrtv = d3d_rtv(a, RTV_MLAA);
 		target_to(a, &g->mlaa, D3D12_RESOURCE_STATE_RENDER_TARGET);
-		begin_target(a, &mrtv, NULL, w, h);
+		begin_target(a, &mrtv, NULL, w, h, false);
 		d3d_fetch(a, g->pso_mlaa, SRV_SCENE);
 		target_to(a, &g->mlaa, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	}
@@ -242,12 +254,13 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 		 * single-sampled one, which is the only one this mode runs. */
 		if (!ms)
 			depth_to(a, &g->scene, D3D12_RESOURCE_STATE_DEPTH_WRITE,
-					   D3D12_RESOURCE_STATE_DEPTH_READ);
-		target_to(a, &g->taau_hist[a->frame], D3D12_RESOURCE_STATE_RENDER_TARGET);
-		begin_target(a, &trtv, NULL, w, h);
+					   DEPTH_SAMPLED);
+		target_to(a, &g->taau_hist[a->frame],
+				  D3D12_RESOURCE_STATE_RENDER_TARGET);
+		begin_target(a, &trtv, NULL, w, h, false);
 		d3d_fetch2(a, g->pso_taau, pair, &pc);
 		if (!ms)
-			depth_to(a, &g->scene, D3D12_RESOURCE_STATE_DEPTH_READ,
+			depth_to(a, &g->scene, DEPTH_SAMPLED,
 					   D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		target_to(a, &g->taau_hist[a->frame],
 				  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -337,7 +350,7 @@ static bool draw(App *a, const FnlDrawState *ds, uint32_t slot, UINT img)
 	 * the window's is neither bound nor cleared: a full-window clear that
 	 * nothing reads. */
 	begin_target(a, &rtv, scene_offscreen(a, ds) ? NULL : &dsv, a->extent.w,
-				 a->extent.h);
+				 a->extent.h, true);
 	clear_grab_ring(a, rtv);
 	draw_scene(a, ds, rtv);
 
@@ -453,6 +466,7 @@ static bool submit(App *a, uint32_t slot)
 		return false;
 	}
 	g->slot_value[slot] = ++g->fenced;
+	d3d_images_tag(a, g->fenced);
 	return true;
 }
 
@@ -936,9 +950,9 @@ bool d3d_draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	const double t_fence = now_seconds();
 	if (!wait_slot(a, slot))
 		return false;
-	/* The images destroyed inside the frame submitted before this one: its
-	 * list is done with them (d3d_images_retire()). */
-	d3d_images_retire(a);
+	/* The images destroyed and the uploads made, whose lists the fence says
+	 * are done (d3d_images_retire()). */
+	d3d_images_retire(a, false);
 	if (g->via11_switch && !via11_remake(a))
 		return false;
 	/* The swapchain's throttle, as Vulkan's acquire is: signalled once the

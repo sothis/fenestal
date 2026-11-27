@@ -84,10 +84,25 @@ _Static_assert(offsetof(D3dImagePush, screen) == 16,
 typedef struct D3dImageObj {
 	ID3D12Resource *tex;
 	uint32_t slot;
-	/* The images destroyed inside a recording, threaded until the frame that
-	 * recorded them is submitted (d3d_images_retire()). */
+	/* The images destroyed, threaded until the queue is done with every list
+	 * that may name them: the fence value that says so, or RETIRE_UNTAGGED
+	 * for one destroyed inside a recording, whose list is not submitted yet
+	 * (d3d_images_tag(), d3d_images_retire()). */
 	struct D3dImageObj *retire_next;
+	uint64_t retire_at;
 } D3dImageObj;
+
+#define RETIRE_UNTAGGED UINT64_MAX
+
+/* One upload's allocator, list and staging buffer, submitted and left to run:
+ * kept until the fence value it signalled has passed. */
+typedef struct D3dUpload {
+	ID3D12Resource *up;
+	ID3D12CommandAllocator *alloc;
+	ID3D12GraphicsCommandList *l;
+	uint64_t at;
+	struct D3dUpload *next;
+} D3dUpload;
 
 /* The root signature's parameters, in order. */
 enum { ROOT_PUSH = 0, ROOT_SRV, ROOT_SAMPLER, ROOT_COUNT };
@@ -337,18 +352,24 @@ static FnlResult build_atlas(App *a, int si)
 	const size_t pitch = ((size_t)aw + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
 						 ~(size_t)(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
 
-	unsigned char *scratch = calloc(1, bytes);
-	if (!scratch)
-		return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
-						"out of memory expanding the %dx%d glyph atlas", aw,
-						ah);
-	if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si], FONT_ATLAS_LEN[si],
-					 scratch, bytes)) {
-		free(scratch);
-		return fnl_fail(FNL_ERR_SYSTEM,
-						"the baked atlas for scale %d does not decode to "
-						"%dx%d",
-						FONT_SCALE[si], aw, ah);
+	/* Decoded ahead on a thread of its own where fnl_init() found the scale
+	 * (text_atlas_take()); the decode here is what a scale change, or a guess
+	 * that missed, costs. */
+	unsigned char *scratch = text_atlas_take(si, bytes);
+	if (!scratch) {
+		scratch = calloc(1, bytes);
+		if (!scratch)
+			return fnl_fail(FNL_ERR_OUT_OF_MEMORY,
+							"out of memory expanding the %dx%d glyph atlas",
+							aw, ah);
+		if (!font_decode(font_atlas_blob + FONT_ATLAS_OFF[si],
+						 FONT_ATLAS_LEN[si], scratch, bytes)) {
+			free(scratch);
+			return fnl_fail(FNL_ERR_SYSTEM,
+							"the baked atlas for scale %d does not decode to "
+							"%dx%d",
+							FONT_SCALE[si], aw, ah);
+		}
 	}
 
 	FnlResult rc                  = FNL_OK;
@@ -646,6 +667,10 @@ void d3d_own_state(App *a)
 		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 }
 
+/* One triangle over the target, three vertices in the strip the overlay is
+ * drawn in: a strip's first three vertices are the list's triangle, and
+ * culling is off, so the topology is not switched for it and back. Called
+ * only where the state is the library's own (d3d_own_state()). */
 void d3d_fetch(App *a, ID3D12PipelineState *pso, int srv)
 {
 	ID3D12GraphicsCommandList *l = D3D(a)->list;
@@ -654,11 +679,7 @@ void d3d_fetch(App *a, ID3D12PipelineState *pso, int srv)
 		l, ROOT_SRV, d3d_srv_gpu(a, srv));
 	ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(
 		l, ROOT_SAMPLER, d3d_smp_gpu(a, SMP_LINEAR));
-	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
-		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	ID3D12GraphicsCommandList_DrawInstanced(l, 3, 1, 0, 0);
-	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
-		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 }
 
 /* TAAU's resolve: both tables three descriptors wide, from the pair `srv` names
@@ -675,11 +696,7 @@ void d3d_fetch2(App *a, ID3D12PipelineState *pso, int srv, const TaauPush *pc)
 		l, ROOT_SAMPLER, d3d_smp_gpu(a, SMP_LINEAR));
 	ID3D12GraphicsCommandList_SetGraphicsRoot32BitConstants(
 		l, ROOT_PUSH, (UINT)(sizeof *pc / 4), pc, 0);
-	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
-		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	ID3D12GraphicsCommandList_DrawInstanced(l, 3, 1, 0, 0);
-	ID3D12GraphicsCommandList_IASetPrimitiveTopology(
-		l, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 }
 
 /* The instances appended since this kind was last flushed: the arena from
@@ -993,6 +1010,40 @@ bool d3d_image_supported(const App *a)
 	return a->renderer_state != NULL && D3D(a)->pso_image != NULL;
 }
 
+/* Close an upload's list, execute it and fence it, without waiting. 1: the
+ * keep list owns the three objects now. 0: done and idle (the fence would not
+ * be signalled and the queue was drained instead): the caller releases them.
+ * -1: failed, nothing taken. */
+static int upload_submit(App *a, ID3D12GraphicsCommandList *l,
+						 ID3D12CommandAllocator *alloc, ID3D12Resource *up)
+{
+	struct RendererState *g = D3D(a);
+	D3dUpload *u            = calloc(1, sizeof *u);
+	if (!u)
+		return -1;
+	HRESULT hr = ID3D12GraphicsCommandList_Close(l);
+	if (FAILED(hr)) {
+		free(u);
+		fnl_log(FNL_LOG_WARN, "an image upload's list did not close (0x%08lx)",
+				(unsigned long)hr);
+		return -1;
+	}
+	ID3D12CommandList *lists[1] = { (ID3D12CommandList *)l };
+	ID3D12CommandQueue_ExecuteCommandLists(g->queue, 1, lists);
+	hr = ID3D12CommandQueue_Signal(g->queue, g->fence, g->fenced + 1);
+	if (FAILED(hr)) {
+		free(u);
+		return d3d_wait_idle(a) ? 0 : -1;
+	}
+	u->up       = up;
+	u->alloc    = alloc;
+	u->l        = l;
+	u->at       = ++g->fenced;
+	u->next     = g->upl_keep;
+	g->upl_keep = u;
+	return 1;
+}
+
 /* One image's texture, from the copy the library kept, and the view of it in
  * a descriptor of the image heap. False where anything failed, with
  * img->gpu left null: the draw is skipped and the caller's picture does not
@@ -1003,7 +1054,14 @@ static bool image_upload(App *a, FnlImage *img)
 	D3dImageObj *o          = calloc(1, sizeof *o);
 	if (!o)
 		return false;
-	const int slot = image_slot_take(a);
+	int slot = image_slot_take(a);
+	if (slot < 0) {
+		/* Slots wait on the fence now, not on a drain at each destroy: a pool
+		 * that looks full may only be waiting for the queue. */
+		(void)d3d_wait_idle(a);
+		d3d_images_retire(a, false);
+		slot = image_slot_take(a);
+	}
 	if (slot < 0) {
 		free(o);
 		return false;
@@ -1103,8 +1161,18 @@ static bool image_upload(App *a, FnlImage *img)
 		},
 	};
 	ID3D12GraphicsCommandList_ResourceBarrier(l, 1, &to_read);
-	if (d3d_run_once(a, l) < 0)
+	/* Submitted and not waited for: the frame's own list goes on the queue
+	 * after this one, so its draw sees the texture ready, and nothing here
+	 * needs the GPU's answer. The list, allocator and staging buffer are kept
+	 * until the fence says the copy has run. */
+	const int took = upload_submit(a, l, alloc, up);
+	if (took < 0)
 		goto out;
+	if (took > 0) {
+		l     = NULL;
+		alloc = NULL;
+		up    = NULL;
+	}
 
 	const D3D12_SHADER_RESOURCE_VIEW_DESC v = {
 		.Format                  = fmt,
@@ -1177,46 +1245,71 @@ static void image_obj_destroy(App *a, D3dImageObj *o)
 	free(o);
 }
 
-/* Let go the images destroyed while a recording was open: their draws are in
- * the list that frame submitted, so this runs after a submit or with the
- * device about to go, and drains first. One drain covers the lot. On a lost
- * device the release goes ahead all the same -- it is legal there, and
- * leaving it leaks. */
-void d3d_images_retire(App *a)
+/* Let go what the queue is done with: the images destroyed, and the uploads'
+ * lists and staging buffers. Each carries the fence value that follows every
+ * list that may name it, so this is a look at the fence and never a drain;
+ * `all` is the device about to go, after a drain. A lost device's fence reads
+ * as past every value, and the release goes ahead all the same -- it is legal
+ * there, and leaving it leaks. */
+void d3d_images_retire(App *a, bool all)
 {
-	D3dImageObj *o = D3D(a)->img_retire;
-	if (!o)
-		return;
-	D3D(a)->img_retire = NULL;
-	(void)d3d_wait_idle(a);
+	struct RendererState *g = D3D(a);
+	const uint64_t done =
+		g->fence ? ID3D12Fence_GetCompletedValue(g->fence) : UINT64_MAX;
+
+	D3dImageObj *o = g->img_retire, *keep = NULL;
 	while (o) {
 		D3dImageObj *next = o->retire_next;
-		image_obj_destroy(a, o);
+		if (all || o->retire_at <= done) {
+			image_obj_destroy(a, o);
+		} else {
+			o->retire_next = keep;
+			keep           = o;
+		}
 		o = next;
 	}
+	g->img_retire = keep;
+
+	D3dUpload *u = g->upl_keep, *held = NULL;
+	while (u) {
+		D3dUpload *next = u->next;
+		if (all || u->at <= done) {
+			D3D_RELEASE(u->l);
+			D3D_RELEASE(u->alloc);
+			D3D_RELEASE(u->up);
+			free(u);
+		} else {
+			u->next = held;
+			held    = u;
+		}
+		u = next;
+	}
+	g->upl_keep = held;
+}
+
+/* The frame's list is on the queue, signalling `value`: the images destroyed
+ * while it was being recorded are let go once that has passed. */
+void d3d_images_tag(App *a, uint64_t value)
+{
+	for (D3dImageObj *o = D3D(a)->img_retire; o; o = o->retire_next)
+		if (o->retire_at == RETIRE_UNTAGGED)
+			o->retire_at = value;
 }
 
 void d3d_image_free(App *a, FnlImage *img)
 {
-	D3dImageObj *o = img->gpu;
+	struct RendererState *g = D3D(a);
+	D3dImageObj *o          = img->gpu;
 	if (!o)
 		return;
 	img->gpu = NULL;
-	/* A recording is open: the command list being recorded names the texture
-	 * and reads the descriptor this holds, and a drain does not cover a list
-	 * not yet submitted. It is let go once the frame is (d3d_images_retire()),
-	 * which drains then. Outside a recording the drain below is the whole
-	 * story: every submitted list is done with it. */
-	if (a->overlay_open) {
-		o->retire_next    = D3D(a)->img_retire;
-		D3D(a)->img_retire = o;
-		return;
-	}
-	/* The other frame slot's list may still sample the texture and read its
-	 * descriptor, which the slot gives back below for a later image to write:
-	 * drained first, as d3d_cover_release() drains. On a lost device the
-	 * release goes ahead all the same -- it is legal there, and leaving it
-	 * leaks. */
-	(void)d3d_wait_idle(a);
-	image_obj_destroy(a, o);
+	/* Let go once the queue is done with it, not at once: the list being
+	 * recorded names the texture and reads the descriptor this holds, and so
+	 * may any submitted list of the frame slots in flight, and a descriptor
+	 * given back is one a later image writes. Inside a recording the value is
+	 * the frame's own, which submit() tags (d3d_images_tag()); outside, the
+	 * last list submitted is the last that can name it. */
+	o->retire_at   = a->overlay_open ? RETIRE_UNTAGGED : g->fenced;
+	o->retire_next = g->img_retire;
+	g->img_retire  = o;
 }
