@@ -170,7 +170,14 @@ static bool colour_probe(App *a, IDXGIOutput **out, float *scale, float *peak)
 static FnlResult swapchain_create(App *a)
 {
 	struct RendererState *g = D3D(a);
+	/* Made at the size its buffers are to be (d3d_window_buffer()) and not
+	 * the window's, so the first d3d_window_images() has nothing to resize.
+	 * The Direct3D 11 bridge's buffers are made by that call. */
+	Extent win;
+	const Extent buf        = d3d_window_buffer(a, &win);
 	DXGI_SWAP_CHAIN_DESC1 d = {
+		.Width       = g->via11_on ? 0u : (UINT)buf.w,
+		.Height      = g->via11_on ? 0u : (UINT)buf.h,
 		.Format      = g->back_format,
 		.SampleDesc  = { 1, 0 },
 		.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
@@ -210,6 +217,9 @@ static FnlResult swapchain_create(App *a)
 	IDXGISwapChain1_Release(sc1);
 	if (FAILED(hr))
 		return d3d_fail(FNL_ERR_SYSTEM, "IDXGISwapChain3", hr);
+	g->sc_fresh = !g->via11_on;
+	g->sc_w     = buf.w;
+	g->sc_h     = buf.h;
 	return FNL_OK;
 }
 

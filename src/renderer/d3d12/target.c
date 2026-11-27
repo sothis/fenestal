@@ -258,26 +258,41 @@ void d3d_release_window_images(App *a)
  * SetSourceSize, which on a window's swapchain stretches the part it names
  * over the whole buffer -- the frame magnified and cut off at the edges
  * (DESIGN *A swapchain larger than the window*). */
+/* The size the buffers are to be, and the window's own in `window`: what
+ * d3d_window_images() asks, so a swapchain made at it is the one it wants. */
+Extent d3d_window_buffer(App *a, Extent *window)
+{
+	const Extent one  = { 1, 1 };
+	const Extent most = { D3D_MAX_EXTENT, D3D_MAX_EXTENT };
+	*window           = app_buffer_extent(a, one, most);
+	return app_buffer_room(a, *window, most);
+}
+
 FnlResult d3d_window_images(App *a)
 {
 	struct RendererState *g = D3D(a);
 	fnl_atomic_store_u32(&a->max_extent_w, D3D_MAX_EXTENT);
 	fnl_atomic_store_u32(&a->max_extent_h, D3D_MAX_EXTENT);
-	const Extent one  = { 1, 1 };
-	const Extent most = { D3D_MAX_EXTENT, D3D_MAX_EXTENT };
 	const Extent have = { g->buf_w, g->buf_h };
-	const Extent e    = app_buffer_extent(a, one, most);
+	Extent e;
+	const Extent b     = d3d_window_buffer(a, &e);
 	const bool resized = !g->back[0] || !app_buffer_room_fits(a, e, have);
-	const Extent b = app_buffer_room(a, e, most);
+	/* A swapchain born at this size is not resized to it again: on Intel's
+	 * driver that is 18 ms at every open. Only the first look at it counts,
+	 * and not the Direct3D 11 bridge's, whose buffers are its own. */
+	const bool born = g->sc_fresh && !g->back[0] && !g->via11 &&
+					  b.w == g->sc_w && b.h == g->sc_h;
+	g->sc_fresh     = false;
 	if (resized) {
 		if (!d3d_wait_idle(a))
 			return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost "
 												 "before a resize");
 		d3d_release_window_images(a);
 		d3d_shown_idle(a);
-		const HRESULT hr = IDXGISwapChain3_ResizeBuffers(
-			g->swapchain, D3D_BUFFERS, (UINT)b.w, (UINT)b.h, g->back_format,
-			g->sc_flags);
+		const HRESULT hr = born ? S_OK
+								: IDXGISwapChain3_ResizeBuffers(
+									  g->swapchain, D3D_BUFFERS, (UINT)b.w,
+									  (UINT)b.h, g->back_format, g->sc_flags);
 		if (FAILED(hr)) {
 			if (d3d_hr_lost(a, hr))
 				return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost "

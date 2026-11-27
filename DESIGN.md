@@ -1549,6 +1549,73 @@ renderer under a GPU ranking and found the ranking moving the window to
 another renderer's entry (*Ranked by measured frame rate*: the name now
 narrows the move).
 
+### Opening a window
+
+`fenestal-dev open [<lifetimes>]` (`tools/drive/open.c`) times `fnl_init()`,
+the run to the second frame -- the first is out by then -- and
+`fnl_shutdown()`, once for each of a process's lifetimes. The first is the
+cold one, which loads the loaders and drivers and keeps them for the rest;
+the later ones are what a GPU move or a device rebuild pays. It runs under
+`tools/probe/bare_run.py` and `native_run.py`, and over ssh on a Mac. What
+the frame costs once the window is up is the benchmark mode's; this is the
+other half, and the one a program's user waits for. Measured 2026-11-27 on
+schenker, 1280x720 points, release.
+
+**Direct3D 12 asked the same adapter three times.** `choose_adapter()`
+walked the adapters and made a device on each to see if it was one
+(`D3D12CreateDevice` with no output), then `adapter_draws()` made the same
+call again, and `high_performance_luid()` made a third on the adapters in
+Windows' ranking. On the GTX 1050 Ti each is 120 ms: NVIDIA's driver loads
+and goes with it, and a hybrid laptop's dGPU is woken for each. Of a warm
+open of 509 ms on the Intel GPU, 440 was that walk. Now each adapter is
+asked once, the ranking is read off `EnumAdapterByGpuPreference` without a
+device (`preference_order()`), and the best-ranked adapter that drew
+replaces the first, which is the same pick. **Keeping the probe's device
+for the pick is slower:** a device that exists costs 310 ms on that GPU
+against 120 for the level check, so the walk asks for none and the renderer
+makes its own for the adapter it chose. Warm, a window to its first frame:
+Intel 516 to 233 ms, NVIDIA about 1000 (it alternates between 660 and 1050,
+the dGPU's power state between lifetimes) to 535.
+
+**A swapchain is made at its buffers' size.** `CreateSwapChainForHwnd` took
+0 x 0, the window's, and `d3d_window_images()` then resized it to
+`app_buffer_room()`'s -- some 20 ms on Intel's driver, at every open, for
+buffers the swapchain had just made. `swapchain_create()` now asks for the
+size the images want (`d3d_window_buffer()`), and the first
+`d3d_window_images()` skips the resize when the two agree. The Direct3D 11
+bridge's buffers are its own and are still made there.
+
+**The overlay's states are built side by side.** A cold shader cache is 10
+to 60 ms a state (MLAA's the longest) and 120 ms for the eight on Intel;
+the states read their arguments and nothing else, and a device is
+free-threaded, so seven go to threads and the eighth is the caller's.
+Metal does the same for its eleven MSL stages and then its eight states
+(`mt_functions_warm()`); a first launch there went from 170 to 147 ms.
+
+**What is left, and not the library's.** The first lifetime on Windows is
+1.1 s (Intel) to 1.4 s (NVIDIA) for Direct3D 12 and 1.2 to 0.8 s for
+Vulkan: the drivers' first load, which the NVIDIA one pays again whenever
+the dGPU has been powered down since its last window. Vulkan on the NVIDIA
+GPU is 500 ms in `vkCreateDevice` and 170 in the DXGI bridge's
+`D3D11CreateDevice`; Vulkan's shutdown on Windows is 66 ms of
+`vkDestroyInstance`, the loader letting go of the driver. On macOS
+the first launch of a copied `libMoltenVK.dylib` is 4 s, once, in the
+system's assessment of the new file, and not repeated for the same file.
+
+**Ordering.** The glyph table's decode (5 ms) ran before the loader's
+scan was started; it now follows it, so the two overlap: Linux's cold open
+is 15 to 20 ms shorter (Intel 104 to 87 ms, NVIDIA 145 to 132), the warm
+ones unchanged.
+
+**Not a bottleneck, measured.** A frame in steady state is at its floor: the
+desk's is 0.12 ms of CPU a frame with 0.04 in the library's own record, and
+a profile of it is RADV. Intel's HD 630 draws the library alone (no scene,
+the pace instrument, 1280x720) in 0.22 ms of GPU, which is the window's
+clear and the bar, a bandwidth cost. The Mac's `gpu span` reads 0.49 ms
+there with vsync on and 2.4 flat out, because the span then includes
+WindowServer's compositing of the frames before it: a figure to read at
+vsync only.
+
 ## Source layout
 
 ```

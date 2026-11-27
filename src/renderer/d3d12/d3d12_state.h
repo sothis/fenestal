@@ -201,6 +201,10 @@ struct RendererState {
 	/* The buffers' size: App::extent, or larger, the window showing their
 	 * corner (d3d_window_images()). */
 	int buf_w, buf_h;
+	/* A swapchain made at the size d3d_window_images() would resize it to
+	 * has its buffers already: sc_fresh until that call has seen it. */
+	bool sc_fresh;
+	int sc_w, sc_h;
 	/* The window's depth, at the buffers' size, for a scene drawn straight
 	 * in. */
 	ID3D12Resource *window_depth;

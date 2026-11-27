@@ -7,8 +7,9 @@
  *
  *   fenestal-dev pace [<sizes/s> [<seconds>]] [options]     (pace.c)
  *   fenestal-dev lifecycle [<cycles>]                       (lifecycle.c)
+ *   fenestal-dev open [<lifetimes>]                         (open.c)
  *
- * Neither draws a scene, and both are consumers of the installed header
+ * None draws a scene, and all are consumers of the installed header
  * alone, so linking this proves two things about the archive at once: the
  * plain-window half of its link line, with no graphics API in the program,
  * and that it exports only the API -- lifecycle.c defines functions named as
@@ -34,6 +35,8 @@ static const struct {
 	  "a window resized from a thread of its own, its frames counted" },
 	{ "lifecycle", lifecycle_main,
 	  "the API called wrongly, then many lifetimes, what each holds" },
+	{ "open",      open_main,
+	  "what a window costs to its first frame, cold and warm" },
 };
 #define MODE_COUNT (sizeof MODES / sizeof MODES[0])
 

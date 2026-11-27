@@ -78,6 +78,62 @@ void mt_functions_forget(App *a)
 	g->fn_n = 0;
 }
 
+/* The stage's own library and its entry, nil with the compiler's words in
+ * `err`. A device's methods may be called from any thread. */
+static id<MTLFunction> compile_stage(id<MTLDevice> device, const char *msl,
+									 NSError **err)
+{
+	MTLCompileOptions *o = [[MTLCompileOptions alloc] init];
+	o.languageVersion = MTLLanguageVersion2_1;
+	id<MTLLibrary> lib = [device
+		newLibraryWithSource:[NSString stringWithUTF8String:msl]
+					 options:o
+					   error:err];
+	return [lib newFunctionWithName:@"main0"];
+}
+
+/* The distinct stages of `msl` not yet in the table, compiled side by side
+ * -- a first launch has no shader cache, and each of the eleven is tens of
+ * milliseconds, on one core after another -- and put in the table. One that
+ * fails is left for mt_function(), which compiles it again and says why. */
+void mt_functions_warm(App *a, const char *const *msl, int n)
+{
+	struct RendererState *g = MT(a);
+	const char *todo[MT_STAGE_MAX];
+	int m = 0;
+	for (int i = 0; i < n; i++) {
+		bool seen = false;
+		for (int k = 0; k < g->fn_n && !seen; k++)
+			seen = g->fn_src[k] == msl[i];
+		for (int k = 0; k < m && !seen; k++)
+			seen = todo[k] == msl[i];
+		if (!seen && m < MT_STAGE_MAX - g->fn_n)
+			todo[m++] = msl[i];
+	}
+	if (m < 2)
+		return;
+	__strong id<MTLFunction> *made =
+		(__strong id<MTLFunction> *)calloc((size_t)m, sizeof *made);
+	if (!made)
+		return;
+	id<MTLDevice> device = g->device;
+	const char *const *src = todo;
+	dispatch_apply((size_t)m,
+				   dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
+				   ^(size_t i) {
+					   NSError *err = nil;
+					   made[i]      = compile_stage(device, src[i], &err);
+				   });
+	for (int i = 0; i < m; i++) {
+		if (made[i]) {
+			g->fn_src[g->fn_n] = todo[i];
+			g->fn[g->fn_n++]   = made[i];
+		}
+		made[i] = nil;
+	}
+	free(made);
+}
+
 id<MTLFunction> mt_function(App *a, const char *what, const char *msl)
 {
 	struct RendererState *g = MT(a);
@@ -85,20 +141,14 @@ id<MTLFunction> mt_function(App *a, const char *what, const char *msl)
 		if (g->fn_src[i] == msl)
 			return g->fn[i];
 
-	MTLCompileOptions *o = [[MTLCompileOptions alloc] init];
-	o.languageVersion = MTLLanguageVersion2_1;
 	NSError *err = nil;
-	id<MTLLibrary> lib = [g->device
-		newLibraryWithSource:[NSString stringWithUTF8String:msl]
-					 options:o
-					   error:&err];
-	if (!lib) {
+	id<MTLFunction> fn = compile_stage(g->device, msl, &err);
+	if (!fn) {
 		fnl_log(FNL_LOG_ERROR, "the %s shader did not compile: %s", what,
 				err.localizedDescription.UTF8String ?: "(no log)");
 		return nil;
 	}
-	id<MTLFunction> fn = [lib newFunctionWithName:@"main0"];
-	if (fn && g->fn_n < MT_STAGE_MAX) {
+	if (g->fn_n < MT_STAGE_MAX) {
 		g->fn_src[g->fn_n] = msl;
 		g->fn[g->fn_n++]   = fn;
 	}

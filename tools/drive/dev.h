@@ -11,5 +11,6 @@
 
 int pace_main(int argc, char **argv);       /* pace.c */
 int lifecycle_main(int argc, char **argv);  /* lifecycle.c */
+int open_main(int argc, char **argv);       /* open.c */
 
 #endif

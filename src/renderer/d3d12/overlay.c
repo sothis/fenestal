@@ -299,10 +299,21 @@ static ID3D12PipelineState *pso_make(ID3D12Device *dev,
 	return p;
 }
 
-static ID3D12PipelineState *make_pso(App *a, const PsoDesc *s)
+/* One state's build, for a thread of its own: pso_make() reads what it is
+ * handed and nothing else, and a device is free-threaded. */
+typedef struct PsoJob {
+	ID3D12Device        *dev;
+	ID3D12RootSignature *root;
+	DXGI_FORMAT          format;
+	const PsoDesc       *desc;
+	ID3D12PipelineState *pso;
+} PsoJob;
+
+static void *pso_job(void *arg)
 {
-	return pso_make(D3D(a)->device, D3D(a)->root, D3D(a)->color_format,
-					 s, false);
+	PsoJob *j = arg;
+	j->pso    = pso_make(j->dev, j->root, j->format, j->desc, false);
+	return NULL;
 }
 
 /* Whether `dev` builds the library's pipeline states from its DXIL: the
@@ -595,12 +606,33 @@ FnlResult d3d_create_overlay(App *a)
 	ID3D12PipelineState **out[8] = { &g->pso_rect, &g->pso_shape, &g->pso_image,
 									 &g->pso_text, &g->pso_blit,  &g->pso_mlaa,
 									 &g->pso_taau, &g->pso_cover };
-	for (int i = 0; i < 8; i++) {
-		*out[i] = make_pso(a, &descs[i]);
-		if (!*out[i])
-			return fnl_fail(FNL_ERR_SYSTEM,
-							"the overlay's pipeline states did not build");
+	/* Built side by side: a driver compiles each DXIL to its own code, which
+	 * with a cold shader cache is 10 to 60 ms a state and 120 ms in all on
+	 * schenker's Intel, one after the other. The first is this thread's. A
+	 * thread that will not start leaves its state to this one. */
+	PsoJob jobs[8];
+	FnlThread workers[8];
+	bool started[8] = { false };
+	for (int i = 0; i < 8; i++)
+		jobs[i] = (PsoJob){ g->device, g->root, g->color_format, &descs[i],
+							NULL };
+	for (int i = 1; i < 8; i++)
+		started[i] = fnl_thread_start(&workers[i], pso_job, &jobs[i]);
+	pso_job(&jobs[0]);
+	for (int i = 1; i < 8; i++) {
+		if (started[i])
+			fnl_thread_join(workers[i]);
+		else
+			pso_job(&jobs[i]);
 	}
+	bool built = true;
+	for (int i = 0; i < 8; i++) {
+		*out[i] = jobs[i].pso;
+		built   = built && jobs[i].pso;
+	}
+	if (!built)
+		return fnl_fail(FNL_ERR_SYSTEM,
+						"the overlay's pipeline states did not build");
 
 	/* The caller's images' views take the srv heap's slots after the library's
 	 * own (d3d12_state.h, IMAGE_SETS_MAX): a second CBV_SRV_UAV heap may not be

@@ -391,6 +391,20 @@ about the library drawing one itself, not about whether a caller could.
 Each needs a hand on the machine or hardware the two laptops do not have.
 `tools/drive/native-windows.md` is the strategy.
 
+- **What opening costs, left from the 2026-11-27 pass** (DESIGN *Opening a
+  window*): Vulkan on the NVIDIA GPU spends 170 ms in the DXGI bridge's
+  `D3D11CreateDevice` after its 500 ms `vkCreateDevice`, and the two could
+  overlap -- a thread started once the physical device is picked, with the
+  LUID, ahead of `vkCreateDevice` -- but `present_dxgi.c`'s state is the
+  render thread's, so it wants its own pass; Direct3D 12's walk could probe
+  the adapters it will not pick on threads of their own, which saves the
+  smaller probes only (the NVIDIA one is 120 ms warm and 500 cold, and a
+  default pick on a hybrid laptop needs it); the raw-input thread is
+  registered for every window, and only `fnl_input_latency_ms()` and a
+  captured pointer read it, which at an 8 kHz mouse is some 8% of a core
+  (registered while counting or captured would stop that, and DESIGN *raw
+  input*'s ownership rules say what it must keep).
+
 - **A slower second monitor on Intel**: a window there is paced by the
   panel's 60 Hz (DESIGN *Measured on Windows itself*). Are the extra frames
   dropped or shown late?
@@ -714,6 +728,26 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
   (DESIGN *The veil*, 2026-11-01).
 
 ## Linux
+
+- **KMS's cursor moves on the display path are blocking atomic commits**,
+  which wait for the CRTC's flip, so the cursor updates once or twice a
+  refresh from a position sampled just after a vblank (`cursor_mover()`).
+  A move of an already-shown shape through `DRM_IOCTL_MODE_CURSOR` with
+  `DRM_MODE_CURSOR_MOVE` alone is the candidate, since the kernel completes
+  a legacy cursor update unsynced; the atomic commit stays for a shape and a
+  hide. Not made: `kms_atomic_cursor_set()`'s comment says why the commit is
+  synchronous (Mesa's flips collide with a nonblocking one), the legacy
+  ioctl on a plane set atomically is for nouveau's and NVIDIA's drivers to
+  answer, and the move has no figure on the display path to read against
+  (the 8.7 ms in DESIGN is the copy path). Wants a round on schenker's KMS
+  with `--hands`, on each kernel driver.
+- **A resting window wakes at the display rate** (`rest_wait()`): the turn
+  it runs is `rank_tick`, the GPU-switch lock, two post drains and the
+  state diff, where DESIGN *At rest* says a lock and a compare. A longer
+  wait needs each writer of a polled atomic (`surface_remakes`, hotplug,
+  `mover_done`, the cost-sampling publish) to signal, which no one has
+  audited; the measured cost is 0.2% of a core, so it waits for a battery
+  figure that says otherwise.
 
 - **A dip every 21 s on this desktop's console at 4K**: 44 to 48 frames
   a second for about 3.5 s, then 60 again, the RX 590 on DP-1 at

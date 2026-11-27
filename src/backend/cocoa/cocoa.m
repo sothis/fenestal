@@ -755,7 +755,9 @@ static void left_release(App *a, NSPoint pt)
 {
 	if (!app)
 		return;
-	if (!app->pointer_captured)
+	/* The point is only worked out for a release that is owed: a move is
+	 * the commonest event there is, and -pointer: works it out again. */
+	if (!app->pointer_captured && app->backend_state->left_held)
 		left_release(app, event_pt(app, e));
 	[self pointer:e];
 }
@@ -1053,7 +1055,9 @@ static void compose_discard(App *a)
 	/* The IME places its candidates in screen coordinates, which a resize
 	 * at the top edge moved: invalidated, it asks again on the next key as
 	 * NSTextInputContext requires whenever the visual coordinates change. */
-	[VIEW(app->backend_state).inputContext invalidateCharacterCoordinates];
+	if (app_text_input(app))
+		[VIEW(app->backend_state).inputContext
+			invalidateCharacterCoordinates];
 }
 
 - (void)windowDidMove:(NSNotification *)n
@@ -1062,7 +1066,9 @@ static void compose_discard(App *a)
 	if (!app)
 		return;
 	publish_output(app, false);
-	[VIEW(app->backend_state).inputContext invalidateCharacterCoordinates];
+	if (app_text_input(app))
+		[VIEW(app->backend_state).inputContext
+			invalidateCharacterCoordinates];
 }
 
 - (void)windowDidChangeScreen:(NSNotification *)n
@@ -1073,7 +1079,9 @@ static void compose_discard(App *a)
 	publish_output(app, true);
 	/* A screen change moves the window's visual coordinates as a move does,
 	 * so the IME's candidate list is told to ask again. */
-	[VIEW(app->backend_state).inputContext invalidateCharacterCoordinates];
+	if (app_text_input(app))
+		[VIEW(app->backend_state).inputContext
+			invalidateCharacterCoordinates];
 }
 
 - (void)windowDidChangeBackingProperties:(NSNotification *)n

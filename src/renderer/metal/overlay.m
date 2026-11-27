@@ -348,12 +348,32 @@ FnlResult mt_create_overlay(App *a)
 		&g->pso_rect, &g->pso_shape, &g->pso_image, &g->pso_text,
 		&g->pso_blit, &g->pso_mlaa, &g->pso_taau, &g->pso_cover,
 	};
+	/* The stages compiled side by side, and then the states built from them
+	 * the same way: make_pso() only reads the table and makes its own
+	 * descriptor, and a device is free-threaded. A warm shader cache makes
+	 * both a lookup; a first launch's is most of its open. */
+	const char *stages[16];
 	for (int i = 0; i < 8; i++) {
-		*out[i] = make_pso(a, &descs[i]);
-		if (!*out[i])
-			return fnl_fail(FNL_ERR_SYSTEM,
-							"the overlay's pipeline states did not build");
+		stages[2 * i]     = descs[i].vs;
+		stages[2 * i + 1] = descs[i].fs;
 	}
+	mt_functions_warm(a, stages, 16);
+	__strong id<MTLRenderPipelineState> made[8];
+	const PsoDesc *dp = descs;
+	__strong id<MTLRenderPipelineState> *mp = made;
+	dispatch_apply(8, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
+				   ^(size_t i) {
+					   mp[i] = make_pso(a, &dp[i]);
+				   });
+	bool built = true;
+	for (int i = 0; i < 8; i++) {
+		*out[i] = made[i];
+		made[i] = nil;
+		built   = built && *out[i];
+	}
+	if (!built)
+		return fnl_fail(FNL_ERR_SYSTEM,
+						"the overlay's pipeline states did not build");
 
 	MTLDepthStencilDescriptor *dd = [[MTLDepthStencilDescriptor alloc] init];
 	dd.depthCompareFunction = MTLCompareFunctionAlways;

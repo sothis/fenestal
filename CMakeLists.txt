@@ -2226,6 +2226,8 @@ endif()
 #   lifecycle  tools/drive/lifecycle.c: the public API called wrongly on
 #              purpose, then opened and closed many times in one process
 #              with what each lifetime holds counted
+#   open       tools/drive/open.c: what a window costs to its first frame,
+#              the cold open and the warm ones
 #
 # Built with every tree because the measurements that matter are taken
 # under the sanitizers and under wine, the trees a hand-written compile line
@@ -2234,7 +2236,7 @@ endif()
 # the testbed cannot, and lifecycle.c's functions named as the library's
 # internals prove the archive exports only the API.
 add_executable(fenestal_dev tools/drive/dev.c tools/drive/pace.c
-               tools/drive/lifecycle.c)
+               tools/drive/lifecycle.c tools/drive/open.c)
 set_target_properties(fenestal_dev PROPERTIES OUTPUT_NAME fenestal-dev)
 target_link_libraries(fenestal_dev PRIVATE fenestal_static)
 # A console program on Windows, unlike the testbed: its whole output is the

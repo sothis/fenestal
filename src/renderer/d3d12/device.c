@@ -18,6 +18,8 @@
 
 #include "renderer/d3d12/d3d12_internal.h"
 
+#include <limits.h>
+
 FnlResult d3d_fail(FnlResult code, const char *what, HRESULT hr)
 {
 	return fnl_fail(code, "%s failed (0x%08lx)", what, (unsigned long)hr);
@@ -117,53 +119,51 @@ static void adapter_name(const DXGI_ADAPTER_DESC1 *d, char *out, size_t n)
 		snprintf(out, n, "(unnamed)");
 }
 
-/* The hardware adapter Windows ranks first for performance -- the discrete
- * GPU of a laptop with two, or the one the user chose for this program in
- * Windows' graphics settings -- as its LUID. False where DXGI is older than
- * 1.6 (Windows 10 1803) or ranks none that makes a device. EnumAdapters1's
- * order is the display's, the panel's GPU first, which on a hybrid laptop
- * is the integrated one. */
-static bool high_performance_luid(struct RendererState *g, LUID *out)
+/* The hardware adapters in the order Windows ranks them for performance --
+ * the discrete GPU of a laptop with two first, or the one the user chose for
+ * this program in Windows' graphics settings -- as their LUIDs, and how many.
+ * None where DXGI is older than 1.6 (Windows 10 1803). EnumAdapters1's order
+ * is the display's, the panel's GPU first, which on a hybrid laptop is the
+ * integrated one. Only names them: whether one makes a device is what the
+ * caller's own walk finds out, since a device made here for the question is
+ * a second build of what the walk builds (120 ms on an NVIDIA GPU). */
+static int preference_order(struct RendererState *g, LUID *out, int max)
 {
 	IDXGIFactory6 *f6 = NULL;
 	if (FAILED(IDXGIFactory4_QueryInterface(g->factory, &IID_IDXGIFactory6,
 											(void **)&f6)))
-		return false;
-	bool found = false;
-	for (UINT i = 0; !found; i++) {
+		return 0;
+	int n = 0;
+	for (UINT i = 0; n < max; i++) {
 		IDXGIAdapter1 *ad = NULL;
 		if (FAILED(IDXGIFactory6_EnumAdapterByGpuPreference(
 				f6, i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, &IID_IDXGIAdapter1,
 				(void **)&ad)))
 			break;
 		DXGI_ADAPTER_DESC1 d;
-		if (FAILED(IDXGIAdapter1_GetDesc1(ad, &d))) {
-			/* Never written, and every field of it read below: the
-			 * adapter is skipped as a refused enumeration would be. */
-			IDXGIAdapter1_Release(ad);
-			continue;
-		}
-		if (!(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
-			SUCCEEDED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
-										&IID_ID3D12Device, NULL))) {
-			*out  = d.AdapterLuid;
-			found = true;
-		}
+		/* Never written when it fails, and every field of it read below:
+		 * the adapter is skipped as a refused enumeration would be. */
+		if (SUCCEEDED(IDXGIAdapter1_GetDesc1(ad, &d)) &&
+			!(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
+			out[n++] = d.AdapterLuid;
 		IDXGIAdapter1_Release(ad);
 	}
 	IDXGIFactory6_Release(f6);
-	return found;
+	return n;
 }
 
 /* Whether `ad` makes a feature level 11_0 device that builds the library's
- * pipeline states (d3d_draws_on()): a device made for the question and let
- * go, which on Windows is the adapter's one device, the renderer's own
- * where it draws there. The pipeline state is asked under wine alone,
- * whose own vkd3d before 1.16 makes a device and runs no DXIL: on Windows
- * a Direct3D 12 driver runs DXIL to be one at all, and the build cost every
- * list some 100 ms (schenker, three adapters, 2026-10-31). Wine: ntdll
- * exports wine_get_version there and nowhere else. */
-static bool adapter_draws(IDXGIAdapter1 *ad)
+ * pipeline states (d3d_draws_on()): 0 for no device, 1 for one that builds
+ * none of them, 2 for one that does. Asked once an adapter, and with no
+ * device handed back where Windows allows: D3D12CreateDevice() with no
+ * output only checks the level, which on schenker's NVIDIA GPU is 120 ms
+ * against 310 for a device made, so the renderer's own is made for the pick
+ * alone. The pipeline state is asked under wine alone, whose own vkd3d
+ * before 1.16 makes a device and runs no DXIL: on Windows a Direct3D 12
+ * driver runs DXIL to be one at all, and the build cost every list some
+ * 100 ms (schenker, three adapters, 2026-10-31). Wine: ntdll exports
+ * wine_get_version there and nowhere else. */
+static int adapter_probe(IDXGIAdapter1 *ad)
 {
 	const HMODULE nt  = GetModuleHandleW(L"ntdll.dll");
 	const bool wine   = nt && GetProcAddress(nt, "wine_get_version");
@@ -171,12 +171,12 @@ static bool adapter_draws(IDXGIAdapter1 *ad)
 	if (FAILED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
 								 &IID_ID3D12Device,
 								 wine ? (void **)&dev : NULL)))
-		return false;
+		return 0;
 	if (!wine)
-		return true;
-	const bool ok = d3d_draws_on(dev);
+		return 2;
+	const int state = d3d_draws_on(dev) ? 2 : 1;
 	ID3D12Device_Release(dev);
-	return ok;
+	return state;
 }
 
 /* The seam's list_gpus: choose_adapter()'s list, from a factory of its own
@@ -191,7 +191,7 @@ static int d3d_list_gpus(App *a, GpuEntry *out, int max)
 	for (UINT i = 0; n < max; i++) {
 		IDXGIAdapter1 *ad = NULL;
 		/* Any failure ends the walk, not only NOT_FOUND: a null adapter left
-		 * in `ad` is dereferenced by GetDesc1, adapter_draws and Release
+		 * in `ad` is dereferenced by GetDesc1, adapter_probe and Release
 		 * alike, which inside fnl_init() is a crash where a clean "no GPU"
 		 * is owed. */
 		if (FAILED(IDXGIFactory4_EnumAdapters1(f, i, &ad)))
@@ -201,7 +201,7 @@ static int d3d_list_gpus(App *a, GpuEntry *out, int max)
 			IDXGIAdapter1_Release(ad);
 			continue;
 		}
-		if (adapter_draws(ad)) {
+		if (adapter_probe(ad) == 2) {
 			adapter_name(&d, out[n].name, sizeof out[n].name);
 			out[n].kind     = d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE
 								  ? FNL_GPU_KIND_SOFTWARE
@@ -227,9 +227,10 @@ static FnlResult choose_adapter(App *a)
 {
 	struct RendererState *g = D3D(a);
 	IDXGIAdapter1 *pick = NULL, *first_hw = NULL, *first_sw = NULL;
-	LUID best;
-	const bool ranked = high_performance_luid(g, &best);
-	int n             = 0;
+	LUID order[GPU_LIST_MAX];
+	const int ranked = preference_order(g, order, GPU_LIST_MAX);
+	int hw_rank      = INT_MAX;
+	int n            = 0;
 	/* The same list, for fnl_gpu_count() and the titlebar: entry i is
 	 * gpu_index i + 1. DXGI does not say which hardware is integrated, so
 	 * that is left unknown rather than guessed from the memory it reports.
@@ -245,15 +246,15 @@ static FnlResult choose_adapter(App *a)
 			IDXGIAdapter1_Release(ad);
 			continue;
 		}
-		if (FAILED(D3D12CreateDevice((IUnknown *)ad, D3D_FEATURE_LEVEL_11_0,
-									 &IID_ID3D12Device, NULL))) {
-			IDXGIAdapter1_Release(ad);
-			continue;
-		}
 		const bool soft = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
 		char name[GPU_NAME_MAX];
 		adapter_name(&d, name, sizeof name);
-		if (!adapter_draws(ad)) {
+		const int probe = adapter_probe(ad);
+		if (probe == 0) {
+			IDXGIAdapter1_Release(ad);
+			continue;
+		}
+		if (probe == 1) {
 			fnl_log(FNL_LOG_INFO,
 					"GPU left out: %s, whose Direct3D 12 "
 					"builds none of the library's pipeline states",
@@ -277,15 +278,20 @@ static FnlResult choose_adapter(App *a)
 			pick   = ad;
 			pick_i = n - 1;
 		}
-		/* The ranked adapter replaces the first hardware one wherever it
-		 * comes in the list; without a ranking the first stays. */
-		const bool is_best = ranked && !soft &&
-							 d.AdapterLuid.LowPart == best.LowPart &&
-							 d.AdapterLuid.HighPart == best.HighPart;
-		if (!soft && (!first_hw || is_best)) {
+		/* The best ranked adapter that draws replaces the first hardware one
+		 * wherever it comes in the list; without a ranking the first stays. */
+		int rank = INT_MAX;
+		for (int k = 0; k < ranked; k++)
+			if (order[k].LowPart == d.AdapterLuid.LowPart &&
+				order[k].HighPart == d.AdapterLuid.HighPart) {
+				rank = k;
+				break;
+			}
+		if (!soft && (!first_hw || rank < hw_rank)) {
 			D3D_RELEASE(first_hw);
 			IDXGIAdapter1_AddRef(ad);
 			first_hw = ad;
+			hw_rank  = rank;
 			hw_i     = n - 1;
 		} else if (soft && !first_sw) {
 			IDXGIAdapter1_AddRef(ad);
@@ -319,7 +325,7 @@ static FnlResult choose_adapter(App *a)
 								  "pipeline states, and there is no WARP"
 								: "no adapter makes a Direct3D 12 device, WARP "
 								  "included");
-		if (!adapter_draws(pick)) {
+		if (adapter_probe(pick) != 2) {
 			D3D_RELEASE(pick);
 			return fnl_fail(FNL_ERR_NO_DEVICE,
 							"no adapter builds the "

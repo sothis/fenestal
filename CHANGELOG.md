@@ -47,6 +47,18 @@ promised: before 1.0, nothing between minor releases.
   go out after their unlock, and an evdev report takes one clock read; X11
   reports a held accent only when it moves; Wayland's key repeat keeps its
   period; the Win32 raw-input thread runs one step above normal.
+  Fifth, the open path, now measured by `fenestal-dev open`: Direct3D 12
+  asks each adapter once whether it draws, not three times, and ranks them
+  without a device of its own (schenker's Windows, a window to its first
+  frame: 516 to 233 ms on the Intel GPU, about 1 s to 0.5 s on the NVIDIA
+  one); its pipeline states, and Metal's shader stages and states, are built
+  side by side; a Direct3D 12 swapchain is made at the size its buffers are
+  to be and not resized to it at once; the glyph table is decoded while the
+  loader is scanned; Cocoa tells the input method of a move or a resize only
+  when text input is on, and works out a mouse move's point once.
+- **`fenestal-dev open`.** What a window costs from `fnl_init()` to its
+  first frame, the cold open of a process and the warm ones after it, and
+  the shutdown, on every backend and renderer the tree builds.
 - **An MCP server inside the program, for an agent to drive the window.**
   `FNL_MCP=1` in the environment (or `FNL_MCP=<socket path>`; `0`, `false`,
   `off` and `no` are off, any other word refused) opens a Model Context

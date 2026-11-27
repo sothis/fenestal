@@ -124,6 +124,7 @@ FNL_MUST_USE FnlResult d3d_make_heaps(App *a);
 /* The swapchain's buffers and the window's depth at the size the frame
  * policy settled, resizing the swapchain when it has another: the
  * rebuild. */
+Extent d3d_window_buffer(App *a, Extent *window);
 FNL_MUST_USE FnlResult d3d_window_images(App *a);
 void d3d_release_window_images(App *a);
 void d3d_scene_set_size(App *a, int w, int h);

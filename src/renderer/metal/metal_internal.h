@@ -56,6 +56,7 @@ void mt_wait_idle(App *a);
 /* What a library of MSL text made, by entry name, or nil with the
  * compiler's log in ours. */
 id<MTLFunction> mt_function(App *a, const char *what, const char *msl);
+void mt_functions_warm(App *a, const char *const *msl, int n);
 /* Empty this device's stage table: called at the top of mt_create_overlay(),
  * so that a function is never handed back from a device that has gone. */
 void mt_functions_forget(App *a);

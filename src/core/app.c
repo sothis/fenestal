@@ -3291,18 +3291,6 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	if ((rc = renderer_check_choice(&d)) < 0)
 		goto fail;
 
-	/* Before the window: the decoration layout measures the title while
-	 * handling the very first configure. Unconditional -- the table is the
-	 * library's, not whichever renderer draws text, and cell_for()
-	 * dereferences it. */
-	if ((rc = text_load_cells()) < 0)
-		goto fail;
-
-	/* Measured here, on the one thread that exists, because both of them ask
-	 * afterwards: the render thread draws the title and the input thread
-	 * hit-tests around it (see deco_title_fits). */
-	fnl_atomic_store_u32(&a->title_w, (uint32_t)text_width(a->title, TEXT_UI));
-
 	fnl_mutex_init(&a->lock);
 	fnl_mutex_init(&a->ev_lock);
 	fnl_mutex_init(&a->text_lock);
@@ -3332,6 +3320,22 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 			warmed->prewarm();
 		}
 	}
+	/* Before the window: the decoration layout measures the title while
+	 * handling the very first configure. Unconditional -- the table is the
+	 * library's, not whichever renderer draws text, and cell_for()
+	 * dereferences it. After the warm-up is started and not before it: the
+	 * decode is 5 ms of this thread and the loader scan runs beside it. */
+	if ((rc = text_load_cells()) < 0) {
+		if (warmed)
+			warmed->prewarm_end();
+		goto fail;
+	}
+
+	/* Measured here, on the one thread that exists, because both of them ask
+	 * afterwards: the render thread draws the title and the input thread
+	 * hit-tests around it (see deco_title_fits). */
+	fnl_atomic_store_u32(&a->title_w, (uint32_t)text_width(a->title, TEXT_UI));
+
 	rc = backend_choose_and_open(a);
 	if (rc < 0) {
 		if (warmed)
