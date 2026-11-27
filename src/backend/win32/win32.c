@@ -1369,8 +1369,12 @@ static FnlAtomicPtr host_name;
  * from its frame to all black and stayed there. Windows' compositor keeps a
  * window's, so nothing is asked there; nor on wine's Wayland driver, which was
  * not seen to lose it. One frame per move, as fnl_invalidate() asks for any. */
+static void imm_place(App *a, HWND hwnd);
+
 static void on_move(App *a, HWND hwnd)
 {
+	if (a->backend_state->ime_composing)
+		imm_place(a, hwnd);
 	publish_output(a, false);
 	hold_fullscreen(a, hwnd);
 	capture_follow(a, hwnd);
@@ -2395,6 +2399,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 	case WM_IME_STARTCOMPOSITION:
 		if (!imm_load())
 			break;
+		a->backend_state->ime_composing = true;
 		imm_place(a, hwnd);
 		return 0;
 
@@ -2404,6 +2409,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		break;
 
 	case WM_IME_ENDCOMPOSITION:
+		a->backend_state->ime_composing = false;
 		app_compose_set(a, NULL);
 		if (imm_load())
 			return 0;

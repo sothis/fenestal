@@ -2470,29 +2470,23 @@ static void scan_retire(struct BackendState *p,
 }
 
 /* A page-flip completion, given to the window whose flip it is: the event's
- * user_data was that window's address when the flip was made
- * (kms_scan_show()), so a wait reading another window's event clears the
- * right pending flip and counts the right frame. The list walked is the
+ * user_data was the token that flip was made with (kms_scan_show()), so a
+ * wait reading another window's event clears the right pending flip and
+ * counts the right frame, and one given up on -- its window has flipped
+ * again since, under a new token -- is no one's. The list walked is the
  * host's, under the lock, and not Host::windows: this runs on whichever
  * window's render thread read the event, and the registry is the main
  * thread's alone -- a window closing there takes its state, and its App,
- * away under the walk. A stamp naming no window of the list is nobody's
- * now -- the window has closed -- and is dropped. */
+ * away under the walk. A token no window of the list holds is nobody's
+ * now -- the window has closed, or has flipped again -- and is dropped. */
 static void flip_complete(App *a, const struct drm_event_vblank *v)
 {
 	const double mono           = (double)v->tv_sec + (double)v->tv_usec * 1e-6;
 	struct BackendHostState *hs = a->backend_state->host;
 	fnl_mutex_lock(&hs->flip_lock);
 	for (struct BackendState *q = hs->flip_windows; q; q = q->flip_next) {
-		if ((uintptr_t)q->flip_app != (uintptr_t)v->user_data)
+		if (q->flip_token != v->user_data)
 			continue;
-		if (q->flip_stale > 0) {
-			/* The completion that was given up on (flip_give_up()):
-			 * consumed, not reported -- it is older than the frame the
-			 * window waits for now. */
-			q->flip_stale--;
-			break;
-		}
 		if (!q->flip_pending)
 			break; /* nobody's now */
 		q->flip_pending = false;
@@ -2503,19 +2497,16 @@ static void flip_complete(App *a, const struct drm_event_vblank *v)
 }
 
 /* The pending flip is not waited for after all: given up on, and the
- * completion still to come for it is stale -- consumed by flip_complete()
- * and not reported, where it would otherwise be taken for the next flip's.
- * Under the lock, so a completion another window's thread reads at this
- * moment is one decision with this one. */
+ * completion still to come for it carries a token the next flip replaces,
+ * so flip_complete() drops it where it would otherwise be taken for the
+ * next flip's. Under the lock, so a completion another window's thread
+ * reads at this moment is one decision with this one. */
 static void flip_give_up(App *a)
 {
 	struct BackendState *p      = a->backend_state;
 	struct BackendHostState *hs = p->host;
 	fnl_mutex_lock(&hs->flip_lock);
-	if (p->flip_pending) {
-		p->flip_pending = false;
-		p->flip_stale++;
-	}
+	p->flip_pending = false;
 	fnl_mutex_unlock(&hs->flip_lock);
 }
 
@@ -3081,10 +3072,11 @@ static void kms_scan_show(App *a, int back)
 	p->flip_index   = a->presents;
 	p->flip_pending = true;
 	p->flip_at      = now_seconds();
+	const uint64_t token = p->flip_token = ++hs->flip_token_last;
 	fnl_mutex_unlock(&hs->flip_lock);
 	if (hs->atomic) {
 		flipped = kms_atomic_flip(hs->atomic, crtc, p->scan.fb[back],
-								  async_now, (uint64_t)(uintptr_t)a);
+								  async_now, token);
 		if (!flipped && async_now && errno == EINVAL) {
 			p->flip_async_off = true;
 			fnl_log(FNL_LOG_INFO,
@@ -3096,8 +3088,7 @@ static void kms_scan_show(App *a, int back)
 			p->flip_async = false;
 			fnl_mutex_unlock(&hs->flip_lock);
 			flipped = kms_atomic_flip(hs->atomic, crtc,
-									  p->scan.fb[back], false,
-									  (uint64_t)(uintptr_t)a);
+									  p->scan.fb[back], false, token);
 		}
 		/* Kept: the legacy fallback below overwrites errno, and a CRTC
 		 * busy a moment ago is the one answer this frame must not turn
@@ -3116,7 +3107,7 @@ static void kms_scan_show(App *a, int back)
 			.fb_id   = p->scan.fb[back],
 			.flags   = DRM_MODE_PAGE_FLIP_EVENT |
 					 (async_now ? DRM_MODE_PAGE_FLIP_ASYNC : 0u),
-			.user_data = (uint64_t)(uintptr_t)a,
+			.user_data = token,
 		};
 		flipped =
 			drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip) == 0;
@@ -4522,15 +4513,11 @@ static void kms_present_window_renew(App *a)
 				FLIP_DRAIN_MS);
 	events_drain(a);
 	/* The node is lent to a driver next, which may read a completion still
-	 * owing: one given up on would never be reconciled -- the first flip
-	 * after the lend would be taken for it as stale, and the bookkeeping
-	 * would stay a flip behind for the window's life. So the pending flip
-	 * and any stale count go with the drain; the renew owes a mode set
-	 * (scan_resets), whose path drains again, and a completion arriving
-	 * after this names no pending flip and is dropped. */
+	 * owing. So the pending flip goes with the drain; the renew owes a
+	 * mode set (scan_resets), whose path drains again, and a completion
+	 * arriving after this names no pending flip and is dropped. */
 	fnl_mutex_lock(&p->host->flip_lock);
 	p->flip_pending = false;
-	p->flip_stale   = 0;
 	fnl_mutex_unlock(&p->host->flip_lock);
 }
 

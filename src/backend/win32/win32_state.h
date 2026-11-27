@@ -154,6 +154,10 @@ struct BackendState {
 	 * is shown (win32_ack_release()), so they are taken under ack_lock. */
 	HANDLE size_event;
 	uint32_t size_serial;
+	/* An input method's composition is up (WM_IME_STARTCOMPOSITION to
+	 * its end): its candidate list is in screen coordinates and is placed
+	 * again where the window moves. Window thread. */
+	bool ime_composing;
 	FnlAtomicU32 size_shown;
 	FnlAtomicBool size_live;
 	bool size_awaiting;

@@ -1746,6 +1746,10 @@ static void host_publish_device(App *a)
 	snprintf(h->gpu_name, sizeof h->gpu_name, "%s", a->gpu_name);
 	fnl_mutex_unlock(&a->lock);
 	h->msaa_samples = fnl_atomic_load_u32(&a->msaa_samples);
+	memcpy(h->pick_list, VK(a)->pick_list, sizeof h->pick_list);
+	h->pick_n       = VK(a)->pick_n;
+	h->pick_cur     = VK(a)->pick_cur;
+	h->pick_publish = VK(a)->pick_publish;
 	/* The generation the new device is, which every window that joins it
 	 * reads; the loss (VkHost::lost_gen) is behind it. */
 	h->generation++;
@@ -1782,11 +1786,14 @@ static FnlResult attach_device(App *a, struct VkHost *h)
 	VK(a)->phys_software    = h->phys_software;
 	VK(a)->phys_vram_unkept = h->phys_vram_unkept;
 	VK(a)->generation       = h->generation;
-	/* No list of its own: the GPU is the host's, and a move is refused
-	 * while a second window is open (fnl_request_gpu()). */
-	VK(a)->pick_n   = 0;
-	VK(a)->pick_cur = -1;
-	VK(a)->pick_via = -1;
+	/* The host's list: the GPU is the host's, and a move is refused while a
+	 * second window is open (fnl_request_gpu()), but the window left when
+	 * the other closes must be able to make one. */
+	memcpy(VK(a)->pick_list, h->pick_list, sizeof h->pick_list);
+	VK(a)->pick_n       = h->pick_n;
+	VK(a)->pick_cur     = h->pick_cur;
+	VK(a)->pick_publish = h->pick_publish;
+	VK(a)->pick_via     = -1;
 	fnl_mutex_lock(&a->lock);
 	snprintf(a->gpu_name, sizeof a->gpu_name, "%s", h->gpu_name);
 	fnl_mutex_unlock(&a->lock);

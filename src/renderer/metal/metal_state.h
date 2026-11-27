@@ -110,7 +110,8 @@ struct RendererState {
 	 * slot's and mixes in the other's, the frame before's, and the fetch reads
 	 * the one written -- no blit. Metal tracks the hazards between the
 	 * passes of one queue, and a command buffer keeps every texture it names
-	 * alive. */
+	 * alive. `taau_hist_ok[s]` is whether slot s's image is the newest frame
+	 * recorded: a pass clears the other slot's. */
 	__strong id<MTLTexture> taau_hist[MAX_FRAMES_IN_FLIGHT];
 	bool     taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
 	bool     taau_refused;

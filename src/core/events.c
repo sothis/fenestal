@@ -92,6 +92,7 @@ static bool queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	 * an empty ring. */
 	if (a->ev_lost) {
 		a->ev_lost++;
+		a->ev_clip_owed |= ev->type == FNL_EVENT_CLIPBOARD;
 		return false;
 	}
 
@@ -120,6 +121,7 @@ static bool queue_push(App *a, const FnlEvent *ev, const EvBorn *in)
 	 * empty rather than ambiguous. */
 	if (queue_count(a) >= EVENT_QUEUE_MAX - 1) {
 		a->ev_lost++;
+		a->ev_clip_owed |= ev->type == FNL_EVENT_CLIPBOARD;
 		return false;
 	}
 
@@ -496,7 +498,7 @@ void events_post_state(App *a, const FnlDrawState *ds, int area_w_pt,
 bool events_pending(App *a)
 {
 	fnl_mutex_lock(&a->ev_lock);
-	const bool any = !queue_empty(a) || a->ev_lost > 0;
+	const bool any = !queue_empty(a) || a->ev_lost > 0 || a->ev_clip_owed;
 	fnl_mutex_unlock(&a->ev_lock);
 	return any;
 }
@@ -524,6 +526,21 @@ bool fnl_poll_event(App *a, FnlEvent *out)
 			*out = lost;
 			out->lost.count = a->ev_lost;
 			a->ev_lost = 0;
+			fnl_mutex_unlock(&a->ev_lock);
+			if (a->echo_events || a->mcp)
+				echo_event(a, out);
+			return true;
+		}
+		/* A clipboard answer is a one-shot nothing re-asks for: its event
+		 * was dropped in a gap and comes now, after the report of it. */
+		if (a->ev_clip_owed) {
+			a->ev_clip_owed = false;
+			FnlEvent clip   = { .type = FNL_EVENT_CLIPBOARD,
+								.time = now_seconds() - a->started_at };
+			fnl_mutex_lock(&a->text_lock);
+			clip.clipboard.length = (unsigned)a->clip_in_len;
+			fnl_mutex_unlock(&a->text_lock);
+			*out = clip;
 			fnl_mutex_unlock(&a->ev_lock);
 			if (a->echo_events || a->mcp)
 				echo_event(a, out);

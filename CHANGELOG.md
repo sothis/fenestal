@@ -4,7 +4,13 @@ What each release changed for a program that uses Fenestal. `DESIGN.md` is
 why; `fenestal.h` is the API, and its *stability* block says what is
 promised: before 1.0, nothing between minor releases.
 
-## Unreleased
+## 1.0.0
+
+The API and the ABI are stable from this release: `fenestal.h` *stability*
+is the promise, only additions are made within 1.x, the shared object's
+symbols are versioned (`FENESTAL_1_0`) and its soname is `libfenestal.so.1`.
+Everything below was changed on the way, and is source-breaking against 0.9.
+HDR is marked experimental in the header: no panel has shown it yet.
 
 - **X11: a window opened with `positioned` is placed from the primary
   output's corner**, as the header says, and told to the window manager as the
@@ -18,15 +24,19 @@ promised: before 1.0, nothing between minor releases.
   still leaves out everything; a program that named every other control to
   leave them out now names this one too. The MCP port's controls are
   `vsync`, `fs_upsample` and `aa`, with the rows `aa_row`.
-
-## 1.0.0
-
-The API and the ABI are stable from this release: `fenestal.h` *stability*
-is the promise, only additions are made within 1.x, the shared object's
-symbols are versioned (`FENESTAL_1_0`) and its soname is `libfenestal.so.1`.
-Everything below was changed on the way, and is source-breaking against 0.9.
-HDR is marked experimental in the header: no panel has shown it yet.
-
+- **Wayland: a smooth-only wheel scrolls after a notched one has been seen**:
+  a notch's `axis_discrete` count is delivered less the smooth parts that
+  already gave it, where the parts were dropped for the rest of the process
+  once any count had come.
+- **A clipboard answer survives an event overflow**: the
+  `FNL_EVENT_CLIPBOARD` dropped with the rest of a gap is delivered after
+  `FNL_EVENT_LOST`, once the queue is drained, where a program had to ask
+  again.
+- **A second window on Vulkan lists the host's GPUs**, so the window left
+  when the first closes can move to another of them.
+- **Direct3D 12: a live `fnl_set_vsync()` moves the swapchain's tearing
+  flag**, as the Vulkan renderer's DXGI bridge does, so vsync off can tear
+  and vsync on no longer pays for the flag.
 - **Towards 1.0: the API and the ABI baseline** (docs/api-1.0-plan.md).
   Source-breaking, as any 0.x release may be:
   - `FnlInitDesc::late_latch_fixed`, `scale_override120` and `gpu_index`, and

@@ -255,7 +255,8 @@ struct RendererState {
 	/* TAAU's resolve: one image a frame slot, each with an RTV and an SRV. A
 	 * frame's pass writes its slot's and mixes in the other's, the frame
 	 * before's; the fetch reads the one written. No copy: `taau_hist_ok[s]`
-	 * is whether slot s's image holds a frame that was recorded. */
+	 * is whether slot s's image is the newest frame recorded: a pass clears
+	 * the other slot's. */
 	D3dTarget taau_hist[MAX_FRAMES_IN_FLIGHT];
 	bool taau_hist_ok[MAX_FRAMES_IN_FLIGHT];
 	bool taau_refused;

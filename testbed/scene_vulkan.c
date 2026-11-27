@@ -38,7 +38,9 @@
 #include "star.frag.h"
 
 /* Every Vulkan entry this file calls, each a pointer of the function's own
- * name, asked of FnlVulkanGpu::get_instance_proc_addr in load_vulkan(). Not
+ * name, asked of FnlVulkanGpu::get_instance_proc_addr in load_vulkan() into
+ * the window's own Scene -- a second window's load must not rewrite what the
+ * first's render thread is calling through. Not
  * linked: a program that imports the loader does not start where there is
  * none, and the library would have drawn with Direct3D 12 there. */
 #define SCENE_VK_FNS(X)                                                       \
@@ -53,28 +55,25 @@
 	X(vkDestroyShaderModule)                                                  \
 	X(vkEnumerateDeviceExtensionProperties)
 
-#define X_DEFINE(f) static PFN_##f f;
-SCENE_VK_FNS(X_DEFINE)
+typedef struct {
+#define X_DEFINE(f) PFN_##f f;
+	SCENE_VK_FNS(X_DEFINE)
 #undef X_DEFINE
-
-/* Whether every pointer above is this instance's. */
-static bool g_loaded;
+} SceneFns;
 
 /* Asked of the instance after every on_gpu_created, since the instance is
  * new after every loss. The device's entries come back as the loader's
  * trampolines, which find the device's driver through its handle. */
-static bool load_vulkan(const FnlVulkanGpu *gpu)
+static bool load_vulkan(const FnlVulkanGpu *gpu, SceneFns *fn)
 {
-	g_loaded = false;
 	if (!gpu->get_instance_proc_addr)
 		return false;
 #define X_LOAD(f)                                                             \
-	f = (PFN_##f)gpu->get_instance_proc_addr(gpu->instance, #f);              \
-	if (!f)                                                                   \
+	fn->f = (PFN_##f)gpu->get_instance_proc_addr(gpu->instance, #f);          \
+	if (!fn->f)                                                               \
 		return false;
 	SCENE_VK_FNS(X_LOAD)
 #undef X_LOAD
-	g_loaded = true;
 	return true;
 }
 
@@ -118,6 +117,9 @@ _Static_assert(offsetof(ScenePush, content) == 60, "ScenePush layout drifted");
 _Static_assert(offsetof(ScenePush, colour) == 64, "ScenePush layout drifted");
 
 typedef struct {
+	SceneFns         fn;
+	/* Whether `fn` is this window's instance's, all of it. */
+	bool             loaded;
 	VkDevice         device;
 	VkPipelineLayout layout;
 	/* One pair per target. A null entry is a target this window cannot use --
@@ -126,6 +128,10 @@ typedef struct {
 	VkPipeline       pattern[FNL_TARGET_COUNT];
 	VkPipeline       star[FNL_TARGET_COUNT];
 	bool             srgb;
+	/* scene_vulkan_vram()'s answer for the device it was asked of. */
+	VkPhysicalDevice asked;
+	VkInstance       asked_in;
+	bool             budget;
 } Scene;
 
 /* The scene is one per window, so that a second window on the host -- with its
@@ -196,10 +202,10 @@ static void scene_close(FnlApp *app)
 	Scene *s = &g_scenes[at].s;
 	if (s->device) {
 		for (int i = 0; i < FNL_TARGET_COUNT; i++) {
-			vkDestroyPipeline(s->device, s->pattern[i], NULL);
-			vkDestroyPipeline(s->device, s->star[i], NULL);
+			s->fn.vkDestroyPipeline(s->device, s->pattern[i], NULL);
+			s->fn.vkDestroyPipeline(s->device, s->star[i], NULL);
 		}
-		vkDestroyPipelineLayout(s->device, s->layout, NULL);
+		s->fn.vkDestroyPipelineLayout(s->device, s->layout, NULL);
 	}
 	memset(s, 0, sizeof *s);
 	scenes_lock();
@@ -224,8 +230,8 @@ static bool format_is_linear(VkFormat f)
 	}
 }
 
-static VkShaderModule make_module(VkDevice dev, const uint32_t *code,
-								  size_t bytes)
+static VkShaderModule make_module(const SceneFns *fn, VkDevice dev,
+								  const uint32_t *code, size_t bytes)
 {
 	VkShaderModuleCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -233,7 +239,7 @@ static VkShaderModule make_module(VkDevice dev, const uint32_t *code,
 		.pCode = code,
 	};
 	VkShaderModule m = VK_NULL_HANDLE;
-	if (vkCreateShaderModule(dev, &ci, NULL, &m) != VK_SUCCESS)
+	if (fn->vkCreateShaderModule(dev, &ci, NULL, &m) != VK_SUCCESS)
 		return VK_NULL_HANDLE;
 	return m;
 }
@@ -242,7 +248,7 @@ static VkShaderModule make_module(VkDevice dev, const uint32_t *code,
  * and at what sample count. No vertex input at all -- both shaders build their
  * geometry from gl_VertexIndex -- no depth test, no blending, and a dynamic
  * viewport and scissor, because the library sets both before handing over. */
-static VkPipeline make_pipeline(const FnlVulkanGpu *gpu,
+static VkPipeline make_pipeline(const SceneFns *fn, const FnlVulkanGpu *gpu,
 								const FnlVulkanSceneLayout *layout,
 								VkPipelineLayout pl, VkShaderModule vert,
 								VkShaderModule frag)
@@ -314,8 +320,8 @@ static VkPipeline make_pipeline(const FnlVulkanGpu *gpu,
 	VkPipeline p = VK_NULL_HANDLE;
 	/* The library's cache, shared deliberately: a caller that made its own
 	 * would pay the first compile twice over across runs. */
-	if (vkCreateGraphicsPipelines(gpu->device, gpu->pipeline_cache, 1, &gci,
-								  NULL, &p) != VK_SUCCESS)
+	if (fn->vkCreateGraphicsPipelines(gpu->device, gpu->pipeline_cache, 1,
+									  &gci, NULL, &p) != VK_SUCCESS)
 		return VK_NULL_HANDLE;
 	return p;
 }
@@ -337,12 +343,13 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 		scene_close(app);
 		return;
 	}
-	if (!load_vulkan(&gpu)) {
+	if (!load_vulkan(&gpu, &s->fn)) {
 		fprintf(stderr, "the Vulkan loader is missing an entry the scene "
 						"calls; no scene will be drawn\n");
 		scene_close(app);
 		return;
 	}
+	s->loaded = true;
 	s->device = gpu.device;
 
 	VkPushConstantRange pcr = {
@@ -352,7 +359,7 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 	VkPipelineLayoutCreateInfo plci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.pushConstantRangeCount = 1, .pPushConstantRanges = &pcr };
-	if (vkCreatePipelineLayout(s->device, &plci, NULL, &s->layout)
+	if (s->fn.vkCreatePipelineLayout(s->device, &plci, NULL, &s->layout)
 		!= VK_SUCCESS) {
 		/* Vulkan leaves an output handle undefined on failure, and
 		 * scene_vulkan_on_gpu_lost() runs next: it is gated on s->device, so
@@ -364,13 +371,13 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 		return;
 	}
 
-	VkShaderModule sv = make_module(s->device, scene_vert_spv,
+	VkShaderModule sv = make_module(&s->fn, s->device, scene_vert_spv,
 									sizeof scene_vert_spv);
-	VkShaderModule sf = make_module(s->device, scene_frag_spv,
+	VkShaderModule sf = make_module(&s->fn, s->device, scene_frag_spv,
 									sizeof scene_frag_spv);
-	VkShaderModule tv = make_module(s->device, star_vert_spv,
+	VkShaderModule tv = make_module(&s->fn, s->device, star_vert_spv,
 									sizeof star_vert_spv);
-	VkShaderModule tf = make_module(s->device, star_frag_spv,
+	VkShaderModule tf = make_module(&s->fn, s->device, star_frag_spv,
 									sizeof star_frag_spv);
 
 	for (int i = 0; i < FNL_TARGET_COUNT; i++) {
@@ -383,14 +390,14 @@ void scene_vulkan_on_gpu_created(void *ud, FnlApp *app)
 		 * anyway; there is no accessor for it. */
 		if (i == FNL_TARGET_DIRECT)
 			s->srgb = format_is_linear(layout.color_format);
-		s->pattern[i] = make_pipeline(&gpu, &layout, s->layout, sv, sf);
-		s->star[i]    = make_pipeline(&gpu, &layout, s->layout, tv, tf);
+		s->pattern[i] = make_pipeline(&s->fn, &gpu, &layout, s->layout, sv, sf);
+		s->star[i]    = make_pipeline(&s->fn, &gpu, &layout, s->layout, tv, tf);
 	}
 
-	vkDestroyShaderModule(s->device, sv, NULL);
-	vkDestroyShaderModule(s->device, sf, NULL);
-	vkDestroyShaderModule(s->device, tv, NULL);
-	vkDestroyShaderModule(s->device, tf, NULL);
+	s->fn.vkDestroyShaderModule(s->device, sv, NULL);
+	s->fn.vkDestroyShaderModule(s->device, sf, NULL);
+	s->fn.vkDestroyShaderModule(s->device, tv, NULL);
+	s->fn.vkDestroyShaderModule(s->device, tf, NULL);
 }
 
 void scene_vulkan_on_gpu_lost(void *ud, FnlApp *app)
@@ -436,21 +443,21 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 		.content = view.content,
 		.colour = { f->color.sdr_scale, f->color.peak, 0.0f, 0.0f },
 	};
-	vkCmdPushConstants(cb, s->layout,
-					   VK_SHADER_STAGE_VERTEX_BIT |
-					   VK_SHADER_STAGE_FRAGMENT_BIT,
-					   0, sizeof pc, &pc);
+	s->fn.vkCmdPushConstants(cb, s->layout,
+							 VK_SHADER_STAGE_VERTEX_BIT |
+							 VK_SHADER_STAGE_FRAGMENT_BIT,
+							 0, sizeof pc, &pc);
 
-	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-					  s->pattern[f->target]);
-	vkCmdDraw(cb, 3, 1, 0, 0);
+	s->fn.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+							s->pattern[f->target]);
+	s->fn.vkCmdDraw(cb, 3, 1, 0, 0);
 
 	/* The other scene is one picture and has no star; the star's wedges are
 	 * the pattern's alone. */
 	if (view.content == 0u) {
-		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						  s->star[f->target]);
-		vkCmdDraw(cb, STAR_VERTICES, 1, 0, 0);
+		s->fn.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+								s->star[f->target]);
+		s->fn.vkCmdDraw(cb, STAR_VERTICES, 1, 0, 0);
 	}
 }
 
@@ -459,17 +466,18 @@ void scene_vulkan_on_record(void *ud, FnlApp *app, const FnlFrame *f)
 /* Whether the device lists the extension `name`, the list read whole at the
  * count it reports: a driver lists over two hundred, and one cut at a fixed
  * length would lose the ones that fell past it. */
-static bool device_lists(VkPhysicalDevice pd, const char *name)
+static bool device_lists(const SceneFns *fn, VkPhysicalDevice pd,
+						 const char *name)
 {
 	uint32_t n = 0;
-	if (vkEnumerateDeviceExtensionProperties(pd, NULL, &n, NULL) != VK_SUCCESS
-			|| n == 0)
+	if (fn->vkEnumerateDeviceExtensionProperties(pd, NULL, &n, NULL) !=
+			VK_SUCCESS || n == 0)
 		return false;
 	VkExtensionProperties *ext = calloc(n, sizeof *ext);
 	if (!ext)
 		return false;
 	bool has = false;
-	if (vkEnumerateDeviceExtensionProperties(pd, NULL, &n, ext) >= 0)
+	if (fn->vkEnumerateDeviceExtensionProperties(pd, NULL, &n, ext) >= 0)
 		for (uint32_t i = 0; i < n && !has; i++)
 			has = strcmp(ext[i].extensionName, name) == 0;
 	free(ext);
@@ -485,25 +493,24 @@ static bool device_lists(VkPhysicalDevice pd, const char *name)
 bool scene_vulkan_vram(FnlApp *app, double *mib)
 {
 	FnlVulkanGpu g;
-	if (!fnl_vulkan_gpu(app, &g) || !g_loaded)
+	Scene *s = scene_slot(app);
+	if (!fnl_vulkan_gpu(app, &g) || !s || !s->loaded)
 		return false;
 	/* The device's answer is kept, keyed on the instance as well: a
 	 * window opened after another's closed makes a new instance, whose
 	 * handles may repeat the old one's values. The entry point is asked
 	 * for every time, which is cheap, so none outlives its instance. */
-	static VkPhysicalDevice asked;
-	static VkInstance asked_in;
-	static bool budget;
-	if (g.physical_device != asked || g.instance != asked_in) {
-		asked = g.physical_device;
-		asked_in = g.instance;
-		budget = device_lists(asked, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+	if (g.physical_device != s->asked || g.instance != s->asked_in) {
+		s->asked    = g.physical_device;
+		s->asked_in = g.instance;
+		s->budget   = device_lists(&s->fn, s->asked,
+								   VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 	}
 	const PFN_vkGetPhysicalDeviceMemoryProperties2KHR get =
 		(PFN_vkGetPhysicalDeviceMemoryProperties2KHR)
 		g.get_instance_proc_addr(g.instance,
 								 "vkGetPhysicalDeviceMemoryProperties2KHR");
-	if (!budget || !get)
+	if (!s->budget || !get)
 		return false;
 	VkPhysicalDeviceMemoryBudgetPropertiesEXT b = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
@@ -533,7 +540,8 @@ bool scene_vulkan_driver(FnlApp *app, TestbedDriver *d)
 {
 	memset(d, 0, sizeof *d);
 	FnlVulkanGpu g;
-	if (!fnl_vulkan_gpu(app, &g) || !g_loaded)
+	const Scene *s = scene_slot(app);
+	if (!fnl_vulkan_gpu(app, &g) || !s || !s->loaded)
 		return false;
 	PFN_vkGetPhysicalDeviceProperties props =
 		(PFN_vkGetPhysicalDeviceProperties)g.get_instance_proc_addr(
@@ -552,7 +560,7 @@ bool scene_vulkan_driver(FnlApp *app, TestbedDriver *d)
 			 VK_API_VERSION_MINOR(p.apiVersion),
 			 VK_API_VERSION_PATCH(p.apiVersion));
 
-	if (props2 && device_lists(g.physical_device,
+	if (props2 && device_lists(&s->fn, g.physical_device,
 							   VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME)) {
 		VkPhysicalDeviceDriverPropertiesKHR dp = {
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR,

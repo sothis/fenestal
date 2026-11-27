@@ -1359,10 +1359,9 @@ typedef enum {
 } FnlGpuKind;
 
 /* How many GPUs the list has, and which is in use: -1 with no window or no
- * device yet. A second window drawn on the host's device (Vulkan) lists no
- * entry of that renderer until a device rebuild of its own -- the GPU is the
- * host's, and a move refused while both are open -- so the GPU in use is not
- * one of its list's entries until then. */
+ * device yet. A second window drawn on the host's device (Vulkan) lists the
+ * same GPUs as the first -- the GPU is the host's, and a move is refused while
+ * both are open. */
 FNL_API int fnl_gpu_count(const FnlApp *app);   /* [any] */
 FNL_API int fnl_gpu_current(const FnlApp *app); /* [any] */
 /* An entry's name, as fnl_gpu_name() gives the one in use, and "" past the
@@ -2520,8 +2519,9 @@ FNL_API void fnl_set_text_rect_pt(FnlApp *app, int x, int y, int w,
  * program holding the text is given a few seconds to hand it over, and one
  * that does not -- or that sends more than 64 MiB, or stops halfway -- is
  * answered for with an empty clipboard rather than with part of one. The
- * event travels in the queue like any other, so after FNL_EVENT_LOST ask
- * again if an answer was owed.
+ * event travels in the queue like any other, but one dropped in an overflow
+ * is not lost with the rest: it is delivered after FNL_EVENT_LOST, once the
+ * queue has been drained.
  *
  * Both act on the pump's next turn, like the other knobs that reach the
  * window server. Call them in answer to a key press: Wayland lets a client

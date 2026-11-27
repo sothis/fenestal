@@ -276,7 +276,11 @@ FnlResult d3d_window_images(App *a)
 	const Extent have = { g->buf_w, g->buf_h };
 	Extent e;
 	const Extent b     = d3d_window_buffer(a, &e);
-	const bool resized = !g->back[0] || !app_buffer_room_fits(a, e, have);
+	/* A policy change that moved the flags (a live fnl_set_vsync()) is a
+	 * same-size ResizeBuffers, the one route DXGI has for them. */
+	const UINT flags   = d3d_swapchain_flags(a);
+	const bool resized = !g->back[0] || !app_buffer_room_fits(a, e, have) ||
+						 flags != g->sc_flags;
 	/* A swapchain born at this size is not resized to it again: on Intel's
 	 * driver that is 18 ms at every open. Only the first look at it counts,
 	 * and not the Direct3D 11 bridge's, whose buffers are its own. */
@@ -292,7 +296,7 @@ FnlResult d3d_window_images(App *a)
 		const HRESULT hr = born ? S_OK
 								: IDXGISwapChain3_ResizeBuffers(
 									  g->swapchain, D3D_BUFFERS, (UINT)b.w,
-									  (UINT)b.h, g->back_format, g->sc_flags);
+									  (UINT)b.h, g->back_format, flags);
 		if (FAILED(hr)) {
 			if (d3d_hr_lost(a, hr))
 				return fnl_fail(FNL_ERR_DEVICE_LOST, "the device was lost "
@@ -303,6 +307,7 @@ FnlResult d3d_window_images(App *a)
 				a->device_lost = true;
 			return d3d_fail(FNL_ERR_SYSTEM, "ResizeBuffers", hr);
 		}
+		g->sc_flags = flags;
 		/* All of them or none: a rebuild that stopped halfway would leave
 		 * back[0] and the new size in place, the next one would see
 		 * nothing to do, and a frame would clear a depth that is not

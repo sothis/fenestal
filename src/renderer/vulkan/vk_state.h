@@ -72,6 +72,12 @@ struct VkHost {
 	VkDevice         device;
 	VkQueue          queue;
 	char             gpu_name[GPU_NAME_MAX];
+	/* The list the pick drew up (RendererState::pick_list), kept for the
+	 * windows that attach: each lists the same GPUs, so the one left after
+	 * the window that chose closes can move to another of them. */
+	GpuEntry         pick_list[GPU_LIST_MAX];
+	int              pick_n, pick_cur;
+	bool             pick_publish;
 	uint32_t         msaa_samples;
 	/* Whether the device was made with VK_KHR/EXT_swapchain_maintenance1 and
 	 * its feature. The device's, not a window's: one window's refused scale

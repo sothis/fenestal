@@ -165,8 +165,9 @@ static bool colour_probe(App *a, IDXGIOutput **out, float *scale, float *peak)
  * rather than wait; with vsync on the flag costs a refresh on aspire's GTX
  * 960M, 53 ms from latch to screen against 36 without it (schenker's 1050 Ti,
  * behind the Intel panel, 53 either way). DXGI fixes the flag when the
- * swapchain is made, which is enough: vsync is the window's for its life
- * (fnl_init()). */
+ * swapchain is made; a live fnl_set_vsync() moves it with a same-size
+ * ResizeBuffers (d3d_window_images()), as the Vulkan renderer's DXGI bridge
+ * does. */
 static FnlResult swapchain_create(App *a)
 {
 	struct RendererState *g = D3D(a);
@@ -223,12 +224,19 @@ static FnlResult swapchain_create(App *a)
 	return FNL_OK;
 }
 
+/* The flags the policy asks for now, recomputed at every rebuild since
+ * fnl_set_vsync() is live. */
+UINT d3d_swapchain_flags(const App *a)
+{
+	const bool tear = D3D(a)->tearing && !fnl_atomic_load_bool(&a->vsync);
+	return DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
+		   (tear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+}
+
 FnlResult d3d_bridge_swapchain(App *a, bool recolour)
 {
 	struct RendererState *g = D3D(a);
-	const bool tear = g->tearing && !fnl_atomic_load_bool(&a->vsync);
-	g->sc_flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
-				  (tear ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+	g->sc_flags             = d3d_swapchain_flags(a);
 
 	IDXGIOutput *out = NULL;
 	if (recolour) {

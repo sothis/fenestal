@@ -131,6 +131,7 @@
 	X(vkGetQueryPoolResults)                                                  \
 	X(vkGetSwapchainImagesKHR)                                                \
 	X(vkMapMemory)                                                            \
+	X(vkMergePipelineCaches)                                                  \
 	X(vkQueuePresentKHR)                                                      \
 	X(vkQueueSubmit)                                                          \
 	X(vkQueueWaitIdle)                                                        \
@@ -250,6 +251,7 @@ VK_INSTANCE_FNS(X_DECLARE)
 #define vkGetQueryPoolResults (*fnl_vkGetQueryPoolResults)
 #define vkGetSwapchainImagesKHR (*fnl_vkGetSwapchainImagesKHR)
 #define vkMapMemory (*fnl_vkMapMemory)
+#define vkMergePipelineCaches (*fnl_vkMergePipelineCaches)
 #define vkQueuePresentKHR (*fnl_vkQueuePresentKHR)
 #define vkQueueSubmit (*fnl_vkQueueSubmit)
 #define vkQueueWaitIdle (*fnl_vkQueueWaitIdle)

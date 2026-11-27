@@ -237,8 +237,11 @@ static bool scene_pass(App *a, const FnlDrawState *ds,
 				  g->taau_hist[a->frame ^ 1u], g->scene.depth, &pc);
 		[enc endEncoding];
 
-		g->taau_hist_ok[a->frame] = true;
-		g->taau_present           = a->presents;
+		/* The other slot's image is the older frame's: a turn that fails before
+		 * its resolve must not leave it to be read as the one before. */
+		g->taau_hist_ok[a->frame]      = true;
+		g->taau_hist_ok[a->frame ^ 1u] = false;
+		g->taau_present                = a->presents;
 	}
 	return true;
 }

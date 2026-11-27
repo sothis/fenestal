@@ -4305,6 +4305,25 @@ per window. `pace.py` and `bench.py` measure a program, one window at a time,
 and stay that way. The ABI baseline gains the new functions and
 `FnlWindowDesc` like any other change; nothing existing moves.
 
+**What a second window leaves as it is, and why.** Two limits are kept, each
+a cost of the shape above and not a fault in it:
+
+- *KMS's copy path is one-way.* The display is one window's at a time, so a
+  second window takes both onto the copy path (`acquire_display()`); closing
+  it leaves the survivor there. It draws correctly, one copy and a page flip
+  a frame behind the display path, and taking the display back means a
+  surface and swapchain rebuild on a window that is not asking for one, with
+  the driver's one-acquire-a-descriptor hazard on the other side of it. A
+  program that wants the display path opens one window.
+- *Win32's size hold is the window thread's.* `size_await()` waits inside
+  `WM_SIZE` for the frame drawn at that size, and every window's messages are
+  the one thread's, so a border drag on one window holds the others' input
+  until its frame is shown -- a frame or two normally, `SIZE_AWAIT_MS` at
+  most, and once only until a frame has answered a size again (`size_live`).
+  A thread a window would take the hold off the others but gives the raw
+  input, the clip and the show count back to the process's one queue, which
+  the shared pump exists to avoid.
+
 ## The frame
 
 ### Frame pacing and the off-screen skip

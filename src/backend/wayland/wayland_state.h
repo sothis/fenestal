@@ -99,12 +99,19 @@ struct BackendHostState {
 	App *ptr_window;
 	struct wl_pointer *pointer;
 	/* The pointer frame's axis source (wl_pointer.axis_source), -1 where
-	 * the frame named none, and whether a wheel has ever come with
-	 * axis_discrete: a hi-res wheel at seat v5 sends a smooth axis for each
-	 * part of a notch and the discrete count once the notch is whole, and
-	 * the parts must not be counted beside it. Pump thread. */
+	 * the frame named none. A wheel's notch is told twice at seat v5 -- a
+	 * smooth axis value, and the whole-notch count of axis_discrete -- and
+	 * a hi-res wheel sends the smooth parts before the count, so each is
+	 * delivered as it comes and the count is delivered less what the
+	 * parts already gave: `wheel_credit` is that, in notches, per axis
+	 * (vertical, horizontal), stamped `wheel_credit_t` and let go of when
+	 * no count follows within WHEEL_CREDIT_S (a smooth-only wheel).
+	 * `axis_twin` is set by a count for the rest of its frame, whose axis
+	 * event is that count's own. Pump thread. */
 	int axis_source;
-	bool wheel_discrete_seen;
+	double wheel_credit[2];
+	double wheel_credit_t[2];
+	bool axis_twin[2];
 	/* A cursor may only be set with the serial of an enter still in force:
 	 * `pointer_serial`, while `pointer_inside`. */
 	bool pointer_inside;
@@ -305,11 +312,6 @@ struct BackendState {
 	uint32_t button_serial;
 	uint32_t left_serial;
 	bool left_held;
-	/* A wheel's whole notches on each axis (vertical, horizontal), from
-	 * wl_pointer.axis_discrete, which arrives just before the axis event it
-	 * describes; zero for a smooth source, whose value is scaled instead. */
-	int32_t axis_discrete[2];
-
 	/* Set once server-side decorations have been complained about. */
 	bool deco_ssd_warned;
 

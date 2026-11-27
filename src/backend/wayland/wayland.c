@@ -642,12 +642,16 @@ static void kb_leave(void *data, struct wl_keyboard *kb, uint32_t serial,
 		a = hs ? hs->kb_window : NULL;
 	if (!a)
 		return;
+	/* A leave for a window that is not the one holding the keyboard has
+	 * been answered by the enter that took it (kb_enter()); acting on it
+	 * would drop the other window's focus and its repeat. */
+	if (hs->kb_window && hs->kb_window != a)
+		return;
 	kb_drop_held(a);
 
 	/* After the drop, for kb_enter()'s reason. */
 	hs->kb_focused = false;
-	if (hs->kb_window == a)
-		hs->kb_window = NULL;
+	hs->kb_window  = NULL;
 	app_post_focus(a, false);
 	ti_apply(hs);
 }
@@ -1128,12 +1132,15 @@ static void ptr_button(void *data, struct wl_pointer *wp, uint32_t serial,
 	app_pointer_button(a, b, pressed, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y),
 					   time);
 }
-/* In notches, as fenestal.h gives and the other backends deliver: a
- * wheel's count from axis_discrete where one came with this event, and a
- * smooth source's travel divided by WL_AXIS_PER_NOTCH otherwise -- the scale
- * wl_pointer's axis values are on, ten to a wheel's step on the compositors
- * that send both, and what GTK divides by. */
+/* In notches, as fenestal.h gives and the other backends deliver: a smooth
+ * axis's travel divided by WL_AXIS_PER_NOTCH -- the scale wl_pointer's axis
+ * values are on, ten to a wheel's step on the compositors that send both, and
+ * what GTK divides by -- and a wheel's count from axis_discrete less what its
+ * smooth parts have already delivered (ptr_axis_discrete()). */
 #define WL_AXIS_PER_NOTCH 10.0
+/* How long a wheel's smooth parts wait for their count: past it they were a
+ * smooth-only wheel's, and a count that comes later is a notch of its own. */
+#define WHEEL_CREDIT_S 0.25
 
 static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t ax,
 					 wl_fixed_t v)
@@ -1143,17 +1150,20 @@ static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t ax,
 	App *a                      = hs ? hs->ptr_window : NULL;
 	if (!a)
 		return;
-	struct BackendState *w      = a->backend_state;
 	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
 	loop_input_ms(a, t);
-	if (!w->axis_discrete[i] && hs->wheel_discrete_seen &&
-		hs->axis_source == WL_POINTER_AXIS_SOURCE_WHEEL)
-		return; /* a part of a notch whose discrete count is still to come */
-	const double notches = w->axis_discrete[i]
-							   ? (double)w->axis_discrete[i]
-							   : wl_fixed_to_double(v) / WL_AXIS_PER_NOTCH;
-	w->axis_discrete[i] = 0;
-
+	if (hs->axis_twin[i])
+		return; /* the count in this frame is this event's, already given */
+	const double notches = wl_fixed_to_double(v) / WL_AXIS_PER_NOTCH;
+	if (hs->axis_source == WL_POINTER_AXIS_SOURCE_WHEEL) {
+		/* A fresh run of parts starts the credit afresh, so one that was
+		 * never claimed cannot swallow a later notch's count. */
+		const double now = now_seconds();
+		if (now - hs->wheel_credit_t[i] > WHEEL_CREDIT_S)
+			hs->wheel_credit[i] = 0.0;
+		hs->wheel_credit[i] += notches;
+		hs->wheel_credit_t[i] = now;
+	}
 	app_pointer_scroll(a, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y),
 					   i ? notches : 0.0, i ? 0.0 : notches);
 }
@@ -1161,8 +1171,10 @@ static void ptr_frame(void *d, struct wl_pointer *p)
 {
 	(void)p;
 	struct BackendHostState *hs = hs_of(d);
-	if (hs)
-		hs->axis_source = -1;
+	if (hs) {
+		hs->axis_source  = -1;
+		hs->axis_twin[0] = hs->axis_twin[1] = false;
+	}
 }
 static void ptr_axis_source(void *d, struct wl_pointer *p, uint32_t s)
 {
@@ -1186,9 +1198,19 @@ static void ptr_axis_discrete(void *d, struct wl_pointer *p, uint32_t ax,
 	App *a                      = hs ? hs->ptr_window : NULL;
 	if (!a)
 		return;
-	const int i = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
-	a->backend_state->axis_discrete[i] = v;
-	hs->wheel_discrete_seen            = true;
+	const int i      = ax == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? 1 : 0;
+	const double now = now_seconds();
+	/* What the notch's smooth parts gave, if they came just before. */
+	const double given =
+		now - hs->wheel_credit_t[i] <= WHEEL_CREDIT_S ? hs->wheel_credit[i]
+													  : 0.0;
+	hs->wheel_credit[i] = 0.0;
+	hs->axis_twin[i]    = true;
+	const double notches = (double)v - given;
+	if (notches > -1e-6 && notches < 1e-6)
+		return; /* the parts made the notch, to rounding */
+	app_pointer_scroll(a, win_pt(a, a->ptr_x), win_pt(a, a->ptr_y),
+					   i ? notches : 0.0, i ? 0.0 : notches);
 }
 static const struct wl_pointer_listener pointer_listener = {
 	.enter         = ptr_enter,
@@ -3310,8 +3332,10 @@ static void wl_window_close(App *a)
 		hs->kb_window = NULL;
 		ti_apply(hs);
 	}
-	if (hs->ptr_window == a)
-		hs->ptr_window = NULL;
+	if (hs->ptr_window == a) {
+		hs->ptr_window     = NULL;
+		hs->pointer_inside = false; /* no enter is in force for a gone window */
+	}
 	/* The selection is this program's, but the string is this window's: the
 	 * source goes, and the selection ends with it. The offer that was our
 	 * selection is a proxy of this client's -- the compositor clears the

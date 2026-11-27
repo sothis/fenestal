@@ -96,31 +96,68 @@ static uint64_t blob_hash(const void *data, size_t n)
 	return h;
 }
 
-FnlResult create_pipeline_cache(App *a)
+/* The cache file's bytes, NULL where there is none or it is not to be
+ * trusted by size. */
+static void *read_cache_file(App *a, size_t *size)
 {
-	void *initial = NULL;
-	size_t initial_size = 0;
+	void *data = NULL;
 	char path[512];
-	if (pipeline_cache_path(a, path, sizeof path, false)) {
-		FILE *f = fopen(path, "rb");
-		if (f) {
-			/* fseek and not rewind back to the start: rewind cannot say that
-			 * it failed, and a read from wherever the stream was left is a
-			 * cache of the wrong bytes. */
-			long sz = fseek(f, 0, SEEK_END) == 0 ? ftell(f) : -1;
-			/* Bounded: the file is only semi-trusted, and the malloc happens
-			 * before the driver validates the header. A real cache is a few
-			 * MB. */
-			if (sz > 0 && sz <= 64l * 1024 * 1024 &&
-				fseek(f, 0, SEEK_SET) == 0) {
-				initial = malloc((size_t)sz);
-				if (initial && fread(initial, 1, (size_t)sz, f) == (size_t)sz)
-					initial_size = (size_t)sz;
-				else { free(initial); initial = NULL; }
-			}
-			fclose(f);
+	*size = 0;
+	if (!pipeline_cache_path(a, path, sizeof path, false))
+		return NULL;
+	FILE *f = fopen(path, "rb");
+	if (!f)
+		return NULL;
+	/* fseek and not rewind back to the start: rewind cannot say that it
+	 * failed, and a read from wherever the stream was left is a cache of the
+	 * wrong bytes. */
+	long sz = fseek(f, 0, SEEK_END) == 0 ? ftell(f) : -1;
+	/* Bounded: the file is only semi-trusted, and the malloc happens before
+	 * the driver validates the header. A real cache is a few MB. */
+	if (sz > 0 && sz <= 64l * 1024 * 1024 && fseek(f, 0, SEEK_SET) == 0) {
+		data = malloc((size_t)sz);
+		if (data && fread(data, 1, (size_t)sz, f) == (size_t)sz)
+			*size = (size_t)sz;
+		else {
+			free(data);
+			data = NULL;
 		}
 	}
+	fclose(f);
+	return data;
+}
+
+/* What another window or program saved since this one read the file is in the
+ * file and not in this window's cache, and this window's save replaces it:
+ * the pipelines it compiled would be taken back out. So the file as it
+ * stands is merged in first, unless it is what was read. A file the driver
+ * refuses is left out of the merge, as at startup. */
+static void merge_cache_file(App *a)
+{
+	size_t sz;
+	void *data = read_cache_file(a, &sz);
+	if (data && (sz != VK(a)->cache_loaded_size ||
+				 blob_hash(data, sz) != VK(a)->cache_loaded_hash)) {
+		const VkPipelineCacheCreateInfo ci = {
+			.sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+			.initialDataSize = sz,
+			.pInitialData    = data,
+		};
+		VkPipelineCache other = VK_NULL_HANDLE;
+		if (vkCreatePipelineCache(VK(a)->device, &ci, NULL, &other) ==
+			VK_SUCCESS) {
+			(void)vkMergePipelineCaches(VK(a)->device, VK(a)->pipeline_cache,
+										1, &other);
+			vkDestroyPipelineCache(VK(a)->device, other, NULL);
+		}
+	}
+	free(data);
+}
+
+FnlResult create_pipeline_cache(App *a)
+{
+	size_t initial_size = 0;
+	void *initial       = read_cache_file(a, &initial_size);
 	VK(a)->cache_loaded_size = initial_size;
 	VK(a)->cache_loaded_hash = blob_hash(initial, initial_size);
 
@@ -156,6 +193,7 @@ void save_pipeline_cache(App *a)
 {
 	if (VK(a)->pipeline_cache == VK_NULL_HANDLE)
 		return;
+	merge_cache_file(a);
 	size_t sz = 0;
 	if (vkGetPipelineCacheData(VK(a)->device, VK(a)->pipeline_cache, &sz,
 							   NULL) != VK_SUCCESS || sz == 0)

@@ -2599,6 +2599,10 @@ struct FnlApp {
 	FNL_ALIGNAS(64) FnlMutex ev_lock;
 	int ev_head, ev_tail;
 	unsigned ev_lost;
+	/* A clipboard answer's event was dropped with the rest of a gap: the
+	 * text is kept (clip_in), so the event is owed and delivered once the
+	 * ring is drained, after FNL_EVENT_LOST. */
+	bool ev_clip_owed;
 	FnlEvent ev_ring[EVENT_QUEUE_MAX];
 	/* Each slot's inputs as fnl_input_latency_ms() counts them: how many
 	 * the event carries -- more than one where motion coalesced, none for

@@ -266,8 +266,11 @@ static void scene_pass(App *a, const FnlDrawState *ds)
 					   D3D12_RESOURCE_STATE_DEPTH_WRITE);
 		target_to(a, &g->taau_hist[a->frame],
 				  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		g->taau_hist_ok[a->frame] = true;
-		g->taau_present           = a->presents;
+		/* The other slot's image is the older frame's: a turn that fails before
+		 * its resolve must not leave it to be read as the one before. */
+		g->taau_hist_ok[a->frame]      = true;
+		g->taau_hist_ok[a->frame ^ 1u] = false;
+		g->taau_present                = a->presents;
 	}
 }
 

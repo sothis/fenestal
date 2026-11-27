@@ -89,6 +89,7 @@ void d3d_drain_messages(App *a);
  * colour again -- the device build's, where the pipelines are built after it;
  * not the Direct3D 11 remake's, whose pipelines stay as they are. */
 FNL_MUST_USE FnlResult d3d_bridge_swapchain(App *a, bool recolour);
+UINT d3d_swapchain_flags(const App *a);
 
 /* ---- present_d3d11.c: through a Direct3D 11 swapchain ------------------- */
 /* FNL_D3D12_DXGI11: 1 always, 0 never, -1 unset, which measures. */

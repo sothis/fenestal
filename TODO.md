@@ -36,78 +36,6 @@ Each is written with its reproduction and wants the account that files it.
 
 ## Defects found by reading, not yet fixed
 
-- **Direct3D 12: a live `fnl_set_vsync()` does not remake its swapchain.**
-  The tearing flag is fixed at creation (`DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`)
-  and `d3d_window_images()` only writes the interval when the size did not
-  change, so "off" cannot tear and "on" keeps paying the flag -- where the
-  Vulkan renderer's DXGI bridge recomputes it. The titlebar's vsync checkbox
-  now makes this reachable.
-- **Direct3D 12: the Direct3D 11 bridge's back textures start in COMMON**
-  while the frame's first barrier names PRESENT as their before-state (a
-  debug-layer error, once per lifetime and per resize): track each one's
-  state as the targets' is. **And a window-depth allocation failure is raised
-  as device loss** in Direct3D 12 and Metal, which rebuilds into the same
-  allocation for ever; the scene target's own path refuses the frame instead.
-- **TAAU's history is two presents old**: the copy writes slot S's history and
-  the pass in slot S reads it on the next drawn frame, and the motion vector
-  is documented as the frame before's. Scale by the presents since the
-  history was written (a per-slot present index), or key the history to the
-  image. Shared by the three renderers; the bench cannot show it, a panning
-  picture can.
-- **Win32: the IME is not re-placed when the window moves**, so a candidate
-  list in screen coordinates stays where the window was until the next key.
-  `WM_MOVE` re-placement while a composition is up wants a composition-active
-  flag.
-- **The testbed's Vulkan scene keeps its entry points and `g_loaded` at file
-  scope**, alone among the scenes, and the VRAM/driver caches beside them: a
-  second window's `load_vulkan()` rewrites them under the first's render
-  thread (TSAN-visible under `--second-window`). Move them into the
-  per-window `Scene`.
-- **KMS: a completion given up on at a lend can be taken for the next flip's**,
-  reporting that frame with the older stamp (the renew clears the stale count
-  on purpose -- keeping it would eat a later completion for the window's
-  life). A submit token in the event's `user_data` -- a slot and a sequence
-  rather than the window's address -- would tell the two apart.
-- **Wayland, minor and latent:** `wl_window_close` leaves `hs->pointer_inside`
-  true for a second window closed under the pointer, and `kb_leave` clears
-  `kb_focused` for a surface that is not `kb_window`.
-- **Wayland: once a discrete notch has been seen, a hi-res wheel's smooth
-  parts are dropped for the rest of the process.** `ptr_axis()` returns on a
-  smooth WHEEL axis with no discrete once `wheel_discrete_seen` is set, a
-  host-wide latch never cleared. It is there on purpose -- a hi-res notch's
-  parts arrive as smooth axis events before the discrete count that repeats
-  them, and counting both would scroll twice -- but a smooth-only wheel, or a
-  compositor that stops sending `axis_discrete`, then scrolls nothing. Counting
-  in `ptr_frame()` removes the latch but not the repetition unless the smooth
-  notches already delivered are subtracted when their discrete arrives; the
-  testbed's `EV scroll` echo counted against the notches, on GNOME and weston,
-  before either rule is written down.
-- **An event overflow drops one-shot answers with the rest.** `queue_push()`'s
-  `ev_lost` gate holds every event until the consumer has drained the ring, so
-  a clipboard answer posted while the ring is full is lost, and
-  `FNL_EVENT_LOST` cannot say it was that one. Deliberate -- nothing after a
-  gap may overtake `FNL_EVENT_LOST` -- but a LOST marker pushed at the overflow
-  point with what follows queued after it keeps the order and the answer; that
-  is a change to the ring's invariant and wants a design pass.
-- **A second window's leftovers:**
-  - a second Vulkan window lists no entry of its own renderer until a rebuild
-    of its own, so after the window that chose the device closes it cannot yet
-    be moved to another GPU of the renderer drawing, nor take the ranking's
-    calibration over;
-  - a survivor moved to another renderer leaves `Host::renderer` naming the
-    first window's choice, so a window created afterwards is built on that one;
-  - a window created while the only window is moving to another GPU can be
-    built on the renderer being rebuilt, since `opening` is checked before the
-    move commits and not again -- a host-level moving flag, stored before
-    `opening` is loaded on the move's side, is the shape of the fix;
-  - KMS's copy path is one-way, so closing the second window leaves the
-    survivor on it though it could take the display again;
-  - each Vulkan window keeps its own `VkPipelineCache`, so two windows write
-    the one cache file in turn and the last save loses the other's newly
-    compiled pipelines -- one cache for the host's device, saved once, is the
-    shape of the fix;
-  - Win32's size hold is the pump thread's, so a border drag on one window
-    holds every window's input for up to `SIZE_AWAIT_MS`.
 - **Optimisations measured and not taken:** the window image's depth is drawn
   and cleared for frames that never test it; Win32's `seed_held_keys()` asks
   about 230 scancodes per focus gain; Cocoa runs `update_scale()` twice for one
@@ -124,6 +52,11 @@ Each is written with its reproduction and wants the account that files it.
 
 ## Checks that can be run here and have not been
 
+- **Wayland's wheel rule** (`ptr_axis_discrete()`: a notch's count less the
+  smooth parts already delivered, so a smooth-only wheel scrolls and a hi-res
+  one is not counted twice): the testbed's `EV scroll` echo against a hi-res
+  and a notched wheel, on GNOME and weston -- whole notches in, whole notches
+  out.
 - **TAAU, three pictures:** whether `TAAU_DEPTH_REJECT` at 0.02 earns its keep
   (the moving cube of `demos/motion` read back at two or three values against
   nought); a frame read back to confirm the cubic fetch changes no pixel at
