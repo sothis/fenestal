@@ -729,26 +729,33 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
 
 ## Linux
 
-- **The copy path's 33 ms hiccup is the late-latch controller, not the copy
-  (2026-11-27).** Four runs in ten on schenker's eDP with the GTX 1050 Ti
-  drew every frame in 16.7 ms (GPU 1.82, present 6.86, hold 9.3); the other
-  six held nothing (hold 0.00), their present was 3 ms longer (9.8 to 12.7)
-  and every frame missed the vblank (p99 33.3, 1 % low 30). The GPU's clock
-  is not it: `nvidia-smi -lgc 1500,1911` changed nothing. A fixed hold is
-  worse still -- 6 or 9 ms gave 47 to 52 fps and a GPU span of 4.9 to 5.8,
-  since a hold the copy cannot spare is a frame the copy then overruns. So
-  the self-tuned hold is right and the controller's *decision* to drop it is
-  what to look at: a turn whose device block is 4.2 ms of a 16.6 ms period
-  reads as over budget and the hold is cut to nothing, which is the state it
-  then stays in. Not changed: the controller is shared by every backend and
-  the display path's figures depend on it.
-- **A second lit output costs an open 200 ms.** With schenker's HDMI monitor
-  on as well as eDP, a KMS open was 343 to 358 ms warm (init 334 to 348) and
-  the exit 152 to 164; with the HDMI output off, 126 to 150 warm and 83 to
-  143 exit. The window's own output is all it draws on, so the other output's
-  mode is set and restored for nothing. Not changed: which outputs a KMS
-  window lights is a policy question (DESIGN *KMS: no window server*), and
-  the harness's own rounds put every output on.
+- **The copy path's 33 ms hiccup: not the controller, not the copy, not the
+  clock (2026-11-27).** Three or four runs in ten on schenker's eDP with the
+  GTX 1050 Ti miss every vblank (p99 33.3, 1 % low 30); the rest draw every
+  frame in 16.7. What it is *not*, each measured: the GPU's clock
+  (`nvidia-smi -lgc 1500,1911` changed nothing, and no slowdown counter is
+  active); the ranking (3 of 8 bad with `FNL_GPU_RANK=off`); a fixed hold
+  (6 or 9 ms gave 47 to 52 fps, GPU 4.9 to 5.8 -- worse); the controller's
+  decision (`X_LATELOG` traces of four runs, all healthy: hold climbing 6.7
+  to 8.6 ms, base 12.8, turn 12.7, 60 fps -- and `hold_ms` reads 0 in the
+  *good* runs too, so that field is not the hold); and the copy's
+  serialisation (a one-frame-deep pipelined copy, GPU N+1 while the CPU
+  copies N, changed nothing: 3 of 6 bad). What the bad runs have in common
+  is the *whole run's* GPU time -- 1.82 ms against 2.9 to 3.7 -- with the
+  same scene, the same window and the same CPU, which points at the driver
+  or the machine rather than at this tree. Left open: it wants a trace of
+  the bad run itself (`X_LATELOG` under the harness, which needs the
+  instrument kept), or a comparison against another program on that GPU.
+- **A second lit output costs an open 200 ms, and it is the open, not the
+  exit.** With schenker's HDMI monitor on as well as eDP, a KMS open was
+  343 to 368 ms warm (init 334 to 359) and the exit 132 to 164; with the HDMI
+  output off, 126 to 150 warm and 83 to 153 exit. Skipping the restore of a
+  CRTC the window never lit changed the exit not at all (348 to 343 warm,
+  158 to 145), so the cost is in the open: `open_output()` reads every
+  connector and `crtcs_save()` every lit CRTC, and the window then sets its
+  own mode. Not changed: which outputs a KMS window lights is a policy
+  question (DESIGN *KMS: no window server*), and the harness's rounds put
+  every output on.
 - **The display path's latch is neutral, measured three ways** (eDP, the
   harness's hands): auto 23.1 ms read-to-shown, late latching off 22.8, a
   fixed 4 ms hold 23.0. The 20.5 ms latch-to-shown is where the latch sits,

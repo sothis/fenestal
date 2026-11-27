@@ -36,7 +36,6 @@
 #include "backend/evdev_keys.h"
 #include "backend/kms/kms_atomic.h"
 #include "backend/kms/kms_driver.h"
-#include "backend/evdev_input.h"
 #include "backend/loop.h"
 
 #include <dirent.h>
