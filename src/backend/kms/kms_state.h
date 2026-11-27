@@ -274,6 +274,11 @@ struct BackendHostState {
 
 	KmsInput     inputs[KMS_MAX_INPUTS];
 	int          input_count;
+	/* The next of them to close at the host's close, shared by the threads
+	 * that close them side by side (inputs_close()): the kernel's release of
+	 * a device is a probe of its own, and they were 44 to 48 ms in series
+	 * for this laptop's twelve. */
+	FnlAtomicU32 close_next;
 
 	/* The layout, and the keys down by evdev code: the modifiers are worked
 	 * out from these, since nobody sends them. KEY_MAX is 0x2ff. One
@@ -395,6 +400,7 @@ struct BackendState {
 	FnlMutex     mv_lock;
 	FnlCond      mv_work, mv_idle;
 	bool         mv_inited, mv_started, mv_has, mv_busy, mv_quit;
+	bool         cursor_move_refused;
 	uint32_t     mv_crtc, mv_fb, mv_w, mv_h;
 	int          mv_x, mv_y;
 	FnlAtomicBool mv_failed;

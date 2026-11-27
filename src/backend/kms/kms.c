@@ -568,6 +568,17 @@ static void crtcs_save(struct BackendHostState *hs, int fd)
  * own restore at the last close then finds it done. The CRTC the window is
  * on is turned off instead where the open found it dark, or where the
  * console will not come back on it, and that restore lights it. */
+/* Whether the console's own state for `crtc` is a framebuffer and a mode the
+ * windows close will put back: the plane can then be left as it stands. */
+static bool crtc_restorable(const struct BackendState *p, uint32_t crtc)
+{
+	const struct BackendHostState *hs = p->host;
+	for (int i = 0; i < hs->saved_count; i++)
+		if (hs->saved[i].crtc_id == crtc)
+			return hs->saved[i].fb_id != 0 && hs->saved[i].mode_valid;
+	return false;
+}
+
 static void crtcs_restore(struct BackendState *p)
 {
 	struct BackendHostState *hs = p->host;
@@ -1236,8 +1247,42 @@ static void cursor_show(App *a, KmsGlyph g)
 		return;
 	}
 
-	/* The display path's move of a shape already on the plane goes to the
-	 * thread. */
+	/* A move of a shape already on the plane, on the display path: the legacy
+	 * ioctl, MOVE alone. The atomic commit below is synchronous there, and a
+	 * synchronous commit waits for the CRTC's flip: the place the kernel is
+	 * given is the one the pointer had at a vblank, up to a frame and a half
+	 * old under steady motion, and it holds the CRTC's modeset lock while it
+	 * waits, so Mesa's own NONBLOCK flip waits behind it. MOVE alone is the
+	 * legacy cursor's fast path -- i915's `intel_legacy_cursor_update()`
+	 * writes the plane under vblank evasion with no commit at all -- and the
+	 * core completes its flip_done at once, which is what
+	 * kms_atomic_cursor_set() cannot do while it waits for a vblank
+	 * (07807f3: a commit of ours left pending is Mesa's flip refused, and a
+	 * lost surface). Measured on schenker's eDP: the pointer's motion is
+	 * 8.2 ms old, mean, against 16.7. A driver that refuses it says so once
+	 * and the synchronous commit answers the moves, as it did before. */
+	if (wait && g != KMS_GLYPH_NONE && g == p->glyph_shown &&
+		crtc == p->cursor_on && !p->cursor_move_refused) {
+		struct drm_mode_cursor mv = {
+			.flags   = DRM_MODE_CURSOR_MOVE,
+			.crtc_id = crtc,
+			.x       = px - GLYPHS[g].hot_x,
+			.y       = py - GLYPHS[g].hot_y,
+		};
+		if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_CURSOR, &mv) == 0) {
+			p->cursor_at_x = px;
+			p->cursor_at_y = py;
+			return;
+		}
+		p->cursor_move_refused = true;
+		fnl_log(FNL_LOG_INFO,
+				"KMS: the cursor would not move by the legacy ioctl (%s); "
+				"its moves are atomic commits",
+				strerror(errno));
+	}
+	/* A move the legacy ioctl would not take goes to the thread, where the
+	 * copy path's moves go: it sends the newest place, and its commit is the
+	 * synchronous one the display path needs. */
 	if (wait && g != KMS_GLYPH_NONE && g == p->glyph_shown &&
 		crtc == p->cursor_on && p->glyph_fb[g] && cursor_atomic(p, crtc) &&
 		cursor_move_post(p, crtc, g, px - GLYPHS[g].hot_x,
@@ -1908,6 +1953,50 @@ static bool input_open_already(const struct BackendState *p, const char *node)
 	return false;
 }
 
+/* Whether the node can be anything device_kind() names, asked of the kernel's
+ * own record of it before the device is opened. A device that reports none of
+ * EV_KEY, EV_REL and EV_ABS is no keyboard, mouse, pad or tablet, and
+ * device_kind() would close it unreadened -- but opening it has already cost
+ * the driver's probe: the sound card's jack nodes are 4 to 8 ms each to open
+ * and to close, ten of them on schenker, some 90 ms of a window's open and of
+ * its exit (`open.c`). /sys/class/input/<node>/device/capabilities/ev is the
+ * same bit set EVIOCGBIT(0) answers, as hex words most significant first, so
+ * only the last word's low bits are asked for. True where it cannot be read:
+ * a node the kernel keeps no attributes for is opened as it was. */
+static bool input_possible(const char *node)
+{
+	char path[96];
+	snprintf(path, sizeof path, "/sys/class/input/%s/device/capabilities/ev",
+			 node);
+	FILE *f = fopen(path, "r");
+	if (!f)
+		return true;
+	char line[96] = "";
+	const bool got = fgets(line, sizeof line, f) != NULL;
+	fclose(f);
+	if (!got)
+		return true;
+	/* The last word holds the bits below 64, where EV_KEY, EV_REL and
+	 * EV_ABS are. */
+	const char *end = line + strlen(line);
+	while (end > line && (end[-1] == '\n' || end[-1] == ' ' || end[-1] == '\t'))
+		end--;
+	const char *word = end;
+	while (word > line && word[-1] != ' ' && word[-1] != '\t')
+		word--;
+	char buf[24];
+	const size_t n = (size_t)(end - word);
+	if (n == 0 || n >= sizeof buf)
+		return true;
+	memcpy(buf, word, n);
+	buf[n] = '\0';
+	char *stop = NULL;
+	const unsigned long bits = strtoul(buf, &stop, 16);
+	if (stop == buf)
+		return true;
+	return (bits & 0xeul) != 0;
+}
+
 /* A node of /dev/input, read if it is something this backend reads. Quiet on
  * failure: most nodes are not, and a new one is often not yet ours to open
  * until udev has set its group, which inotify reports as a second event. */
@@ -1915,7 +2004,8 @@ static void input_add(App *a, const char *node)
 {
 	struct BackendState *p = a->backend_state;
 	struct BackendHostState *hs = p->host;
-	if (strncmp(node, "event", 5) != 0 || input_open_already(p, node))
+	if (strncmp(node, "event", 5) != 0 || input_open_already(p, node) ||
+		!input_possible(node))
 		return;
 	char path[64];
 	snprintf(path, sizeof path, "/dev/input/%s", node);
@@ -1989,6 +2079,43 @@ static void input_add(App *a, const char *node)
 		 * same). */
 		keys_seed(kms_focus(a), d);
 	}
+}
+
+/* Close one of the host's devices, then the next not yet taken, until there
+ * are none: one thread of inputs_close()'s few. */
+static void *input_closer(void *arg)
+{
+	struct BackendHostState *hs = arg;
+	for (;;) {
+		const uint32_t i = fnl_atomic_add_u32(&hs->close_next, 1);
+		if (i >= (uint32_t)hs->input_count)
+			return NULL;
+		close(hs->inputs[i].fd);
+	}
+}
+
+/* Every device closed, by up to INPUT_CLOSERS threads at once. The kernel's
+ * release path is a probe of the device it lets go (a mouse's and a touchpad's
+ * are 4 to 8 ms each on schenker), so a dozen of them one after another was
+ * most of a window's exit; side by side it is the slowest one's. The pump has
+ * gone by the time this runs -- it is the thread closing them -- so no wait
+ * on them is left behind. A thread that will not start leaves the rest to
+ * this one. */
+#define INPUT_CLOSERS 3
+static void inputs_close(struct BackendHostState *hs)
+{
+	FnlThread th[INPUT_CLOSERS];
+	bool started[INPUT_CLOSERS] = { false };
+	fnl_atomic_store_u32(&hs->close_next, 0);
+	if (hs->input_count > 1) {
+		for (int i = 0; i < INPUT_CLOSERS; i++)
+			started[i] = fnl_thread_start(&th[i], input_closer, hs);
+	}
+	input_closer(hs); /* this thread's share, and all of it alone if none */
+	for (int i = 0; i < INPUT_CLOSERS; i++)
+		if (started[i])
+			fnl_thread_join(th[i]);
+	hs->input_count = 0;
 }
 
 /* A device that has gone. Its keys go with it, all of them: the held set is
@@ -3059,8 +3186,13 @@ static void kms_scan_show(App *a, int back)
 	p->scan_front = back;
 	/* A frame reached the output: a refusal from here on is a new one. */
 	p->scan_said = false;
-	if (vsync)
+	if (vsync) {
+		/* Timed into App::present_idle: of the copy path's present this is
+		 * the display's wait, and the copy before it is work (frame.c). */
+		const double t0 = now_seconds();
 		flip_wait(a, FLIP_WAIT_MS);
+		a->present_idle += now_seconds() - t0;
+	}
 }
 
 /* One row of a frame into a scanout buffer, `scan10`'s format. The frame's
@@ -3424,6 +3556,17 @@ void kms_scanout_take(App *a)
 	if (!on.crtc_id ||
 		drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETCRTC, &on) < 0 ||
 		!on.mode_valid || !on.fb_id) {
+		fnl_mutex_unlock(&p->host->crtc_lock);
+		return;
+	}
+	/* At the window's teardown this is spent for nothing: kms_window_close()
+	 * restores the console's own CRTC a moment later, and the frame taken
+	 * here would be on the screen for those milliseconds only -- 32 ms of
+	 * dumb buffers, their clearing and a blocking commit, measured. Kept
+	 * where the console had no framebuffer of its own at open (a dark
+	 * output), since the plane must then be left showing something of ours
+	 * rather than a framebuffer this program is about to remove. */
+	if (a->tearing_down && crtc_restorable(p, on.crtc_id)) {
 		fnl_mutex_unlock(&p->host->crtc_lock);
 		return;
 	}
@@ -4310,9 +4453,7 @@ static void kms_host_close(App *a)
 	/* The console is given back in kms_window_close(), the window's last
 	 * look at the card while its selection still stands; here the card and
 	 * the devices go. */
-	for (int i = 0; i < hs->input_count; i++)
-		close(hs->inputs[i].fd);
-	hs->input_count = 0;
+	inputs_close(hs);
 	kms_atomic_disable(hs->atomic);
 	hs->atomic = NULL;
 	if (hs->inotify_fd >= 0)

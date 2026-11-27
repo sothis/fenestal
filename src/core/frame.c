@@ -2423,6 +2423,7 @@ void *render_loop(void *arg)
 		 * stops before then adds no other frame's wait to `fence`. */
 		a->device_block = 0.0;
 		a->gpu_timed    = false;
+		a->present_idle = 0.0;
 		/* The frame's index is the presents before it, and it was presented
 		 * where that count moved: a submit whose present the display
 		 * refused -- out of date -- counts nothing, and is a frame drawn and

@@ -1174,6 +1174,17 @@ static void frame_present(App *a, uint32_t frame, uint32_t img,
 	a->present_calls++;
 	if (VK(a)->present_copy && (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR))
 		present_copied(a, frame, img);
+	/* What the copy path's present was: the fence wait and the copy are work
+	 * the hold cannot spend, and only the flip's wait for the vblank -- which
+	 * the backend measures into present_idle -- is the display blocking. The
+	 * rest goes to the device's block, so the late latch sizes its hold
+	 * against the display and not against its own copy. */
+	double copy_work = 0.0;
+	if (VK(a)->present_copy) {
+		const double spent = now_seconds() - t_present;
+		const double idle  = a->present_idle > 0.0 ? a->present_idle : 0.0;
+		copy_work          = spent > idle ? spent - idle : 0.0;
+	}
 	const double t_presented = now_seconds();
 	app_frame_mark(a, FRAME_MARK_PRESENTED);
 	if (a->timing)
@@ -1192,8 +1203,13 @@ static void frame_present(App *a, uint32_t frame, uint32_t img,
 		 * the driver's business (Mesa's FIFO waits in the acquire). Not on a
 		 * software device, whose present waits for the rasteriser: measured
 		 * on lavapipe, 33 ms of it that no hold made shorter. */
-		if (!VK(a)->phys_software)
-			a->present_block = acq_block + (t_presented - t_present);
+		if (!VK(a)->phys_software) {
+			const double presented = t_presented - t_present;
+			a->present_block       = acq_block +
+							   (presented > copy_work ? presented - copy_work
+													  : 0.0);
+			a->device_block += copy_work;
+		}
 	}
 	/* A configure the window server must see answered only once its frame
 	 * is shown: Mesa's X11 present hands the image to a thread of its own,

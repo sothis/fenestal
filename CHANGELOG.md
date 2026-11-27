@@ -56,6 +56,17 @@ promised: before 1.0, nothing between minor releases.
   to be and not resized to it at once; the glyph table is decoded while the
   loader is scanned; Cocoa tells the input method of a move or a resize only
   when text input is on, and works out a mouse move's point once.
+- **KMS.** A pointer move of a shape already on the cursor plane is the
+  legacy `DRM_IOCTL_MODE_CURSOR` MOVE on the display path, not a synchronous
+  atomic commit (its motion is 8 ms old, mean, against 17; the frame the
+  latch reads it for is shown 23 ms after the event against 39); every node
+  of `/dev/input` that reports none of `EV_KEY`, `EV_REL` and `EV_ABS` is
+  no longer opened and closed at each window (a warm open 230 to 129 ms, the
+  exit 166 to 100 ms); the exit closes its devices from three threads at
+  once, and skips the frame it used to put on the output a moment before
+  the console's own came back. The copy path's present no longer counts its
+  readback and copy as the display's block, so the late latch holds against
+  the display: 60.0 fps with a p99 of 16.9 ms against 58.5 and 33.
 - **`fenestal-dev open`.** What a window costs from `fnl_init()` to its
   first frame, the cold open of a process and the warm ones after it, and
   the shutdown, on every backend and renderer the tree builds.

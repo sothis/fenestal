@@ -729,18 +729,13 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
 
 ## Linux
 
-- **KMS's cursor moves on the display path are blocking atomic commits**,
-  which wait for the CRTC's flip, so the cursor updates once or twice a
-  refresh from a position sampled just after a vblank (`cursor_mover()`).
-  A move of an already-shown shape through `DRM_IOCTL_MODE_CURSOR` with
-  `DRM_MODE_CURSOR_MOVE` alone is the candidate, since the kernel completes
-  a legacy cursor update unsynced; the atomic commit stays for a shape and a
-  hide. Not made: `kms_atomic_cursor_set()`'s comment says why the commit is
-  synchronous (Mesa's flips collide with a nonblocking one), the legacy
-  ioctl on a plane set atomically is for nouveau's and NVIDIA's drivers to
-  answer, and the move has no figure on the display path to read against
-  (the 8.7 ms in DESIGN is the copy path). Wants a round on schenker's KMS
-  with `--hands`, on each kernel driver.
+- ~~**KMS's cursor moves on the display path are blocking atomic commits**~~
+  -- **done (2026-11-27)**: a move of an already-shown shape is the legacy
+  `DRM_IOCTL_MODE_CURSOR` MOVE, and the synchronous commit is the fallback
+  (DESIGN *KMS: no window server*). Verified on schenker's KMS with the
+  harness's hands on i915 and on the copy path; still owed a round on
+  nouveau and on NVIDIA's kernel driver with a window on their own output,
+  which this laptop's eDP-only console cannot open.
 - **A resting window wakes at the display rate** (`rest_wait()`): the turn
   it runs is `rank_tick`, the GPU-switch lock, two post drains and the
   state diff, where DESIGN *At rest* says a lock and a compare. A longer

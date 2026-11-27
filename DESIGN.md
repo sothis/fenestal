@@ -1607,6 +1607,47 @@ scan was started; it now follows it, so the two overlap: Linux's cold open
 is 15 to 20 ms shorter (Intel 104 to 87 ms, NVIDIA 145 to 132), the warm
 ones unchanged.
 
+**KMS opened every node of /dev/input, and closed them one at a time.** The
+window's open scans the device directory, and it opened, classified and closed
+each node -- including the sound card's jack nodes, which report `EV_SYN` and
+`EV_SND` and can be no keyboard, mouse, pad or tablet `device_kind()` names.
+Opening one loads its driver and closing one unloads it: 4 to 8 ms each on
+schenker, ten of them. The kernel's own record of a device,
+`/sys/class/input/<node>/device/capabilities/ev`, is the bit set
+`EVIOCGBIT(0)` answers, so a node reporting none of `EV_KEY`, `EV_REL` and
+`EV_ABS` is now left unopened -- a proof and not a guess, as `device_kind()`
+gave those a kind of zero anyway (a node the kernel keeps no attributes for
+is opened as before). Twenty-four nodes became twelve. The window's exit
+closed the rest one after another, and that is a probe of each device in
+turn: twelve of them from three threads at once (`inputs_close()`), which is
+the slowest one's 4 to 8 ms instead of their sum. Warm open 230 to 129 ms,
+shutdown 166 to 100 ms; the cold open 275 to 157.
+
+**The exit made a frame nobody would see.** On the display path the
+swapchain's destroy put a frame of the backend's own on the output
+(`kms_scanout_take()`), so that the plane would not be left showing a
+framebuffer about to be removed -- and `kms_window_close()` restored the
+console's own CRTC a few milliseconds later, over it. At a window's teardown
+that take-back is now skipped where the console's saved CRTC is a framebuffer
+and a mode of its own (`crtc_restorable()`), which is 32 ms of dumb buffers,
+their clearing and a blocking commit; a dark output keeps it. What is left of
+the exit is the driver's: `vkDestroySwapchainKHR` 33 ms on Mesa's display WSI,
+`vkDestroySurfaceKHR` 12, the console's restore one vblank (17), and the
+`vkDestroyInstance` that lets the loader go -- measured, not avoided.
+
+**The display path's hold is neutral, and that is worth knowing.** Its
+present does not block (Mesa's display WSI returns once the flip is issued),
+so the late-latch controller is given no slack to spend, and the frame's
+state is latched a period before it is shown. Feeding it the *shown* stamps
+instead -- publishing `app_frame_answered()` from `app_frame_shown()` and
+declaring `display_waits` -- moved the wait from the acquire to the hold and
+changed nothing end to end (read-to-shown 22.7 ms against 23.2 measured both
+ways, with late latching off as a third check at 22.7); a swapchain of 3 or 4
+images instead of 2 was ignored by Mesa and changed nothing either. So the
+display path keeps its latch where it is, and the extra period it shows in
+`latch-to-shown` is the definition of where its latch sits, not latency an
+input event waits for.
+
 **Not a bottleneck, measured.** A frame in steady state is at its floor: the
 desk's is 0.12 ms of CPU a frame with 0.04 in the library's own record, and
 a profile of it is RADV. Intel's HD 630 draws the library alone (no scene,
@@ -4833,6 +4874,19 @@ is the driver's business. It is the renderer's measurement rather than something
 the loop could time from outside `draw_frame()`, and that is the whole reason it
 is a field on the contract. A renderer that cannot measure it leaves the
 sentinel negative, and late latching degrades to inert there.
+
+**A present that does its work on this thread is not all block.** KMS's copy
+path presents inside `vkQueuePresentKHR`'s place: the device's fence is waited
+out, the frame is read back and swizzled into the scanout buffer by the CPU,
+and only the flip's wait for the vblank is the display's. Counted whole, that
+span read as spare time the hold could spend, so the hold always aimed at
+0.75 of the period and the draw work after it pushed the frame past the
+vblank every few seconds -- 58.5 to 59.2 fps with a p99 of 33 ms against the
+display path's 60.0 and 16.8. The backend now measures the flip's wait into
+`App::present_idle` (`kms_scan_show()`), the renderer takes the rest as the
+device's block (`frame.c`), and the sums the controller uses still come to
+the period. On schenker's eDP, NVIDIA drawing and copying onto it: 60.0 fps,
+p99 16.9, the latch 9.9 ms before the frame was shown, against 13.8 before.
 
 The measured controller ignores `LATE_SLACK_SETTLE` frames after a swapchain
 rebuild. A new swapchain has no presentation history, so it is not only the
@@ -9419,6 +9473,26 @@ emptied by a commit of its own when the shape is hidden or the window leaves
 the output. A CRTC with no cursor plane, or a commit the kernel refuses, is
 the legacy `DRM_IOCTL_MODE_CURSOR`'s for that window's life
 (`cursor_legacy`), one log line saying so.
+
+**A move is the legacy ioctl's (2026-11-27).** On the display path the
+commit is made synchronous, so that none of ours is left pending for Mesa's
+NONBLOCK page flip to be refused on (07807f3, below) — and a synchronous
+commit waits for the CRTC's flip. A move of a shape already on the plane
+was therefore shown at the place the pointer had at a vblank, up to a frame
+and a half old under steady motion, and the commit held the CRTC's modeset
+lock while it waited, with every other commit of the card behind it. A move
+of an unchanged shape now goes as `DRM_IOCTL_MODE_CURSOR` with
+`DRM_MODE_CURSOR_MOVE` alone. It is the legacy cursor's fast path -- i915's
+`intel_legacy_cursor_update()` writes the plane under vblank evasion and
+makes no commit at all -- and the core completes its `flip_done` at once
+(`legacy_cursor_update`), which is exactly what a NONBLOCK atomic commit
+cannot do and why one was not the answer. Measured on schenker's eDP, the
+harness's hands circling the window: the pointer's motion 8.2 ms old, mean,
+against 17.2, and the frame the latch reads it for shown 22.9 ms after the
+event against 39.4. A MOVE-only call uses the plane's current framebuffer,
+so a plane set atomically moves the same way; a driver that refuses it says
+so once and every move after that is the synchronous commit, as before. The
+mover thread stays for those, and for the copy path's moves.
 
 **No framebuffer is removed while a plane shows it, and the console is
 given back at close.** The kernel removes a framebuffer that is shown by

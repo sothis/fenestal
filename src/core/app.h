@@ -1457,6 +1457,13 @@ struct FnlApp {
 	 * behind, and a delay that spent it would push the next submit later
 	 * still. */
 	double present_block;
+	/* How much of that block was the display's own wait, where the present
+	 * does its work on this thread -- the copy path's: the flip's wait for
+	 * the vblank is display block, and the fence wait and the copy before it
+	 * are work that no hold makes shorter, so the late-latch controller is
+	 * told them apart (frame_present()). Zero where nothing measured it.
+	 * Render thread. */
+	double present_idle;
 	/* The frame loop's hold on the queue ahead of the screen
 	 * (FnlBackendVtbl::display_waits, frame.c): how long this turn's wait
 	 * took, which the period estimate counts; how many frames may wait,
@@ -2054,6 +2061,11 @@ struct FnlApp {
 	 * there, so it is this and not the thread that refuses fnl_shutdown()
 	 * and fnl_run() from either. */
 	bool in_run;
+	/* This window is being given back (app_teardown()): a backend that would
+	 * put a frame of its own on an output only to have the console restored
+	 * over it the same moment can leave the output as it stands. Set on the
+	 * main thread before the renderer and the backend go. */
+	bool tearing_down;
 
 	/* ---- what every renderer has ------------------------------------ */
 

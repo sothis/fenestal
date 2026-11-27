@@ -238,6 +238,10 @@ static void render_thread_stop(App *a)
  * comes through here with most of these still NULL. */
 static void app_teardown(App *a)
 {
+	/* Before the renderer goes: its swapchain destroy asks whether the
+	 * backend still needs a frame of its own on the output (KMS's
+	 * kms_scanout_take()). */
+	a->tearing_down = true;
 	/* First, and it must stay first. A terminating signal arrives on any
 	 * thread at any moment, and the handler follows signal_app into
 	 * app_wakeup(), which reaches the backend's state -- freed by close()
