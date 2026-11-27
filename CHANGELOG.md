@@ -70,6 +70,12 @@ promised: before 1.0, nothing between minor releases.
   copy's frame reaches the scanout buffer by `memcpy` where both sides are
   8-bit BGRA (one call a frame), not a per-pixel gather: its present 9.4 to
   13.9 ms to 6.9, and the process 34% of a core to 17.
+- **A KMS window opens on the GPU that owns its output.** A GPU whose frames
+  another device's display would have to copy is ranked below one that draws
+  straight into what the display scans out, whatever its frame rate: on
+  schenker the window now opens on the HD 630 at 6.5 % of a core and a 0.22 ms
+  present, where the GTX 1050 Ti (which cannot drive that panel) took 17 % and
+  a 6.9 to 12.8 ms copy. `FNL_GPU` and `--gpu` still name one.
 - **`fenestal-dev open`.** What a window costs from `fnl_init()` to its
   first frame, the cold open of a process and the warm ones after it, and
   the shutdown, on every backend and renderer the tree builds.

@@ -684,6 +684,29 @@ void app_gpu_entry_id(const App *a, const GpuEntry *e, char *out, size_t size)
 				 app_gpu_short(cut, sizeof cut, e->name));
 }
 
+/* Whether `before` belongs after `e` in the ranked list. A GPU whose frames
+ * reach the window without a copy goes ahead of one whose frames are copied
+ * onto the output, however fast the second measures: on KMS a GPU that cannot
+ * take the window's display draws offscreen and hands every frame to another
+ * device's scanout buffer, which is a copy, a fence round trip and a readback
+ * a frame -- measured on schenker, the copy path's present 6.9 to 12.8 ms a
+ * frame against the display path's 0.22, and a fifth of a core against a
+ * sixteenth. A frame rate says nothing about that, since both reach the
+ * panel's rate at any scene a laptop manages (DESIGN *Ranked by measured
+ * frame rate*). A GPU named (FNL_GPU, --gpu) is not the ranking's to refuse:
+ * the calibration measures that one alone. */
+static bool rank_after(const GpuEntry *before, const GpuEntry *e)
+{
+	if (before->direct != e->direct)
+		return !before->direct;
+	if (before->fps != e->fps)
+		return before->fps < e->fps;
+	/* A GPU listed both ways: its renderer's own way goes first, since how
+	 * the frames reach the window is the renderer's to choose. */
+	return e->way_default && before->renderer == e->renderer &&
+		   strcmp(before->name, e->name) == 0;
+}
+
 void app_rank_sort(const App *a, GpuEntry *list, int n)
 {
 	/* The render thread's last word on the display, under the lock this
@@ -705,10 +728,7 @@ void app_rank_sort(const App *a, GpuEntry *list, int n)
 	for (int i = 1; i < n; i++) {
 		const GpuEntry e = list[i];
 		int j            = i;
-		while (j > 0 && (list[j - 1].fps < e.fps ||
-						 (list[j - 1].fps == e.fps && e.way_default &&
-						  list[j - 1].renderer == e.renderer &&
-						  strcmp(list[j - 1].name, e.name) == 0))) {
+		while (j > 0 && rank_after(&list[j - 1], &e)) {
 			list[j] = list[j - 1];
 			j--;
 		}

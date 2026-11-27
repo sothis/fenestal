@@ -169,6 +169,7 @@ static void metal_entry(id<MTLDevice> d, GpuEntry *e)
 			: d.hasUnifiedMemory || d.lowPower ? FNL_GPU_KIND_INTEGRATED
 											   : FNL_GPU_KIND_DISCRETE;
 	e->renderer = FNL_RENDERER_METAL;
+	e->direct   = true; /* its layer is the window's */
 }
 
 /* MTLCopyAllDevices() in its order, as choose_device() lists it: every

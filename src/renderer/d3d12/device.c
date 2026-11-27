@@ -272,6 +272,7 @@ static FnlResult choose_adapter(App *a)
 			snprintf(e->name, sizeof e->name, "%s", name);
 			e->kind     = soft ? FNL_GPU_KIND_SOFTWARE : FNL_GPU_KIND_UNKNOWN;
 			e->renderer = FNL_RENDERER_D3D12;
+			e->direct   = true; /* its swapchain is the window's */
 		}
 		if (asked && !pick) {
 			IDXGIAdapter1_AddRef(ad);

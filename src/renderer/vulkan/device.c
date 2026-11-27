@@ -702,6 +702,11 @@ static FnlResult pick_device(App *a)
 			snprintf(e->name, sizeof e->name, "%s", props.deviceName);
 			e->kind = device_kind(props.deviceType);
 			e->renderer = FNL_RENDERER_VULKAN;
+			/* A device that cannot take the output draws offscreen and
+			 * copies onto it, and the ranking keeps those below the ones
+			 * that present (app_rank_sort()). */
+			e->direct = !VK(a)->bridge->direct ||
+						VK(a)->bridge->direct(a, devs[i]);
 		}
 		if (!a->gpu_cross)
 			app_gpu_inventory(a, seen - 1, props.deviceName,

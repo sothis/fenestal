@@ -729,6 +729,25 @@ Fixed by reading (DESIGN *The veil*) and not yet measured.
 
 ## Linux
 
+- **The KMS copy path is at its floor, by measurement (2026-11-27).** The
+  frame is drawn on a headless surface, read back into cached host memory and
+  copied into the scanout buffer by the CPU -- 9.2 MB twice a frame at
+  1920x1200, the GPU's readback 1.43 ms and the CPU's copy 2.1 ms, which the
+  `memcpy` above already halved. Three ways to remove more were probed on
+  schenker and none wins: **host-pointer import**
+  (`VK_EXT_external_memory_host`, the dumb buffer's own mapping) is refused by
+  NVIDIA's driver -- both memory
+  types a host pointer may take give `VK_ERROR_OUT_OF_DEVICE_MEMORY`; **the GPU
+  writing straight into the scanout buffer** over a dma-buf works but is 4.6
+  times slower per byte (1.66 ms against 0.37 for 9.2 MB), because the dumb
+  buffer is write-combined system memory, so it trades 2.1 ms of CPU for more
+  GPU than it saves -- measured in the frame too, present 12.9 against 12.0,
+  no change in CPU; and **scanning out from the dGPU's own memory** is refused
+  by i915: it imports the dma-buf (`PRIME_FD_TO_HANDLE`) and then will not make
+  a framebuffer of it (`ADDFB2`, `ENOENT`, linear). What is left is the policy
+  the ranking now takes: do not copy at all, by drawing on the GPU that owns
+  the output.
+
 - ~~**KMS's cursor moves on the display path are blocking atomic commits**~~
   -- **done (2026-11-27)**: a move of an already-shown shape is the legacy
   `DRM_IOCTL_MODE_CURSOR` MOVE, and the synchronous commit is the fallback

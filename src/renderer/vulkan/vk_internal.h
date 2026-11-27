@@ -92,6 +92,11 @@ typedef struct VkBridge {
 											  uint32_t *required);
 	FNL_MUST_USE FnlResult (*create_surface)(App *a);
 	bool (*can_draw)(App *a, VkPhysicalDevice dev);
+	/* Whether `dev`'s frames reach this window's output without a copy:
+	 * KMS's, where the device must take the output's display to do that and
+	 * falls to the copy path when it cannot (surface_kms.c). NULL where
+	 * every device presents directly, which is every window server. */
+	bool (*direct)(App *a, VkPhysicalDevice dev);
 	/* Whether a queue family of `dev` presents to this window server, asked
 	 * with no surface (vkGetPhysicalDevice*PresentationSupportKHR): how the
 	 * GPUs are listed while another renderer draws (vk_list_gpus()). NULL

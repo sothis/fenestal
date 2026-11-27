@@ -12,6 +12,8 @@
 #ifndef FNL_KMS_STATE_H
 #define FNL_KMS_STATE_H
 
+#include "backend/evdev_input.h" /* the keys' ABI: KEY_CNT, and the types
+								 * kms.c reads reports with */
 #include "backend/keymap.h"
 #include "backend/loop.h"
 
@@ -286,7 +288,7 @@ struct BackendHostState {
 	 * the window that has the keyboard. */
 	Keymap       keymap;
 	KeyCompose   compose;
-	uint8_t      down[0x300 / 8];
+	uint8_t      down[KEY_CNT / 8]; /* a bit a key, by evdev code */
 	bool         caps_on, num_on, leds_known;
 	/* The modifier role of each key (kms.c's ROLE_*), by evdev code, in each
 	 * group: the layout's keysyms say which key is Shift, Caps Lock, AltGr

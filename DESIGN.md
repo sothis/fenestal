@@ -6208,6 +6208,21 @@ the move once the rescue let go of the lock -- NVIDIA's to nouveau, 0.5 s
 
 ### Ranked by measured frame rate
 
+**A GPU whose frames must be copied is ranked below one whose frames are not,
+whatever it measures.** On KMS the window is an output, and only the device that
+owns that output draws straight into what the display scans out; any other draws
+offscreen and hands every frame to another device's scanout buffer
+(`GpuEntry::direct`, set by the renderer that lists it). A frame rate cannot say
+that, because both reach the panel's rate at any scene a laptop manages, and the
+copy is a cost of the *path* rather than of a frame: on schenker's HDMI monitor,
+the HD 630 that drives it at 60.0 fps with present 0.22 ms and 6.5 % of a core,
+the GTX 1050 Ti that cannot at 58.4 to 60.1 with present 6.9 to 12.8 ms and 17 %
+of a core, and a frame of 33 ms now and then as a copy overruns a vblank. So the
+sort takes the two keys in that order -- direct first, then the measured rate --
+and a KMS window opens on the GPU that owns its output without being told. A GPU
+named (`FNL_GPU`, `--gpu`) is not the ranking's to refuse: the calibration
+measures that one alone, and the copy path stays reachable by naming it.
+
 Which entry of the GPU list draws a program fastest is not a property any driver
 reports. It is the program's scene's and the machine's: on schenker the GTX 1050
 Ti under NVIDIA's driver against the same GPU under NVK at its boot clocks.

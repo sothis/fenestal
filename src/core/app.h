@@ -507,6 +507,13 @@ typedef struct {
 	 * (app_gpu_driver_entries()), so a row is mapped back by these and
 	 * never by counting. Set by gpu_merge(). */
 	int slot, local;
+	/* Whether its frames reach the window without a copy: true for every
+	 * GPU that presents to the window's own surface, false for one whose
+	 * frames are drawn offscreen and copied onto the output -- KMS's copy
+	 * path, which a GPU that cannot take the window's display falls to
+	 * (DESIGN *Ranked by measured frame rate*). Set by the renderer that
+	 * lists it. */
+	bool direct;
 	/* Its measured frame rate where a ranking has one (src/core/rank.c),
 	 * 0 where none; set by gpu_merge(). */
 	float fps;

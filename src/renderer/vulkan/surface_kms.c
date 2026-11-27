@@ -639,6 +639,26 @@ static FnlResult create_surface(App *a)
 	return FNL_OK;
 }
 
+/* Whether `dev`'s frames reach this window's output without a copy: it must
+ * be able to take the output's display, which is the question
+ * surface_create() asks and acts on. Asked of the window's output now -- the
+ * one it shows on -- and with no side effect: the display is not acquired,
+ * only named (vkGetDrmDisplayEXT), so a device that would take it is not
+ * deprived of it by this. */
+static bool direct(App *a, VkPhysicalDevice dev)
+{
+	struct BackendState *p = a->backend_state;
+	PFN_vkGetDrmDisplayEXT get_display = (PFN_vkGetDrmDisplayEXT)
+		vkGetInstanceProcAddr(VK(a)->instance, "vkGetDrmDisplayEXT");
+	if (!get_display || !p || p->host->card_fd < 0)
+		return false;
+	const int sel = p->surf_sel >= 0 ? p->surf_sel : kms_sel_to_show(p);
+	VkDisplayKHR d = VK_NULL_HANDLE;
+	return get_display(dev, p->host->card_fd, kms_connector(p, sel), &d) ==
+			   VK_SUCCESS &&
+		   d != VK_NULL_HANDLE;
+}
+
 /* The display path's images are what the kernel scans out, so before their
  * swapchain goes the backend puts a frame of its own on the output
  * (kms_scanout_take()); the copy path's are the backend's already. */
@@ -668,6 +688,7 @@ const VkBridge vk_bridge_kms = {
 	.instance_extensions = instance_extensions,
 	.create_surface      = create_surface,
 	.can_draw            = can_draw,
+	.direct              = direct,
 	.scanout_take        = scanout_take,
 	.driver_stamps       = driver_stamps,
 	.display_hdr         = display_hdr,
