@@ -21,8 +21,8 @@ moved since. `+` after a commit is a tree that had uncommitted changes.
       pace     release              never
 
 `never` is the point of the table. The environments are the ones a bare
-round would drive today (environment.py's, with the machines FNL_DRIVE_VM and
-native-hosts name), and each is owed a round of each instrument that
+round would drive today (environment.py's, with the machines native-hosts
+names), and each is owed a round of each instrument that
 applies to it at `release`, on every device it has been seen with and
 every one written down for it, and on every kernel driver bare-hosts names
 for its machine (`kms-vulkan-bare@schenker  --  …, on nouveau`); a row
@@ -39,7 +39,7 @@ import sys
 import ledger
 
 # What every environment is owed, and pace.py's columns beside it: the
-# programs on this desk and the laptops, never a guest.
+# programs on this desk and the laptops.
 ROUNDS = ("stress",)
 PACED = ("win64-vulkan-native", "win64-d3d12-native", "macos-metal-native",
          "macos-vulkan-native", "x11-vulkan-bare",

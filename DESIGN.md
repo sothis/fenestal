@@ -10240,11 +10240,11 @@ nothing a client does moves it.
 ### Win32
 
 `src/backend/win32/win32.c` makes one claim and marks its exceptions: it is
-cross-compiled with mingw-w64 and **driven three ways** through the same
+cross-compiled with mingw-w64 and **driven two ways** through the same
 harness — under wine, on XWayland against the same RADV the native build uses;
-on Windows 10 and 11 in VirtualBox guests, where the frame is lavapipe's (see
-*Driving a window*); and on Windows laptops with GPUs of their own (*Measured
-on Windows itself*). Wine is not Windows and the code says so where they are
+and on Windows laptops with GPUs of their own (*Measured on Windows itself*).
+It was also driven in VirtualBox guests, whose frame was lavapipe's; those
+were retired with their harness, and what they measured stays below. Wine is not Windows and the code says so where they are
 known to differ:
 
 * `WM_NCCALCSIZE`'s wParam: under wine only the FALSE spelling ever arrives.
@@ -10562,10 +10562,10 @@ two Direct3D 12 ones once on vkd3d-proton and once on wine's own vkd3d
 
 ### Measured on Windows itself
 
-Wine is not Windows, so the Win32 build is also driven in a VirtualBox guest
-and on two Windows laptops with GPUs of their own (`tools/drive/README.md`
-*Driving a window* is how). What follows is what that found about the
-library.
+Wine is not Windows, so the Win32 build was also driven on Windows itself: in
+VirtualBox guests (since retired) and on two Windows laptops with GPUs of
+their own (`tools/drive/README.md` *Driving a window* is how). What follows is
+what that found about the library.
 
 **What a size request costs on Windows is the driver's two calls.** Timers
 around each step of a rebuild, the mean of thirty at 30 sizes a second, in

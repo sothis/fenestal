@@ -2,15 +2,12 @@
 # Copyright (c) 2026 Janos Sonntag
 """A Windows desktop on a machine of its own: a laptop on the network.
 
-The guest (vbox_driver.py) is Windows' window manager and input stack with a
-frame rasterised on the CPU. This is the same binary where the compositor,
-the kernel's waits and a Vulkan driver that presents to a panel are all real
-at once, so it is the one Windows machine a frame rate may be read from.
+The compositor, the kernel's waits and a Vulkan driver that presents to a
+panel are all real at once, so it is the one Windows machine a frame rate may
+be read from.
 
-A guest is entered through its machine: emulated devices, and guest control
-to start a program. A laptop has neither, so everything goes through the
-agent on its desktop (windows_agent.ps1), and ssh is how the agent gets
-there and how it calls home.
+Everything goes through the agent on its desktop (windows_agent.ps1), and ssh
+is how the agent gets there and how it calls home.
 
   One ssh connection, held for the round, which every copy and command is
   multiplexed over and which forwards two of the laptop's loopback ports
@@ -27,7 +24,7 @@ there and how it calls home.
   Input is the agent's SendInput. That enters above the device drivers:
   Windows marks the events injected and delivers them as it would a hand's,
   raw input included, but a touchpad's driver and a keyboard's own quirks
-  are never exercised, which the guest's emulated devices are nearer to.
+  are never exercised.
 
   The program under test is the agent's child, and its stderr comes back
   down the second forwarded port to native_relay.py, which is the process
@@ -69,7 +66,7 @@ from wayland_driver import BTN_LEFT, BTN_MIDDLE, BTN_RIGHT
 from windows_driver import (AGENT, DRIVE_DIR, EXTENDED, PAUSE, POWERSHELL,
                             Desk, Unreachable)
 
-# Beside the portal's token and the guests' password: which machines there
+# Beside the portal's token: which machines there
 # are is this desk's to know and not the tree's.
 HOSTS_FILE = os.path.join(STATE_DIR, "native-hosts")
 # How lately a hand may have been on the machine, in seconds, for a round
@@ -213,7 +210,7 @@ def _free_port():
 class Native(Desk):
     """The agent on the laptop's desktop, for what is asked and for what is
     done: windows_driver.Desk's questions, and the input, the program and
-    the picture that a guest's machine gives and a laptop's does not."""
+    the picture."""
 
     def __init__(self, host):
         self.host = host

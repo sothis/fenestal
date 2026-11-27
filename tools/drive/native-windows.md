@@ -7,17 +7,12 @@ questions left open.
 
 ## What the laptop is for
 
-Every Windows figure in `DESIGN.md` is wine's or a VirtualBox guest's. Wine
-is not Windows' window manager or its waits; the guest is, but it has no GPU
-and its frame rate is its desktop's size. The laptop is the first place where
-all three are real at once: the compositor, the kernel's waits and a Vulkan
-driver that presents to a display. So it is the only machine that can speak
-for *pacing* on Windows, and the only one that can say whether the 17–25 fps
-seen on native Windows is gone.
-
-It does not replace the guest. The guest is driven at an emulated keyboard
-and mouse, below the Windows input stack; the laptop can only be driven from
-inside it (see *Input* below). Keep both.
+Wine is not Windows' window manager or its waits. The laptop is the place
+where all three are real at once: the compositor, the kernel's waits and a
+Vulkan driver that presents to a display. So it is the only machine that can
+speak for *pacing* on Windows, and the only one that can say whether the
+17–25 fps seen on native Windows is gone. It can only be driven from inside
+Windows (see *Input* below).
 
 ## Phase 0 — write down what the machine is
 
@@ -44,7 +39,7 @@ the laptop on a stick and run, from a console:
    `d3d12`) in the console first: unnamed, the library takes Direct3D 12.
 2. `waittest.exe` — how late each kind of wait returns on this kernel, and
    whether the high-resolution timer was created or refused.
-3. `vmcost.exe` — the clock and the hand-off, to read the guest's against.
+3. `vmcost.exe` — the clock and the hand-off.
 4. `fenestal-dev.exe pace <rate> 12 --settle 4` at 0, 15, 60 and 250 — the
    sweep by hand, frames only; it prints the frame lines itself.
 
@@ -73,18 +68,13 @@ too and names functions, which the sampler cannot.
 
 ## Phase 2 — a way to drive it
 
-The guest gives the harness three things, and a laptop gives none of them:
-
-| the harness needs | the guest has | the laptop has |
-|---|---|---|
-| a program started on the desktop | `guestcontrol` | the agent's `run` |
-| what only that desktop knows | the agent | the same agent |
-| keys and pointer | emulated devices | the agent's `SendInput` |
+The harness needs three things of the machine: a program started on the
+desktop (the agent's `run`), what only that desktop knows (the agent), and
+keys and pointer (the agent's `SendInput`).
 
 So it is one path, the agent (`windows_agent.ps1`), and
-`win64-vulkan-native` beside `win64-vulkan-vm` in `environment.py`.
-`windows_driver.Desk` is what both machines ask; `native_driver.py` is the
-laptop's way in. tools/drive/README.md *Driving a window* has how it works
+`win64-vulkan-native` in `environment.py`. `windows_driver.Desk` is what it
+asks; `native_driver.py` is the laptop's way in. tools/drive/README.md *Driving a window* has how it works
 and why.
 
 ### Setting the laptop up, once
@@ -272,8 +262,8 @@ measured; the hybrid copy to an external output, the battery, a panel above
   dragged between the two;
 - sleep and resume, and the lid, which is the device-loss path on real
   hardware;
-- the size of the desktop, which halves the guest's rate: expected to cost
-  nothing here, and to be shown rather than assumed.
+- the size of the desktop: expected to cost nothing here, and to be shown
+  rather than assumed.
 
 ## Where the answers go
 

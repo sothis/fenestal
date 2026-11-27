@@ -748,8 +748,7 @@ class Environment:
     def input_hold(self):
         """The hold on the physical input of the machine this round
         drives (input_hold.py): this desk's own, as root by ssh, for every
-        environment whose input comes from here -- the guests' included,
-        which VirtualBox feeds from this desk's devices."""
+        environment whose input comes from here."""
         import input_hold
         return input_hold.SshHold("this desk", [
             "ssh", *root_key_args(), "-o", "BatchMode=yes",
@@ -858,8 +857,8 @@ class _Portal(Environment):
     its process and says what can be asked about the window it got.
 
     `self.portal` is whatever injects: wayland_driver.Portal for a window on
-    this desktop, and vbox_driver.Guest -- the same calls, put to a virtual
-    machine's own devices -- for one that is not."""
+    this desktop, and the agents' drivers -- the same calls, put to another
+    machine -- for one that is not."""
 
     INPUT = "portal"
 
@@ -2336,25 +2335,22 @@ class Win32WaylandD3D12(_Vkd3dProton, Win32Wayland):
     EXPECTED_LOG: tuple[str, ...] = _Vkd3dProton.EXPECTED_LOG + (SIZE_UNSHOWN,)
 
 
-# ---- Win32 on Windows, in a virtual machine ----------------------------------
+# ---- Win32 on Windows, driven by an agent ------------------------------------
 
-class Win32VM(_Placed, _Portal):
-    """The win64 tree's binary on a Windows desktop of its own.
+class WindowsAgent(_Placed, _Portal):
+    """The win64 tree's binary on a Windows desktop asked and driven by an
+    agent on it (windows_agent.ps1): the base of the laptop's environment,
+    which supplies the way in (`each()` and `_open()`).
 
     Not another build: the tree is Win32's, and what is different is whose
     Windows it is. Under wine the window is an X11 one and wine answers for
     the window manager; here it is Windows' own, with a foreground lock, a
-    modal size loop and raw input that are the real ones.
+    modal size loop and raw input that are the real ones."""
 
-    What it cannot speak for is the GPU or the frame rate. The guest has no
-    Vulkan device, so Mesa's lavapipe draws the frame on the CPU. See
-    vbox_driver.py for what the guest needs."""
-
-    NAME = "win64-vulkan-vm"
     TREE = "win64"
     SUFFIX = ".exe"
     LOCAL = False
-    INPUT = "vm"
+    INPUT = "agent"
     # A Debug tree on Direct3D 12 where Graphics Tools are not installed,
     # which a Vulkan round reaches too once the GPU box has moved it.
     EXPECTED_LOG: tuple[str, ...] = (D3D12_NO_LAYER,)
@@ -2362,8 +2358,8 @@ class Win32VM(_Placed, _Portal):
     # Windows put on the screen and not what the client drew.
     #
     # "multi-output": Windows shows a client every monitor the machine has.
-    # How many that is belongs to the machine's settings, and a guest with
-    # one skips the section for that reason. No "wm-props": those are X11's.
+    # How many that is belongs to the machine's settings, and one with one
+    # skips the section for that reason. No "wm-props": those are X11's.
     #
     # "dead-layout": Windows composes, so there is no table to edit as
     # "remap-key" edits X11's; what can be done instead is to switch the
@@ -2399,36 +2395,10 @@ class Win32VM(_Placed, _Portal):
     # which the round copies there with the program.
     FORWARD: tuple[str, ...] = ("FNL_FAULT",)
 
-    @classmethod
-    def each(cls):
-        # One a machine, and named for it: two Windows are two rounds, and a
-        # log or a picture called after the environment alone would be the last
-        # machine's. A machine that is off is its own skipped line.
-        import vbox_driver as V
-        made = []
-        for vm in V.VMS:
-            b = cls()
-            b.machine = vm
-            b.NAME = "%s@%s" % (cls.NAME, vm)
-            made.append(b)
-        # A machine nobody named: the class itself, so that it says why it
-        # was skipped rather than vanishing from the selection.
-        return made or [cls()]
-
-    def _open(self):
-        """The way in to the machine, opened: a windows_driver.Desk. Raises
-        its Unreachable when there is none."""
-        import vbox_driver as V
-        if getattr(self, "machine", None):
-            V.use(self.machine)
-        return V.Guest()
-
     def start(self, variant="release", args=(), env=None):
-        # each()'s fallback, for a skip line where no machine is named: the
-        # driver would take its module's default guest and drive one the
-        # round never asked for.
+        # each()'s fallback, for a skip line where no machine is named.
         if not getattr(self, "machine", None):
-            raise Unavailable("no Windows guest is named: FNL_DRIVE_VM")
+            raise Unavailable("no Windows machine is named")
         exe = os.path.join(ROOT, "build", self.TREE, variant,
                            self.program + self.SUFFIX)
         if not os.path.exists(exe):
@@ -2455,9 +2425,9 @@ class Win32VM(_Placed, _Portal):
         except Exception:
             self.close()            # or the agent is left running there
             raise
-        # The process here stands for the program there -- the VBoxManage
-        # that runs it, or the relay its output comes back to: its stderr
-        # is the program's, and it ends when the program does.
+        # The process here stands for the program there -- the relay its
+        # output comes back to: its stderr is the program's, and it ends
+        # when the program does.
         sent = self.forwarded(self.FORWARD)
         sent.update(self.forced())
         if self.gpu:
@@ -2566,18 +2536,17 @@ class Win32VM(_Placed, _Portal):
                self.portal.foreground(), self.alive(), shot))
 
     def stop(self, sig=15):
-        # A program that has already gone is left to be reported: the
-        # VBoxManage here hears of it late, and signalled first it would
-        # answer with the signal and not with the program's exit code.
+        # A program that has already gone is left to be reported: the relay
+        # here hears of it late, and signalled first it would answer with
+        # the signal and not with the program's exit code.
         if self.testbed.alive() and not self.alive():
             try:
                 self.testbed.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 pass
         rc = self.testbed.stop(sig)
-        # Ending the VBoxManage ends the guest session, and the program with
-        # it -- but that is VirtualBox's doing and not asked of it here, so
-        # the guest is told as well.
+        # Ending the relay may leave the program there running, so the
+        # machine is told as well.
         if getattr(self, "portal", None):
             try:
                 self.portal.kill_stale()
@@ -2586,9 +2555,9 @@ class Win32VM(_Placed, _Portal):
         return rc
 
     def alive(self):
-        # Asked of the guest as well: the VBoxManage here outlives the
-        # program there by a second or more, and a key that closed the
-        # window would be waited for and then sent again.
+        # Asked of the machine as well: the relay here outlives the program
+        # there by a second or more, and a key that closed the window would
+        # be waited for and then sent again.
         if not self.testbed.alive():
             return False
         portal = getattr(self, "portal", None)
@@ -2600,7 +2569,7 @@ class Win32VM(_Placed, _Portal):
             return False
 
     def cpu_seconds(self):
-        # The process on this machine is VBoxManage, which does no work.
+        # The process on this machine is the relay, which does no work.
         return self.portal.cpu_seconds()
 
     def _gain(self):
@@ -2696,7 +2665,7 @@ class Win32VM(_Placed, _Portal):
         return self.portal.monitor()[1]
 
     def target_monitor(self):
-        # The guest's, which nothing on this desktop's xrandr describes.
+        # The machine's own, which nothing on this desktop's xrandr describes.
         return self.portal.monitor()[0]
 
     def monitors(self):
@@ -2794,27 +2763,25 @@ class Win32VM(_Placed, _Portal):
 
 # ---- Win32 on Windows, on a laptop -------------------------------------------
 
-class Win32Native(Win32VM):
+class Win32Native(WindowsAgent):
     """The win64 tree's binary on a Windows laptop reached over the network.
 
-    A Windows desktop like the guest's, asked the same questions by the same
-    agent, so everything Win32VM does with an answer is inherited. What is
+    A Windows desktop asked and driven by an agent on it (windows_agent.ps1),
+    so everything WindowsAgent does with an answer is inherited. What is
     different is the way in (native_driver.py): there is no machine to
     borrow devices from, so the agent sends the input and starts the
     program, and ssh carries both.
 
-    And what it may be believed about. The guest is the one for Windows'
-    input stack below SendInput; this is the one with a GPU, a panel and a
-    compositor presenting to it."""
+    It is the one with a GPU, a panel and a compositor presenting to it."""
 
     NAME = "win64-vulkan-native"
     INPUT = "agent"
     # A laptop's monitors are its panel and whatever is plugged in.
     MONITORS = 0
-    # Win32VM's, word for word: each is a fact about Windows and the agent,
+    # WindowsAgent's, word for word: each is a fact about Windows and the agent,
     # and both are the same here. One that turns out not to hold on real
     # hardware is taken out of this set, not worked round in a check.
-    CAN = Win32VM.CAN
+    CAN = WindowsAgent.CAN
     # size_await()'s bound, which NVIDIA's driver reaches on a resize
     # (DESIGN *Measured on Windows itself*); and the debug layer missing,
     # which a Vulkan round says too once the GPU box has moved it onto
@@ -2892,14 +2859,6 @@ class Win32Native(Win32VM):
         return self
 
 
-class Win32VMD3D12(Win32VM):
-    """The win64 binary in the Windows guests, told to draw with Direct3D
-    12, on WARP: they have no GPU, and Direct3D 12's software adapter is
-    part of Windows, so nothing goes in beside the program."""
-    NAME = "win64-d3d12-vm"
-    RENDERER = "d3d12"
-
-
 class Win32NativeD3D12(Win32Native):
     """The win64 binary on the Windows laptops, told to draw with Direct3D
     12. FNL_GPU steers it, by a part of the adapter's name, as it steers
@@ -2910,14 +2869,14 @@ class Win32NativeD3D12(Win32Native):
 
 # ---- Cocoa, on a Mac ---------------------------------------------------------
 
-class CocoaNative(Win32VM):
+class CocoaNative(WindowsAgent):
     """The macos tree's binary, drawing with Metal, on a Mac reached over
     ssh: schenker,
     booted from its macOS stick, the HD 630 drawing.
 
     A desktop asked and driven as the Windows laptop's is, by an agent on it
     (mac_driver.py, mac_agent.m) that answers windows_driver.Desk's
-    questions, so everything Win32VM does with an answer is inherited. The
+    questions, so everything WindowsAgent does with an answer is inherited. The
     way in is ssh alone: a program started from an ssh session reaches the
     window server, so the agent and the program are each the last command of
     one, and the program's stderr is the echo.
@@ -2933,7 +2892,7 @@ class CocoaNative(Win32VM):
     INPUT = "agent"
     # One for each machine's own monitors.
     MONITORS = 0
-    # Win32VM's: "dead-layout" too, the agent answering the layout
+    # WindowsAgent's: "dead-layout" too, the agent answering the layout
     # questions with macOS's input sources, a layout named by its source ID.
     CAN = frozenset({"server-rect", "edge-resize", "unminimize",
                      "read-pixels", "composited", "multi-output",
@@ -2983,7 +2942,7 @@ class CocoaNative(Win32VM):
     # loads it to list Vulkan's GPUs: at its default it lists every
     # extension and device feature, a hundred and fifty lines a log check
     # would take as complaints.
-    ECHO = dict(Win32VM.ECHO, MVK_CONFIG_LOG_LEVEL="1")
+    ECHO = dict(WindowsAgent.ECHO, MVK_CONFIG_LOG_LEVEL="1")
     WANT_OUTPUT = "FNL_DRIVE_MAC_OUTPUT"
     # AppKit's fullscreen animation: the library says the new state at its
     # will, and the did comes 560 to 670 ms later on schenker; a key pressed
@@ -4391,7 +4350,7 @@ class Win32D3D12CageBare(_Vkd3dProton, Win32CageBare):
 
 
 ALL = (Wayland, X11, Win32, Win32D3D12, Win32Wayland,
-       Win32WaylandD3D12, Win32VM, Win32VMD3D12, Win32Native,
+       Win32WaylandD3D12, Win32Native,
        Win32NativeD3D12, X11Bare, WaylandBare,
        KmsBare, Win32Bare, Win32D3D12Bare, Win32WaylandBare,
        Win32D3D12WaylandBare, Win32CageBare, Win32D3D12CageBare,

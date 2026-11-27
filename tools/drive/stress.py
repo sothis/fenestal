@@ -5,7 +5,6 @@
     python3 tools/drive/stress.py                    # every environment
     python3 tools/drive/stress.py x11-vulkan         # one of them
     python3 tools/drive/stress.py wayland-vulkan     # Wayland
-    python3 tools/drive/stress.py win64-vulkan-vm    # on Windows, in a VM
     python3 tools/drive/stress.py win64-vulkan-native    # ... on a laptop
     python3 tools/drive/stress.py win64-vulkan-native@schenker:intel
     python3 tools/drive/stress.py win64-vulkan-wl    # wine, on Wayland
@@ -77,14 +76,13 @@ report -- see testbed.py.
 A desktop, and a one-time portal consent
 (`python3 tools/drive/wayland_driver.py --consent`), which every environment
 needs because the portal is the one way in. Beyond that wayland-vulkan wants
-a compositor, x11-vulkan an X server and win64-vulkan wine. win64-vulkan-vm
-wants none of those and a VirtualBox machine instead, and is a round for each
-machine FNL_DRIVE_VM lists: see vbox_driver.py. win64-vulkan-native wants a
-Windows laptop that ssh reaches, and is a round for each FNL_DRIVE_NATIVE
-lists: see native_driver.py. x11-vulkan-bare wants a Linux machine with
-Xorg and no window manager, and is a round for each FNL_DRIVE_BARE lists:
-see bare_driver.py. An environment that cannot run here is *skipped* with
-the reason, not failed: a round that never started has not found a bug.
+a compositor, x11-vulkan an X server and win64-vulkan wine.
+win64-vulkan-native wants a Windows laptop that ssh reaches, and is a round
+for each FNL_DRIVE_NATIVE lists: see native_driver.py. x11-vulkan-bare wants
+a Linux machine with Xorg and no window manager, and is a round for each
+FNL_DRIVE_BARE lists: see bare_driver.py. An environment that cannot run
+here is *skipped* with the reason, not failed: a round that never started
+has not found a bug.
 
 `--capture` turns on the pictures. Off by default for what it *may* cost: the
 Screenshot portal has no restore token, so whether a picture opens a modal
@@ -4599,7 +4597,7 @@ def layer_check(r, b):
     """The validation layer asked for is the layer in the program: a loader
     that cannot find it says nothing, and a round run without it would pass
     for one run with it. Read from the process's own mappings; the laptop
-    and the guest are asked by their own environments."""
+    is asked by its own environment."""
     if not getattr(b, "LOCAL", False):
         return
     try:

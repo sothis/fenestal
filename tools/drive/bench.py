@@ -27,7 +27,7 @@ The program's log is build/drive/bench-<environment>-<variant>.log, with
 the area after it when --sizes names more than one.
 
 Here are this desk's environments, the bare machines', and the Windows
-guests', laptops' and Mac's, whose agents relay the program's stderr home
+laptops' and Mac's, whose agents relay the program's stderr home
 as a round's start() has it (run_remote()).
 """
 
@@ -323,8 +323,8 @@ def run_bare(b, variant, args, log_path, with_hands=False):
 
 
 def run_remote(b, variant, args, log_path, with_hands=False):
-    """A program on a Windows guest or laptop, or on the Mac, started as a
-    round starts one there (Win32VM.start()): copied over, its stderr
+    """A program on a Windows laptop, or on the Mac, started as a
+    round starts one there (WindowsAgent.start()): copied over, its stderr
     relayed home by the agent into the round's log, which is copied to
     ours once it has exited. The GPU ranking is left unread, as a round's
     ECHO leaves it: the record is of the device and renderer named."""
@@ -460,8 +460,8 @@ def main():
     for cls in (B.X11Bare, B.WaylandBare, B.KmsBare):
         places += [(b.NAME, b, run_bare) for b in cls.each()
                    if "@" in b.NAME]
-    for cls in (B.Win32VM, B.Win32VMD3D12, B.Win32Native,
-                B.Win32NativeD3D12, B.CocoaNative, B.CocoaNativeVulkan):
+    for cls in (B.Win32Native, B.Win32NativeD3D12, B.CocoaNative,
+                B.CocoaNativeVulkan):
         places += [(b.NAME, b, run_remote) for b in cls.each()
                    if "@" in b.NAME]
     wanted = [p for p in places

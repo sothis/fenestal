@@ -6,19 +6,15 @@
 # can be *made to do*. The harness copies this in and starts it there; it
 # connects *out* and answers one line a question until told to go.
 #
-# Outwards because Windows' firewall lets a connection out unasked. From a
-# VirtualBox guest the address is 10.0.2.2, the host's loopback as the
-# machine's NAT shows it (once it has --nat-localhostreachable1 on, which is
-# not its default). From a laptop it is the laptop's own loopback, which the
-# harness's ssh forwards home. The other way round is a forwarding rule or a
-# firewall rule, and somebody with administrator rights to click it.
+# Outwards because Windows' firewall lets a connection out unasked: the
+# address is the laptop's own loopback, which the harness's ssh forwards home.
+# The other way round is a firewall rule, and somebody with administrator
+# rights to click it.
 #
 # Two halves. The first is x11_driver.py's -- the rectangle, the focus, the
 # monitor, the pointer -- and the clipboard's other program, since xclip is
-# on the wrong desktop; both machines ask it. The second is for the laptop
-# alone (native_driver.py): a guest's keyboard and mouse are VirtualBox's to
-# move and its programs guest control's to start, and a laptop has neither,
-# so here the input is SendInput and the program is this one's child.
+# on the wrong desktop. The second is native_driver.py's: the input is
+# SendInput and the program is this one's child.
 #
 # C# and not PowerShell below, because every answer is a user32 call. Kept to
 # what the compiler in the box takes, which is C# 5.
@@ -228,7 +224,7 @@ public static class FnlAgent
 
     // The clipboard by its own calls and not through Windows Forms, whose
     // OLE route gives up while another program is looking -- and here one
-    // always is: the Guest Additions watch the clipboard to share it.
+    // always is: a clipboard manager, or a remote session's sharing.
     static void ClipOpen()
     {
         for (int i = 0; i < 100; i++) {

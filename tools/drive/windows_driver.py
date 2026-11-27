@@ -2,15 +2,14 @@
 # Copyright (c) 2026 Janos Sonntag
 """A Windows desktop, as the agent on it answers for one.
 
-Two machines are driven on Windows itself -- a VirtualBox guest
-(vbox_driver.py) and a laptop on the network (native_driver.py) -- and they
-differ in how the harness gets *in*: where the keys and the pointer come
-from, how a program is started, how a file is copied across. What a desktop
-can be *asked* is the same on both, because the same agent
-(windows_agent.ps1) is on it: the rectangle, the focus, the monitor, where
-the pointer is, the layout, the clipboard. That half is here, once.
+A Windows machine is driven on a network (native_driver.py), and how the
+harness gets *in* -- where the keys and the pointer come from, how a program
+is started, how a file is copied across -- is the subclass's. What a desktop
+can be *asked* is the agent's (windows_agent.ps1): the rectangle, the focus,
+the monitor, where the pointer is, the layout, the clipboard. That half is
+here.
 
-Desk is what the two share and neither is whole without: a subclass opens
+Desk is what a way in is not whole without: a subclass opens
 the connection and brings warp(), nudge(), button(), scroll() and keycode()
 -- the devices -- and install(), run_argv() and screenshot().
 """

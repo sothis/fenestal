@@ -263,21 +263,21 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   the `linux` tree). It is a real X11 window on
   XWayland, so `xwininfo -root -tree` finds it and `import -window <id>`
   captures it. `tools/drive/stress.py` is the round, and it drives every
-  environment rather than one: three builds, and twenty-one ways of
+  environment rather than one: three builds, and nineteen ways of
   running them (`ALL` in `environment.py`), each below; every one names
   its renderer to the program by `FNL_RENDERER`, and every Linux one its
   backend by `FNL_BACKEND`.
   Unlike the native Wayland window this one can be captured directly,
   which makes it the cheapest way to *look* at a frame.
-  The four Win32 environments have Direct3D 12
+  The three Win32 environments have Direct3D 12
   twins, the same `win64` tree told `FNL_RENDERER=d3d12`: `win64-d3d12`,
-  `-wl`, `-vm` and `-native`. Its shaders are DXIL from Microsoft's `dxc`
+  `-wl` and `-native`. Its shaders are DXIL from Microsoft's `dxc`
   (`tools/dxc.py`, pinned, which `build.sh` names as `FNL_DXC`), and wine
   10.0's own vkd3d runs no DXIL, so the two wine environments run on
   vkd3d-proton with DXVK's `dxgi.dll` (`tools/vkd3d_proton.py`, pinned),
   staged with a copy of the program under `build/drive/` and loaded by
   `WINEDLLOVERRIDES`; never put those DLLs into a tree, where on Windows
-  they would shadow the system's. The guests draw on WARP.
+  they would shadow the system's.
 - **The Windows build can be run here, under wine.** Launching
   `build/win64/release/fenestal-testbed.exe` opens a real X11 window on
   XWayland; Vulkan goes through winevulkan onto the same RADV the native build
@@ -285,8 +285,8 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   are known to differ.
 - **And under wine on the compositor itself.** `win64-vulkan-wl` is the same
   binary with `DISPLAY` unset, which is all it takes for wine to draw
-  through `winewayland.drv`; an environment and not a build, like the
-  guest. The two wine environments share a wine server, so each waits for
+  through `winewayland.drv`; an environment and not a build. The two wine
+  environments share a wine server, so each waits for
   the other's to exit before it starts (`wine_clear()` in
   `environment.py`) — a program started sooner gets the wrong driver or no
   window. Wine 10.0's Wayland
@@ -300,43 +300,17 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   in the ledger; `FNL_DRIVE_VKD3D=wine` puts
   the d3d12 ones on wine's own vkd3d. Never point a later wine at
   `~/.wine`: it upgrades the prefix past 10.0.
-- **The Windows build can also be run on Windows, in a VirtualBox guest.**
-  `win64-vulkan-vm` is a harness environment and not a build: the same `win64`
-  binary, copied into the machine each round and driven at its emulated keyboard
-  and mouse (`tools/drive/vbox_driver.py`), with `windows_agent.ps1` on the
-  guest answering what only that desktop knows. No portal is involved. The guest
-  has no GPU -- lavapipe draws the frame -- so it speaks for Windows' window
-  manager and input and never for frame rates; `pace.py` leaves it out. Each
-  guest is made to show two monitors before a round (`want_monitors()`, by
-  `setscreenlayout`), since Windows often comes up on one and the move between
-  outputs then skips without a word. Start a guest by hand with
-  `tools/drive/vbox_up.py`, never a bare `startvm`: it starts each with its
-  window, waits for the logon, connects the second monitor when it is missing
-  (one cold start in two), holds the windows in place while Windows boots,
-  reopens a screen's window VirtualBox left hidden (a reboot: a guest whose
-  state was saved and restored refused the foreground to every program after
-  it), and tiles the four on the primary monitor with `vbox_tile.py`, `win10`
-  above `win11`, first screen left, each window its screen's aspect (the windows
-  are scaled; a cell's shape would stretch the guest). Shut them down or reboot
-  with `tools/drive/vbox_down.py [--reboot]`: `shutdown.exe` by guest control,
-  since win11 ignores the ACPI button; never a `poweroff`. A round drives every
-  machine `FNL_DRIVE_VM` lists (default `win10,win11`), one after the other. The
-  password is `~/.local/state/fenestal/vbox-guest`, or `vbox-guest-<vm>` for a
-  machine with its own; a machine that is off, or nobody logged in, is a skipped
-  environment. So is one whose monitor is under `SCREEN` and will not be made
-  larger: a guest shown in a window has auto-resize off, so that the window's
-  size is not its screen's, and its display is then set in the guest.
 - **And on a Windows laptop with a GPU of its own, over ssh.**
-  `win64-vulkan-native` is the guest's environment with another way in
+  `win64-vulkan-native` is a Windows desktop asked by an agent
   (`tools/drive/native_driver.py`): the same agent, which there also sends
-  the input (`SendInput`) and starts the program, because a laptop has no
-  emulated devices and no guest control. One ssh connection carries the
+  the input (`SendInput`) and starts the program, because a laptop has
+  no other way to be driven. One ssh connection carries the
   files and forwards the laptop's loopback home, and a scheduled task
   (`fenestal-agent`) puts the agent on the desktop. What both machines ask
   of the agent is `windows_driver.Desk`; add a question there, not to one
   driver. The machines are `FNL_DRIVE_NATIVE`'s, named as `~/.ssh/config`
   names them, or else the lines of `~/.local/state/fenestal/native-hosts`,
-  so a bare round drives the laptop as it drives the guests. A machine's
+  so a bare round drives the laptop. A machine's
   GPUs go after its name there (`schenker intel nvidia`) and are a round
   each, `win64-vulkan-native@schenker:intel`; a target on the command line
   is an environment and as much of `@machine:device` as narrows it. It asks
@@ -404,7 +378,7 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   Vulkan and layer files aside at boot; a round on a driver puts them
   back for itself (`nvidia_userspace()`), and every other round first has
   the GPU and the files as the boot does (`Bare.as_booted()`).
-  A bare round drives it as it drives the guests and the laptops, every
+  A bare round drives it as it drives the laptops, every
   variant, the checkers' runtimes shipped with the program; one with a
   console login there active in the last two minutes
   (`FNL_DRIVE_BARE_BUSY`) is a skipped environment. `pace.py` has a column
@@ -601,7 +575,7 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   `--compare`s two and with `--html` draws them, and `--fit` reads a
   `--sizes` sweep into a frame's fixed cost and its cost a megapixel.
   Every environment: this
-  desk's, the bare machines', the guests', the laptops' and the Mac's;
+  desk's, the bare machines', the laptops' and the Mac's;
   `--hands` moves the pointer through each measure, for the latency rows,
   everywhere but this desk. Arguments after `--` go to the program
   (`--bench-<key>=<value>`).
@@ -617,7 +591,7 @@ scripts under `tools/` with `build.sh` and `run_all.sh`. The Python under
 why), clean, and to `mypy`, whose five findings in `environment.py` -- class
 attributes defaulting to an empty `()`, `[]`, `{}` or `frozenset()` that
 subclasses override -- are the baseline (beside the missing stubs for PIL, Xlib,
-dbus, gi, numpy and vboxapi); ruff and mypy are user-installed (`pipx`).
+dbus, gi and numpy); ruff and mypy are user-installed (`pipx`).
 `clang-format` and `clang-tidy` are installed (21.1.8) and each has been run
 once, check-only, and neither run is clean: `clang-format` would rewrite some
 3,900 lines of deliberate alignment, and `clang-tidy` prints 66 findings over

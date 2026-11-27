@@ -17,7 +17,7 @@
   --line: #c3cdd7;
   --host: #0c6a88;    /* runs natively on this desktop */
   --wine: #7347a0;    /* the Windows binary under wine */
-  --remote: #a85a0a;  /* a real Windows: guest or laptop */
+  --remote: #a85a0a;  /* a real Windows: a laptop */
   --flag: #b3261e;    /* something the cross-check found */
   --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
   --body: "IBM Plex Sans", system-ui, sans-serif;
@@ -134,7 +134,7 @@ td.c, th.c { text-align: center; }
         <rect class="bx" x="667" y="24" width="150" height="102"/>
         <text class="t" x="679" y="48">tools/drive</text>
         <text class="s" x="679" y="70">6 environments</text>
-        <text class="s" x="679" y="88">desktop, wine, guests, laptops</text>
+        <text class="s" x="679" y="88">desktop, wine, laptops</text>
         <text class="s" x="679" y="106">stress · pace · bench</text>
 
         <rect class="bx" x="889" y="24" width="150" height="102"/>
@@ -271,7 +271,7 @@ td.c, th.c { text-align: center; }
   <div class="legend"><span class="k-host">native build on this desktop</span><span class="k-wine">Windows build under wine</span><span class="k-remote">Windows build on Windows</span></div>
   <figure>
     <div class="scroll">
-    <svg viewBox="0 0 1040 560" role="img" aria-label="The harness reaches four programs on this desktop through the RemoteDesktop portal, two VirtualBox guests through emulated devices, and two laptops through ssh and an agent; every program reports back through the event echo.">
+    <svg viewBox="0 0 1040 560" role="img" aria-label="The harness reaches four programs on this desktop through the RemoteDesktop portal, two laptops through ssh and an agent; every program reports back through the event echo.">
       <defs><marker id="a3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor"/></marker></defs>
 
       <text class="l" x="20" y="24">HARNESS</text><text class="l" x="290" y="24">HOW INPUT GETS IN</text><text class="l" x="540" y="24">WHERE THE PROGRAM RUNS, AND HOW IT IS SEEN</text>
@@ -292,10 +292,6 @@ td.c, th.c { text-align: center; }
       <text class="s" x="304" y="189">saved token, never a dialog</text>
       <text class="s" x="304" y="207">goes to whatever is focused,</text>
       <text class="s" x="304" y="222">hence the check on the left</text>
-      <rect class="bx" x="290" y="348" width="190" height="80"/>
-      <text class="t" x="304" y="376">VirtualBox API</text>
-      <text class="s" x="304" y="395">emulated keyboard and mouse</text>
-      <text class="s" x="304" y="411">program: guestcontrol run</text>
       <rect class="bx" x="290" y="454" width="190" height="80"/>
       <text class="t" x="304" y="482">ssh, one connection</text>
       <text class="s" x="304" y="501">agent on the desktop there</text>
@@ -331,14 +327,6 @@ td.c, th.c { text-align: center; }
       <line class="ar" x1="480" y1="225" x2="564" y2="225" marker-end="url(#a3)"/>
       <line class="ar" x1="480" y1="292" x2="552" y2="292" marker-end="url(#a3)"/>
 
-      <!-- guests -->
-      <rect class="grp" x="540" y="348" width="480" height="80"/>
-      <text class="l" x="554" y="366">VirtualBox guests on this desktop, each in two windows · no GPU, lavapipe draws</text>
-      <rect class="bx b-remote" x="554" y="376" width="220" height="42"/>
-      <text class="t h-remote" x="566" y="402">win64-vulkan-vm@win10</text>
-      <rect class="bx b-remote" x="786" y="376" width="220" height="42"/>
-      <text class="t h-remote" x="798" y="402">win64-vulkan-vm@win11</text>
-      <line class="ar" x1="480" y1="397" x2="552" y2="397" marker-end="url(#a3)"/>
 
       <!-- laptops -->
       <rect class="grp" x="540" y="454" width="480" height="80"/>
@@ -359,7 +347,6 @@ td.c, th.c { text-align: center; }
     <tr><th>environment</th><th>runs</th><th>skipped when</th></tr>
     <tr><td class="m k-host">wayland-vulkan<br>x11-vulkan</td><td>its own tree's binary</td><td>the binary is missing, or no portal token is saved (<code>wayland_driver.py --consent</code>, once)</td></tr>
     <tr><td class="m k-wine">win64-vulkan<br>win64-vulkan-wl</td><td><code>build/win64-vulkan/…/*.exe</code> under wine</td><td>as above, or any wineserver of this user is still up after 20 s: the two wine environments share one and cannot overlap</td></tr>
-    <tr><td class="m k-remote">win64-vulkan-vm</td><td>the same .exe, copied into each machine in <code>FNL_DRIVE_VM</code> (default <code>win10,win11</code>)</td><td>the machine is off, nobody is logged in, no password file, the agent does not call back in 30 s, or its monitor is under 1600x1000 and will not be made larger</td></tr>
     <tr><td class="m k-remote">win64-vulkan-native</td><td>the same .exe, copied by scp to each host in <code>native-hosts</code></td><td>ssh fails, the desktop is locked, the scheduled task <code>fenestal-agent</code> is missing, or a hand was on the laptop in the last 120 s</td></tr>
   </table>
   </div>
@@ -382,7 +369,7 @@ td.c, th.c { text-align: center; }
   <table>
     <tr><th>instrument</th><th>answers</th><th>records</th></tr>
     <tr><td class="m">stress.py</td><td>Does the window behave? One round per environment, machine and GPU; exit 0, 1, or 77 when nothing ran</td><td>checks, failed, n/a and failing names; logs and pictures in <code>build/drive/</code></td></tr>
-    <tr><td class="m">pace.py</td><td>Frames presented and CPU at 0, 5, 15, 30, 45, 60 and 250 resizes a second, on the four local environments and each laptop; guests left out. A last row, <code>border</code>, is the harness holding a corner of the testbed's window and carrying it in and out</td><td><code>cells</code>: rate → [fps, cpu], and <code>border</code></td></tr>
+    <tr><td class="m">pace.py</td><td>Frames presented and CPU at 0, 5, 15, 30, 45, 60 and 250 resizes a second, on the four local environments and each laptop. A last row, <code>border</code>, is the harness holding a corner of the testbed's window and carrying it in and out</td><td><code>cells</code>: rate → [fps, cpu], and <code>border</code></td></tr>
     <tr><td class="m">status.py</td><td>What was last run where, and how many commits ago; <code>never</code> where a round is owed</td><td>nothing; it reads</td></tr>
     <tr><td class="m">tools/probe/</td><td>One-off questions on Windows: wait lateness, clock cost, thread stacks, a sampling profiler, a desktop's displays and refresh rates, a display's scale (and setting it), and a timed sleep</td><td>nothing; they print</td></tr>
     <tr><td class="m">/checkers, /capture, /shader-sync</td><td>Claude skills: the checker builds against their known baselines, a frame read correctly, struct-against-shader agreement</td><td>nothing</td></tr>
@@ -396,13 +383,11 @@ td.c, th.c { text-align: center; }
     <tr><td class="m k-host">x11-vulkan</td><td class="c">74</td><td class="c">0</td><td class="c">19</td><td class="c">0</td><td>same</td></tr>
     <tr><td class="m k-wine">win64-vulkan</td><td class="c">65</td><td class="c">0</td><td class="c">19</td><td class="c">0</td><td>same</td></tr>
     <tr><td class="m k-wine">win64-vulkan-wl</td><td class="c">38</td><td class="c">7</td><td class="c">19</td><td class="c">0</td><td>same</td></tr>
-    <tr><td class="m k-remote">win64-vulkan-vm@win10</td><td class="c">66</td><td class="c">3</td><td class="c">19</td><td class="c">0</td><td>llvmpipe (lavapipe's device)</td></tr>
-    <tr><td class="m k-remote">win64-vulkan-vm@win11</td><td class="c">66</td><td class="c">3</td><td class="c">19</td><td class="c">0</td><td>llvmpipe</td></tr>
     <tr><td class="m k-remote">win64-vulkan-native@schenker</td><td class="c">66</td><td class="c">3</td><td class="c">19</td><td class="c">0</td><td>NVIDIA GeForce GTX 1050 Ti</td></tr>
     <tr><td class="m k-remote">win64-vulkan-native@aspire</td><td class="c">63</td><td class="c">4</td><td class="c">19</td><td class="c">0</td><td>NVIDIA GeForce GTX 960M</td></tr>
   </table>
   </div>
-  <p>All at the <code>release</code> variant, without the validation layer and without captures, at commit <code>342c231</code> with a clean tree, so no line is marked dirty and <code>status.py</code> shows nothing owed, failed or behind. The ledger also keeps the day's earlier lines: the first rounds on a dirty tree, <code>win10</code> skipped while it was off, and the guests' failures while their screens followed their windows.</p>
+  <p>All at the <code>release</code> variant, without the validation layer and without captures, at commit <code>342c231</code> with a clean tree, so no line is marked dirty and <code>status.py</code> shows nothing owed, failed or behind. The ledger also keeps the day's earlier lines: the first rounds on a dirty tree.</p>
   <h3>The last pacing sweep: frames a second, and CPU</h3>
   <div class="tw">
   <table>
@@ -433,7 +418,6 @@ td.c, th.c { text-align: center; }
       <p>Under <code>~/.local/state/fenestal/</code>, so that <code>rm -rf build</code>, the only clean there is, does not lose it:</p>
       <div class="tw"><table>
         <tr><td class="m">portal-token.json</td><td>the saved portal consent</td></tr>
-        <tr><td class="m">vbox-guest</td><td>the guests' password</td></tr>
         <tr><td class="m">native-hosts</td><td>schenker, aspire; no GPUs listed after either</td></tr>
         <tr><td class="m">ledger.jsonl</td><td>163 lines, from 13 and 14 Oct 2026</td></tr>
       </table></div>
@@ -445,8 +429,7 @@ td.c, th.c { text-align: center; }
         <tr><td>Compilers</td><td class="m" style="white-space:normal">gcc 15.2.0 · mingw-w64 gcc 13-win32</td></tr>
         <tr><td>Build</td><td class="m" style="white-space:normal">CMake 4.2.3 · glslang 16.2.0 · wayland-scanner 1.24.0</td></tr>
         <tr><td>Style</td><td class="m" style="white-space:normal">clang-format and clang-tidy 21.1.8, each run once, check-only</td></tr>
-        <tr><td>Guests</td><td>both run in their own windows, two screens each, at a fixed size the window cannot change: win10 1920x1440 and 1600x1200, win11 1600x1200 twice</td></tr>
-        <tr><td>Run</td><td class="m" style="white-space:normal">wine 10.0 · VirtualBox 7.2.20 · Python 3.14.4</td></tr>
+        <tr><td>Run</td><td class="m" style="white-space:normal">wine 10.0 · Python 3.14.4</td></tr>
         <tr><td>Editing</td><td>a hook checks tabs, trailing space and 80 columns on changed lines after an edit: C, shader and CMake sources, the scripts under <code>tools/</code>, <code>build.sh</code> and <code>run_all.sh</code>. It advises and never blocks</td></tr>
       </table></div>
     </div>
@@ -464,17 +447,16 @@ td.c, th.c { text-align: center; }
     <li><span class="w">Intel's driver stall</span><span>Prevented and not explained. It was caught again with the workaround taken out, on the HD 530: none of eighty starts whose first resize came a third of a second after the window opened, and the thirty-fifth of those whose first came after four seconds. Its stacks are kept in <code>docs/intel-swapchain-stall-stacks.txt</code>: the window's thread, inside the driver's hook, and one of the driver's own wait on the same lock, while the frame's thread waits in <code>vkCreateSwapchainKHR</code>. <code>docs/intel-swapchain-stall.md</code> is the draft report, still owed a second capture, a release build of Windows, a small reproduction and a newer driver tried.</span></li>
     <li><span class="w">hybrid copy</span><span>Untested until an external output belongs to an NVIDIA device.</span></li>
   </ul>
-  <p>Known and left as it is: the skip for a guest whose screen is too small has been written and not seen. The last full round, <code>stress.py</code>, <code>minimal.py</code>, the two sanitizers on the native targets and a sweep, ran on the frame-loop change just before it was committed, so the ledger has those lines as dirty.</p>
+  <p>Known and left as it is: the last full round, <code>stress.py</code>, <code>minimal.py</code>, the two sanitizers on the native targets and a sweep, ran on the frame-loop change just before it was committed, so the ledger has those lines as dirty.</p>
   <h3>Settled: fixed in commit 7217546, or answered by a run</h3>
   <ul class="findings done">
-    <li><span class="w">ledger never written</span><span>No <code>ledger.jsonl</code> existed. <code>stress.py</code>, <code>minimal.py</code> and <code>pace.py</code> have each been run over everything they cover, none failing, and <code>status.py</code> says <code>never</code> nowhere. The <code>win10</code> guest was off for the first pass and was started for the rest.</span></li>
+    <li><span class="w">ledger never written</span><span>No <code>ledger.jsonl</code> existed. <code>stress.py</code>, <code>minimal.py</code> and <code>pace.py</code> have each been run over everything they cover, none failing, and <code>status.py</code> says <code>never</code> nowhere.</span></li>
     <li><span class="w">layering unchecked</span><span>Nothing ran <code>tools/check-layering.py</code>. <code>build.sh</code> now runs it after every build that succeeds, once for a sweep. The sweep of all thirteen trees ended with it, and the layering holds.</span></li>
     <li><span class="w">stale font, cross</span><span>The cross tree took the Wayland release bake if the directory existed. It is now held to the freshness test a native checker tree's lender passes. The sweep passed that test; the refusal itself has not been seen, since the bake was fresh.</span></li>
     <li><span class="w">laptop pacing</span><span>Both laptops present fewer than 60 frames at some resize rates. That is how the README last measured them, to within seven frames in every cell over two sweeps, so it is not a change.</span></li>
     <li><span class="w">in flight</span><span>The nine uncommitted files, a GPU as a dimension of a laptop round, were driven by every round above and then committed as <code>68717c8</code>.</span></li>
     <li><span class="w">style tools unrun</span><span>Neither clang tool was installed. Both are now, at 21.1.8, and each has had its first run, recorded in its own config file and in <code>CLAUDE.md</code> (<code>78af854</code>).</span></li>
     <li><span class="w">tidy findings unread</span><span><code>clang-tidy</code> has now run over all three trees, the Win32 one included: 66 findings past Annex K's check, every one read at its site and none a defect. They are listed by kind in <code>.clang-tidy</code>, so a finding not there is new (<code>d794b5c</code>).</span></li>
-    <li><span class="w">guest screen check</span><span>The harness asked a guest for a large enough screen but measured the whole desktop, so two monitors of 1280x960 passed it and the round then failed two size checks. It measures the monitor the round opens on now, and a machine that will not change its mode is skipped with the reason. The README says what a windowed guest needs: auto-resize off, and its display set in the guest (<code>a19f997</code>). Both guests pass on it; the skip itself has not been seen.</span></li>
     <li><span class="w">no style baseline</span><span><code>clang-format</code> parses its file and would change some 3,900 lines in 62 of 64 sources, all of it deliberate alignment, as the file's header predicted. Settled by decision: it is a reference for new code and not a check that can pass.</span></li>
     <li><span class="w">a period sooner</span><span>The frame loop had no display period before its sixtieth present, so a border taken in a window's first second was unspaced for the whole drag where the driver blocks nowhere. The spacing now borrows the mean of four early samples that agree, and the settled window's first sample replaces it. Every environment passed on it, with the sanitizers on the two native targets.</span></li>
     <li><span class="w">display scale</span><span>At 150% the default window opened larger than a 1080p panel, its corner off the screen. On Win32 the library now fits an opening window to its monitor's work area, and a round that finds no room takes the window in by its border first. The scale is set from here by <code>tools/probe/scale.c</code>, and the round passed at 100, 125, 150 and 175% on each device of both laptops; neither panel is offered 200%.</span></li>

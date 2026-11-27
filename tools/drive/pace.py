@@ -50,7 +50,7 @@ and each GPU written down for it (native_driver.py): the same program
 started on its desktop by the agent there, and the CPU figure the agent's
 account of that process. It is the one Windows column with a GPU and a
 panel under it. `win64-d3d12-native` is the same program told the other
-renderer, titled `d3d12@schenker`. The guest has neither and stays out.
+renderer, titled `d3d12@schenker`.
 
 `metal@schenker-mac` and `vulkan@schenker-mac` are the Mac's
 (mac_driver.py), taken the same way: the macos tree's program, told
@@ -286,7 +286,7 @@ def measure_native(b, variant, rate, seconds, settle, window, extra):
             time.sleep(window)
             c1, t1 = desk.cpu_seconds(), time.time()
             rc = proc.wait(timeout=seconds + 30)
-    # OSError as well: a laptop's or a guest's agent answers over a socket,
+    # OSError as well: a laptop's agent answers over a socket,
     # and a dropped connection is a socket.timeout or a reset, not the
     # RuntimeError a refusal is -- one column lost, not the sweep.
     except (Unreachable, RuntimeError, OSError,
@@ -586,8 +586,7 @@ def main():
 
     # What runs on this machine, where a cell is a process started here and
     # sampled out of /proc, and each laptop, where it is one the agent
-    # starts and samples. Not the guest: a frame rate from a machine that
-    # rasterises on its CPU is no figure about the library.
+    # starts and samples.
     import functools
     # (the place as a round names it, the column's title, the cell). A
     # laptop's column is titled from the @ on: a machine and a device are

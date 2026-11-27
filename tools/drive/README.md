@@ -3,7 +3,7 @@
 Everything under `tools/drive/` drives a real window on a real desktop: the
 round (`stress.py`), the pace instrument (`pace.py`), the benchmark
 (`bench.py`), the signal and selftest rounds, and the ways into a
-VirtualBox guest, a Windows laptop, a Mac and a Linux machine with no
+Windows laptop, a Mac and a Linux machine with no
 desktop. The library's own DESIGN is the spec; this is how the measurements
 in it are taken, and what the harness has had to learn about the desks it
 runs on. What the harness found about the *library* on Windows itself -- the
@@ -104,8 +104,7 @@ renderer of its system in each program -- `win64` Direct3D 12 and Vulkan,
 library takes the first renderer of its system's order and steps down on
 a failure, so a round of one renderer under another's name would pass for
 it. Every environment is told its renderer (`RENDERER` in
-`environment.py`): over the bare machine's ssh, by the guests' guest
-control, by the laptop's agent and by the Mac's ssh, as `VK_*` and
+`environment.py`): over the bare machine's ssh, by the laptop's agent and by the Mac's ssh, as `VK_*` and
 `FNL_GPU` reach each. The variable is never inherited from the harness's
 own environment, here or forwarded to a machine. The round's next check,
 after the backend's, is that the program's log says it drew with what it
@@ -148,7 +147,7 @@ python3 tools/drive/pace.py --rates 0,15,60 --seconds 8
 `bench.py` is the other half: `fenestal-testbed`'s benchmark mode, a frame
 with an application in it, measured under options every one of which the
 record names (DESIGN *Benchmarking*). It runs where a round runs -- this
-desk's environments, the bare machines', the Windows guests' and laptops'
+desk's environments, the bare machines', the Windows laptops'
 and the Mac's, whose agents relay the program's stderr home -- and keeps
 each `fenestal-bench/1` record in the state directory's `bench/`, with the
 tree's commit written into it; `tools/bench/report.py` makes the tables,
@@ -236,175 +235,30 @@ Xorg on another machine, over a socket that module forwarded itself: no
 portal there, and never `$DISPLAY`.
 
 **The Win32 build is driven a second time, on Windows itself.** Wine is not
-Windows, so `win64-vulkan-vm` runs the same `win64` binary in a
-VirtualBox guest and puts the same round to it. It is an environment and
-not a build: `Win32VM` in `environment.py` declares what can be asked, and
-`vbox_driver.py` is the three ways in. Input is the machine's own emulated
-keyboard and mouse, through VirtualBox's API — scancodes and pointer reports,
-so everything from the Windows input stack upwards is the real one, and nothing
-passes through this desktop or its portal. The program is started by guest
-control, and the `VBoxManage` that runs it *is* the process under test as far
-as `testbed.py` can tell: its stderr is the echo and it ends when the program
-does. What only that desktop knows — the rectangle, the foreground window, the
-monitor, the pointer, the clipboard — is answered by `windows_agent.ps1`, which
-the harness copies in and which connects *out* to it, because the guest reaches
-the host's loopback as `10.0.2.2` with one setting on the machine and nothing
-in the guest, and the other direction is a forwarding rule and a firewall
-rule.
+Windows, so `win64-vulkan-native` runs the same `win64` binary on a Windows
+laptop and puts the same round to it (below). What only that desktop knows --
+the rectangle, the foreground window, the monitor, the pointer, the clipboard
+-- is answered by `windows_agent.ps1`, which the harness copies in and which
+connects *out* to it, because Windows' firewall lets a connection out unasked.
 
 The pointer is placed by absolute reports, which is exact, and a captured one
-is moved by the emulated mouse's relative report, because the library reads a
-captured pointer from raw input and raw input counts only device motion. The
-clipboard's other program is the agent and not `xclip`, which is on the wrong
-desktop; an environment says which program that is (`clipboard_put()`,
-`clipboard_get()`).
+is moved by a relative report, because the library reads a captured pointer
+from raw input and raw input counts only device motion. The clipboard's other
+program is the agent and not `xclip`, which is on the wrong desktop; an
+environment says which program that is (`clipboard_put()`, `clipboard_get()`).
 
-*What it is not* is a second opinion on the GPU. A VirtualBox guest has no
-Vulkan device, so the frame is rasterised on the CPU by Mesa's lavapipe, FIFO
-is the only present mode, and `pace.py` leaves the machine out: a frame rate
-from there is no figure about this library. It needs, once: the Guest
-Additions; the Vulkan Runtime, for `vulkan-1.dll`; lavapipe from a Mesa build
-for Windows, its `vulkan_lvp.dll` and `lvp_icd.x86_64.json` in
-`C:\fenestal\lavapipe` (Direct3D 12 draws on WARP, which is Windows'
-own); the guest's user logged in to a desktop; that user's password in
-`~/.local/state/fenestal/vbox-guest` (mode 600), beside the portal's
-token; and the machine's NAT showing the
-guest this host's loopback, which a newly made machine's does not —
-`VBoxManage modifyvm <vm> --nat-localhostreachable1 on`, with it powered off.
-Without that the agent's connection is dropped rather than refused, and the
-harness names the setting instead of waiting. A guest shown in a window wants
-two things more, or a round is at the mercy of that window:
-`GUI/AutoresizeGuest` set to `false` in the machine's extra data, so that the
-size of the window is not the size of the guest's screen, and the guest's own
-display setting at 1600x1000 or more for the monitor a round opens on
-(`SCREEN` in `environment.py`); scaled mode (`GUI/Scale`) then lets the window
-be any size. The harness asks the machine for the mode where it will give one,
-and where it will not the machine is a skipped environment that says so. It
-measures the monitor and not the desktop: two monitors of 1280x960 are 2560
-across and no room at all, which is how a round came to run on one and fail
-two checks of size. With auto-resize on, a window resized under a round fails
-the round wherever it had got to; and a pointer over a guest's window is a
-second mouse in the guest either way. The driver is named to the
-loader by `VK_DRIVER_FILES` at each launch and not by the registry: the loader
-looks for one under `HKLM` alone, and guest control is not an administrator.
-`FNL_DRIVE_VM` names the machines, commas between them (default
-`win10,win11`), and `FNL_DRIVE_VM_USER` the account; a round drives each in
-turn, as `win64-vulkan-vm@win10` and `win64-vulkan-vm@win11`, and one name
-there is one machine. The password file is shared, and a machine with a
-password of its own keeps it in `vbox-guest-<vm>` beside it. Without any of
-them the environment is skipped with the reason, a machine at a time. A round
-asks the machine for a 1600x1000 screen (`SCREEN`) if it has less — the
-drags need the room — and leaves it so.
-
-Two machines have been put through it, Windows 10 and Windows 11. Both have
-two monitors, which is what the move between outputs needs: the list of them
-is the guest's (`mons`, from the agent) and not this desktop's, and a guest
-with one skips that section. On either the round is 69 checks with
-`--capture` and 66 without, none failed. Six of those are the dead key's;
-before them, on Windows 10 with one monitor, it was 60 and 57. Windows 11
-once stopped 32 checks in, now and then -- no window found, reading
-1444x5, Windows in a size loop after F9 -- in two of three runs at
-d25547c; at 9776751 three rounds in a row ran their 69 clean, so it is not
-looked for any more, and a repeat is read against that.
-
-**Starting them: `vbox_up.py`.** From a cold start a guest came up with
-its second monitor in one start of two, and with that screen's window on
-this desktop unmapped; a warm reboot kept both. So a guest is started by
-`tools/drive/vbox_up.py`: with its window, waited for until its user is on,
-`GUI/LastVisibilityStatusForGuestScreen1` set (what the VirtualBox window
-reads to open the second screen's window at all; `win10` lacked it), the
-second monitor connected through the screen layout when Windows shows one,
-which maps the window too, and then `vbox_tile.py`: the four windows on the
-primary monitor's work area -- mutter's per-monitor one, which knows the
-dock -- a machine a row, first screen left, its second right against it, no
-two overlapping. The windows are scaled, and VirtualBox stretches a guest's
-screen to its window, so each takes its screen's aspect and all four are as
-tall as a row allows. The positions go into each machine's
-`GUI/LastScaleWindowPosition<n>` as well, and a cold start opens the
-windows there; each screen's measured size goes into
-`fenestal/GuestScreenSize<n>`, so a machine that is off is laid out by
-what it last showed.
-
-Windows showing two monitors is not the second window showing. After a cold
-start VirtualBox has left that window withdrawn while the guest had the
-screen on, "2 monitor(s) at logon" and no window, about one start in ten.
-Nothing from outside brings it back: not the layout sent again, not the
-screen turned off and on, not the visibility key set while it runs, and a
-window mapped from here is held minimised by mutter in a frame it never
-fills. A reboot does -- `vbox_down.py`'s shutdown and a start, whose new
-window process opens a window for every screen -- and `vbox_up.py` checks
-every screen's window for being mapped and drawn and reboots a machine with
-one that is not. Saving the state and restoring it opens the windows as
-well, with no boot, and is not used: a win11 restored that way refused the
-foreground to every program started on it afterwards, each round stopping
-at its first focus check, until it was rebooted. It also holds the windows
-in place while a guest boots: Windows turns its second screen off and on then,
-VirtualBox hides that window, moves it 37 to 150 px up while hidden and shows
-it there, and `vbox_up.py` moves it back within a fifth of a second. A window
-not yet shown is left alone; moved while VirtualBox is setting it up, it opened
-3000 px off. The place it holds them to is the tiler's own key,
-`fenestal/WindowPosition<n>`, copied into VirtualBox's before every start:
-VirtualBox rewrites its key on each close with wherever the window was, and a
-window left out of place one round was held there the next. The logon property
-is cleared before a start too, since one left from the last session reads as a
-logon at once.
-
-**Stopping them: `vbox_down.py`.** `shutdown.exe /s /t 0` by guest control
-as the guest's user, waited on so that a refusal is an exit code -- no
-argv[0] after `--`, which guest control does not take. The ACPI button is
-the fallback only: win11 left it unanswered on an idle desktop for five
-minutes. Done is powered off *and* the window's `VirtualBoxVM` process
-gone; the state says `poweroff` a few seconds before that process lets go
-of the session, and a `startvm` in between is refused as locked. A machine
-that will not stop is reported, never powered off. `--reboot` runs
-`vbox_up.py` after.
-
-A second monitor is `VBoxManage modifyvm <vm> --monitorcount 2` with the
-machine off, and Windows 10 then brings it up at 1024x768, which the round's
-1280x754 window does not fit. The machine could not be talked out of that:
-`setvideomodehint` for the second screen changed nothing, and neither did
-`GUI/LastGuestSizeHint1` and `GUI/LastNormalWindowPosition1` set before a
-start, which the window's own size overwrote. Asked from inside the guest it
-took at once — `ChangeDisplaySettingsEx` on `\\.\DISPLAY2` for 1600x1200, with
-`CDS_UPDATEREGISTRY` — and the round's move was to that: the window went from
-`DISPLAY1` to `DISPLAY2`, its output from 1920x1400 to 1600x1160, and both
-came back. The mode outlasts a restart of the guest: shut down and started
-again, Windows reports `DISPLAY2` at 1600x1200 with nothing asked of it, and
-the machine's `GUI/LastGuestSizeHint1` says the same.
-
-Not every time, though: both guests, started for a full round, came up on one
-monitor, and the round skipped its move between outputs with "one monitor on
-this desktop". So a guest round now makes the machine show two before it
-starts (`want_monitors()` in `vbox_driver.py`, `MONITORS` on the environment):
-`controlvm setscreenlayout` with every screen named, the first as it is and
-the second right of it at 1600x1200, which is what the window's *Virtual
-Screen 2* menu does and which Windows shows within half a second. Naming the
-second screen alone is refused as an invalid argument; `setvideomodehint`
-with `enabled` and `DisplaySwitch /extend` from inside the guest were tried
-on a guest showing one and changed nothing. And `DisplaySwitch` is worse than
-nothing on Windows 10: it opens the *Project* pane, which holds the foreground
-until it is dismissed, and every round meanwhile fails "the window took the
-input focus" -- a testbed opened under it never gets the keyboard, the agent's
-Alt-key route included. Escape at the guest's keyboard closes it. A machine
-that still shows one
-is a skipped environment that says so. A laptop's monitors are what is plugged
-into it, and nothing is asked of them.
-
-**And on a laptop, which is the one with a GPU.** `win64-vulkan-native` is
-the guest's environment with another way in, for a Windows machine that is not
-VirtualBox's: no emulated devices to move and no guest control to start a
-program with. So the agent does both. `Win32Native` in `environment.py` inherits
-everything `Win32VM` does with an answer, `windows_driver.Desk` is the asking
-the two machines share, and `native_driver.py` is what is the laptop's alone.
-Input is the agent's `SendInput` — scancodes, absolute moves over the virtual
-desktop, and relative ones for a captured pointer — which enters above the
-device drivers: Windows marks the events injected and then delivers them as
-it would a hand's, but nothing below that is exercised, and the guest's
-emulated keyboard stays the nearer of the two to a real one. The program is
+**And on a laptop, which is the one with a GPU.** `win64-vulkan-native` is a
+Windows machine reached over ssh: the agent starts the program and sends the
+input. `Win32Native` in `environment.py` inherits what `WindowsAgent` does
+with an answer, `windows_driver.Desk` is the asking, and `native_driver.py` is
+the way in. Input is the agent's `SendInput` -- scancodes, absolute moves over
+the virtual desktop, and relative ones for a captured pointer -- which enters
+above the device drivers: Windows marks the events injected and then delivers
+them as it would a hand's, but nothing below that is exercised. The program is
 the agent's child, started on the desktop because the agent is on it; a
 program started from an ssh session has no desktop to open a window on. Its
 stderr comes back to `native_relay.py`, which is the process under test as
-far as `testbed.py` can tell, as the `VBoxManage` is for the guest.
+far as `testbed.py` can tell.
 
 ssh is the way there and the way home. One connection is held for the round;
 every copy and command is multiplexed over it, and it forwards two of the
@@ -421,7 +275,7 @@ has each as a command. `FNL_DRIVE_NATIVE` names the machines as
 `win64-vulkan-native@<name>`; GPUs go after a name as they do in the file,
 and one named without any takes the file's. With that unset they are the
 lines of `~/.local/state/fenestal/native-hosts`, so a bare round drives the
-laptop as it drives the guests. A laptop that is on its live key instead is
+laptop. A laptop that is on its live key instead is
 brought to Windows and back by `power.py boot <name> windows|stick`, which
 sets the firmware's next boot for one boot only (efibootmgr from the key,
 `bcdedit {fwbootmgr} bootsequence` from Windows) and waits for the system
@@ -461,11 +315,10 @@ default window at 125% is 1600x943 of the panel's 1080 rows, so the resize
 drag first moves the window back towards the monitor's origin and is cut to
 the room that leaves (`room_to_grow()`), which changes nothing where there was
 room. With those changes in, and the agent both Windows machines run grown for
-the laptop, the other rounds are where they were (2026-10-13): the two guests
-69 with captures, X11 74, wine 65, wine on Wayland 41, Wayland 56, none
-failed. Wayland's picture of the bar straight after fullscreen was once of a
-window 1321 pixels wide where 1278 was wanted — the compositor's animation,
-with four guest windows on the desk beside it — so that check now looks again
+the laptop, the other rounds are where they were (2026-10-13): X11 74, wine
+65, wine on Wayland 41, Wayland 56, none failed. Wayland's picture of the bar
+straight after fullscreen was once of a window 1321 pixels wide where 1278 was wanted — the compositor's animation,
+with other windows on the desk beside it — so that check now looks again
 before it fails. The hand check was put to a pointer moved on the laptop by
 something other than the agent, and the round was skipped five seconds later.
 
@@ -485,7 +338,8 @@ validated nothing. With it loaded, sync and best-practices on, the round is
 against a Windows driver, NVIDIA's 582.78 with Intel's 31.0.101.2145 on the
 panel. `pace.py` has a column for each laptop, the program started by the
 agent and its processor time the agent's account of it.
-`tools/probe/native_run.py` is `guest_run.py` for the laptop.
+`tools/probe/native_run.py` runs one program on the laptop and prints what
+it says.
 
 **A laptop's GPUs are part of what a round is called.** After a machine's
 name in `native-hosts` go the devices a round is run on there, each by a
@@ -496,7 +350,7 @@ bare round is then `win64-vulkan-native@schenker:intel` and
 so that `status.py` knows what a laptop is owed while it is off; a machine
 with none written gets one round on the device the library picks. A target
 on the command line is an environment and as much of `@machine:device` as
-narrows it, for the guests' names as well. `FNL_GPU` in the environment is
+narrows it. `FNL_GPU` in the environment is
 still one device for one run, whatever is written, and a round on a laptop
 says which device its program is on and stops if that is not the one
 named. Once for each of the two, on the build that has the name
@@ -509,7 +363,7 @@ named. Once for each of the two, on the build that has the name
 
 **A Windows machine's monitor is a variable of its own.**
 `FNL_DRIVE_WIN_OUTPUT=DISPLAY2` runs a round, a sweep or `pace.py` on that
-monitor of a guest or a laptop, by the name Windows gives it there, which the
+monitor of a laptop, by the name Windows gives it there, which the
 round's first lines print; unset, the window opens where Windows puts it, on
 the primary. `FNL_DRIVE_OUTPUT` names an output of this desktop and
 `FNL_DRIVE_BARE_OUTPUT` and `FNL_DRIVE_MAC_OUTPUT` one of those machines', so
@@ -539,7 +393,7 @@ the period estimate's, which waits on the fence for it, and DESIGN
 past the panel. The same program at 250 on the Intel device ended on time
 when it was run again by itself. The bare round on the build with the
 name, captures on (2026-10-13): Wayland 56, X11 74, wine 65, wine on
-Wayland 41, the two guests 69 each and the laptop 66, none failed.
+Wayland 41 and the laptop 66, none failed.
 
 **A second laptop, and what it changed.** An Acer Aspire VN7-792G: the
 same Windows build, an HD 530 on a 1920x1080 panel at 60 Hz and 100%, a
@@ -785,7 +639,7 @@ allocations reported as leaks from an unknown module; under TSan
 device thread. asan, tsan and gc are 62 checks each, none failed, under the
 validation layer.
 
-A bare round drives the machine as it drives the guests and the laptops, and
+A bare round drives the machine as it drives the laptops, and
 asks first as a laptop is asked: a console login there with a key pressed in
 the last two minutes (`FNL_DRIVE_BARE_BUSY`) makes it a skipped environment,
 since a round takes the panel to VT 7. Read off the tty, not the X server,
@@ -939,15 +793,14 @@ the prefix, and `Graphics=wayland` was not needed. Which of the two a window
 is on is something the program can say: `fnl_window_host()` answers from the
 display driver the process has loaded, and the testbed's status readout shows it
 beside the platform — "Vulkan on Win32 (wine on Wayland)" and "(wine on X11)"
-under the two launches, and the bare "Vulkan on Win32" in the Windows 10
-guest, each read off a capture.
+under the two launches, and the bare "Vulkan on Win32" on Windows, each read off a
+capture.
 
 The environment is the native Wayland one with a different program
 (`Win32Wayland` in `environment.py`): the focus from the echo, a picture from
 the portal, and no server to ask where anything is. It is in the round like the
 rest: 41 checks with `--capture`, none failed and four not applicable, in a
-round of six — 56, 74 and 65 on Wayland, X11 and wine on X11, and 69 in each
-guest — that took 371 s. What it has shown:
+round of six — 56, 74 and 65 on Wayland, X11 and wine on X11 — that took 371 s. What it has shown:
 
 - **The bar and the edges report no motion**, as under wine on X11: they
   are non-client area. There the X server says where the pointer is; here
@@ -978,7 +831,7 @@ guest — that took 371 s. What it has shown:
   maximize under wine. With that the round goes on through the restore, the
   pointer's capture, the keys and the typing to its end, and the other five
   rounds are what they were (2026-10-12) — 47, 69 and 57 checks on Wayland, X11
-  and wine on X11, and 66 in each guest, none failed. Whether a hand on a mouse
+  and wine on X11, none failed. Whether a hand on a mouse
   is held as the portal's pointer was has not been tried.
 - **This wine's Wayland driver has no clipboard.** A copy in the window did
   not reach `xclip`, which still held what the harness last put there, and a
@@ -1069,84 +922,6 @@ path to its directory or `bin/`. A named wine gets a prefix of its own
 beside the machine's, since a wine 11 will not open a prefix a wine 10
 made. `tools/probe/keytwice.c`, with `keytwice.py`
 to type into it, is a window that prints every key message wine sends it.
-
-**What the guest's frame costs is set by its desktop, not by the window.**
-Measured with the testbed at 1280x720, four rasteriser threads, 59 half-second
-samples a run and nothing changed but the guest's screen: 15.4 ms a frame
-(65 fps) on a 2394x1240 desktop, 33.9 and 33.4 ms (30 fps) on a 3773x2013 one.
-The window is no larger in the second; the 18 ms is the guest compositing its
-whole desktop and handing it to the host for each present. A machine left
-maximised on a 4K screen therefore reads as a library that cannot hold 30 fps.
-The machine's paravirtualisation provider matters to the guest's clock and not
-visibly to this figure: under `kvm`, which a Windows guest cannot use, a
-timestamp read cost 840 ns and `QueryPerformanceCounter` 2.2 µs on a 3.58 MHz
-clock; under `hyperv`, 13 ns and 27 ns at 10 MHz — and the frame on the large
-desktop was 31–33 ms before and is 33–34 ms after. `tools/probe/` holds what
-those were measured with. A Windows 11 guest under `hyperv` with large pages
-on reads the same clock (`vmcost.c`): 8 ns a timestamp and 15 ns a
-`QueryPerformanceCounter` at 10 MHz, 527 ns an empty system call, and 45 µs
-for an event handed to another thread and back. The two laptops, for what
-the guest's figures are a guest's: 14 and 15 ns a `QueryPerformanceCounter`
-at the same 10 MHz, 7 and 8 ns a timestamp, 561 and 957 ns the system
-call, and 7.5 and 13.9 µs the hand-off — a sixth and a third of the
-guest's, which is the one figure of the five that virtualisation costs.
-
-`pace.py`'s sweep put to the guest (`tools/probe/guest_pace.py`), for what a
-software device does with the instrument: an empty scene, 12 s a cell, the
-2394x1280 desktop, two sweeps (2026-10-12).
-
-| sizes/s | frames presented | a frame |
-|---|---|---|
-| idle | 122, 125 fps | 8.2 ms |
-| 5 | 199, 209 | 5.0 |
-| 15 | 166, 170 | 6.1 |
-| 30 | 138, 137 | 7.3 |
-| 45 | 119, 124 | 8.5 |
-| 60 | 98, 94 | 10.2 |
-| 250 | 77, 76 | 13.2 |
-
-None of it is a pacing figure. lavapipe's present waits for no display and the
-hold and the spacing are off on a software device (DESIGN *Late latching*), so
-the loop runs flat out and the column falls as the rebuilds rise, each one CPU
-work. On the 3773x2013 desktop, and under the `kvm` provider, the same sweep
-read about half throughout: 57 fps idle, 113 at five, 32 at 250.
-
-**Idle reads slower than five sizes a second, and it is the window's size.**
-`pace` opens at 1280x720 and asks for 900 to 1099 by 620, so the idle cell
-draws half as many pixels again as any other, and on a software device a
-pixel is CPU time. Idle *at the driven size* — one request and then nothing,
-`pace 0.1` — is the floor the rest wants reading against there
-(2026-10-12):
-
-| | Windows 10 | Windows 11 |
-|---|---|---|
-| idle, 1280x720 | 130, 120 fps | 137, 129 |
-| idle, 900x620 | 244, 236 | 278, 272 |
-| 5 sizes/s | 232 | 219 |
-
-Two runs a cell and one at five, on the guests' two-monitor desktops
-(3520x1440 and 3200x1200), so the figures are not the tables' and only the
-order within a column is the point. With a display to wait for the size of
-an empty window is not what a frame costs, which is why `pace.py`'s idle
-column shows none of this on the environments with a display.
-
-The Windows 11 guest, two sweeps (2026-10-12), on one 2400x1280 monitor so
-that it can be set against the table above:
-
-| sizes/s | frames presented | a frame |
-|---|---|---|
-| idle | 131, 133 fps | 7.6 ms |
-| 5 | 218, 218 | 4.6 |
-| 15 | 211, 216 | 4.7 |
-| 30 | 159, 167 | 6.2 |
-| 45 | 143, 130 | 7.5 |
-| 60 | 83, 93 | 11.5 |
-| 250 | 58, 56 | 17.6 |
-
-Faster than Windows 10 up to 45 sizes a second and slower from 60. On its
-two 1600x1200
-monitors side by side, a desktop a third larger, one sweep read 162 fps idle,
-225 at five and 68 at 250.
 
 **The portal types into the desktop, not into a window**, and the harness
 asks before every key. A key goes to whatever the compositor holds focused,

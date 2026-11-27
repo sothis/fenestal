@@ -82,7 +82,7 @@ def device(lines):
     one line of inventory that line is the answer, and with several and no
     name there is none to give. Read up to OPENED alone: past it a `GPU in
     use` line is a move's, which a round opened on the only device its
-    renderer has -- lavapipe in the guests -- would otherwise record as
+    renderer has would otherwise record as
     its own."""
     listed, gap = [], False
     for line in lines:

@@ -5,11 +5,11 @@
     python3 native_relay.py <port>
 
 testbed.py wants a process whose stderr is the program's and which ends when
-the program does. On a VirtualBox guest that is the VBoxManage that runs it.
-A laptop has no such thing: its program is started by the agent on its
-desktop (windows_agent.ps1, `run`), which then calls here -- through the
-loopback port native_driver.py's ssh forwards -- and sends what the program
-writes. This copies it to stderr and leaves with the program's exit code.
+the program does. A laptop has no such process here: its program is started
+by the agent on its desktop (windows_agent.ps1, `run`), which then calls
+here -- through the loopback port native_driver.py's ssh forwards -- and sends
+what the program writes. This copies it to stderr and leaves with the
+program's exit code.
 
 Its own file, and nothing imported that is not in the box: it has to be
 listening a moment after it is started, which is when the agent first tries.

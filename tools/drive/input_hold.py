@@ -15,7 +15,7 @@ Linux, this desktop and the bare machines: this file, run as root by ssh
 compositor nor the X server reads it. What the harness sends is never one
 of them: on this desktop it enters through the RemoteDesktop portal, into
 the compositor; on a bare machine through uinput devices, which are
-virtual and passed over; a guest's through VirtualBox. The grabs go with
+virtual and passed over. The grabs go with
 the process, which ends when its standard input does -- the harness's
 pipe, closed at the round's end or by the harness's own end, or the ssh
 connection's -- and after a time limit in any case.
