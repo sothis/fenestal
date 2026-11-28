@@ -32,6 +32,19 @@ if(APPLE)
     set(CMAKE_OBJC_STANDARD 11)
     set(CMAKE_OBJC_STANDARD_REQUIRED ON)
 endif()
+
+# The ARM Linux cross build's Wayland, xcb and Vulkan headers are the host's
+# (DESIGN *Cross-compiling for ARM Linux*), and CMake passes /usr/include
+# with -isystem, ahead of the target's own glibc. Ubuntu's cross gcc searches
+# /usr/include after its glibc, so the order costs nothing there; Arch's does
+# not search it at all, and <stdint.h> would come from the host's. Find the
+# host's headers after the target's instead, as Ubuntu's order does.
+if(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES /usr/include)
+    list(APPEND CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES /usr/include)
+    add_compile_options(-idirafter /usr/include)
+endif()
+
 # Every Windows target of this directory and below -- the demos too, when
 # this tree adds them; a demo configured on its own compiles its own
 # sources without them, and none needs them. Here and not as the
@@ -1235,6 +1248,10 @@ if(vulkan IN_LIST FNL_RENDERERS)
     foreach(_d ${_vk_inc})
         if(MSVC)
             list(APPEND _hc_inc /I${_d})
+        elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            # The host's directory, which -I would put ahead of the target's
+            # glibc; the check gets none of the targets' compile options.
+            list(APPEND _hc_inc -idirafter ${_d})
         else()
             list(APPEND _hc_inc -I${_d})
         endif()
