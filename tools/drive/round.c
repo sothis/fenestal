@@ -625,7 +625,7 @@ static long remote_start(const char *host, const char *dir,
 	str_addf(&cmd, "FNL_MCP=1 FNL_BACKEND=%s FNL_RENDERER=%s "
 				   "FNL_ECHO_EVENTS=1 FNL_GPU_RANK=off ",
 			 backend, renderer);
-	if (strcmp(variant, "release"))
+	if (strcmp(variant, "release") != 0)
 		str_adds(&cmd, "FNL_VK_VALIDATION=1 ");
 	/* Standard input too, or the program holds the ssh channel's open and
 	 * the channel outlives the command that started it. */
@@ -762,19 +762,22 @@ static void state_read(State *st, const char *json)
 	st->validation  = json_bool_at(st->raw, "validation", false);
 	/* The arrays' first numbers, which is what this program reads of them:
 	 * the window's width and height, and the content rectangle's. */
+	/* A conversion that did not happen leaves what was read before it: a
+	 * short array is a port that answered something else, which the checks
+	 * then say rather than reading a stale number as a fresh one. */
 	const char *w = strstr(st->raw, "\"window_pt\":[");
-	if (w)
-		sscanf(w + strlen("\"window_pt\":["), "%lf,%lf", &st->window_w,
-			   &st->window_h);
+	if (w && sscanf(w + strlen("\"window_pt\":["), "%lf,%lf", &st->window_w,
+					&st->window_h) != 2)
+		st->window_w = st->window_h = 0;
 	const char *c = strstr(st->raw, "\"content_rect_pt\":[");
-	if (c)
-		sscanf(c + strlen("\"content_rect_pt\":["), "%lf,%lf,%lf,%lf",
-			   &st->content_x, &st->content_y, &st->content_w,
-			   &st->content_h);
+	if (c && sscanf(c + strlen("\"content_rect_pt\":["), "%lf,%lf,%lf,%lf",
+					&st->content_x, &st->content_y, &st->content_w,
+					&st->content_h) != 4)
+		st->content_x = st->content_y = st->content_w = st->content_h = 0;
 	const char *p = strstr(st->raw, "\"content_px\":[");
-	if (p)
-		sscanf(p + strlen("\"content_px\":["), "%lf,%lf", &st->width,
-			   &st->height);
+	if (p && sscanf(p + strlen("\"content_px\":["), "%lf,%lf", &st->width,
+					&st->height) != 2)
+		st->width = st->height = 0;
 	Str t = { 0 };
 	if (json_str_at(st->raw, "title", &t))
 		snprintf(st->title, sizeof st->title, "%s", t.p ? t.p : "");
@@ -904,9 +907,9 @@ static int controls_get(Port *p, Ctl *out, int max)
 			snprintf(c.label, sizeof c.label, "%s", v.p ? v.p : "");
 		str_free(&v);
 		const char *r = strstr(at, "\"rect_pt\":[");
-		if (r)
-			sscanf(r + strlen("\"rect_pt\":["), "%lf,%lf,%lf,%lf", &c.x,
-				   &c.y, &c.w, &c.h);
+		if (r && sscanf(r + strlen("\"rect_pt\":["), "%lf,%lf,%lf,%lf",
+						&c.x, &c.y, &c.w, &c.h) != 4)
+			c.w = c.h = 0;
 		c.enabled = json_bool_at(at, "enabled", true);
 		c.on      = json_bool_at(at, "on", false);
 		out[n++]  = c;
@@ -1063,7 +1066,7 @@ static void section_titlebar(Port *p)
 			sleep_s(0.3);
 			State st;
 			state_read(&st, state_json());
-			if (strcmp(st.antialias, ECHO[k]))
+			if (strcmp(st.antialias, ECHO[k]) != 0)
 				all = false;
 		}
 		check("each row is a pick the state follows", all, "");
@@ -1382,7 +1385,7 @@ static void section_output(Port *p, const char *backend)
 	}
 	const char *other = NULL;
 	for (int i = 0; i < n; i++)
-		if (strcmp(names[i], cur))
+		if (strcmp(names[i], cur) != 0)
 			other = names[i];
 	check("another output to move to", other != NULL, cur);
 	if (!other)
@@ -1418,8 +1421,8 @@ static void section_output(Port *p, const char *backend)
 static void section_faults(Port *p, Prog *pr, const char *variant)
 {
 	/* The tool is in a Debug tree's port alone. */
-	if (strcmp(variant, "asan") && strcmp(variant, "tsan") &&
-		strcmp(variant, "gc"))
+	if (strcmp(variant, "asan") != 0 && strcmp(variant, "tsan") != 0 &&
+		strcmp(variant, "gc") != 0)
 		return;
 	section("faults");
 	g_port = p;
