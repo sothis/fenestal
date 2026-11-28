@@ -12144,6 +12144,10 @@ has them; and a click that is not a double-click waits out
 `DECO_DBLCLICK_MS` *before* pressing, which is why two `click` calls are two
 clicks where a hand's two would be one.
 
+`bench` (`tools/drive/benchc.c`) brings one environment's benchmark record
+home the same way: the testbed emits it on stderr between two markers, and
+the tool writes it where the reports read them.
+
 `pace` (`tools/drive/pacers.c`) is the same seam used for a measurement: the
 program drives itself, and the port answers what it presented and what it
 took of the CPU -- the two figures `pace.py` reads out of a second

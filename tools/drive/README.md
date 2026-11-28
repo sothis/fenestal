@@ -25,6 +25,16 @@ FAIL for nineteen things; it is not part of `stress.py`, whose environments
 it does not start. What it found and where it has passed is DESIGN *Driven
 from inside*; TODO *The MCP port* has what is owed.
 
+## A benchmark run, brought home
+
+`build/linux/<variant>/bench [--seconds 20] [--label name] [--out dir]
+[--] [--bench-<key>=<value> ...]` runs the testbed's benchmark mode with
+`--bench-emit`, so the record arrives on stderr between its two marker
+lines, writes each record where `tools/bench/report.py` reads them (the
+state directory's `bench/`, checked by `tools/bench/check.py` as the Python
+does), and keeps the program's log beside it. One environment a run, with
+whatever `--bench-*` options are passed after `--`.
+
 ## Pacing, read through the port
 
 `build/linux/<variant>/pace [--rates 0,60,250] [--seconds 12] [--settle 4]`
