@@ -2310,12 +2310,18 @@ target_compile_options(fenestal_dev PRIVATE ${FNL_WARNINGS} ${FNL_PREFIX_MAP})
 # on Windows yet: the socket and the fork are POSIX's, and the Windows round is
 # still tools/drive/mcp_round.py's.
 if(NOT WIN32)
-    add_executable(round tools/drive/round.c)
+    set(_drive_tools round pace)
+    add_executable(round tools/drive/round.c tools/drive/mcp_client.c)
+    # pace: one cell of the pacing measurement, read through the port
+    # (tools/drive/pace.c) -- where pace.py sweeps the whole matrix.
+    add_executable(pace tools/drive/pacers.c tools/drive/mcp_client.c)
     target_compile_options(round PRIVATE ${FNL_WARNINGS} ${FNL_PREFIX_MAP})
     if(FNL_HAS_NO_SANITIZE)
-        # It runs during a round, not inside the program under test.
-        target_compile_options(round PRIVATE -fno-sanitize=all)
-        target_link_options(round PRIVATE -fno-sanitize=all)
+        # They run during a round, not inside the program under test.
+        foreach(_t ${_drive_tools})
+            target_compile_options(${_t} PRIVATE -fno-sanitize=all)
+            target_link_options(${_t} PRIVATE -fno-sanitize=all)
+        endforeach()
     endif()
 endif()
 

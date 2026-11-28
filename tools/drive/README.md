@@ -25,6 +25,14 @@ FAIL for nineteen things; it is not part of `stress.py`, whose environments
 it does not start. What it found and where it has passed is DESIGN *Driven
 from inside*; TODO *The MCP port* has what is owed.
 
+## Pacing, read through the port
+
+`build/linux/<variant>/pace [--rates 0,60,250] [--seconds 12] [--settle 4]`
+runs `fenestal-dev pace` for each rate and asks the window itself what it
+did: `state` for the frames it presented a second, `process` for the share
+of one core it took. One cell of `pace.py`'s matrix, in the environment it
+is run in, with no `/proc` of another program.
+
 ## A round through the port, in C
 
 `build/linux/<variant>/round [--variant v] [--backend x11|wayland]

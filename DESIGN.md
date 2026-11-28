@@ -12144,6 +12144,11 @@ has them; and a click that is not a double-click waits out
 `DECO_DBLCLICK_MS` *before* pressing, which is why two `click` calls are two
 clicks where a hand's two would be one.
 
+`pace` (`tools/drive/pacers.c`) is the same seam used for a measurement: the
+program drives itself, and the port answers what it presented and what it
+took of the CPU -- the two figures `pace.py` reads out of a second
+program's `/proc`. One cell a run, in the environment it is started in.
+
 Its port is a unix socket here, or a command that speaks the framing on its
 standard input and output: `--command "ssh host <dir>/fenestal-mcp <socket>"`
 reaches a window nothing here can connect to, and `--ssh host --remote-dir
