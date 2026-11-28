@@ -2147,6 +2147,10 @@ static const struct {
 };
 #define TOOL_COUNT (sizeof TOOLS / sizeof TOOLS[0])
 
+/* The most windows one program's ports may serve: the default path's first
+ * window and the eight numbered after it. */
+#define MCP_WINDOWS_MAX 9
+
 /* ---- JSON-RPC ------------------------------------------------------------ */
 
 static bool send_all(Mcp *m, Sock fd, const char *p, size_t n)
@@ -2631,7 +2635,15 @@ void mcp_open(App *a)
 	m->addr.sun_family = AF_UNIX;
 	char *path = m->addr.sun_path;
 	const size_t cap = sizeof m->addr.sun_path;
-	const int w = how == MCP_DEFAULT
+	/* Every window of a program opens its own port -- mcp_open() is called
+	 * as each is built -- so the default path carries the window's place
+	 * after the pid's: the first is `fenestal-<pid>.sock` as it always was,
+	 * and the ones after it take the first free `-2`, `-3`. A client that
+	 * drives two windows opens two connections, each on the window it names,
+	 * rather than one connection reaching across (DESIGN *Driven from
+	 * inside*). A path FNL_MCP names is the program's own and is not
+	 * numbered: a second window then says the path is taken. */
+	int w = how == MCP_DEFAULT
 				? snprintf(path, cap, "%s" SEP "fenestal-%ld.sock",
 						   socket_dir(), own_pid())
 				: snprintf(path, cap, "%s", want);
@@ -2654,24 +2666,46 @@ void mcp_open(App *a)
 	m->listen_fd = fd;
 	sock_flags(fd);
 	/* A socket left by a program that died is taken over; one a program is
-	 * listening on is another's, and so is anything else at the path. */
-	if (path_is_socket(path)) {
-		if (path_live(m)) {
+	 * listening on is another's, and so is anything else at the path. The
+	 * default path's next windows take the first free number after it. */
+	bool bound = false;
+	for (int n = 1; n <= MCP_WINDOWS_MAX && !bound; n++) {
+		if (how == MCP_DEFAULT && n > 1) {
+			const int wn = snprintf(path, cap, "%s" SEP "fenestal-%ld-%d.sock",
+									socket_dir(), own_pid(), n);
+			if (wn < 0 || (size_t)wn >= cap)
+				break;
+		}
+		if (path_is_socket(path)) {
+			if (path_live(m)) {
+				if (how != MCP_DEFAULT) {
+					fnl_log(FNL_LOG_WARN,
+							"FNL_MCP: %s has a program listening on it; "
+							"port shut", path);
+					sock_close(fd);
+					m->listen_fd = SOCK_NONE;
+					mcp_free(m);
+					return;
+				}
+				continue;
+			}
+			path_remove(path);
+		}
+		if (bind(fd, (const struct sockaddr *)&m->addr, sizeof m->addr) == 0)
+			bound = true;
+		else if (how != MCP_DEFAULT) {
+			/* Not ours: mcp_free() would remove what is at the path. */
+			const int err = sock_err();
 			sock_close(fd);
 			m->listen_fd = SOCK_NONE;
-			fnl_log(FNL_LOG_WARN, "FNL_MCP: %s has a program listening on "
-								  "it; port shut", path);
-			mcp_free(m);
+			refuse(m, "cannot bind", err);
 			return;
 		}
-		path_remove(path);
 	}
-	if (bind(fd, (const struct sockaddr *)&m->addr, sizeof m->addr) != 0) {
-		/* Not ours: mcp_free() would remove what is at the path. */
-		const int err = sock_err();
+	if (!bound) {
 		sock_close(fd);
 		m->listen_fd = SOCK_NONE;
-		refuse(m, "cannot bind", err);
+		refuse(m, "no free socket path for", 0);
 		return;
 	}
 	m->path_made_ok = path_id(path, &m->path_made);

@@ -3839,6 +3839,12 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	fnl_atomic_add_u32(&h->window_count, 1);
 	fnl_atomic_add_u32(&h->opening, UINT32_MAX);
 
+	/* Its own port, as the first window has one: the default path numbers
+	 * it, so a client drives this window directly rather than reaching
+	 * across from the first's (mcp_open()). Last, as the first's is, so
+	 * nothing it serves finds the window half built. */
+	mcp_open(a);
+
 	*out = a;
 	return FNL_OK;
 

@@ -12039,6 +12039,15 @@ campaigns that came before the harnesses, and what they established:
 
 ### Driven from inside
 
+Every window of a program opens one, at the end of its own build: the first at
+`fenestal-<pid>.sock` and the ones after it at `fenestal-<pid>-2.sock`, `-3`,
+up to nine, each on the window it was opened for. So a client that drives two
+windows opens two connections, one for each, and nothing reaches across from
+one window's port to another's -- the port stays a thing of one `App`, its
+pump and its render thread. A path `FNL_MCP` names is the program's own and is
+not numbered: a second window then says the path is taken (and logs it), which
+is what a `.mcp.json` naming a fixed socket wants.
+
 `FNL_MCP=1` (or `true`, `on`, `yes`) in a program's environment opens a Model
 Context Protocol server inside it, on a socket of its own:
 `$XDG_RUNTIME_DIR/fenestal-<pid>.sock` (else `$TMPDIR`, else `/tmp`; `%TEMP%`

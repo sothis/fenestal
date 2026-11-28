@@ -46,7 +46,13 @@ import stress  # noqa: E402
 from mcp_check import Port, middle, parse  # noqa: E402
 from testbed import OUT, ROOT  # noqa: E402
 
-SOCKET = os.path.join(OUT, "mcp-round.sock")
+# Every window of a program opens a port of its own, so FNL_MCP=1 is the
+# whole configuration: the first window's socket is fenestal-<pid>.sock and
+# the ones after it -2, -3, in the runtime directory. A client drives the
+# window it names by connecting to that window's port, and reaches across
+# from another's nowhere.
+SOCKET_DIR = (os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR")
+              or "/tmp")
 # The names the antialiasing box gives its rows, by what the echo calls them.
 AA_LABELS = {"No AA": "none", "FSAA": "fsaa", "MLAA": "mlaa", "TAAU": "taau"}
 # What a checker prints when it found something. A line of these is a failure
@@ -78,11 +84,9 @@ class Session:
             raise FileNotFoundError("no %s" % os.path.relpath(exe, ROOT))
         try:
             os.makedirs(OUT, exist_ok=True)
-            if os.path.exists(SOCKET):
-                os.unlink(SOCKET)
         except OSError as e:
-            raise RuntimeError("no socket under %s: %s" % (OUT, e)) from e
-        env = dict(os.environ, FNL_MCP=SOCKET, FNL_BACKEND=self.backend,
+            raise RuntimeError("no %s: %s" % (OUT, e)) from e
+        env = dict(os.environ, FNL_MCP="1", FNL_BACKEND=self.backend,
                    FNL_RENDERER=self.renderer, FNL_ECHO_EVENTS="1",
                    FNL_GPU_RANK="off")
         if self.variant in CHECKERS:
@@ -102,15 +106,35 @@ class Session:
             errors="replace")
         threading.Thread(target=self._read, args=(self.proc.stderr,),
                          daemon=True).start()
+        path = self.socket()
         for _ in range(300):
-            if os.path.exists(SOCKET):
+            if os.path.exists(path):
                 break
             if self.proc.poll() is not None:
                 raise RuntimeError("the program ended at once: %s"
                                    % " | ".join(self.tail(3)))
             time.sleep(0.1)
+        if not os.path.exists(path):
+            raise RuntimeError("no port under %s for pid %d"
+                               % (SOCKET_DIR, self.proc.pid))
         time.sleep(0.5)
-        self.port = Port(socket_path=SOCKET)
+        self.port = Port(socket_path=path)
+
+    def socket(self, n=1):
+        """The nth window's port: the first is the pid's, and the ones after
+        it take -2, -3 (mcp_open())."""
+        base = os.path.join(SOCKET_DIR, "fenestal-%d" % self.proc.pid)
+        return base + ".sock" if n == 1 else "%s-%d.sock" % (base, n)
+
+    def attach(self, n):
+        """A port on the nth window of this program: a connection of its
+        own, so what it serves is that window and nothing else."""
+        path = self.socket(n)
+        for _ in range(200):
+            if os.path.exists(path):
+                return Port(socket_path=path)
+            time.sleep(0.05)
+        raise RuntimeError("no port for window %d under %s" % (n, SOCKET_DIR))
 
     def _read(self, pipe):
         for ln in pipe:
@@ -582,18 +606,65 @@ def faults(s, r):
 
 
 def second(s, r):
+    """The second window, driven through the port of its own: every window of
+    a program opens one, so what a client asks is that window and never
+    reaches across from the first's."""
     r.section("second window")
     st = s.state()
     r.check("the second window is open", st["windows"] == 2,
             "%d" % st["windows"])
+    port = s.attach(2)
+    try:
+        two = port.state()
+        r.check("and has a port of its own",
+                two["window_pt"] != st["window_pt"],
+                "first %s, second %s" % (st["window_pt"], two["window_pt"]))
+        r.check("the second window's state names its own size",
+                two["content_rect_pt"][2] > 100 and two["title"] != st["title"],
+                "%s %r" % (two["content_rect_pt"], two["title"]))
+        # A click through the second's port is the second's capture, and
+        # leaves the first's pointer alone.
+        cx, cy, cw, ch = two["content_rect_pt"]
+        port.text("events")
+        port.text("pointer", action="click", x=cx + cw // 2, y=cy + ch // 2)
+        got = port.text("events", wait_ms=1500, until="capture 1")
+        r.check("a click through the second's port captures there",
+                "capture 1" in got, got.splitlines()[-1][:100] if got else "")
+        r.check("and the first window's pointer is not captured",
+                s.state()["pointer_captured"] is False)
+        port.text("window", release_pointer=True)
+        # A frame read back through the second's port is the second window.
+        _, png, err = port.call("capture", max_width=0)
+        if png:
+            from PIL import Image
+            im = Image.open(io.BytesIO(png))
+            im.load()
+            sc = two["scale120"] / 120.0
+            m = two["grab_margin_px"]
+            r.check("a frame through it is the second window",
+                    abs(im.size[0] - (round(two["window_pt"][0] * sc) + 2 * m))
+                    <= 3, "%s for %s" % (im.size, two["window_pt"]))
+        else:
+            r.check("a frame through it is the second window", False, "none")
+    finally:
+        port.close()
+    # Hiding it through the first's port frees the window, and its port with
+    # it: shown again, the window and its port come back.
     s.tap("F10")
     r.check("F10 hides it", s.settle("w", lambda: s.state()["windows"] == 1))
     s.tap("F10")
     r.check("and shows it again",
             s.settle("w", lambda: s.state()["windows"] == 2))
-    s.tap("F12")
-    ev = s.wait_line(r"^scene view: ", len(s.log()) - 1, 3.0)
-    r.check("F12 names the view", ev is not None, ev or "")
+    port = s.attach(2)
+    try:
+        r.check("and the shown window has its port again",
+                port.state()["windows"] == 2)
+        m = len(s.log())
+        s.tap("F12")
+        ev = s.wait_line(r"^scene view: ", m, 5.0)
+        r.check("F12 names the view", ev is not None, ev or "nothing said")
+    finally:
+        port.close()
 
 
 def leaving(s, r, base):
