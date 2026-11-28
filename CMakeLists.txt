@@ -2303,6 +2303,22 @@ target_link_libraries(fenestal_dev PRIVATE fenestal_static)
 # runner.
 target_compile_options(fenestal_dev PRIVATE ${FNL_WARNINGS} ${FNL_PREFIX_MAP})
 
+# ---- The round through the port ------------------------------------------------
+# round: a testbed started here, driven through the MCP port (tools/drive/
+# round.c). It links nothing of the library and speaks the port's socket, so
+# it is the harness that needs no window server, no portal and no consent. Not
+# on Windows yet: the socket and the fork are POSIX's, and the Windows round is
+# still tools/drive/mcp_round.py's.
+if(NOT WIN32)
+    add_executable(round tools/drive/round.c)
+    target_compile_options(round PRIVATE ${FNL_WARNINGS} ${FNL_PREFIX_MAP})
+    if(FNL_HAS_NO_SANITIZE)
+        # It runs during a round, not inside the program under test.
+        target_compile_options(round PRIVATE -fno-sanitize=all)
+        target_link_options(round PRIVATE -fno-sanitize=all)
+    endif()
+endif()
+
 # ---- The MCP bridge -----------------------------------------------------------
 # fenestal-mcp, stdin and stdout to the port's socket (tools/mcpbridge.c): what
 # `socat - UNIX-CONNECT:<path>` is, for an MCP client's `command` on a machine

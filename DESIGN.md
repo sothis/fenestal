@@ -12115,7 +12115,7 @@ library knows. `stress.py` stays the check on
 all of that; the port is the check on what the library does with what it is
 handed, and the oracle beside a round that drives from outside.
 
-**A round on the port itself** (`tools/drive/mcp_round.py`, 2026-11-28)
+**A round on the port itself** (`round`, `tools/drive/round.c`, 2026-11-28)
 takes that side of the seam as its own: the program is started here with the
 socket named, and every section asks the library rather than the desktop --
 `controls` for the titlebar's own rectangles instead of the layout constants

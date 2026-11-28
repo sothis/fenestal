@@ -25,7 +25,17 @@ FAIL for nineteen things; it is not part of `stress.py`, whose environments
 it does not start. What it found and where it has passed is DESIGN *Driven
 from inside*; TODO *The MCP port* has what is owed.
 
-## A round through the port
+## A round through the port, in C
+
+`build/linux/<variant>/round [--variant v] [--backend x11|wayland]` starts a
+testbed with `FNL_MCP=1` and drives it through the port: keys, the
+titlebar's own controls, the window's knobs, the pointer and its capture,
+the frame read back, and the way out -- nineteen checks in about ten
+seconds, no window server, no portal, no consent and no input taken from
+the desk. Built in every tree but the Windows ones, whose round is still
+`mcp_round.py`'s. DESIGN *Driven from inside*.
+
+## A round through the port (Python)
 
 `python3 tools/drive/mcp_round.py [--variant asan] [x11-vulkan
 wayland-vulkan]` drives a testbed it starts itself, through the MCP port:

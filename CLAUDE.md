@@ -511,7 +511,9 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   hand against a testbed started with `FNL_MCP=1 --text-input`, and
   `tools/drive/mcp_round.py` a round it starts itself: the library's side of
   the seam, in fifteen seconds, where `stress.py` is the window server's.
-  DESIGN *Driven from inside*.
+  `round` (`tools/drive/round.c`) is that round in C, built in every tree
+  but the Windows ones, and is where the Python is going. DESIGN *Driven
+  from inside*.
 - **The event echo is the library's** (`src/core/echo.c`, inside
   `fnl_poll_event()`): `FnlInitDesc::echo_events`, or `FNL_ECHO_EVENTS=1` in
   the environment for a program with no flag. The harness sets the variable
