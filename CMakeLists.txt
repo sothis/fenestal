@@ -20,7 +20,7 @@ endif()
 # licence text into .rodata. MSVC has no assembler that takes them and
 # embeds the same blobs as generated C arrays instead (tools/bin2c.c), so
 # the language is enabled only where an assembler is what makes them.
-project(fenestal VERSION 1.0.0 LANGUAGES C)
+project(fenestal VERSION 1.1.0 LANGUAGES C)
 if(NOT MSVC)
     enable_language(ASM)
 endif()

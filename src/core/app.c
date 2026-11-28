@@ -332,6 +332,9 @@ static void app_teardown(App *a)
 	free(a->clip_pending);
 	free(a->clip_out);
 	a->clip_in = a->clip_pending = a->clip_out = NULL;
+	free(a->cursor_image);
+	free(a->cursor_image_pending);
+	a->cursor_image = a->cursor_image_pending = NULL;
 }
 
 /* A dispatch: what a wakeup *is* differs per backend. */
@@ -368,6 +371,8 @@ void app_drain_requests(App *a)
 		memcpy(title, a->title, sizeof title);
 	char *clip      = a->clip_pending;
 	a->clip_pending = NULL;
+	CursorImage *cursor_image = a->cursor_image_pending;
+	a->cursor_image_pending   = NULL;
 	fnl_mutex_unlock(&a->lock);
 
 	/* The toggles first: a size asked for beside a fullscreen or maximize
@@ -401,10 +406,16 @@ void app_drain_requests(App *a)
 		a->titlebar_armed         = false;
 		a->last_titlebar_click_ms = 0;
 	}
-	if (r.cursor) {
-		a->cursor = r.cursor_val;
-		BACKEND(a)->cursor_changed(a);
+	/* The image and the shape are one decision, made once for both. */
+	if (r.cursor_image) {
+		free(a->cursor_image);
+		a->cursor_image = cursor_image;
+		a->cursor_image_gen++;
 	}
+	if (r.cursor)
+		a->cursor = r.cursor_val;
+	if (r.cursor || r.cursor_image)
+		BACKEND(a)->cursor_changed(a);
 	if (r.text_mode)
 		BACKEND(a)->text_input_changed(a);
 	if (r.title)

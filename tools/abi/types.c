@@ -312,6 +312,7 @@ FUNC(fnl_minimize, void, (FnlApp *app));
 FUNC(fnl_set_maximized, void, (FnlApp *app, bool on));
 FUNC(fnl_set_antialias, void, (FnlApp *app, FnlAntialias aa));
 FUNC(fnl_set_cursor, void, (FnlApp *app, FnlCursor shape));
+FUNC(fnl_set_cursor_image, bool, (FnlApp *app, const uint8_t *rgba, int w, int h, int hot_x, int hot_y, int scale120));
 FUNC(fnl_set_title, void, (FnlApp *app, const char *utf8));
 FUNC(fnl_release_pointer, void, (FnlApp *app));
 FUNC(fnl_set_scene_size_px, void, (FnlApp *app, int w_px, int h_px));

@@ -375,6 +375,15 @@ struct AppPost {
 };
 enum { APP_POST_MAX = 16 };
 
+/* fnl_set_cursor_image()'s picture as the window servers take it: each
+ * pixel one native word, 0xAARRGGBB with the colour premultiplied, which is
+ * wl_shm's ARGB8888 and RENDER's a8r8g8b8 alike. Made by the call, on the
+ * caller's thread, so the pump converts nothing. */
+typedef struct {
+	int w, h, hot_x, hot_y, scale120;
+	uint32_t px[];
+} CursorImage;
+
 /* What the [any]-thread knobs have asked the pump to do; see App::req. */
 typedef struct {
 	bool fullscreen, fullscreen_val;
@@ -394,6 +403,7 @@ typedef struct {
 	int bar_h, bar_min_w;
 	bool cursor;
 	FnlCursor cursor_val;
+	bool cursor_image; /* App::cursor_image_pending, NULL included */
 	bool text_mode;
 	bool clip_get;
 	bool nudge_size; /* the render thread's; app_request_size_nudge() */
@@ -1388,6 +1398,11 @@ struct FnlApp {
 	 * App::req and the drain stores it here, so the backends' pointer paths
 	 * read it without a lock. */
 	FnlCursor cursor;
+	/* fnl_set_cursor_image()'s, the pump's own as `cursor` is: NULL for the
+	 * shape. `cursor_image_gen` counts the images taken, so a backend that
+	 * keeps a server-side copy can tell its copy is of an older one. */
+	CursorImage *cursor_image;
+	uint32_t cursor_image_gen;
 	double ptr_x, ptr_y;
 	uint32_t last_titlebar_click_ms;
 	/* The click count app_pointer_button() reports in FnlButtonEvent::clicks:
@@ -2399,6 +2414,11 @@ struct FnlApp {
 	/* The last shape fnl_set_cursor() was given, under the same lock. Not
 	 * App::cursor, which is the pump's copy and one drain behind. */
 	FnlCursor cursor_asked;
+	/* The image fnl_set_cursor_image() was last given, as a hash of its
+	 * pixels and figures (0 for none), and the copy on its way to the pump,
+	 * which the drain takes as App::cursor_image. */
+	uint64_t cursor_image_asked;
+	CursorImage *cursor_image_pending;
 	/* What fnl_clipboard_set() was given, on its way to the pump, which
 	 * takes it as clip_out when it drains the request. */
 	char *clip_pending;
@@ -2545,6 +2565,9 @@ struct FnlApp {
 	FnlAtomicU32 veil_out_ms, veil_in_ms;
 	/* fnl_set_text_input(); read by the pump as each key arrives. */
 	FnlAtomicBool text_input;
+	/* Whether the backend shows fnl_set_cursor_image()'s picture: written by
+	 * the pump when it learns, read by the call on any thread. */
+	FnlAtomicBool cursor_image_ok;
 	/* fnl_set_text_rect_pt(), as four words and a flag saying they were ever
 	 * written. Torn across a write it is a rectangle one caret-move stale in
 	 * one coordinate, for one commit, as a hint to somebody else's popup. */
@@ -2889,18 +2912,23 @@ typedef struct {
 	DecoCursorKind kind;
 	Edge edge;       /* DECO_CURSOR_EDGE  */
 	FnlCursor shape; /* DECO_CURSOR_SHAPE */
+	/* DECO_CURSOR_SHAPE, and App::cursor_image is set: a backend that shows
+	 * images shows it, and one that does not shows `shape`. */
+	bool image;
 } DecoCursor;
 
 static inline DecoCursor deco_cursor(const App *a, Zone z, Edge edge)
 {
-	DecoCursor c = { DECO_CURSOR_SHAPE, EDGE_NONE, FNL_CURSOR_DEFAULT };
+	DecoCursor c = { DECO_CURSOR_SHAPE, EDGE_NONE, FNL_CURSOR_DEFAULT, false };
 	if (a->pointer_captured)
 		c.kind = DECO_CURSOR_HIDDEN;
 	else if (z == ZONE_RESIZE) {
 		c.kind = DECO_CURSOR_EDGE;
 		c.edge = edge;
-	} else if (deco_cursor_is_callers(a, z))
+	} else if (deco_cursor_is_callers(a, z)) {
 		c.shape = a->cursor;
+		c.image = a->cursor_image != NULL;
+	}
 	return c;
 }
 

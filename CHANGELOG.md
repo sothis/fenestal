@@ -4,6 +4,16 @@ What each release changed for a program that uses Fenestal. `DESIGN.md` is
 why; `fenestal.h` is the API, and its *stability* block says what is
 promised: before 1.0, nothing between minor releases.
 
+## Unreleased
+
+- **The pointer can be a picture of the caller's.** `fnl_set_cursor_image()`
+  (new, 1.1) takes straight RGBA, a hotspot and the scale it was drawn for,
+  and puts it where `fnl_set_cursor()`'s shape would be; NULL puts the shape
+  back. It returns whether the backend shows it: Wayland with
+  `wp_cursor_shape_v1`, X11 with RENDER; KMS, Win32 and Cocoa keep the
+  shape. The testbed's `--cursor-image` sets one. The shared object's new
+  node is `FENESTAL_1_1`.
+
 ## 1.0.0
 
 The API and the ABI are stable from this release: `fenestal.h` *stability*

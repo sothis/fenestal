@@ -144,7 +144,7 @@ extern "C" {
 #endif
 
 #define FNL_VERSION_MAJOR 1
-#define FNL_VERSION_MINOR 0
+#define FNL_VERSION_MINOR 1
 #define FNL_VERSION_PATCH 0
 #define FNL_VERSION                                                            \
 	((FNL_VERSION_MAJOR << 16) | (FNL_VERSION_MINOR << 8) | FNL_VERSION_PATCH)
@@ -2238,6 +2238,43 @@ typedef enum {
  * draws from the user's theme, and one without wp_cursor_shape_v1 leaves the
  * cursor as it found it. */
 FNL_API void fnl_set_cursor(FnlApp *app, FnlCursor shape); /* [any] */
+
+/* The pointer as an image of the caller's, shown where fnl_set_cursor()'s
+ * shape would be and in its place: over what the caller draws, and nowhere
+ * else -- the library's titlebar, its resize edges and a capture keep theirs,
+ * as they do over a shape. The window server draws it as it draws its own
+ * cursor, so it follows the hand with no frame of delay.
+ *
+ * `rgba` is w * h pixels, four bytes each in that order, rows top first and
+ * packed, alpha straight (not premultiplied) and the colour sRGB; the call
+ * copies it, so the storage is the caller's again on return. (hot_x, hot_y)
+ * is the pixel of it that is the pointer's position. Each side is 1 to
+ * FNL_CURSOR_IMAGE_MAX pixels, and the hotspot inside them.
+ *
+ * `scale120` is how many of the image's pixels make a point, in 120ths as
+ * fnl_scale120() is: 120 for an image drawn for 100%, 240 for one drawn at
+ * twice the size for 200%; 0 is 120. On Wayland the compositor is told, and
+ * the image is w * 120 / scale120 points wide at any scale, sharp where
+ * scale120 is the output's. X11 has no scale for a cursor and shows the
+ * image pixel for pixel, so there the caller passes the image it made for
+ * fnl_scale120().
+ *
+ * NULL puts the shape back, and returns true. The image is state as the
+ * shape is, and stays until the next call; the same image again is
+ * compared and costs nothing, so a caller may set it every frame. A call
+ * with a size, a hotspot or a scale out of range (above 16 times) is
+ * ignored and returns false.
+ *
+ * True when the image was taken and the backend shows images: Wayland with
+ * wp_cursor_shape_v1 (which is what brings the shape back over the library's
+ * own parts) and X11 with RENDER. Elsewhere -- Win32, Cocoa and KMS, and a
+ * Wayland or X11 server without those -- it returns false and the pointer
+ * keeps fnl_set_cursor()'s shape, which a caller sets beside the image for
+ * that reason. Known once the window is open. */
+#define FNL_CURSOR_IMAGE_MAX 256
+FNL_API bool fnl_set_cursor_image(FnlApp *app, const uint8_t *rgba, int w,
+								  int h, int hot_x, int hot_y,
+								  int scale120); /* [any] */
 
 /* The window's title, which FnlInitDesc::title set at fnl_init(): the
  * window server's and the library's own titlebar's. UTF-8; NULL or empty
