@@ -20,6 +20,11 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+/* POSIX-only, so printf is the host C library's: the format checks are
+ * glibc's, the BSD libc's or Darwin's. The Windows round is the Python
+ * one, and never compiles this. */
+#define MCP_PRINTF(f, a) __attribute__((format(printf, f, a)))
+
 /* The environment a program is handed: glibc's, declared here because
  * _POSIX_C_SOURCE does not name it. */
 extern char **environ;
@@ -68,7 +73,7 @@ void   sleep_s(double s);
 void   str_add(Str *s, const char *p, size_t n);
 void   str_adds(Str *s, const char *p);
 void   str_addc(Str *s, char c);
-void   str_addf(Str *s, const char *fmt, ...);
+void   str_addf(Str *s, const char *fmt, ...) MCP_PRINTF(2, 3);
 void   str_free(Str *s);
 const char *json_unescape(const char *p, Str *out);
 bool json_str_at(const char *obj, const char *key, Str *out);
@@ -76,10 +81,11 @@ double json_num_at(const char *obj, const char *key, double dflt);
 bool json_bool_at(const char *obj, const char *key, bool dflt);
 bool rpc(Port *p, const char *method, const char *params, Str *reply);
 const char *mcp_call(Port *p, const char *tool, const char *args_json);
-const char *ask(Port *p, const char *tool, const char *fmt, ...);
+const char *ask(Port *p, const char *tool, const char *fmt, ...)
+	MCP_PRINTF(3, 4);
 int  words(char *buf, char **out, int max);
 int  whole(const char *word, int dflt);
-void dbg(const char *fmt, ...);
+void dbg(const char *fmt, ...) MCP_PRINTF(1, 2);
 bool sh_run(const char *cmd, Str *out, int *status);
 bool remote_gone(const char *host, long pid);
 void port_spawn(Port *p, char *const argv[]);

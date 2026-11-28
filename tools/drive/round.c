@@ -307,7 +307,7 @@ static void click_at(Port *p, double x, double y)
 	char args[128];
 	snprintf(args, sizeof args,
 			 "{\"action\":\"click\",\"x\":%g,\"y\":%g}", x, y);
-	ask(p, "pointer", NULL, args);
+	ask(p, "pointer", "%s", args);
 }
 
 static void click_ctl(Port *p, const Ctl *c)
@@ -330,7 +330,7 @@ static const char *events_text(Port *p, int wait_ms, const char *until)
 				 wait_ms, until);
 	else
 		snprintf(args, sizeof args, "{\"wait_ms\":%d}", wait_ms);
-	const char *t = ask(p, "events", NULL, args);
+	const char *t = ask(p, "events", "%s", args);
 	return t ? t : "";
 }
 
@@ -478,7 +478,7 @@ static void section_pointer(Port *p)
 	char args[128];
 	snprintf(args, sizeof args,
 			 "{\"action\":\"relative\",\"dx\":40,\"dy\":30}");
-	ask(p, "pointer", NULL, args);
+	ask(p, "pointer", "%s", args);
 	ev = events_text(p, 1000, "relative");
 	check("captured motion arrives as relative", strstr(ev, "relative") != NULL,
 		  ev);
@@ -672,7 +672,7 @@ static void section_gpus(Port *p, const char *variant)
 	check("the GPU box moves the window to the other GPU", moved, "");
 	char args[64];
 	snprintf(args, sizeof args, "{\"gpu\":%d}", home);
-	ask(p, "window", NULL, args);
+	ask(p, "window", "%s", args);
 	const double back_end = now_s() + 60.0 * patience();
 	bool         back     = false;
 	while (now_s() < back_end && !back) {
@@ -760,7 +760,7 @@ static void section_output(Port *p, const char *backend)
 		return;
 	char args[64];
 	snprintf(args, sizeof args, "{\"output\":\"%s\"}", other);
-	ask(p, "window", NULL, args);
+	ask(p, "window", "%s", args);
 	const double end = now_s() + 20.0 * patience();
 	bool         moved = false;
 	while (now_s() < end && !moved) {
@@ -773,7 +773,7 @@ static void section_output(Port *p, const char *backend)
 	check("and a frame reads back from it",
 		  ask(p, "capture", "{\"max_width\":200}") && p->image.n > 0, "");
 	snprintf(args, sizeof args, "{\"output\":\"%s\"}", cur);
-	ask(p, "window", NULL, args);
+	ask(p, "window", "%s", args);
 	const double back_end = now_s() + 20.0 * patience();
 	bool         back     = false;
 	while (now_s() < back_end && !back) {
@@ -811,7 +811,7 @@ static void section_faults(Port *p, Prog *pr, const char *variant)
 	for (unsigned i = 0; i < 3; i++) {
 		char args[64];
 		snprintf(args, sizeof args, "{\"spec\":\"%s\"}", SITE[i]);
-		ask(p, "fault", NULL, args);
+		ask(p, "fault", "%s", args);
 		const double end = now_s() + 30.0 * patience();
 		bool         hit = false;
 		while (now_s() < end && !hit) {
@@ -820,7 +820,7 @@ static void section_faults(Port *p, Prog *pr, const char *variant)
 				sleep_s(0.05);
 		}
 		snprintf(args, sizeof args, "{\"spec\":\"-%s\"}", SITE[i]);
-		ask(p, "fault", NULL, args);
+		ask(p, "fault", "%s", args);
 		check("a forced fault is taken", hit, SITE[i]);
 		check("and the window draws on", until(drawn_is, NULL, 10.0), "");
 		check("and a frame reads back from it",

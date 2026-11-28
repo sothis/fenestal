@@ -305,14 +305,13 @@ const char *mcp_call(Port *p, const char *tool, const char *args_json)
 	return p->err ? NULL : p->text.p;
 }
 
-/* `call` with the arguments object written from a format; `fixed` is used as
- * it is where there is one (a JSON literal with braces of its own). */
+/* `call` with the arguments object written from a format. */
 const char *ask(Port *p, const char *tool, const char *fmt, ...)
 {
 	char    args[512];
 	va_list ap;
 	va_start(ap, fmt);
-	const int n = vsnprintf(args, sizeof args, fmt ? fmt : "%s", ap);
+	const int n = vsnprintf(args, sizeof args, fmt, ap);
 	va_end(ap);
 	return mcp_call(p, tool, n > 0 ? args : "{}");
 }
