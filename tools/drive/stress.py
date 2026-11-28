@@ -844,6 +844,63 @@ def rect_eq(a, b, tol=2):
 # ---- the round --------------------------------------------------------------
 
 
+def antialias_box(r):
+    """The titlebar's antialiasing box: a row is a pick, not a toggle, and
+    the echo's `antialias` line is the proof it was taken. Walked down from
+    the second row, then the first -- the way out of the three -- so the
+    window ends as it began. A row the renderer does not offer is a click
+    beside the list, which only shuts it."""
+    b, check = r.b, r.check
+    if r.can("display-modes"):
+        return r.skip(
+            "the antialiasing box picks a mode",
+            "where the window is the output the box is placed by the modes'",
+        )
+    w = b.refresh()["area"][0]
+    # Right to left from the window's edge, at a body advance of 8 points
+    # (controls.c): the buttons' run ends 158 in, then the size box 157
+    # wide, the GPU box and its gap 69 once listed, the output box and its
+    # gap 109 where the window is wide enough to hold it
+    # (ctl_output_in()), the antialiasing box's gap 8 and half its 61.
+    gpu = 69 if gpus_listed(b) else 0
+    run = 180 + 61 + 8 + gpu + 157
+    out = 109 if w >= 157 + 12 + run + 109 else 0
+    dx = 158 + 157 + gpu + out + 8 + 30
+    seen = []
+    for row in (1, 2, 3):
+        mk = pick_row(r, dx, row)
+        ev = b.wait_for("antialias", mk, timeout=2.0 * b.patience())
+        if ev:
+            seen.append(ev["parts"][1])
+        time.sleep(NOT_A_DOUBLE_CLICK)
+    check(
+        "the antialiasing box picks a mode",
+        bool(seen),
+        "echoed %s" % " ".join(seen) if seen else "no antialias line",
+    )
+    check(
+        "and each row is a mode of its own",
+        len(set(seen)) == len(seen) and set(seen) <= {"fsaa", "mlaa", "taau"},
+        " ".join(seen),
+    )
+    if b.RENDERER == "vulkan":
+        check(
+            "Vulkan offers FSAA, MLAA and TAAU, in that order",
+            seen == ["fsaa", "mlaa", "taau"],
+            " ".join(seen),
+        )
+    mk = pick_row(r, dx, 0)
+    ev = b.wait_for("antialias", mk, timeout=2.0 * b.patience())
+    check(
+        "the first row is the way out",
+        bool(ev) and ev["parts"][1] == "none",
+        ev["parts"][1] if ev else "no antialias line",
+    )
+    time.sleep(NOT_A_DOUBLE_CLICK)
+    b.quiet()
+    check("the program is alive after the modes", b.alive())
+
+
 def pick_row(r, box_dx, row):
     """Open a titlebar list and click one of its rows; the mark taken
     before the click."""
@@ -2675,6 +2732,9 @@ def run(r):
     b.click(combo_x, BTN_ROW_Y)
     b.quiet()
 
+    # ---- the antialiasing box ---------------------------------------------
+    antialias_box(r)
+
     # ---- the output's modes, and its outputs ------------------------------
     if r.can("display-modes"):
         display_modes(r)
@@ -4019,6 +4079,109 @@ def two_window(b, r):
     )
     b.tap("F9")                       # the library's release
     r.check("and the second lets it go", wait_second(False))
+
+    # ---- each window in its turn, the wheel over both, a hide under a hold
+    # The host's one raw-mouse registration follows the window in front and
+    # the window holding the pointer (Win32's BackendHostState::raw_owned): a
+    # second window's capture, wheel or hide must not leave the first's
+    # without its input, nor the other way about.
+    def notches_since(m):
+        return sum(float(e["parts"][2]) for e in b.since(m, "scroll"))
+
+    def wheel_over(w, what):
+        focus_on(w)
+        wpt = w.geom[2] / b._gain()
+        hpt = w.geom[3] / b._gain()
+        b.move_to(int(wpt / 2), int(BAR_H + (hpt - BAR_H) / 2))
+        m = b.mark()
+        b.scroll(-2)
+        b.until(lambda: abs(notches_since(m) + 2.0) < 0.01, timeout=2.0)
+        got = notches_since(m)
+        r.check(
+            "a wheel over %s arrives" % what,
+            abs(got + 2.0) < 0.01,
+            "dy %.2f for two steps" % got,
+        )
+
+    wheel_over(second, "the second window")
+    wheel_over(prim, "the first window")
+
+    def held(w, what):
+        """True where the window takes the pointer from a click in its
+        content, as the check names it."""
+        content_click(w)
+        # The second window says so on its own line: the echo's `cap` is the
+        # window the harness last aimed at, and a capture click there can
+        # hand the focus, and the echo, to the first.
+        if w is second:
+            ok = wait_second(True)
+        else:
+            ok = b.until(lambda: b.refresh()["cap"] is True, timeout=3.0)
+        r.check("%s takes the pointer in its turn" % what, ok)
+        return ok
+
+    def relative_arrives(what):
+        m = b.mark()
+        b.move_by(40, 30)
+        b.until(lambda: b.since(m, "relative"), timeout=2.0)
+        rel = b.since(m, "relative")
+        r.check(
+            "%s: captured motion arrives as relative" % what,
+            bool(rel),
+            " ".join(rel[-1]["parts"][:3]) if rel else "none",
+        )
+
+    if held(prim, "the first window"):
+        relative_arrives("the first window")
+        m = b.mark()
+        b.scroll(-2)
+        b.until(lambda: abs(notches_since(m) + 2.0) < 0.01, timeout=2.0)
+        r.check(
+            "a wheel step reaches the window that holds the pointer",
+            abs(notches_since(m) + 2.0) < 0.01,
+            "dy %.2f" % notches_since(m),
+        )
+        # The second goes while the first holds the pointer: its host-side
+        # state is what the first's registration must outlive.
+        b.press("F10")
+        gone2 = b.until(lambda: len(b.windows()) == 1, timeout=4.0)
+        r.check("the second window hides under the first's hold", gone2,
+                "%d window(s) still" % len(b.windows()))
+        r.check(
+            "and the first still holds the pointer",
+            b.refresh()["cap"] is True,
+        )
+        relative_arrives("the first window, the second gone")
+        m = b.mark()
+        b.scroll(-2)
+        b.until(lambda: abs(notches_since(m) + 2.0) < 0.01, timeout=2.0)
+        r.check(
+            "and its wheel still arrives",
+            abs(notches_since(m) + 2.0) < 0.01,
+            "dy %.2f" % notches_since(m),
+        )
+        b.tap("F9")
+        b.until(lambda: b.refresh()["cap"] is False, timeout=3.0)
+        if gone2:
+            b.press("F10")
+            b.until(lambda: len(b.windows()) >= 2, timeout=5.0)
+            wins = b.windows()
+            second = next(
+                (w for w in wins if SECOND in w.title.lower()), second
+            )
+            prim = next((w for w in wins if w is not second), prim)
+    # Back to the second's own pointer after the hide: its registration comes
+    # back with it.
+    if held(second, "the second window, shown again"):
+        # Under wine the click that captures hands the focus to the first
+        # window for a moment, and the motion made then arrives nowhere: the
+        # focus is waited for and asked back, as the first window's is.
+        time.sleep(1.5 * b.patience())
+        focus_on(second)
+        relative_arrives("the second window, shown again")
+        b.tap("F9")
+        wait_second(False)
+    b.aim(prim)
 
     # The second window draws its scene, not only its bar. The click above
     # activated it and left it focused, so F2 -- the library's, to this
