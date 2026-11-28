@@ -91,8 +91,8 @@ static uint32_t at_prop(int fd, uint32_t obj, uint32_t kind, const char *name,
 	uint32_t ids[AT_MAX_PROPS];
 	uint64_t vals[AT_MAX_PROPS];
 	struct drm_mode_obj_get_properties gp = {
-		.props_ptr       = (uintptr_t)ids,
-		.prop_values_ptr = (uintptr_t)vals,
+		.props_ptr       = kms_ptr(ids),
+		.prop_values_ptr = kms_ptr(vals),
 		.count_props     = AT_MAX_PROPS,
 		.obj_id          = obj,
 		.obj_type        = kind,
@@ -160,10 +160,10 @@ static int at_resources(int fd, uint32_t crtcs[AT_MAX_CRTCS],
 		np = AT_MAX_PLANES;
 	memset(&res, 0, sizeof res);
 	res.count_crtcs = nc;
-	res.crtc_id_ptr = (uintptr_t)crtcs;
+	res.crtc_id_ptr = kms_ptr(crtcs);
 	memset(&pres, 0, sizeof pres);
 	pres.count_planes = np;
-	pres.plane_id_ptr = (uintptr_t)planes;
+	pres.plane_id_ptr = kms_ptr(planes);
 	if (at_ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) < 0 ||
 		at_ioctl(fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &pres) < 0)
 		return -1;
@@ -327,10 +327,10 @@ static bool at_commit(struct KmsAtomic *at, uint32_t flags, uint64_t stamp,
 	struct drm_mode_atomic a = {
 		.flags           = flags,
 		.count_objs      = (uint32_t)nobj,
-		.objs_ptr        = (uintptr_t)objs,
-		.count_props_ptr = (uintptr_t)counts,
-		.props_ptr       = (uintptr_t)props,
-		.prop_values_ptr = (uintptr_t)values,
+		.objs_ptr        = kms_ptr((void *)objs),
+		.count_props_ptr = kms_ptr((void *)counts),
+		.props_ptr       = kms_ptr((void *)props),
+		.prop_values_ptr = kms_ptr((void *)values),
 		.user_data       = stamp,
 	};
 	fnl_mutex_lock(&at->lock);
@@ -355,7 +355,7 @@ bool kms_atomic_set(struct KmsAtomic *at, uint32_t connector, uint32_t crtc,
 		return false;
 	}
 	struct drm_mode_create_blob blob = {
-		.data   = (uintptr_t)mode,
+		.data   = kms_ptr((void *)mode),
 		.length = (uint32_t)sizeof *mode,
 	};
 	if (at_ioctl(at->fd, DRM_IOCTL_MODE_CREATEPROPBLOB, &blob) < 0)

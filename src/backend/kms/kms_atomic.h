@@ -26,6 +26,21 @@
 
 struct drm_mode_modeinfo;
 
+/* A pointer as the ioctl structs' `__u64` field takes it. The kernel's
+ * address is 64-bit whatever the machine's word is, so the conversion is to
+ * `uint64_t` directly: through `uintptr_t` it is a narrowing to 32 bits on
+ * the ARM tree, which gcc names at every site.
+ *
+ * `void *` and not `const void *`, though every caller has a `const` array:
+ * clang reads the qualifier through the call into the caller's object and
+ * says an uninitialised one is read (kms.c's one-mode probes), where the
+ * cast the kernel's `__u64` field wants is the one place the qualifier ends.
+ * Here rather than in kms_state.h, which this layer names no type of. */
+static inline uint64_t kms_ptr(void *p)
+{
+	return (uint64_t)p;
+}
+
 /* The card's atomic state: its CRTCs, each with the primary plane that drives
  * it and the properties a commit names, read once at open. NULL where the
  * driver takes no atomic, and the backend then makes the legacy calls it made

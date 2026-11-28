@@ -149,7 +149,7 @@ static bool connector_read(int fd, uint32_t id, Connector *c)
 		struct drm_mode_get_connector again = {
 			.connector_id = id,
 			.count_modes  = n,
-			.modes_ptr    = (uintptr_t)c->modes,
+			.modes_ptr    = kms_ptr(c->modes),
 		};
 		if (drm_ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &again) < 0)
 			break;
@@ -302,7 +302,7 @@ static int card_connectors(int fd, uint32_t ids[KMS_MAX_CONNECTORS])
 	struct drm_mode_card_res again;
 	memset(&again, 0, sizeof again);
 	again.count_connectors = n;
-	again.connector_id_ptr = (uintptr_t)ids;
+	again.connector_id_ptr = kms_ptr(ids);
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &again) < 0)
 		return -1;
 	return (int)(again.count_connectors < n ? again.count_connectors : n);
@@ -322,8 +322,8 @@ static void output_props_read(int fd, KmsOutput *o)
 	uint32_t ids[64];
 	uint64_t vals[64];
 	struct drm_mode_obj_get_properties gp = {
-		.props_ptr       = (uintptr_t)ids,
-		.prop_values_ptr = (uintptr_t)vals,
+		.props_ptr       = kms_ptr(ids),
+		.prop_values_ptr = kms_ptr(vals),
 		.count_props     = 64,
 		.obj_id          = o->connector_id,
 		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
@@ -362,8 +362,8 @@ static uint32_t connector_live_crtc(int fd, const KmsOutput *o)
 	uint32_t ids[64];
 	uint64_t vals[64];
 	struct drm_mode_obj_get_properties gp = {
-		.props_ptr       = (uintptr_t)ids,
-		.prop_values_ptr = (uintptr_t)vals,
+		.props_ptr       = kms_ptr(ids),
+		.prop_values_ptr = kms_ptr(vals),
 		.count_props     = 64,
 		.obj_id          = o->connector_id,
 		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
@@ -381,7 +381,7 @@ static uint32_t connector_live_crtc(int fd, const KmsOutput *o)
 	struct drm_mode_get_connector c = {
 		.connector_id = o->connector_id,
 		.count_modes  = 1,
-		.modes_ptr    = (uintptr_t)&one,
+		.modes_ptr    = kms_ptr(&one),
 	};
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c) < 0 || !c.encoder_id)
 		return 0;
@@ -406,9 +406,9 @@ static uint32_t connector_crtc(int fd, KmsOutput *o)
 	struct drm_mode_get_connector c = {
 		.connector_id   = o->connector_id,
 		.count_modes    = 1,
-		.modes_ptr      = (uintptr_t)&one,
+		.modes_ptr      = kms_ptr(&one),
 		.count_encoders = KMS_MAX_ENCODERS,
-		.encoders_ptr   = (uintptr_t)enc,
+		.encoders_ptr   = kms_ptr(enc),
 	};
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c) < 0)
 		return 0;
@@ -416,7 +416,7 @@ static uint32_t connector_crtc(int fd, KmsOutput *o)
 	struct drm_mode_card_res r;
 	memset(&r, 0, sizeof r);
 	r.count_crtcs = KMS_MAX_CRTCS;
-	r.crtc_id_ptr = (uintptr_t)crtcs;
+	r.crtc_id_ptr = kms_ptr(crtcs);
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
 		return 0;
 	const uint32_t ncrtc =
@@ -444,9 +444,9 @@ static uint32_t connector_possible_crtcs(int fd, const KmsOutput *o)
 	struct drm_mode_get_connector c = {
 		.connector_id   = o->connector_id,
 		.count_modes    = 1,
-		.modes_ptr      = (uintptr_t)&one,
+		.modes_ptr      = kms_ptr(&one),
 		.count_encoders = KMS_MAX_ENCODERS,
-		.encoders_ptr   = (uintptr_t)enc,
+		.encoders_ptr   = kms_ptr(enc),
 	};
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c) < 0)
 		return 0;
@@ -603,7 +603,7 @@ static void crtcs_restore(struct BackendState *p)
 			}
 		}
 		struct drm_mode_crtc set = {
-			.set_connectors_ptr = (uintptr_t)&s->connector_id,
+			.set_connectors_ptr = kms_ptr((void *)&s->connector_id),
 			.count_connectors   = shown ? 1 : 0,
 			.crtc_id            = s->crtc_id,
 			.fb_id              = shown ? s->fb_id : 0,
@@ -2385,7 +2385,7 @@ static uint32_t scan_shown_on(const struct BackendState *p, const KmsScan *s)
 	struct drm_mode_card_res r;
 	memset(&r, 0, sizeof r);
 	r.count_crtcs = KMS_MAX_CRTCS;
-	r.crtc_id_ptr = (uintptr_t)crtcs;
+	r.crtc_id_ptr = kms_ptr(crtcs);
 	if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
 		return 0;
 	const uint32_t n =
@@ -2822,7 +2822,7 @@ static void scan_hdr_apply(App *a, int sel)
 	h->max_cll = h->max_fall = 0;         /* not known from the frame */
 
 	struct drm_mode_create_blob cb = {
-		.data   = (uintptr_t)&md,
+		.data   = kms_ptr(&md),
 		.length = sizeof md,
 	};
 	if (p->hdr_blob) {
@@ -2895,7 +2895,7 @@ static uint32_t scan_crtc_pick(const struct BackendState *p,
 	uint32_t crtcs[KMS_MAX_CRTCS];
 	struct drm_mode_card_res r = { 0 };
 	r.count_crtcs = KMS_MAX_CRTCS;
-	r.crtc_id_ptr = (uintptr_t)crtcs;
+	r.crtc_id_ptr = kms_ptr(crtcs);
 	if (drm_ioctl(hs->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
 		return out->crtc_id;
 	const uint32_t n = r.count_crtcs < KMS_MAX_CRTCS ? r.count_crtcs
@@ -2944,7 +2944,7 @@ static void scan_dark_elsewhere(struct BackendState *p, const KmsScan *s,
 	uint32_t crtcs[KMS_MAX_CRTCS];
 	struct drm_mode_card_res r = { 0 };
 	r.count_crtcs = KMS_MAX_CRTCS;
-	r.crtc_id_ptr = (uintptr_t)crtcs;
+	r.crtc_id_ptr = kms_ptr(crtcs);
 	if (drm_ioctl(p->host->card_fd, DRM_IOCTL_MODE_GETRESOURCES, &r) < 0)
 		return;
 	const uint32_t n = r.count_crtcs < KMS_MAX_CRTCS ? r.count_crtcs
@@ -3012,7 +3012,7 @@ static void kms_scan_show(App *a, int back)
 		 * atomic, so a mode it will not take is refused by both. */
 		if (!set_ok) {
 			struct drm_mode_crtc set = {
-				.set_connectors_ptr = (uintptr_t)&out->connector_id,
+				.set_connectors_ptr = kms_ptr((void *)&out->connector_id),
 				.count_connectors   = 1,
 				.crtc_id            = crtc,
 				.fb_id              = p->scan.fb[back],
@@ -3346,8 +3346,8 @@ static size_t edid_read(int fd, const KmsOutput *o, unsigned char *edid,
 	 * it. Only index 0 would also have read back right. */
 	uint64_t values[64];
 	struct drm_mode_obj_get_properties gp = {
-		.props_ptr       = (uintptr_t)ids,
-		.prop_values_ptr = (uintptr_t)values,
+		.props_ptr       = kms_ptr(ids),
+		.prop_values_ptr = kms_ptr(values),
 		.count_props     = 64,
 		.obj_id          = o->connector_id,
 		.obj_type        = DRM_MODE_OBJECT_CONNECTOR,
@@ -3370,7 +3370,7 @@ static size_t edid_read(int fd, const KmsOutput *o, unsigned char *edid,
 		gb.length > cap)
 		return 0;
 	const uint32_t len = gb.length;
-	gb.data            = (uintptr_t)edid;
+	gb.data            = kms_ptr(edid);
 	if (drm_ioctl(fd, DRM_IOCTL_MODE_GETPROPBLOB, &gb) < 0 || gb.length != len)
 		return 0;
 	return len;
@@ -3598,7 +3598,7 @@ void kms_scanout_take(App *a)
 							  &on.mode, p->scan.fb[back]);
 	if (!took) {
 		struct drm_mode_crtc set = {
-			.set_connectors_ptr = (uintptr_t)&connector,
+			.set_connectors_ptr = kms_ptr((void *)&connector),
 			.count_connectors   = 1,
 			.crtc_id            = on.crtc_id,
 			.fb_id              = p->scan.fb[back],
