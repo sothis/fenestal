@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -189,10 +190,23 @@ static const char *json_unescape(const char *p, Str *out)
 
 static int  g_timeout_s = 5;
 static bool g_quiet;
+/* A command that speaks the port's framing on its standard input and output,
+ * for a window this program cannot connect to directly: `ssh host
+ * fenestal-mcp`, or socat for a socket. */
+static const char *g_command;
+/* Where the program runs: here, or on a machine `ssh` reaches. The port of a
+ * remote window is `ssh <host> <dir>/fenestal-mcp`, whose stdin and stdout
+ * carry the framing, and its log is fetched when the round is over. */
+static const char *g_ssh;
+static const char *g_remote_dir;
 
 typedef struct {
-	int  fd;
-	FILE *io;
+	/* One descriptor for a socket, two for a command's pipes: the port is
+	 * either a unix socket this program connected to, or a program whose
+	 * stdin and stdout carry the framing -- `ssh host fenestal-mcp`, which
+	 * is how another machine's window is reached. */
+	int  rfd, wfd;
+	pid_t cmd;      /* the command, where the port is one; 0 for a socket */
 	long next_id;
 	Str  buf;   /* the line being read */
 	Str  text;  /* the last reply's first text item */
@@ -212,28 +226,48 @@ static bool rpc(Port *p, const char *method, const char *params, Str *reply)
 	if (params)
 		str_addf(&q, ",\"params\":%s", params);
 	str_adds(&q, "}\n");
-	const bool wrote = fwrite(q.p, 1, q.n, p->io) == q.n && fflush(p->io) == 0;
+	size_t off = 0;
+	while (off < q.n) {
+		const ssize_t n = write(p->wfd, q.p + off, q.n - off);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			str_free(&q);
+			return false;
+		}
+		off += (size_t)n;
+	}
 	str_free(&q);
-	if (!wrote)
-		return false;
 
 	p->buf.n = 0;
-	int c;
 	bool got = false;
 	const double end = now_s() + (double)g_timeout_s *
 									  (p->next_id > 1 ? 3.0 : 1.0);
-	while (now_s() < end) {
-		c = fgetc(p->io);
-		if (c == EOF) {
+	while (now_s() < end && !got) {
+		struct pollfd pfd = { p->rfd, POLLIN, 0 };
+		const int     left = (int)((end - now_s()) * 1000.0) + 1;
+		const int     pr   = poll(&pfd, 1, left);
+		if (pr < 0) {
 			if (errno == EINTR)
 				continue;
 			return false;
 		}
-		if (c == '\n') {
-			got = true;
-			break;
+		if (pr == 0)
+			return false;
+		char    chunk[4096];
+		ssize_t n = read(p->rfd, chunk, sizeof chunk);
+		if (n <= 0) {
+			if (n < 0 && errno == EINTR)
+				continue;
+			return false;
 		}
-		str_addc(&p->buf, (char)c);
+		for (ssize_t i = 0; i < n; i++) {
+			if (chunk[i] == '\n') {
+				got = true;
+				break;
+			}
+			str_addc(&p->buf, chunk[i]);
+		}
 	}
 	if (!got)
 		return false;
@@ -330,6 +364,82 @@ static const char *ask(Port *p, const char *tool, const char *fmt, ...)
 	const int n = vsnprintf(args, sizeof args, fmt ? fmt : "%s", ap);
 	va_end(ap);
 	return call(p, tool, n > 0 ? args : "{}");
+}
+
+/* A command run for what it says: its standard output, whole, into `out`.
+ * False where it could not be run; `*status` is the exit status or -1. */
+static bool sh_run(const char *cmd, Str *out, int *status)
+{
+	FILE *f = popen(cmd, "r");
+	if (!f)
+		return false;
+	char buf[1024];
+	size_t n;
+	out->n = 0;
+	while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+		str_add(out, buf, n);
+	if (out->p)
+		out->p[out->n] = '\0';
+	const int rc = pclose(f);
+	*status      = rc < 0 ? -1 : WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
+	return true;
+}
+
+static bool remote_gone(const char *host, long pid)
+{
+	Str  out = { 0 };
+	char cmd[512];
+	int  status = -1;
+	snprintf(cmd, sizeof cmd, "ssh -o BatchMode=yes %.200s 'kill -0 %ld'", host,
+			 pid);
+	const bool ok = sh_run(cmd, &out, &status);
+	str_free(&out);
+	return ok && status != 0;
+}
+
+/* A port over a command's standard input and output: `ssh host
+ * fenestal-mcp` is how another machine's window is reached, and `socat -`
+ * how a socket is, where a socket is not connectable directly. The command
+ * is this program's child, and its two pipes are the port's ends. */
+static void port_spawn(Port *p, char *const argv[])
+{
+	int in[2], out[2];
+	if (pipe(in) != 0 || pipe(out) != 0)
+		DIE("pipe: %s", strerror(errno));
+	const pid_t pid = fork();
+	if (pid < 0)
+		DIE("fork: %s", strerror(errno));
+	if (pid == 0) {
+		dup2(in[0], 0);
+		dup2(out[1], 1);
+		close(in[0]);
+		close(in[1]);
+		close(out[0]);
+		close(out[1]);
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	close(in[0]);
+	close(out[1]);
+	p->wfd = in[1];
+	p->rfd = out[0];
+	p->cmd = pid;
+}
+
+static void port_close(Port *p)
+{
+	if (p->cmd > 0) {
+		kill(p->cmd, SIGTERM);
+		waitpid(p->cmd, NULL, 0);
+	} else {
+		if (p->rfd > 0 && p->rfd == p->wfd)
+			close(p->rfd);
+	}
+	if (p->rfd > 0 && p->rfd != p->wfd)
+		close(p->rfd);
+	if (p->wfd > 0 && p->rfd != p->wfd)
+		close(p->wfd);
+	p->rfd = p->wfd = -1;
 }
 
 /* ---- the program --------------------------------------------------------- */
@@ -429,6 +539,109 @@ static void prog_start(Prog *pr, char *const argv[], char *const envp[],
 		execve(argv[0], argv, envp);
 		_exit(127);
 	}
+}
+
+/* The program started on the machine `ssh` reaches: the same tree, at the
+ * path it has here, run with its output into a file there -- a file, not a
+ * pipe, for prog_start()'s reason -- and its pid echoed back. */
+static long remote_start(const char *host, const char *dir,
+						 const char *backend, const char *renderer,
+						 const char *variant, char *log_out, size_t log_n)
+{
+	snprintf(log_out, log_n, "/tmp/fenestal-round-%ld-%s.log", (long)getpid(),
+			 variant);
+	/* The window server's own variables are the session's, and a session
+	 * over ssh has none of this one's: driving the machine this program runs
+	 * on (`localhost`) is the one case where they must be passed on, since
+	 * the window has to open on the display it was told about. A bare
+	 * machine needs none of them. */
+	const bool  here = !strcmp(host, "localhost") || !strcmp(host, "127.0.0.1");
+	const char *disp = here ? getenv("DISPLAY") : NULL;
+	const char *wl   = here ? getenv("WAYLAND_DISPLAY") : NULL;
+	const char *rt   = here ? getenv("XDG_RUNTIME_DIR") : NULL;
+	/* X's own authority file is part of "which display may this client
+	 * draw on": without it the server answers and then refuses. */
+	const char *xa   = here ? getenv("XAUTHORITY") : NULL;
+
+	Str cmd = { 0 };
+	/* A `;`, not a `&&`: `cd x && prog &` puts the whole list in the
+	 * background, and the shell then waits for it -- the ssh session stays
+	 * open for as long as the window does. */
+	str_addf(&cmd, "cd %.300s; ", dir);
+	if (disp)
+		str_addf(&cmd, "DISPLAY=%.160s ", disp);
+	if (wl)
+		str_addf(&cmd, "WAYLAND_DISPLAY=%.160s ", wl);
+	if (rt)
+		str_addf(&cmd, "XDG_RUNTIME_DIR=%.300s ", rt);
+	if (xa)
+		str_addf(&cmd, "XAUTHORITY=%.300s ", xa);
+	str_addf(&cmd, "FNL_MCP=1 FNL_BACKEND=%s FNL_RENDERER=%s "
+				   "FNL_ECHO_EVENTS=1 FNL_GPU_RANK=off ",
+			 backend, renderer);
+	if (strcmp(variant, "release"))
+		str_adds(&cmd, "FNL_VK_VALIDATION=1 ");
+	/* Standard input too, or the program holds the ssh channel's open and
+	 * the channel outlives the command that started it. */
+	str_addf(&cmd, "nohup ./fenestal-testbed --frame-times < /dev/null "
+				   "> %.200s 2>&1 & echo $!",
+			 log_out);
+
+	/* ssh takes the whole remote command as one argument, so nothing of it
+	 * is a local shell's to mangle. */
+	int fds[2];
+	if (pipe(fds) != 0)
+		DIE("pipe: %s", strerror(errno));
+	const pid_t child = fork();
+	if (child < 0)
+		DIE("fork: %s", strerror(errno));
+	if (child == 0) {
+		dup2(fds[1], 1);
+		close(fds[0]);
+		close(fds[1]);
+		/* execvp() takes writable pointers; the words are this file's
+		 * own arrays, not literals. */
+		static char ssh_w[] = "ssh", opt_w[] = "-o";
+		static char batch_w[] = "BatchMode=yes";
+		char *args[] = { ssh_w, opt_w, batch_w, (char *)host, cmd.p, NULL };
+		execvp("ssh", args);
+		_exit(127);
+	}
+	close(fds[1]);
+	char   buf[128];
+	size_t n = 0;
+	ssize_t r;
+	while (n < sizeof buf - 1 && (r = read(fds[0], buf + n, sizeof buf - 1 - n)) > 0)
+		n += (size_t)r;
+	buf[n] = '\0';
+	close(fds[0]);
+	waitpid(child, NULL, 0);
+	str_free(&cmd);
+	return strtol(buf, NULL, 10);
+}
+
+/* The log fetched from the machine, whole, into the local one the sections
+ * read: what the library said there is what this program would have read
+ * here. */
+static void remote_log(const char *host, const char *remote, const char *local)
+{
+	char cmd[1024];
+	snprintf(cmd, sizeof cmd, "ssh -o BatchMode=yes %.120s 'cat %.300s'",
+			 host, remote);
+	FILE *f = popen(cmd, "r");
+	if (!f)
+		return;
+	FILE *out = fopen(local, "w");
+	if (!out) {
+		pclose(f);
+		return;
+	}
+	char buf[4096];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+		fwrite(buf, 1, n, out);
+	fclose(out);
+	pclose(f);
 }
 
 /* ---- the checks ---------------------------------------------------------- */
@@ -1152,12 +1365,8 @@ static int round_second(char *const envp[], const char *log_path)
 		memcpy(addr.sun_path, paths[k], pn + 1);
 		if (connect(fds[k], (struct sockaddr *)&addr, sizeof addr) != 0)
 			break;
-		struct timeval tv = { g_timeout_s * 3, 0 };
-		setsockopt(fds[k], SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-		pp->fd = fds[k];
-		pp->io = fdopen(fds[k], "r+");
-		if (!pp->io ||
-			!rpc(pp, "initialize",
+		pp->rfd = pp->wfd = fds[k];
+		if (!rpc(pp, "initialize",
 				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
 				 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
 				 NULL))
@@ -1216,10 +1425,16 @@ static int round_second(char *const envp[], const char *log_path)
 			sleep_s(0.05);
 	}
 	check("and shows it again", shown, "");
-	if (one.io)
-		fclose(one.io);
-	if (two.io)
-		fclose(two.io);
+	if (one.rfd > 0) {
+		close(one.rfd);
+		if (one.wfd != one.rfd)
+			close(one.wfd);
+	}
+	if (two.rfd > 0) {
+		close(two.rfd);
+		if (two.wfd != two.rfd)
+			close(two.wfd);
+	}
 	if (!pr.ended) {
 		kill(pr.pid, SIGTERM);
 		waitpid(pr.pid, NULL, 0);
@@ -1230,9 +1445,94 @@ static int round_second(char *const envp[], const char *log_path)
 /* ---- one round ----------------------------------------------------------- */
 
 static int round_one(const char *variant, const char *backend,
-					 char *const argv[], char *const envp[],
-					 const char *log_path)
+					 const char *renderer, char *const argv[],
+					 char *const envp[], const char *log_path)
 {
+	if (g_ssh && !g_command) {
+		/* Not wired yet: the program starts there and the port is reached,
+		 * but a run over ssh has not been made to pass. Until then the
+		 * remote window is driven by starting it on its own machine and
+		 * naming the bridge here: --command "ssh host <dir>/fenestal-mcp". */
+		fprintf(stderr,
+				"round: --ssh is not wired yet; start the program there and "
+				"use --command \"ssh %s <dir>/fenestal-mcp\"\n", g_ssh);
+		return 2;
+	}
+	if (g_ssh) {
+		/* The program on the other machine: started there, its port over
+		 * `ssh <host> <dir>/fenestal-mcp`, its log asked for at the end. */
+		Prog pr;
+		memset(&pr, 0, sizeof pr);
+		char remote_log_path[512];
+		const long pid = remote_start(g_ssh, g_remote_dir ? g_remote_dir : ".",
+									  backend, renderer, variant,
+									  remote_log_path,
+									  sizeof remote_log_path);
+		if (pid < 0) {
+			fprintf(stderr, "round: %s did not start a program\n", g_ssh);
+			return 2;
+		}
+		pr.pid = -1;
+		snprintf(pr.log_path, sizeof pr.log_path, "%.500s", log_path);
+		sleep_s(1.0);
+		Port p;
+		memset(&p, 0, sizeof p);
+		char mcp_cmd[1024];
+		snprintf(mcp_cmd, sizeof mcp_cmd,
+				 "ssh -o BatchMode=yes %.120s %.300s/fenestal-mcp", g_ssh,
+				 g_remote_dir ? g_remote_dir : ".");
+		char *argv_cmd[8];
+		int   cn = 0;
+		for (char *w = strtok(mcp_cmd, " "); w && cn < 7;
+			 w = strtok(NULL, " "))
+			argv_cmd[cn++] = w;
+		argv_cmd[cn] = NULL;
+		port_spawn(&p, argv_cmd);
+		if (!rpc(&p, "initialize",
+				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+				 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
+				 NULL)) {
+			port_close(&p);
+			fprintf(stderr, "round: %s answered no initialize\n", g_ssh);
+			return 2;
+		}
+		section_opening(&pr, &p, backend, variant);
+		section_keys(&p);
+		section_titlebar(&p);
+		section_window(&p);
+		section_pointer(&p);
+		section_capture(&p);
+		section_gpus(&p, variant);
+		section_faults(&p, &pr, variant);
+		tap(&p, "Escape");
+		const double end = now_s() + 20.0 * patience();
+		bool         gone = false;
+		while (now_s() < end && !gone) {
+			gone = remote_gone(g_ssh, pid);
+			if (!gone)
+				sleep_s(0.2);
+		}
+		check("exits on Escape", gone, "still there");
+		remote_log(g_ssh, remote_log_path, log_path);
+		lines_read(&pr);
+		const char *bad = pr.lines.p ? strstr(pr.lines.p, "ERROR:") : NULL;
+		check("no sanitizer report in the log", bad == NULL, "");
+		if (!gone) {
+			char kill_cmd[512];
+			Str  o = { 0 };
+			int  st = -1;
+			snprintf(kill_cmd, sizeof kill_cmd,
+					 "ssh -o BatchMode=yes %.120s 'kill %ld'", g_ssh, pid);
+			sh_run(kill_cmd, &o, &st);
+			str_free(&o);
+		}
+		port_close(&p);
+		str_free(&p.text);
+		str_free(&p.image);
+		str_free(&p.buf);
+		return g_failed ? 1 : 0;
+	}
+
 	Prog pr;
 	memset(&pr, 0, sizeof pr);
 	char dir[1024];
@@ -1253,8 +1553,50 @@ static int round_one(const char *variant, const char *backend,
 
 	Port p;
 	memset(&p, 0, sizeof p);
-	p.fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (p.fd < 0)
+	/* The port is a socket here, or a command that speaks the framing --
+	 * `ssh host <dir>/fenestal-mcp`, `socat - UNIX-CONNECT:...` -- which is
+	 * how a window on another machine is reached. */
+	if (g_command) {
+		char *argv_cmd[32];
+		int   n = 0;
+		char *copy = strdup(g_command);
+		for (char *w = strtok(copy, " "); w && n < 31;
+			 w = strtok(NULL, " "))
+			argv_cmd[n++] = w;
+		argv_cmd[n] = NULL;
+		port_spawn(&p, argv_cmd);
+		free(copy);
+		if (!rpc(&p, "initialize",
+				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+				 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
+				 NULL)) {
+			port_close(&p);
+			kill(pr.pid, SIGTERM);
+			fprintf(stderr, "round: the command did not answer "
+							"initialize\n");
+			return 2;
+		}
+		section_opening(&pr, &p, backend, variant);
+		section_keys(&p);
+		section_titlebar(&p);
+		section_window(&p);
+		section_pointer(&p);
+		section_capture(&p);
+		section_gpus(&p, variant);
+		section_faults(&p, &pr, variant);
+		section_leaving(&pr, &p);
+		if (!pr.ended) {
+			kill(pr.pid, SIGTERM);
+			waitpid(pr.pid, NULL, 0);
+		}
+		port_close(&p);
+		str_free(&p.text);
+		str_free(&p.image);
+		str_free(&p.buf);
+		return g_failed ? 1 : 0;
+	}
+	p.rfd = p.wfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (p.rfd < 0)
 		DIE("socket: %s", strerror(errno));
 	struct sockaddr_un addr;
 	memset(&addr, 0, sizeof addr);
@@ -1269,16 +1611,11 @@ static int round_one(const char *variant, const char *backend,
 		return 2;
 	}
 	memcpy(addr.sun_path, pr.sock, sn + 1);
-	if (connect(p.fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
+	if (connect(p.wfd, (struct sockaddr *)&addr, sizeof addr) != 0) {
 		kill(pr.pid, SIGTERM);
 		fprintf(stderr, "round: connect %s: %s\n", pr.sock, strerror(errno));
 		return 2;
 	}
-	struct timeval tv = { g_timeout_s * 3, 0 };
-	setsockopt(p.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-	p.io = fdopen(p.fd, "r+");
-	if (!p.io)
-		DIE("fdopen: %s", strerror(errno));
 	if (!rpc(&p, "initialize",
 			 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
 			 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
@@ -1301,7 +1638,9 @@ static int round_one(const char *variant, const char *backend,
 		kill(pr.pid, SIGTERM);
 		waitpid(pr.pid, NULL, 0);
 	}
-	fclose(p.io);
+	close(p.rfd);
+	if (p.wfd != p.rfd)
+		close(p.wfd);
 	str_free(&p.text);
 	str_free(&p.image);
 	str_free(&p.buf);
@@ -1342,6 +1681,12 @@ int main(int argc, char **argv)
 			renderer = argv[++i];
 		else if (!strcmp(a, "--timeout") && i + 1 < argc)
 			g_timeout_s = atoi(argv[++i]);
+		else if (!strcmp(a, "--ssh") && i + 1 < argc)
+			g_ssh = argv[++i];
+		else if (!strcmp(a, "--remote-dir") && i + 1 < argc)
+			g_remote_dir = argv[++i];
+		else if (!strcmp(a, "--command") && i + 1 < argc)
+			g_command = argv[++i];
 		else if (!strcmp(a, "--quiet"))
 			g_quiet = true;
 		else if (!strncmp(a, "--", 2))
@@ -1424,7 +1769,8 @@ int main(int argc, char **argv)
 	char log_path[1024];
 	snprintf(log_path, sizeof log_path, "build/drive/round-%s-%s.log", backend,
 			 variant);
-	const int rc = round_one(variant, backend, prog_argv, envp, log_path);
+	const int rc = round_one(variant, backend, renderer, prog_argv, envp,
+							 log_path);
 
 	printf("\n%d checks, %d failed\n", g_checks, g_failed);
 	if (g_failed)

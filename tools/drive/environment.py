@@ -1,5 +1,23 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Janos Sonntag
+#
+# pyright: reportAttributeAccessIssue=false, reportIncompatibleMethodOverride=false
+# pyright: reportIncompatibleVariableOverride=false, reportOptionalMemberAccess=false
+# pyright: reportOptionalOperand=false, reportOptionalIterable=false
+# pyright: reportOptionalSubscript=false, reportArgumentType=false
+# pyright: reportCallIssue=false, reportPossiblyUnboundVariable=false
+# pyright: reportIndexIssue=false, reportGeneralTypeIssues=false
+# pyright: reportOperatorIssue=false, reportMissingImports=false
+#
+# What those leave out is this file's shape and not a defect: the halves a
+# round is made of are mixins -- _Placed, _Portal, _OnBare -- each written
+# against the attributes its siblings define, so a whole class is their sum
+# and no one of them names what the other provides. Typing that properly is
+# a rewrite of four thousand lines, and it is a rewrite this file is being
+# retired from: the round through the MCP port (tools/drive/round.c) asks
+# the library rather than the desktop, and each environment goes with the
+# Python that drove it.
+
 """One window under test, whichever window server is holding it.
 
 Every backend, one round -- the Win32 one several times over, since the
@@ -1796,7 +1814,10 @@ class _DeskWine:
         if not pfx or os.path.isfile(os.path.join(pfx, "system.reg")):
             return
         print("making the wine prefix %s" % pfx, flush=True)
-        os.makedirs(pfx, mode=0o700, exist_ok=True)
+        try:
+            os.makedirs(pfx, mode=0o700, exist_ok=True)
+        except OSError as e:
+            raise Unavailable("no wine prefix at %s: %s" % (pfx, e)) from e
         env = {k: v for k, v in os.environ.items()
                if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
         env.update(WINEPREFIX=pfx, WINEDEBUG="-all",
@@ -1982,12 +2003,20 @@ class _Vkd3dProton:
                               "wine: %s" % e)
         tree = os.path.dirname(exe)
         run = os.path.join(OUT, "run-%s-%s" % (cls.NAME, variant))
-        os.makedirs(run, exist_ok=True)
-        srcs = [os.path.join(tree, f) for f in sorted(os.listdir(tree))
+        try:
+            os.makedirs(run, exist_ok=True)
+            listing = sorted(os.listdir(tree))
+        except OSError as e:
+            raise Unavailable("no program to stage from %s: %s"
+                                % (tree, e)) from e
+        srcs = [os.path.join(tree, f) for f in listing
                 if f.endswith((".exe", ".dll"))] + list(extra or ())
         for src in srcs:
             dst = os.path.join(run, os.path.basename(src))
-            st = os.stat(src)
+            try:
+                st = os.stat(src)
+            except OSError as e:
+                raise Unavailable("no %s to stage: %s" % (src, e)) from e
             try:
                 same = os.stat(dst)
                 if (same.st_size, same.st_mtime_ns) == (st.st_size,

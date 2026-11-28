@@ -66,7 +66,11 @@ FIXED = ["--bench-run", "--bench-quit", "--bench-emit"]
 def records(log_path):
     """The documents the program emitted, in order."""
     docs, cur = [], None
-    with open(log_path, errors="replace") as f:
+    try:
+        f = open(log_path, errors="replace")
+    except OSError as e:
+        raise RuntimeError("no program log to read: %s" % e) from e
+    with f:
         for ln in f:
             ln = ln.rstrip("\n")
             if ln.startswith(BEGIN):
@@ -157,7 +161,11 @@ def file_lines(path):
     seen = [0]
 
     def lines():
-        with open(path, "rb") as f:
+        try:
+            f = open(path, "rb")
+        except OSError as e:
+            raise RuntimeError("no log to follow: %s" % e) from e
+        with f:
             f.seek(seen[0])
             chunk = f.read()
         end = chunk.rfind(b"\n") + 1
@@ -217,7 +225,11 @@ def run_local(cls, variant, args, log_path, with_hands=False):
         exe = cls.stage(exe, variant)
     except B.Unavailable as e:
         return str(e)
-    with open(log_path, "w") as log:
+    try:
+        log = open(log_path, "w")
+    except OSError as e:
+        return "cannot write %s: %s" % (log_path, e)
+    with log:
         # The program's own copy goes under build/drive too: left to its
         # default it lands in the state directory, where bench.py keeps the
         # emitted one -- the same run counted twice by report.py.
@@ -394,9 +406,16 @@ def keep(doc, place, out_dir):
     name = "bench-%s-%s-%s-%s.json" % (
         stamp, m["host"] or "unknown", place.split("@")[0]
         .replace(":", "-"), run["id"])
-    os.makedirs(out_dir, exist_ok=True)
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError("cannot make %s: %s" % (out_dir, e)) from e
     path = os.path.join(out_dir, name)
-    with open(path, "w") as f:
+    try:
+        f = open(path, "w")
+    except OSError as e:
+        raise RuntimeError("cannot write %s: %s" % (path, e)) from e
+    with f:
         json.dump(doc, f, indent=1)
         f.write("\n")
     return path
@@ -477,7 +496,10 @@ def main():
 
     schema = check.load_schema()
     head, dirty = ledger.commit()
-    os.makedirs(OUT, exist_ok=True)
+    try:
+        os.makedirs(OUT, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError("cannot make %s: %s" % (OUT, e)) from e
     bad = 0
     for name, what, run in wanted:
         last = None
