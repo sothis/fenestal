@@ -2606,6 +2606,11 @@ struct FnlApp {
 	 * (app_cost_publish()), not at every frame. The GPU's raw sample is a
 	 * renderer's, counted, so the render thread folds each into the mean
 	 * once (app_frame_cost(), app_cost_poll()). */
+	/* Whether the Vulkan instance was made with Khronos' validation layer
+	 * (FNL_VK_VALIDATION=1, device.c): the renderer's fact, published where
+	 * the MCP port can read it from its own thread, a checker round having
+	 * proved the layer loaded from the process's mappings until now. */
+	FnlAtomicBool vk_layer;
 	FnlAtomicU32 cost_gpu_us;
 	FnlAtomicU32 cost_cpu_us;
 	FnlAtomicU32 cost_turn_us;

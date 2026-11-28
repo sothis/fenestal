@@ -1192,6 +1192,8 @@ static bool tool_state(Mcp *m, const char *args, Sb *c)
 	sb_s(&s, "{");
 	sb_key(&s, "backend");
 	sb_jstr(&s, fnl_backend_name(a));
+	sb_key(&s, "validation");
+	sb_bool(&s, fnl_atomic_load_bool(&a->vk_layer));
 	sb_key(&s, "renderer");
 	sb_jstr(&s, fnl_renderer_name(a));
 	sb_key(&s, "gpu");

@@ -268,7 +268,10 @@ def opening(s, r):
             st["window_pt"][0] > 100 and st["content_rect_pt"][3] > 100,
             "%s %s" % (st["window_pt"], st["content_rect_pt"]))
     if s.variant in CHECKERS:
-        r.check("the validation layer is in the program", layer_mapped(s))
+        # Asked of the library, which knows its own instance: the process's
+        # mappings are a question only a client on this machine can ask.
+        r.check("the validation layer is in the program",
+                s.state().get("validation") is True)
     live = s.state(live=True)
     time.sleep(1.0)
     live = s.state(live=True)
@@ -276,17 +279,6 @@ def opening(s, r):
     # The complaints so far, before anything is forced.
     bad = complaints(s)
     r.check("log is clean at the open", not bad, "; ".join(bad[:3]))
-
-
-def layer_mapped(s):
-    """Whether the layer is loaded, read off the process's own mappings: a
-    loader that cannot find it says nothing, and a round run without it would
-    pass for one run with it."""
-    try:
-        with open("/proc/%d/maps" % s.proc.pid) as fh:
-            return "VkLayer_khronos_validation" in fh.read()
-    except OSError:
-        return False
 
 
 def server_logs(s):

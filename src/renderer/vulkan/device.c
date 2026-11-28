@@ -564,6 +564,11 @@ static FnlResult make_instance_locked(App *a, struct VkHost *g)
 		ci.ppEnabledLayerNames = NULL;
 		made = vkCreateInstance(&ci, NULL, &g->instance);
 	}
+	/* Kept for the MCP port's `state`, which says whether a checker round's
+	 * layer is in the instance: the process's own mappings are not a
+	 * question a client on another machine can ask. */
+	fnl_atomic_store_bool(&a->vk_layer,
+						  made == VK_SUCCESS && ci.enabledLayerCount > 0);
 	if (made == VK_ERROR_INCOMPATIBLE_DRIVER) {
 		static FnlAtomicBool said;
 		if (fnl_atomic_load_bool(&said))
