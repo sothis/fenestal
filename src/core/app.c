@@ -2923,13 +2923,19 @@ void app_cost_publish(App *a, double now, bool window)
 	const double cpu = app_cpu_cost(a);
 	const bool cpu_new =
 		cpu > 0.0 && fnl_atomic_load_u32(&a->cost_cpu_us) == COST_UNKNOWN;
-	if (!gpu_new && !cpu_new && !(a->cost_owed && due))
+	const bool turn_new =
+		a->turn_cost > 0.0 &&
+		fnl_atomic_load_u32(&a->cost_turn_us) == COST_UNKNOWN;
+	if (!gpu_new && !cpu_new && !turn_new && !(a->cost_owed && due))
 		return;
 	if (a->gpu_cost > 0.0)
 		fnl_atomic_store_u32(&a->cost_gpu_us,
 							 (uint32_t)(a->gpu_cost * 1e6 + 0.5));
 	if (cpu > 0.0)
 		fnl_atomic_store_u32(&a->cost_cpu_us, (uint32_t)(cpu * 1e6 + 0.5));
+	if (a->turn_cost > 0.0)
+		fnl_atomic_store_u32(&a->cost_turn_us,
+							 (uint32_t)(a->turn_cost * 1e6 + 0.5));
 	a->cost_published_at = now;
 	a->cost_owed         = false;
 }
@@ -2949,6 +2955,8 @@ void app_frame_cost_reset(App *a)
 	a->wall_cost  = 0.0;
 	a->wall_mark  = -1.0;
 	fnl_atomic_store_u32(&a->cost_cpu_us, COST_UNKNOWN);
+	a->turn_cost = 0.0;
+	fnl_atomic_store_u32(&a->cost_turn_us, COST_UNKNOWN);
 }
 
 void app_frame_mark(App *a, FrameMark m)

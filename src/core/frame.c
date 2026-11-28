@@ -1634,11 +1634,24 @@ static void frame_times_log(App *a, double dt, bool vsync)
 	a->fc_frames = a->fc_idle = 0;
 }
 
+/* The frame-rate window starts here: its first point, and no CPU reading to
+ * measure a frame's cost from, which an idle stretch would swell. */
+static void fps_restart(App *a, double t)
+{
+	a->fps_last_t = a->fc_last_t = t;
+	a->fps_presents              = a->presents;
+	a->fps_pt[0].t               = t;
+	a->fps_pt[0].presents        = a->presents;
+	a->fps_pt_n                  = 1;
+	a->turn_cpu_t0               = -1.0;
+}
+
 /* Frames that reached the screen, not turns of this loop. `now` is the
  * turn's reading from before the pacing wait, so both ends of the window are
  * read at the same point in the loop. True where a window closed, which is
  * when the cost figures are published too (app_cost_publish()): the three
- * move in one re-record. */
+ * move in one re-record. The rate is read over the last FPS_SPAN windows --
+ * a second -- though it moves with each. */
 static bool fps_update(App *a, double now, bool vsync)
 {
 	if (a->frame_times && a->fc_frames > 0 &&
@@ -1649,9 +1662,34 @@ static bool fps_update(App *a, double now, bool vsync)
 	const double dt = now - a->fps_last_t;
 	if (dt < FPS_WINDOW)
 		return false;
+	if (a->fps_pt_n == 0)
+		fps_restart(a, a->fps_last_t);
+	if (a->fps_pt_n == FPS_SPAN + 1) {
+		memmove(&a->fps_pt[0], &a->fps_pt[1], FPS_SPAN * sizeof a->fps_pt[0]);
+		a->fps_pt_n--;
+	}
+	a->fps_pt[a->fps_pt_n].t        = now;
+	a->fps_pt[a->fps_pt_n].presents = a->presents;
+	a->fps_pt_n++;
+	const double span = now - a->fps_pt[0].t;
 	fnl_atomic_store_u32(
 		&a->fps_display,
-		(uint32_t)((double)(a->presents - a->fps_presents) / dt + 0.5));
+		(uint32_t)((double)(a->presents - a->fps_pt[0].presents) / span +
+				   0.5));
+
+	/* What a frame costs the render thread in all, which is more than its
+	 * span (app_frame_mark()): the turn's own work around it. A rate made
+	 * from the span alone is the rate of a thread with nothing else to do,
+	 * and read 1.4 times what was drawn flat out. Not at rest, where the
+	 * turns are the panel's and not frames'. */
+	const double cpu = thread_cpu_seconds(&a->cpu_clock);
+	const uint64_t frames = a->presents - a->fps_presents;
+	if (!a->resting && cpu >= 0.0 && a->turn_cpu_t0 >= 0.0 && frames > 0 &&
+		cpu > a->turn_cpu_t0) {
+		const double s = (cpu - a->turn_cpu_t0) / (double)frames;
+		a->turn_cost = a->turn_cost > 0.0 ? a->turn_cost * 0.9 + s * 0.1 : s;
+	}
+	a->turn_cpu_t0  = cpu;
 	a->fps_presents = a->presents;
 	a->fps_last_t   = now;
 	return true;
@@ -1752,6 +1790,7 @@ static bool draw_state_update(App *a, const Latch *l)
 		.fps          = (int)fnl_atomic_load_u32(&a->fps_display),
 		.cost_gpu_us  = fnl_atomic_load_u32(&a->cost_gpu_us),
 		.cost_cpu_us  = fnl_atomic_load_u32(&a->cost_cpu_us),
+		.cost_turn_us = fnl_atomic_load_u32(&a->cost_turn_us),
 		.input_lat_us = fnl_atomic_load_u32(&a->input_lat_us),
 		/* The panel, and the process's figures it shows (metrics.c),
 		 * which stand still while it is hidden. */
@@ -1787,6 +1826,7 @@ static bool draw_state_update(App *a, const Latch *l)
 	other.fps          = a->last_draw.fps;
 	other.cost_gpu_us  = a->last_draw.cost_gpu_us;
 	other.cost_cpu_us  = a->last_draw.cost_cpu_us;
+	other.cost_turn_us = a->last_draw.cost_turn_us;
 	other.input_lat_us = a->last_draw.input_lat_us;
 	other.met_cpu_pm   = a->last_draw.met_cpu_pm;
 	other.met_ram_mib  = a->last_draw.met_ram_mib;
@@ -1901,10 +1941,8 @@ static bool rest_owed(App *a, bool changed, bool figures, double latched,
 			a->late_settle   = LATE_SLACK_SETTLE;
 			a->late_cb_floor = a->late_cb_turn;
 			a->pace_at     = latched;
-			if (!sampling) {
-				a->fps_last_t = a->fc_last_t = latched;
-				a->fps_presents              = a->presents;
-			}
+			if (!sampling)
+				fps_restart(a, latched);
 			a->fc_pace_sum = a->fc_wait_sum = a->fc_record_sum = 0.0;
 			a->fc_fence_sum                                    = 0.0;
 			a->fc_submit_sum = a->fc_present_sum = a->fc_draw_sum = 0.0;
@@ -2037,7 +2075,7 @@ void *render_loop(void *arg)
 	 * tell this window's renderer state from another's, and the render-thread
 	 * paths that reach the App through a callback's pointer find it here. */
 	app_render_window_set(a);
-	a->fps_last_t = a->fc_last_t = now_seconds();
+	fps_restart(a, now_seconds());
 	fnl_mutex_lock(&a->lock);
 	a->ring_done = false;
 	fnl_mutex_unlock(&a->lock);
@@ -2297,8 +2335,7 @@ void *render_loop(void *arg)
 				veil_unseen(a);
 			/* The frame-rate window restarts, or the idle time would read as
 			 * a near-zero rate once back on screen. */
-			a->fps_last_t = a->fc_last_t = latched;
-			a->fps_presents              = a->presents;
+			fps_restart(a, latched);
 			continue;
 		}
 

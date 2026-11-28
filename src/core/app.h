@@ -669,6 +669,8 @@ void app_gpu_inventory(const App *a, int i, const char *name,
  * the frame-rate counter's window, so the three figures move together.
  * Seconds. */
 #define COST_WINDOW 0.2
+/* How many of those windows the frame rate is read over: a second. */
+#define FPS_SPAN 5
 
 /* fnl_set_transition_ms()'s default and ceiling: how long the first frames
  * after a move dissolve from the last frame before it, and, where no frame
@@ -823,6 +825,12 @@ typedef struct {
 	 * while frames are drawn, and once more when the window comes to rest
 	 * (app_cost_publish()), so they cost no more re-records than fps. */
 	uint32_t cost_gpu_us, cost_cpu_us;
+	/* What one frame costs the render thread in all, in microseconds: its
+	 * CPU time over a window, outside the frame's own span too, by the
+	 * presents in it (App::turn_cost). The metrics panel's rate the thread
+	 * allows is made from it; COST_UNKNOWN where the thread's CPU time is
+	 * not known. Published with the two above. */
+	uint32_t cost_turn_us;
 	/* What fnl_input_latency_ms() reports, in microseconds, for fps's
 	 * reason, and published with the two above (events_latency_publish()). */
 	uint32_t input_lat_us;
@@ -873,7 +881,7 @@ typedef struct {
  * overlay that stops refreshing when that field alone changes, so the size is
  * pinned and adding a field fails the build here. Update the comparison,
  * then the number. */
-_Static_assert(sizeof(FnlDrawState) == 396,
+_Static_assert(sizeof(FnlDrawState) == 400,
 			   "FnlDrawState changed -- keep "
 			   "fnl_draw_state_eq() in step, then update this size");
 
@@ -890,6 +898,7 @@ static inline bool fnl_draw_state_eq(const FnlDrawState *x,
 		   x->out_w_pt == y->out_w_pt && x->out_h_pt == y->out_h_pt &&
 		   x->fps == y->fps && x->cost_gpu_us == y->cost_gpu_us &&
 		   x->cost_cpu_us == y->cost_cpu_us &&
+		   x->cost_turn_us == y->cost_turn_us &&
 		   x->input_lat_us == y->input_lat_us && x->metrics == y->metrics &&
 		   x->met_cpu_pm == y->met_cpu_pm && x->met_ram_mib == y->met_ram_mib &&
 		   x->met_vram_mib == y->met_vram_mib &&
@@ -1958,6 +1967,21 @@ struct FnlApp {
 	/* `presents` at the start of the window being measured: the rate counts
 	 * presents, not loop turns. */
 	uint64_t fps_presents;
+	/* The frame rate is read over the last FPS_SPAN windows, not the one
+	 * that closed: a window of 0.2 s holds a dozen frames at 60 Hz, and one
+	 * more or less is 5 fps. The window's closes, oldest first, as (time,
+	 * presents); the first is where the span restarted (fps_restart()).
+	 * Render thread. */
+	struct {
+		double   t;
+		uint64_t presents;
+	} fps_pt[FPS_SPAN + 1];
+	int fps_pt_n;
+	/* The render thread's CPU seconds at the last close of the window, or
+	 * negative where there is none to measure from, and the mean it makes
+	 * of the CPU a frame takes (cost_turn_us's), seconds, 0 for none.
+	 * Render thread. */
+	double turn_cpu_t0, turn_cost;
 
 	/* --frame-times: the phases that partition the loop between two
 	 * consecutive turns. See DESIGN *Where the time actually goes*.
@@ -2571,6 +2595,7 @@ struct FnlApp {
 	 * once (app_frame_cost(), app_cost_poll()). */
 	FnlAtomicU32 cost_gpu_us;
 	FnlAtomicU32 cost_cpu_us;
+	FnlAtomicU32 cost_turn_us;
 	FnlAtomicU32 gpu_sample_us;
 	FnlAtomicU32 gpu_sample_seq;
 	/* What fnl_input_latency_ms() reports, in microseconds, and the draw

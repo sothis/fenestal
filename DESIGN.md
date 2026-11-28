@@ -1128,6 +1128,44 @@ Intel Vulkan maximized on that monitor (3840x2117, 30 fps, 2026-11-05):
 panel shown and the scene still, 0.0 % where the product stands at the
 last moving frames' 18.9 %.
 
+**The rate the panel shows is the thread's, not a frame's span.** The Max
+row is one over the larger of the GPU's time and the render thread's cost of
+a frame *in all*, and the span the CPU row reports is only the part of it
+between two marks (`app_frame_mark()`): a rate from that part alone is the
+rate of a thread with nothing else to do. So the turn is measured too
+(`App::turn_cost`), the thread's CPU time between the closes of the
+frame-rate window over the frames presented in it, and the panel's rate is
+made from that. Measured with `--no-vsync` on this desktop (X11, Vulkan, the
+RX 590, the scene moving, 2026-11-28): the turn 0.130 ms, Max 7692 fps
+against 7210 to 7512 drawn, a ratio of 1.02 to 1.07 where the span's 0.063
+ms gave 1.40 (docs/benchmarks.md's table, whose 1.35 to 1.46 is this
+figure's absence). Under vsync the row reads the thread's rate and not the
+display's -- 2012 to 2153 against 60 drawn -- which is what it says: what
+the thread allows, not what the output does.
+
+**The frame rate is read over a second.** A window of a fifth of a second
+holds a dozen frames at 60 Hz, so a rate over one window steps by five;
+over the last five windows (`FPS_SPAN`) it steps by one. Each close is kept
+as the time and the presents at it, the oldest dropped, so a window that
+never rests the span still ends at a close of the loop's own. The window a
+rest, a resume or a move restarts is the span's first again
+(`fps_restart()`), which is also where the CPU reading the turn is measured
+from starts again -- the idle time before it is not a frame's cost.
+
+**The CPU share on Windows is measured over a second.** `GetProcessTimes()`
+counts in the scheduler's 15.6 ms ticks, so over the panel's half second the
+share moves in steps of some 3 %; over a second, 1.6, which is
+`MET_CPU_SPAN` there and nothing elsewhere, where the time is exact.
+
+**The shares are of a core, and the frame's rows of a thread.** Several busy
+threads take the process past 100 % of a core, and do: the testbed's scene
+moving flat out on this desktop reads 119 to 126 % in the row beside
+`/proc`'s own 116 to 124 %, a render thread at a core and Mesa's WSI thread
+beside it. The frame's two rows are the render thread alone, so a driver's
+threads or a software device's rasterisers are in one and not the others --
+the caption under the columns says so, one line, since a figure above 100
+reads as a defect until it says what it is a share of.
+
 On the Mac (2026-10-31, `1d987ac`, the testbed at rest with
 `--footprint-log`, the Mac's own `ps` of the same process beside it) the
 RAM row is `task_info`'s resident size, within a MiB of `ps`'s RSS under
@@ -1145,8 +1183,8 @@ window's images through DXGI are Direct3D 11 textures shared by NT
 handle and imported into Vulkan, which Vulkan's budget counts and
 Windows' per-process counter does not -- about two images at
 1280x720. The CPU row moves in steps
-of some 2.5%, the process times' 15.6 ms tick over the panel's window,
-and averages to `Get-Process`'s.
+of some 1.6%, the process times' 15.6 ms tick over the second it is measured
+over, and averages to `Get-Process`'s.
 
 | Option | Effect |
 |---|---|
@@ -7275,7 +7313,8 @@ rebuilt its swapchain for the size it asked for and committed a buffer of it.
 ### Where the time actually goes
 
 `--frame-times`, a line each half second (`FRAME_TIMES_WINDOW`), on a clock of
-its own; its `fps` is the counter's latest (`FPS_WINDOW`, 0.2 s):
+its own; its `fps` is the counter's latest (`FPS_WINDOW`, a window of 0.2 s, the rate
+over the last `FPS_SPAN` of them, a second):
 
 ```
 frame 16.66 ms: pace 11.41 fence 0.20 acquire 4.79 record 0.15 submit 0.09 present 0.02 rebuild 0.00 other 0.00 (draw 5.25, hold 11.24, 60 fps, gpu idle 31/31, miss 0/31, period 16.66)

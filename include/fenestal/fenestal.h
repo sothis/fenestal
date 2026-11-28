@@ -1928,10 +1928,12 @@ FNL_API int fnl_max_samples(const FnlApp *app); /* [any] */
 FNL_API bool fnl_offscreen_supported(const FnlApp *app); /* [any] */
 FNL_API FnlAntialias fnl_antialias(const FnlApp *app);   /* [any] */
 
-/* Presents per second, not loop turns, over a fifth of a second at a time. A
- * window drawing nothing because nothing has changed keeps the rate it last
- * drew at -- unless fnl_set_cost_sampling() is on, when the count goes on
- * through the rest and reads the rate of the frames sampling draws. */
+/* Presents per second, not loop turns, over the last second -- five of the
+ * loop's own windows, taken every fifth of a second, so a dozen frames at
+ * 60 Hz is not a figure that steps by five. A window drawing nothing
+ * because nothing has changed keeps the rate it last drew at -- unless
+ * fnl_set_cost_sampling() is on, when the count goes on through the rest
+ * and reads the rate of the frames sampling draws. */
 FNL_API int fnl_fps(const FnlApp *app); /* [any] */
 
 /* What drawing one frame costs, apart from how often a frame is drawn,
@@ -1950,7 +1952,10 @@ FNL_API int fnl_fps(const FnlApp *app); /* [any] */
  * -- kept while nothing is drawn and started again
  * on a device that was rebuilt; -1 before there is one, and the GPU's
  * where the device cannot time it. The larger of the two bounds the rate
- * the window could be drawn at.
+ * the window could be drawn at, as the metrics panel's Max row counts it --
+ * which is the render thread's rate including the work of its turn around
+ * the frame, and not these two figures' larger alone, that having read 1.4
+ * times what was drawn flat out.
  * Refreshed five times a second while frames are drawn, as fnl_fps() is,
  * and once more when the window comes to rest; like fnl_fps()'s, a change
  * re-records the frame, so a caller drawing them needs no fnl_invalidate().
@@ -2002,12 +2007,21 @@ FNL_API void fnl_set_scene_motion_px(FnlApp *app, float dx_px,
 
 /* The metrics panel: the library's own readout of what it measures, drawn
  * over everything else at the presentable area's top right, on every
- * renderer. The frame rate in its header; under it what a frame costs --
- * fnl_frame_gpu_ms(), fnl_frame_cpu_ms(), the rate the slower allows and
+ * renderer. The frame rate in its header, over the second fnl_fps()
+ * counts; under it what a frame costs -- fnl_frame_gpu_ms(),
+ * fnl_frame_cpu_ms(), the rate the render thread allows and
  * fnl_input_latency_ms() -- and what this process takes of the machine:
  * its CPU, as the share of one core, its resident memory, the GPU memory
  * it holds on the GPU drawing, and the share of that GPU's time its frames
  * take; and the GPU's name. A figure the system will not say is a dash.
+ *
+ * The rate is the render thread's, from what all of a frame's turn costs
+ * the thread and not the fragment of it the two rows above span, so flat
+ * out it is what is drawn rather than a figure 1.4 times that; under a
+ * display's own rate it stays the thread's, above what the display allows.
+ * The process's CPU passes 100 where several threads are busy: its two
+ * shares and the two rows above are each of one thread or of one core,
+ * which the caption under them says.
  *
  * Hidden until shown, and shown it keeps nothing measured at rest: a
  * window at rest draws a frame only where the process's figures move, at

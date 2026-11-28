@@ -7,8 +7,10 @@
  * what it measures, on every renderer, shown and hidden by a key of the
  * caller's choosing (fnl_set_metrics_key(), F5 until set).
  *
- * The frame's figures are the draw state's -- fps, the two costs and the
- * input latency, which the frame loop already publishes for the public
+ * The frame's figures are the draw state's -- fps, the two costs, what the
+ * thread's turn costs in all (App::turn_cost, which the Max row is made
+ * from: the span alone is the rate of a thread with nothing else to do) and
+ * the input latency, which the frame loop already publishes for the public
  * getters. The process's are sampled here, on the render thread and only
  * while the panel is shown, the way each system keeps them: getrusage() and
  * /proc/self/statm on Linux, getrusage() and the task's basic info on
@@ -31,9 +33,14 @@
 #include <stdio.h>
 #include <string.h>
 
+/* The least the CPU share is measured over: Windows keeps the process's CPU
+ * time in the scheduler's 15.6 ms ticks, so over the sample's own half
+ * second the share moves in steps of some 3 %, and over a second 1.6.
+ * Elsewhere the time is exact and a sample's window is enough. */
 #if defined(_WIN32)
 #  include <windows.h>
 #  include <psapi.h>
+#  define MET_CPU_SPAN 1.0
 #else
 #  include <sys/resource.h>
 #  include <time.h>
@@ -41,6 +48,7 @@
 #  if defined(__APPLE__)
 #    include <mach/mach.h>
 #  endif
+#  define MET_CPU_SPAN 0.0
 #endif
 
 /* ---- this process ------------------------------------------------------- */
@@ -135,11 +143,15 @@ void app_metrics_sample(App *a, double now)
 	 * leaves none to measure from either. */
 	double cpu, wall;
 	if (proc_times(&cpu, &wall)) {
-		a->met_cpu_pm = a->met_cpu_s >= 0.0 && wall > a->met_wall_s
-			? met_u32(1000.0 * (cpu - a->met_cpu_s) / (wall - a->met_wall_s))
-			: METRICS_UNKNOWN;
-		a->met_cpu_s = cpu;
-		a->met_wall_s = wall;
+		const bool from = a->met_cpu_s >= 0.0 && wall > a->met_wall_s;
+		if (!from || wall - a->met_wall_s >= MET_CPU_SPAN) {
+			a->met_cpu_pm = from
+				? met_u32(1000.0 * (cpu - a->met_cpu_s) /
+						  (wall - a->met_wall_s))
+				: METRICS_UNKNOWN;
+			a->met_cpu_s = cpu;
+			a->met_wall_s = wall;
+		}
 	} else {
 		a->met_cpu_pm = METRICS_UNKNOWN;
 		a->met_cpu_s = -1.0;
@@ -196,10 +208,10 @@ static int met_panel_w(void)
 
 static int met_panel_h(void)
 {
-	/* The header and its gap, the column headings, the rows, and the
-	 * caption half a line below them. */
+	/* The header and its gap, the column headings, the rows, and the two
+	 * caption lines below them, the second half a line further down. */
 	const int line = FONT_LINE_PT[TEXT_BODY];
-	return (3 + MET_ROWS + 1) * line + line / 2 + 2 * MET_PAD;
+	return (3 + MET_ROWS + 2) * line + line / 2 + 2 * MET_PAD;
 }
 
 /* A figure right-aligned in MET_FIGURE cells, clamped to the largest that
@@ -330,13 +342,18 @@ FnlResult app_metrics_draw(App *a, const FnlDrawState *ds, int w, int h)
 	ty += line;
 
 	/* What a frame costs: the GPU's time on it and the render thread's,
-	 * the slower red and the faster green, the rate the slower allows
-	 * yellow; then how long input takes to reach the caller. */
+	 * the slower red and the faster green; then the rate the thread allows,
+	 * yellow, and how long input takes to reach the caller. The rate is
+	 * made from what a frame costs the thread in all, turn included, where
+	 * that is known: its span alone read 1.4 times what was drawn flat out
+	 * (DESIGN *The metrics panel*). */
 	const double gpu = met_value(ds->cost_gpu_us, COST_UNKNOWN, 1e-3);
 	const double cpu = met_value(ds->cost_cpu_us, COST_UNKNOWN, 1e-3);
+	const double turn = met_value(ds->cost_turn_us, COST_UNKNOWN, 1e-3);
 	const bool both = gpu >= 0.0 && cpu >= 0.0;
 	const bool gpu_slow = gpu >= cpu;
-	const double slower = gpu_slow ? gpu : cpu;
+	const double thread = turn > cpu ? turn : cpu;
+	const double slower = gpu > thread ? gpu : thread;
 	const float *plain = a->pal[COL_ICON_ON];
 	const float *slow = a->pal[COL_MET_SLOW], *fast = a->pal[COL_CTL_LIVE];
 	met_row(a, left, ty, "GPU", gpu, 2,
@@ -366,6 +383,14 @@ FnlResult app_metrics_draw(App *a, const FnlDrawState *ds, int w, int h)
 			gpu >= 0.0 ? met_value(ds->met_gpu_pm, METRICS_UNKNOWN, 0.1)
 					   : -1.0, 1, plain, "%");
 	ty += MET_ROWS * line + line / 2;
+
+	/* What the figures above are shares of: a core, so several busy threads
+	 * read past 100, and the frame's rows the render thread alone -- the
+	 * drivers' threads and a software device's workers are in the process's
+	 * CPU and not in them. */
+	text_draw(a, left, ty, TEXT_BODY, a->pal[COL_CTL_DIM],
+			  "per thread, % of a core");
+	ty += line;
 
 	/* The GPU every GPU figure above is on, cut to the panel's width. */
 	const int room = (pw - 2 * MET_PAD) / adv;

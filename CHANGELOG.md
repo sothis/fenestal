@@ -955,6 +955,22 @@ HDR is marked experimental in the header: no panel has shown it yet.
   than the frame's GPU time by the frame rate, so a still window no
   longer reads as busy, and a CPU reading the system refuses no longer
   makes the next one read 99999.9 %.
+- **`fnl_fps()` counts over the last second, not the last fifth of one.**
+  A window of 0.2 s holds a dozen frames at 60 Hz, so the figure stepped by
+  five; read over five of them it steps by one. `fnl_set_cost_sampling()`
+  and a window at rest are unchanged: the count still stops, and the span
+  starts again where a rest, a resume or a move does.
+- **The metrics panel's Max row is the rate the render thread allows**, from
+  what a frame's whole turn costs the thread rather than from the fragment
+  of it the CPU row spans: flat out it reads what is drawn (1.02 to 1.07
+  times it, measured on this desktop's X11 with the RX 590) where it read
+  1.4 times that, and under vsync it reads the thread's rate above the
+  display's. The panel's frame rate is the header's, a second's worth, and
+  its two columns say under them that they are shares of one core and of
+  one thread: several busy threads take the process's CPU past 100 %.
+- **The metrics panel's CPU row on Windows is measured over a second**, not
+  the half-second sample: `GetProcessTimes()` counts in 15.6 ms ticks, so
+  the share stepped by some 3 % and now steps by 1.6.
 - OpenGL on X11 keeps up with a drag of the border under a window
   manager: the frame at a new size is shown before the manager is told
   it is there, where it was told as the frame was handed over, and the
