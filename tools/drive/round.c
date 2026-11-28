@@ -1819,12 +1819,13 @@ static int round_one(const char *variant, const char *backend,
 	 * `ssh host <dir>/fenestal-mcp`, `socat - UNIX-CONNECT:...` -- which is
 	 * how a window on another machine is reached. */
 	if (g_command) {
-		/* The command is this program's own memory: words() cuts it in
-		 * place, and nothing is freed under the child that is running it. */
+		/* The command is cut in place: the words point into this copy,
+		 * which outlives the fork the child is made by. */
 		char *copy = strdup(g_command);
 		char *argv_cmd[32];
 		words(copy, argv_cmd, 31);
 		port_spawn(&p, argv_cmd);
+		free(copy);
 		if (!rpc(&p, "initialize",
 				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
 				 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
