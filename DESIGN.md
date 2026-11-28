@@ -620,7 +620,20 @@ ARM sysroot, nor `analyzer`, whose findings are the source's and the
 native tree's already. The sweep builds it where the cross compiler is
 installed and says it skipped it where not: it is the one tree whose
 compiler a machine building the other ten may well lack, and the sweep
-should not fail there.
+should not fail there. The cross gcc's sanitizer runtimes are packages of
+their own, so a host with the compiler alone skips the two checker trees
+with a line and still has the release and `gc`; a tree asked for by name
+says which packages it wants.
+
+A pointer goes into the ioctl structs' `__u64` fields as a `uint64_t`
+(`kms_ptr()`, `kms_atomic.h`), never as a `uintptr_t`. The kernel's
+address is 64-bit whatever the machine's word is, so the round trip
+through `uintptr_t` narrows to 32 bits on this tree, and gcc says so at
+every one of the 31 sites. `void *` rather than `const void *` because
+clang follows the qualifier through the call and reports an
+uninitialised local whose address a one-mode probe passes; the array a
+caller holds as `const` is cast at that call, the one place the qualifier
+ends.
 
 What the Pi owes is TODO.md's.
 

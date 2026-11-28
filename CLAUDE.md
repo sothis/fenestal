@@ -103,7 +103,11 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   release, asan, tsan and gc, and a checker round there runs on the Pi's
   own sanitizer runtimes, never Ubuntu's cross ones (`_runtimes()` in
   `bare_driver.py` says why); the sweep builds it where that compiler is
-  installed and says it skipped it where not. It borrows
+  installed and says it skipped it where not. The cross compiler's own
+  sanitizer runtimes are packages of their own (`libasan`, `libubsan`,
+  `libtsan` for aarch64): a host with the compiler alone skips the ARM
+  `asan` and `tsan` trees with one line and still builds its release and
+  `gc`, and a tree asked for by name says so and exits. It borrows
   `build/linux/release`'s bake as the other cross trees do. It builds
   `verifykeymap` and the fuzz harnesses for ARM and runs none:
   `tools/probe/bare_checks.py` runs them on the Pi, from the commands the
@@ -140,8 +144,8 @@ modes are `pace` and `lifecycle` -- and each demo's two, `<name>` and
   a bare Mac checkout builds none and says so). `release` comes first within
   each — the cross trees borrow `build/linux/release`'s baked atlases, by
   that name, so that order is what keeps the sweep self-sufficient — and a
-  target whose compiler is missing is skipped with one line. It stops at
-  the first failure.
+  tree whose compiler or runtime is missing is skipped with one line. It
+  stops at the first failure.
 - The cross targets need `linux`'s release tree first: `tools/mkfont`
   links FreeType and
   runs *during* the build, so a cross build would compile it for Windows and

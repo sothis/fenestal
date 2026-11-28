@@ -104,6 +104,21 @@ have_arm64() {
         command -v aarch64-linux-gnu-g++ >/dev/null 2>&1
 }
 
+# Whether the ARM checker trees have a sanitizer runtime to link: the cross
+# gcc's own libasan, libubsan and libtsan, which are separate packages on
+# Debian and absent when only the compiler is installed. A checker tree
+# without them never configures, so the sweep says so and builds the tree's
+# release and gc alone rather than stopping at the first missing runtime.
+have_arm64_sanitizer() {
+    have_arm64 || return 1
+    aarch64-linux-gnu-gcc -print-file-name=libasan.a |
+        grep -q '^/' 2>/dev/null || return 1
+    aarch64-linux-gnu-gcc -print-file-name=libubsan.a |
+        grep -q '^/' 2>/dev/null || return 1
+    aarch64-linux-gnu-gcc -print-file-name=libtsan.a |
+        grep -q '^/' 2>/dev/null || return 1
+}
+
 # The clang the clang trees use: FNL_CLANG, else clang-21 (the version that
 # matches the installed clang-tidy and clang-format), else plain clang.
 find_clang() {
@@ -572,6 +587,16 @@ if [ $# -eq 0 ]; then
                        "$variant"
                 continue
             fi
+            # The ARM cross gcc ships without its sanitizer runtimes where
+            # only the compiler was installed; a checker tree would not
+            # configure, and release and gc still build.
+            if [ "$target" = linux-arm64 ] &&
+               { [ "$variant" = asan ] || [ "$variant" = tsan ]; } &&
+               ! have_arm64_sanitizer; then
+                printf '\n==> linux-arm64 %s skipped:' "$variant"
+                printf ' no sanitizer runtime for aarch64\n'
+                continue
+            fi
             if [ "$target" = win64 ] && [ "$variant" = analyzer ] &&
                ucrt_is_clang; then
                 printf '\n==> win64 analyzer skipped: the UCRT compiler'
@@ -629,6 +654,19 @@ case ${1:-} in
         echo "          release | clang | asan | tsan | analyzer | gc" >&2
         exit 1 ;;
 esac
+
+# The ARM checker trees need the cross gcc's own sanitizer runtimes, which
+# Debian ships as packages of their own: a host with the compiler alone has
+# no libasan to link and the tree never configures. The sweep skips those
+# two and this says why, as the refused pairs below do.
+if [ "$TARGET" = linux-arm64 ] &&
+   { [ "$VARIANT" = asan ] || [ "$VARIANT" = tsan ]; } &&
+   ! have_arm64_sanitizer; then
+    echo "build.sh: $TARGET $VARIANT needs libasan/libubsan/libtsan for" >&2
+    echo "          aarch64 (gcc-aarch64-linux-gnu's sanitizer runtimes)," >&2
+    echo "          which are not installed. The tree takes release and gc." >&2
+    exit 1
+fi
 
 if refused "$TARGET" "$VARIANT"; then
     case $TARGET in
