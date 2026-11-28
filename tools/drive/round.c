@@ -215,7 +215,7 @@ typedef struct {
 } Port;
 
 /* The text of the last reply, or "" where it had none. */
-static const char *call(Port *p, const char *tool, const char *args_json);
+static const char *mcp_call(Port *p, const char *tool, const char *args_json);
 
 /* One JSON-RPC exchange: the line written, one line read back. */
 static bool rpc(Port *p, const char *method, const char *params, Str *reply)
@@ -325,7 +325,7 @@ static bool json_bool_at(const char *obj, const char *key, bool dflt)
 /* The `tools/call` exchange: the first text item's contents, unescaped, into
  * p->text and returned; the image item, if any, into p->image (still
  * base64). NULL where the call failed or the port said so. */
-static const char *call(Port *p, const char *tool, const char *args_json)
+static const char *mcp_call(Port *p, const char *tool, const char *args_json)
 {
 	Str params = { 0 };
 	str_addf(&params, "{\"name\":\"%s\",\"arguments\":%s}", tool,
@@ -363,7 +363,40 @@ static const char *ask(Port *p, const char *tool, const char *fmt, ...)
 	va_start(ap, fmt);
 	const int n = vsnprintf(args, sizeof args, fmt ? fmt : "%s", ap);
 	va_end(ap);
-	return call(p, tool, n > 0 ? args : "{}");
+	return mcp_call(p, tool, n > 0 ? args : "{}");
+}
+
+/* The words of `text`, split on spaces, into `out`: what execvp() wants from
+ * one string. `buf` is the caller's copy, which is what the pointers point
+ * into -- the words are not copied twice. */
+static int words(char *buf, char **out, int max)
+{
+	int n = 0;
+	char *p = buf;
+	while (*p && n < max) {
+		while (*p == ' ')
+			p++;
+		if (!*p)
+			break;
+		out[n++] = p;
+		while (*p && *p != ' ')
+			p++;
+		if (*p)
+			*p++ = '\0';
+	}
+	out[n] = NULL;
+	return n;
+}
+
+/* A whole number from a word, or `dflt` where it is not one. */
+static int whole(const char *word, int dflt)
+{
+	char *end = NULL;
+	const long v = strtol(word, &end, 10);
+	if (!word || *word == '\0' || (end && *end != '\0') || v < 0 ||
+		v > 3600)
+		return dflt;
+	return (int)v;
 }
 
 /* A command run for what it says: its standard output, whole, into `out`.
@@ -767,7 +800,7 @@ static double patience(void)
 
 static const char *state_json(void)
 {
-	const char *t = call(g_port, "state", "{\"live\":true}");
+	const char *t = mcp_call(g_port, "state", "{\"live\":true}");
 	return t ? t : "";
 }
 
@@ -1555,6 +1588,85 @@ static int round_second(char *const envp[], const char *log_path)
 	return g_failed ? 1 : 0;
 }
 
+/* ---- the ledger ---------------------------------------------------------- */
+
+/* One line like tools/drive/ledger.py's, which status.py reads back: what was
+ * run where, by which instrument, against which commit. Written by this
+ * program because the round it records is this program's -- the ledger is a
+ * file of lines, and a second writer is a second formatter of them. */
+static void ledger_record(const char *env, const char *variant, double secs)
+{
+	const char *off = getenv("FNL_DRIVE_LEDGER");
+	if (off && !*off)
+		return;
+	char        path[512];
+	const char *state = getenv("XDG_STATE_HOME");
+	if (off) {
+		snprintf(path, sizeof path, "%s", off);
+	} else {
+		const char *home = getenv("HOME");
+		if (state && *state)
+			snprintf(path, sizeof path, "%.200s/fenestal/ledger.jsonl",
+					 state);
+		else if (home)
+			snprintf(path, sizeof path, "%.200s/.local/state/fenestal/"
+										"ledger.jsonl", home);
+		else
+			return;
+	}
+	char dir[512];
+	snprintf(dir, sizeof dir, "%.400s", path);
+	char *slash = strrchr(dir, '/');
+	if (slash) {
+		*slash = '\0';
+		char mk[600];
+		snprintf(mk, sizeof mk, "mkdir -p %.400s 2>/dev/null", dir);
+		Str  o = { 0 };
+		int  st = -1;
+		sh_run(mk, &o, &st);
+		str_free(&o);
+	}
+	/* The commit, and whether the tree had changes: asked of git, as the
+	 * Python does, and left out where git cannot say. */
+	char commit[64] = "unknown";
+	bool dirty      = false;
+	{
+		Str  o = { 0 };
+		int  st = -1;
+		if (sh_run("git rev-parse --short HEAD 2>/dev/null", &o, &st) &&
+			o.p) {
+			size_t n = o.n;
+			while (n && (o.p[n - 1] == '\n' || o.p[n - 1] == '\r'))
+				o.p[--n] = '\0';
+			if (n)
+				snprintf(commit, sizeof commit, "%s", o.p);
+		}
+		str_free(&o);
+		Str d = { 0 };
+		if (sh_run("git status --porcelain 2>/dev/null", &d, &st) && d.p)
+			dirty = d.n > 0;
+		str_free(&d);
+	}
+	char when[32];
+	time_t t = time(NULL);
+	struct tm tmv;
+	gmtime_r(&t, &tmv);
+	strftime(when, sizeof when, "%Y-%m-%dT%H:%M:%SZ", &tmv);
+
+	FILE *f = fopen(path, "a");
+	if (!f)
+		return;
+	fprintf(f,
+			"{\"checks\": %d, \"commit\": \"%s\", \"dirty\": %s, "
+			"\"env\": \"%s\", \"failed\": %d, \"instrument\": "
+			"\"round\", \"layer\": %s, \"seconds\": %.1f, "
+			"\"variant\": \"%s\", \"when\": \"%s\"}\n",
+			g_checks, commit, dirty ? "true" : "false", env, g_failed,
+			strcmp(variant, "release") ? "true" : "false", secs, variant,
+			when);
+	fclose(f);
+}
+
 /* ---- one round ----------------------------------------------------------- */
 
 static int round_one(const char *variant, const char *backend,
@@ -1636,11 +1748,7 @@ static int round_one(const char *variant, const char *backend,
 				 "ssh -o BatchMode=yes %.120s %.300s/fenestal-mcp %.400s",
 				 g_ssh, g_remote_dir ? g_remote_dir : ".", sock_path);
 		char *argv_cmd[8];
-		int   cn = 0;
-		for (char *w = strtok(mcp_cmd, " "); w && cn < 7;
-			 w = strtok(NULL, " "))
-			argv_cmd[cn++] = w;
-		argv_cmd[cn] = NULL;
+		words(mcp_cmd, argv_cmd, 7);
 		port_spawn(&p, argv_cmd);
 		if (!rpc(&p, "initialize",
 				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
@@ -1711,15 +1819,12 @@ static int round_one(const char *variant, const char *backend,
 	 * `ssh host <dir>/fenestal-mcp`, `socat - UNIX-CONNECT:...` -- which is
 	 * how a window on another machine is reached. */
 	if (g_command) {
-		char *argv_cmd[32];
-		int   n = 0;
+		/* The command is this program's own memory: words() cuts it in
+		 * place, and nothing is freed under the child that is running it. */
 		char *copy = strdup(g_command);
-		for (char *w = strtok(copy, " "); w && n < 31;
-			 w = strtok(NULL, " "))
-			argv_cmd[n++] = w;
-		argv_cmd[n] = NULL;
+		char *argv_cmd[32];
+		words(copy, argv_cmd, 31);
 		port_spawn(&p, argv_cmd);
-		free(copy);
 		if (!rpc(&p, "initialize",
 				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
 				 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
@@ -1835,7 +1940,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--renderer") && i + 1 < argc)
 			renderer = argv[++i];
 		else if (!strcmp(a, "--timeout") && i + 1 < argc)
-			g_timeout_s = atoi(argv[++i]);
+			g_timeout_s = whole(argv[++i], 5);
 		else if (!strcmp(a, "--ssh") && i + 1 < argc)
 			g_ssh = argv[++i];
 		else if (!strcmp(a, "--remote-dir") && i + 1 < argc)
@@ -1924,10 +2029,12 @@ int main(int argc, char **argv)
 	char log_path[1024];
 	snprintf(log_path, sizeof log_path, "build/drive/round-%s-%s.log", backend,
 			 variant);
+	const double t_start = now_s();
 	const int rc = round_one(variant, backend, renderer, prog_argv, envp,
 							 log_path);
 
 	printf("\n%d checks, %d failed\n", g_checks, g_failed);
+	ledger_record(backend, variant, now_s() - t_start);
 	if (g_failed)
 		printf("%s", g_fails.p ? g_fails.p : "");
 	return rc;
