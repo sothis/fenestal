@@ -86,6 +86,7 @@ static xcb_extension_t xkb_ext   = { "XKEYBOARD", 0 };
 static xcb_extension_t sync_ext  = { "SYNC", 0 };
 static xcb_extension_t ge_ext    = { "Generic Event Extension", 0 };
 static xcb_extension_t present_ext = { "Present", 0 };
+static xcb_extension_t render_ext  = { "RENDER", 0 };
 
 /* Asks whether the server has each without waiting for the answer, so it
  * arrives with whatever the caller collects next. */
@@ -96,6 +97,7 @@ void x11_ext_prefetch(struct BackendState *p)
 	xcb_prefetch_extension_data(p->conn, &sync_ext);
 	xcb_prefetch_extension_data(p->conn, &ge_ext);
 	xcb_prefetch_extension_data(p->conn, &present_ext);
+	xcb_prefetch_extension_data(p->conn, &render_ext);
 }
 
 static bool ext_present(struct BackendState *p, xcb_extension_t *ext)
@@ -149,6 +151,136 @@ static void *ext_take(struct BackendState *p, unsigned int seq)
 	void *reply = xcb_wait_for_reply(p->conn, seq, &err);
 	free(err);
 	return reply;
+}
+
+/* ---- RENDER ---------------------------------------------------------------
+ *
+ * fnl_set_cursor_image()'s picture as a cursor: an ARGB cursor is RENDER's
+ * CreateCursor, made from a picture of a 32-bit pixmap, which core X has no
+ * request for. Its format is looked up once, on the first image, so a
+ * program that never sets one asks nothing. */
+#define RENDER_QUERY_VERSION      0
+#define RENDER_QUERY_PICT_FORMATS 1
+#define RENDER_CREATE_PICTURE     4
+#define RENDER_FREE_PICTURE       7
+#define RENDER_CREATE_CURSOR      27
+
+/* PICTFORMINFO as QueryPictFormats lays it out, after its 32-byte head. */
+enum { PICTFORM_BYTES = 28 };
+
+typedef struct {
+	uint32_t cursor, picture;
+	uint16_t x, y;
+} RenderCreateCursor;
+_Static_assert(sizeof(RenderCreateCursor) == 12,
+			   "CreateCursor: cursor, source picture, hotspot");
+
+bool x11_render_present(struct BackendState *p)
+{
+	return ext_present(p, &render_ext);
+}
+
+/* The direct a8r8g8b8 format, or 0 where the server has none or is older
+ * than 0.5, the version that has CreateCursor. Both questions go out before
+ * either answer is waited for. */
+static uint32_t render_argb_format(struct BackendState *p)
+{
+	const uint32_t ver[2]      = { 0, 11 };
+	const unsigned int ver_seq = ext_send(p, &render_ext, RENDER_QUERY_VERSION,
+										  ver, sizeof ver, true);
+	const unsigned int fmt_seq = ext_send(
+		p, &render_ext, RENDER_QUERY_PICT_FORMATS, ver, 0, true);
+	uint8_t *v = ext_take(p, ver_seq);
+	uint8_t *f = ext_take(p, fmt_seq);
+	uint32_t found = 0;
+	uint32_t major = 0, minor = 0;
+	if (v) {
+		memcpy(&major, v + 8, 4);
+		memcpy(&minor, v + 12, 4);
+	}
+	if (f && (major > 0 || minor >= 5)) {
+		uint32_t words, count;
+		memcpy(&words, f + 4, 4);
+		memcpy(&count, f + 8, 4);
+		/* The count is the server's: held to what the reply carries. */
+		if (count > (size_t)words * 4u / PICTFORM_BYTES)
+			count = 0;
+		for (uint32_t i = 0; i < count && !found; i++) {
+			const uint8_t *e = f + 32 + (size_t)i * PICTFORM_BYTES;
+			uint16_t d[8];
+			memcpy(d, e + 8, sizeof d);
+			/* type Direct, depth 32; shift and mask per channel, red
+			 * first and alpha last. */
+			if (e[4] == 1 && e[5] == 32 && d[0] == 16 && d[1] == 0xff &&
+				d[2] == 8 && d[3] == 0xff && d[4] == 0 && d[5] == 0xff &&
+				d[6] == 24 && d[7] == 0xff)
+				memcpy(&found, e, 4);
+		}
+	}
+	free(v);
+	free(f);
+	return found;
+}
+
+/* The image as a cursor, or XCB_NONE where RENDER cannot make one. The
+ * pixels go up in bands: a cursor at the largest size is more than one
+ * request may carry on a server without BIG-REQUESTS. */
+xcb_cursor_t x11_render_cursor(struct BackendState *p, const CursorImage *img)
+{
+	if (!p->render_asked) {
+		p->render_asked = true;
+		p->render_argb  = x11_render_present(p) &&
+								 !FNL_FAULT("x11-no-cursor-image")
+							 ? render_argb_format(p)
+							 : 0;
+		if (!p->render_argb)
+			fnl_log(FNL_LOG_INFO, "X11: no RENDER cursor; a cursor image "
+								  "is shown as the shape");
+	}
+	if (!p->render_argb)
+		return XCB_NONE;
+
+	const xcb_pixmap_t pix  = xcb_generate_id(p->conn);
+	const xcb_gcontext_t gc = xcb_generate_id(p->conn);
+	const uint32_t pic      = xcb_generate_id(p->conn);
+	const xcb_cursor_t cur  = xcb_generate_id(p->conn);
+	xcb_create_pixmap(p->conn, 32, pix, p->root, (uint16_t)img->w,
+					  (uint16_t)img->h);
+	xcb_create_gc(p->conn, gc, pix, 0, NULL);
+
+	/* Z format is in the server's byte order, the words in the client's. */
+	const bool swap =
+		xcb_get_setup(p->conn)->image_byte_order != XCB_IMAGE_ORDER_LSB_FIRST;
+	const int band = 16384 / img->w > 0 ? 16384 / img->w : 1;
+	uint32_t *rows = malloc((size_t)img->w * (size_t)band * 4u);
+	for (int y = 0; rows && y < img->h; y += band) {
+		const int n      = img->h - y < band ? img->h - y : band;
+		const size_t cnt = (size_t)img->w * (size_t)n;
+		for (size_t i = 0; i < cnt; i++) {
+			const uint32_t w = img->px[(size_t)y * (size_t)img->w + i];
+			rows[i] = swap ? (w >> 24) | (w >> 8 & 0xff00u) |
+								 (w << 8 & 0xff0000u) | (w << 24)
+						   : w;
+		}
+		xcb_put_image(p->conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pix, gc,
+					  (uint16_t)img->w, (uint16_t)n, 0, (int16_t)y, 0, 32,
+					  (uint32_t)(cnt * 4u), (const uint8_t *)rows);
+	}
+	const bool drawn = rows != NULL;
+	free(rows);
+	xcb_free_gc(p->conn, gc);
+
+	if (drawn) {
+		const uint32_t mk[4] = { pic, pix, p->render_argb, 0 };
+		ext_send(p, &render_ext, RENDER_CREATE_PICTURE, mk, sizeof mk, false);
+		const RenderCreateCursor cc = { cur, pic, (uint16_t)img->hot_x,
+										(uint16_t)img->hot_y };
+		ext_send(p, &render_ext, RENDER_CREATE_CURSOR, &cc, sizeof cc, false);
+		ext_send(p, &render_ext, RENDER_FREE_PICTURE, &pic, sizeof pic,
+				 false);
+	}
+	xcb_free_pixmap(p->conn, pix);
+	return drawn ? cur : XCB_NONE;
 }
 
 /* ---- SYNC -----------------------------------------------------------------
