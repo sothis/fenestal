@@ -106,6 +106,48 @@ static void put_signature(DBuf *b, const char *s)
 	put_u8(b, 0);
 }
 
+/* ---- a body's arguments --------------------------------------------------- */
+
+void dbuf_align(DBuf *b, size_t n)
+{
+	align_to(b, n);
+}
+
+void dbuf_str(DBuf *b, const char *s)
+{
+	align_to(b, 4);
+	put_string(b, s);
+}
+
+void dbuf_obj(DBuf *b, const char *s)
+{
+	align_to(b, 4);
+	put_string(b, s);
+}
+
+void dbuf_i32(DBuf *b, int32_t v)
+{
+	align_to(b, 4);
+	put_u32(b, (uint32_t)v);
+}
+
+void dbuf_u32_arg(DBuf *b, uint32_t v)
+{
+	align_to(b, 4);
+	put_u32(b, v);
+}
+
+void dbuf_double(DBuf *b, double v)
+{
+	align_to(b, 8);
+	unsigned char c[8];
+	uint64_t      bits;
+	memcpy(&bits, &v, sizeof bits);
+	for (int i = 0; i < 8; i++)
+		c[i] = (unsigned char)((bits >> (8 * i)) & 0xFF);
+	dbuf_put(b, c, 8);
+}
+
 /* ---- the connection ------------------------------------------------------ */
 
 static uint32_t g_serial;
@@ -224,6 +266,15 @@ Dbus *dbus_open(void)
 	struct timeval tv = { 10, 0 };
 	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 	b->fd = fd;
+	/* Every connection says Hello first: the bus refuses everything else
+	 * with `:not.active.yet`. */
+	if (!dbus_call(b, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+				   "org.freedesktop.DBus", "Hello", "")) {
+		close(fd);
+		b->fd = -1;
+		free(b);
+		return NULL;
+	}
 	return b;
 }
 
@@ -385,6 +436,95 @@ static bool string_at(const char *p, size_t left, char *out, size_t n)
 	memcpy(out, p + 4, len);
 	out[len] = '\0';
 	return true;
+}
+
+bool dbus_call_with(Dbus *b, const char *dest, const char *path,
+					const char *iface, const char *member, const char *sig,
+					const DBuf *body)
+{
+	if (!b || b->fd < 0)
+		return false;
+	const uint32_t serial = ++g_serial;
+	DBuf           h      = { 0 };
+	header_write(&h, MSG_METHOD_CALL, serial, path, iface, member, dest, sig);
+	align_to(&h, 8);
+	if (body && body->n) {
+		const uint32_t len = (uint32_t)body->n;
+		memcpy(h.p + 4, &len, sizeof len);
+		dbuf_put(&h, body->p, body->n);
+	}
+	const bool sent = write_all(b->fd, h.p, h.n);
+	dbuf_free(&h);
+	if (!sent)
+		return false;
+	for (;;) {
+		b->reply.n = 0;
+		if (!dbus_read_message(b, &b->reply))
+			break;
+		const unsigned char kind = (unsigned char)b->reply.p[1];
+		if (kind == MSG_METHOD_RETURN || kind == MSG_ERROR)
+			break;
+	}
+	if (!b->reply.n || b->reply.n < 16)
+		return false;
+	const unsigned char type = (unsigned char)b->reply.p[1];
+	if (type == MSG_ERROR) {
+		char name[128] = "";
+		dbus_error_name(b, name, sizeof name);
+		fprintf(stderr, "dbus: %s.%s refused (%s)\n", iface, member, name);
+		return false;
+	}
+	return type == MSG_METHOD_RETURN;
+}
+
+/* The header's fields walked for one code: a variant's value, which for the
+ * codes this file reads is a string or an object path. */
+static bool field_value(const char *msg, size_t n, unsigned char code,
+						char *out, size_t cap)
+{
+	if (n < 16)
+		return false;
+	const uint32_t fields = (uint32_t)(unsigned char)msg[12] |
+							(uint32_t)(unsigned char)msg[13] << 8 |
+							(uint32_t)(unsigned char)msg[14] << 16 |
+							(uint32_t)(unsigned char)msg[15] << 24;
+	size_t at   = 16;
+	size_t left = fields;
+	while (left > 0 && at < n) {
+		/* Every field is a struct: eight-aligned from the message's start. */
+		while (at % 8)
+			at++;
+		if (at >= n || at - 16 >= fields)
+			break;
+		const unsigned char what = (unsigned char)msg[at++];
+		const unsigned char slen = (unsigned char)msg[at++];
+		at += (size_t)slen + 1; /* the signature and its nul */
+		if (what == code)
+			return string_at(msg + at, n - at, out, cap);
+		/* Past it: a string's length and bytes, or an unsigned int. */
+		if (slen == 1 && (msg[at - 2] == 's' || msg[at - 2] == 'o')) {
+			const uint32_t len = (uint32_t)(unsigned char)msg[at] |
+								 (uint32_t)(unsigned char)msg[at + 1] << 8 |
+								 (uint32_t)(unsigned char)msg[at + 2] << 16 |
+								 (uint32_t)(unsigned char)msg[at + 3] << 24;
+			at += 4 + len + 1;
+		} else if (slen == 1 && msg[at - 2] == 'u') {
+			at += 4;
+		} else {
+			break;
+		}
+		left = fields;
+		if (at > 16)
+			left = fields - (uint32_t)(at - 16);
+	}
+	return false;
+}
+
+bool dbus_error_name(Dbus *b, char *out, size_t n)
+{
+	if (!b || !b->reply.p || b->reply.n < 16)
+		return false;
+	return field_value(b->reply.p, b->reply.n, FIELD_ERROR_NAME, out, n);
 }
 
 bool dbus_reply_string(Dbus *b, char *out, size_t n)

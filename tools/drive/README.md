@@ -27,12 +27,13 @@ from inside*; TODO *The MCP port* has what is owed.
 
 ## The compositor's own account
 
-`build/linux/<variant>/portal --probe` says whether this session can be
-asked: it opens the session bus (`tools/drive/dbus.c`, the client this tree
+`build/linux/<variant>/portal --probe | --move <dx> <dy> | --key <evdev> <0|1>`
+says whether this session can be asked: it opens the session bus (`tools/drive/dbus.c`, the client this tree
 carries rather than linking one) and makes an `org.gnome.Mutter.RemoteDesktop`
-session. What it will carry -- input through the compositor, and the frame as
-the compositor drew it -- is the part of a round that is the window server's
-and not the library's.
+session. `--move` and `--key` notify it of input, as a device would; the
+frame as the compositor drew it is still to come (ScreenCast). That side of a
+round -- the window server's and not the library's -- is what `stress.py`
+gets from the Python portal today.
 
 ## A benchmark run, brought home
 
