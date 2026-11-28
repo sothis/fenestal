@@ -15,8 +15,14 @@
  * org.gnome.Mutter.ScreenCast for pictures. This is the client for them, on
  * the bus client beside it (dbus.c).
  *
- * So far: the probe, which says whether a session can be made. The calls
- * that carry input and frames follow.
+ * So far: the probe, which says whether a session can be made, and the two
+ * notify calls against Mutter's own interface, which it refuses -- a session
+ * of `org.gnome.Mutter.RemoteDesktop` takes its input from the xdg portal's
+ * `org.freedesktop.portal.RemoteDesktop` instead, whose calls carry an
+ * `a{sv}` of options and answer through a `org.freedesktop.portal.Request`
+ * object's Response signal rather than a reply (tools/drive/wayland_driver.py
+ * is the working account of it). That is the next step here, and with it the
+ * ScreenCast call that brings the composited frame back.
  */
 #include <stdio.h>
 #include <stdlib.h>

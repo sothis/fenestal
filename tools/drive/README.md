@@ -30,8 +30,11 @@ from inside*; TODO *The MCP port* has what is owed.
 `build/linux/<variant>/portal --probe | --move <dx> <dy> | --key <evdev> <0|1>`
 says whether this session can be asked: it opens the session bus (`tools/drive/dbus.c`, the client this tree
 carries rather than linking one) and makes an `org.gnome.Mutter.RemoteDesktop`
-session. `--move` and `--key` notify it of input, as a device would; the
-frame as the compositor drew it is still to come (ScreenCast). That side of a
+session. `--move` and `--key` notify Mutter's own session of input, which it refuses:
+the xdg portal's `org.freedesktop.portal.RemoteDesktop` is what takes input,
+with an `a{sv}` of options and a Request object's Response signal for an
+answer. That and ScreenCast -- the frame as the compositor drew it -- are the
+next step. That side of a
 round -- the window server's and not the library's -- is what `stress.py`
 gets from the Python portal today.
 
