@@ -664,13 +664,15 @@ void app_gpu_inventory(const App *a, int i, const char *name,
  * src/core/app.c. And the reset that starts the GPU's mean again on a
  * device that was rebuilt. */
 #define COST_UNKNOWN 0xffffffffu
-/* How often the figures are published while frames are drawn, and how
- * often a sampling window at rest draws one (fnl_set_cost_sampling()):
- * the frame-rate counter's window, so the three figures move together.
+/* How often a sampling window at rest draws one (fnl_set_cost_sampling()),
+ * and how often the figures are published while a window at rest is not
+ * drawing. While frames are drawn the publishing rides the frame-rate
+ * window (FPS_WINDOW in frame.c), so the three figures move together.
  * Seconds. */
 #define COST_WINDOW 0.2
-/* How many of those windows the frame rate is read over: a second. */
-#define FPS_SPAN 5
+/* How many of the frame-rate windows the rate is read over: a second of
+ * them, three. */
+#define FPS_SPAN 3
 
 /* fnl_set_transition_ms()'s default and ceiling: how long the first frames
  * after a move dissolve from the last frame before it, and, where no frame
@@ -1968,8 +1970,9 @@ struct FnlApp {
 	 * presents, not loop turns. */
 	uint64_t fps_presents;
 	/* The frame rate is read over the last FPS_SPAN windows, not the one
-	 * that closed: a window of 0.2 s holds a dozen frames at 60 Hz, and one
-	 * more or less is 5 fps. The window's closes, oldest first, as (time,
+	 * that closed: a window of a third of a second holds twenty frames at
+	 * 60 Hz, and one more or less is 3 fps. The window's closes, oldest
+	 * first, as (time,
 	 * presents); the first is where the span restarted (fps_restart()).
 	 * Render thread. */
 	struct {

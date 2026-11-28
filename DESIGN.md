@@ -1143,14 +1143,16 @@ figure's absence). Under vsync the row reads the thread's rate and not the
 display's -- 2012 to 2153 against 60 drawn -- which is what it says: what
 the thread allows, not what the output does.
 
-**The frame rate is read over a second.** A window of a fifth of a second
-holds a dozen frames at 60 Hz, so a rate over one window steps by five;
-over the last five windows (`FPS_SPAN`) it steps by one. Each close is kept
-as the time and the presents at it, the oldest dropped, so a window that
-never rests the span still ends at a close of the loop's own. The window a
-rest, a resume or a move restarts is the span's first again
-(`fps_restart()`), which is also where the CPU reading the turn is measured
-from starts again -- the idle time before it is not a frame's cost.
+**The frame rate moves every 333 ms, over a second of windows.** A window
+of 333 ms holds twenty frames at 60 Hz, so a rate over one window alone
+would step by three; read over the last three windows (`FPS_SPAN`, 0.999 s
+to their ends) it steps by one while the figure moves three times a second. Each close is kept as
+the time and the presents at it, the oldest dropped, so a window that never
+rests the span still ends at a close of the loop's own. The window a rest,
+a resume or a move restarts is the span's first again (`fps_restart()`),
+which is also where the CPU reading the turn is measured from starts again
+-- the idle time before it is not a frame's cost. The cost figures are
+published with the counter's window, so the three move in one re-record.
 
 **The CPU share on Windows is measured over a second.** `GetProcessTimes()`
 counts in the scheduler's 15.6 ms ticks, so over the panel's half second the
@@ -4863,8 +4865,8 @@ at rest with a dash. So the two means are published (`app_cost_publish()`)
 into the pair `fnl_frame_*_ms()` read and the draw state latches, and a
 change re-records as `fps`'s does. Not every frame's: a figure that moved
 with every frame would make every frame ask for the next, and the window
-would never rest. While frames are drawn, once a `COST_WINDOW` (0.2 s, the
-counter's window); at once where a figure was unknown; and once more after
+would never rest. While frames are drawn, once the counter's window
+(`FPS_WINDOW`, 0.333 s); at once where a figure was unknown; and once more after
 the window comes to rest, for the last frames' times. Those are read when
 the frame is done, which a window at rest never reached by drawing again, so
 every renderer answers a non-blocking poll for finished frames
@@ -7313,8 +7315,8 @@ rebuilt its swapchain for the size it asked for and committed a buffer of it.
 ### Where the time actually goes
 
 `--frame-times`, a line each half second (`FRAME_TIMES_WINDOW`), on a clock of
-its own; its `fps` is the counter's latest (`FPS_WINDOW`, a window of 0.2 s, the rate
-over the last `FPS_SPAN` of them, a second):
+its own; its `fps` is the counter's latest (`FPS_WINDOW`, a window of 333 ms, the
+rate over the last `FPS_SPAN` of them, a second):
 
 ```
 frame 16.66 ms: pace 11.41 fence 0.20 acquire 4.79 record 0.15 submit 0.09 present 0.02 rebuild 0.00 other 0.00 (draw 5.25, hold 11.24, 60 fps, gpu idle 31/31, miss 0/31, period 16.66)

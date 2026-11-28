@@ -2913,8 +2913,9 @@ void app_cost_poll(App *a)
 
 void app_cost_publish(App *a, double now, bool window)
 {
-	/* With the frame-rate window where it runs; at rest without sampling it
-	 * does not, and the time since the last publish stands in. */
+	/* With the frame-rate window where it runs -- 0.333 s, so the figures
+	 * move as the counter does; at rest without sampling it does not, and
+	 * the time since the last publish stands in. */
 	const bool due =
 		window || (a->resting && !fnl_atomic_load_bool(&a->cost_sampling) &&
 				   now - a->cost_published_at >= COST_WINDOW);

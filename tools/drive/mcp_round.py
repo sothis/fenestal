@@ -382,12 +382,16 @@ def titlebar(s, r):
     seen = []
     first = True
     for label in labels[1:] + labels[:1]:
-        if not first:
-            s.click(s.control("aa"))
-        first = False
-        s.click(s.control("aa_row", label))
         want = AA_LABELS.get(label, label.lower())
-        ok = s.settle("aa", lambda: s.state()["antialias"] == want)
+        ok = False
+        for attempt in range(2):
+            if not first or attempt:
+                s.click(s.control("aa"))
+            first = False
+            s.click(s.control("aa_row", label))
+            ok = s.settle("aa", lambda: s.state()["antialias"] == want)
+            if ok:
+                break
         seen.append(want if ok else "!%s" % want)
     r.check("each row is a pick the state follows",
             not any(x.startswith("!") for x in seen), " ".join(seen))

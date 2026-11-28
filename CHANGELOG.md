@@ -955,11 +955,13 @@ HDR is marked experimental in the header: no panel has shown it yet.
   than the frame's GPU time by the frame rate, so a still window no
   longer reads as busy, and a CPU reading the system refuses no longer
   makes the next one read 99999.9 %.
-- **`fnl_fps()` counts over the last second, not the last fifth of one.**
-  A window of 0.2 s holds a dozen frames at 60 Hz, so the figure stepped by
-  five; read over five of them it steps by one. `fnl_set_cost_sampling()`
-  and a window at rest are unchanged: the count still stops, and the span
-  starts again where a rest, a resume or a move does.
+- **`fnl_fps()` moves every 333 ms, over the last second.** A window of
+  0.2 s held a dozen frames at 60 Hz, so the figure stepped by five; read
+  over the last three windows of 333 ms it moves three times a second and
+  steps by one. The cost figures are published with it, so the three move
+  in one re-record, and `fnl_set_cost_sampling()` and a window at rest are
+  unchanged: the count still stops, and the span starts again where a rest,
+  a resume or a move does.
 - **The metrics panel's Max row is the rate the render thread allows**, from
   what a frame's whole turn costs the thread rather than from the fragment
   of it the CPU row spans: flat out it reads what is drawn (1.02 to 1.07

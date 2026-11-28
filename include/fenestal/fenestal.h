@@ -1928,9 +1928,10 @@ FNL_API int fnl_max_samples(const FnlApp *app); /* [any] */
 FNL_API bool fnl_offscreen_supported(const FnlApp *app); /* [any] */
 FNL_API FnlAntialias fnl_antialias(const FnlApp *app);   /* [any] */
 
-/* Presents per second, not loop turns, over the last second -- five of the
- * loop's own windows, taken every fifth of a second, so a dozen frames at
- * 60 Hz is not a figure that steps by five. A window drawing nothing
+/* Presents per second, not loop turns, read over the last second and moved
+ * every 333 ms: the rate over three windows of the loop's own, so a figure
+ * read three times a second does not step by one window's worth of frames.
+ * A window drawing nothing
  * because nothing has changed keeps the rate it last drew at -- unless
  * fnl_set_cost_sampling() is on, when the count goes on through the rest
  * and reads the rate of the frames sampling draws. */

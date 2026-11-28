@@ -1,0 +1,25 @@
+# The Mac agent, compiled by clang against Apple's SDK by mac_driver.py -- which
+# a Linux clangd has to be told about, or it cannot find AppKit/AppKit.h and
+# reports the whole file as broken. The path is what
+# `python3 tools/macos_sdk.py --path` answers; build_agent() in mac_driver.py is
+# the authority, and this is so the editor agrees with it. Verified with clang
+# itself, no -x needed (.m is Objective-C to clang already, and clangd refuses
+# -x in a config):
+#
+#   clang -fsyntax-only --target=x86_64-apple-macos13 \
+#         -isysroot "$(python3 tools/macos_sdk.py --path)" \
+#         -F "$(python3 tools/macos_sdk.py --path)/System/Library/Frameworks" \
+#         -D__APPLE__ -fobjc-arc -Wall -Wextra tools/drive/mac_agent.m
+#
+# The library's own Objective-C has the same problem and its own copies of this
+# (src/backend/cocoa/.clangd, src/renderer/metal/.clangd); the file includes no
+# header of the tree's, so none of its -I flags are repeated here.
+CompileFlags:
+  Add:
+    - --target=x86_64-apple-macos13
+    - -isysroot
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk
+    - -F
+    - /home/json/.local/state/fenestal/macos-sdk/MacOSX26.5.sdk/System/Library/Frameworks
+    - -D__APPLE__
+    - -fobjc-arc

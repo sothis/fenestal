@@ -108,9 +108,11 @@
 #define LATE_STABLE 60
 /* Short gaps in a row before a shorter period is adopted. */
 #define LATE_SHORT 10
-/* The frame-rate window: the cost figures' (COST_WINDOW), so the three
- * move together. Seconds. */
-#define FPS_WINDOW COST_WINDOW
+/* The frame-rate window: how often fnl_fps() moves, three times a second --
+ * the reading is the rate over the last FPS_SPAN of them, so it does not
+ * step by a window's worth of frames. The cost figures are published with
+ * it, so the three move in one re-record. Seconds. */
+#define FPS_WINDOW 0.333
 /* The --frame-times line's, a clock of its own: pace.py's border row
  * counts the lines a drag of so many seconds yields. Seconds. */
 #define FRAME_TIMES_WINDOW 0.5
