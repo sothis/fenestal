@@ -1281,6 +1281,105 @@ static void section_gpus(Port *p, const char *variant)
 	(void)variant;
 }
 
+/* ---- another output, which is the window server's to answer -------------- */
+
+/* The outputs `state` lists, and the one the window is on. */
+static int outputs_get(Port *p, char names[][32], int max, char *cur, size_t cn)
+{
+	const char *json = ask(p, "state", "{\"live\":false}");
+	int         n    = 0;
+	cur[0]           = '\0';
+	if (!json)
+		return 0;
+	Str v = { 0 };
+	if (json_str_at(json, "output", &v))
+		snprintf(cur, cn, "%s", v.p ? v.p : "");
+	str_free(&v);
+	const char *at = strstr(json, "\"outputs\":[");
+	if (!at)
+		return 0;
+	at += strlen("\"outputs\":[");
+	while (n < max && *at == '"') {
+		Str one = { 0 };
+		const char *end = json_unescape(at, &one);
+		if (!end)
+			break;
+		snprintf(names[n], 32, "%s", one.p ? one.p : "");
+		str_free(&one);
+		n++;
+		at = end;
+		if (*at == ',')
+			at++;
+	}
+	return n;
+}
+
+static bool output_is(const char *name)
+{
+	State s;
+	state_read(&s, state_json());
+	Str v = { 0 };
+	const bool same = json_str_at(s.raw, "output", &v) && v.p &&
+					  !strcmp(v.p, name);
+	str_free(&v);
+	return same;
+}
+
+/* Asking for another output and back: the window's own rectangle is the
+ * manager's to change, so what is checked is what the library was told and
+ * that it draws there -- the picture is what `capture` reads back. */
+static void section_output(Port *p, const char *backend)
+{
+	section("output");
+	g_port = p;
+	/* Under a compositor the window's place is the compositor's: asking for
+	 * an output is a hint it may take, and on this desktop it does not. The
+	 * X server's is the window's, which is what this asks. */
+	if (!strcmp(backend, "wayland")) {
+		check("another output to move to", true,
+			  "the compositor places the window");
+		return;
+	}
+	char names[8][32];
+	char cur[32];
+	int  n = outputs_get(p, names, 8, cur, sizeof cur);
+	if (n < 2) {
+		check("another output to move to", true, "one connected");
+		return;
+	}
+	const char *other = NULL;
+	for (int i = 0; i < n; i++)
+		if (strcmp(names[i], cur))
+			other = names[i];
+	check("another output to move to", other != NULL, cur);
+	if (!other)
+		return;
+	char args[64];
+	snprintf(args, sizeof args, "{\"output\":\"%s\"}", other);
+	ask(p, "window", NULL, args);
+	const double end = now_s() + 20.0 * patience();
+	bool         moved = false;
+	while (now_s() < end && !moved) {
+		moved = output_is(other);
+		if (!moved)
+			sleep_s(0.05);
+	}
+	check("the window moves to another output", moved, other);
+	check("and draws there", until(drawn_is, NULL, 10.0), "");
+	check("and a frame reads back from it",
+		  ask(p, "capture", "{\"max_width\":200}") && p->image.n > 0, "");
+	snprintf(args, sizeof args, "{\"output\":\"%s\"}", cur);
+	ask(p, "window", NULL, args);
+	const double back_end = now_s() + 20.0 * patience();
+	bool         back     = false;
+	while (now_s() < back_end && !back) {
+		back = output_is(cur);
+		if (!back)
+			sleep_s(0.05);
+	}
+	check("and back to the one it opened on", back, cur);
+}
+
 /* ---- the faults a Debug tree can be made to take ------------------------- */
 
 static void section_faults(Port *p, Prog *pr, const char *variant)
@@ -1687,6 +1786,7 @@ static int round_one(const char *variant, const char *backend,
 	section_pointer(&p);
 	section_capture(&p);
 	section_gpus(&p, variant);
+	section_output(&p, backend);
 	section_faults(&p, &pr, variant);
 	section_leaving(&pr, &p);
 	if (!pr.ended) {

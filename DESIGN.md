@@ -12126,7 +12126,10 @@ tree, `fault` to arm a site *while the program runs*. That last is the one
 one lifetime -- `frame-record`, `frame-submit`, `device-lost`,
 `surface-lost`, and a `surface-lost,create-surface*3` that only takes after
 a retry -- each followed by a frame read back, so "the window drew on" is a
-picture and not only a line. Forty-seven checks in about fifteen seconds at
+picture and not only a line. Its sections are the library's own: the titlebar's controls, the window's
+knobs, the pointer and its capture, the frame read back, a move to another
+GPU and another output, the forced faults, a second window through the port
+it opens for itself. Thirty-three checks in about twenty seconds at
 release, and two minutes for both backends and all four trees against
 `stress.py`'s half hour, since nothing waits on a compositor's animation.
 
