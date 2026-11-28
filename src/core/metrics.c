@@ -178,6 +178,38 @@ void app_metrics_sample(App *a, double now)
 	a->met_vram_mib = met_u32(vram);
 }
 
+/* The process's figures on demand, for a caller that asks without the panel:
+ * what a round reading the port wants of them (the `process` tool), and the
+ * same two the panel's Process column shows. Its own sample clock, so asking
+ * neither takes the panel's figures away nor is taken away by it, and its own
+ * place to keep the reading the share is measured from. The GPU memory is not
+ * among them: that one is asked of the renderer, which the port's thread may
+ * not reach (DESIGN *Moving to another renderer*). */
+void app_process_sample(App *a, double now, uint32_t *cpu_pm, uint32_t *ram_mib)
+{
+	if (a->pp_at > 0.0 && now >= a->pp_at && now - a->pp_at < METRICS_WINDOW) {
+		*cpu_pm   = a->pp_cpu_pm;
+		*ram_mib  = a->pp_ram_mib;
+		return;
+	}
+	a->pp_at = now;
+	double cpu, wall;
+	if (proc_times(&cpu, &wall)) {
+		const bool from = a->pp_cpu_s >= 0.0 && wall > a->pp_wall_s;
+		a->pp_cpu_pm    = from ? met_u32(1000.0 * (cpu - a->pp_cpu_s) /
+										 (wall - a->pp_wall_s))
+							   : METRICS_UNKNOWN;
+		a->pp_cpu_s     = cpu;
+		a->pp_wall_s    = wall;
+	} else {
+		a->pp_cpu_pm = METRICS_UNKNOWN;
+		a->pp_cpu_s  = -1.0;
+	}
+	a->pp_ram_mib = met_u32(proc_rss_mib());
+	*cpu_pm       = a->pp_cpu_pm;
+	*ram_mib      = a->pp_ram_mib;
+}
+
 /* ---- the panel --------------------------------------------------------------
  *
  * The grid, in character cells of the monospaced body face: two columns of

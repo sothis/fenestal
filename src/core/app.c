@@ -3358,6 +3358,9 @@ FnlResult fnl_init(const FnlInitDesc *desc, App **out)
 	a->met_cpu_pm = a->met_ram_mib = a->met_vram_mib = METRICS_UNKNOWN;
 	a->met_gpu_pm                                    = METRICS_UNKNOWN;
 	a->met_cpu_s                                     = -1.0;
+	/* The port's own sample of the two, with nothing yet to measure a
+	 * share from. */
+	a->pp_cpu_s = -1.0;
 	a->wall_mark                                     = -1.0;
 	a->focus_claim                                   = -1;
 	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;
@@ -3698,6 +3701,9 @@ FnlResult fnl_window_create(App *sibling, const FnlWindowDesc *desc,
 	a->met_cpu_pm = a->met_ram_mib = a->met_vram_mib = METRICS_UNKNOWN;
 	a->met_gpu_pm                                    = METRICS_UNKNOWN;
 	a->met_cpu_s                                     = -1.0;
+	/* The port's own sample of the two, with nothing yet to measure a
+	 * share from. */
+	a->pp_cpu_s = -1.0;
 	a->wall_mark                                     = -1.0;
 	a->focus_claim                                   = -1;
 	a->want_scale120 = a->draw_scale120 = a->applied_scale120 = 120;

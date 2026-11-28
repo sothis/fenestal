@@ -1784,6 +1784,34 @@ static bool tool_capture(Mcp *m, const char *args, Sb *c)
 				w, h, x0, y0, cw, ch, ow, oh, f, fnl_scale120(m->app), mx, mx);
 }
 
+/* The process's own figures, for a caller measuring rather than watching:
+ * the CPU share of one core since the last ask (tenths of a percent, -1
+ * where the system will not say or on the first ask, which has nothing to
+ * measure from), its resident memory in MiB, and the frames it has drawn
+ * in that time. `pace.py` reads these out of /proc today; this is the same
+ * two without a second program's /proc to reach. */
+static bool tool_process(Mcp *m, const char *args, Sb *c)
+{
+	(void)args;
+	const App *a = m->app;
+	uint32_t cpu = METRICS_UNKNOWN, ram = METRICS_UNKNOWN;
+	app_process_sample((App *)a, now_seconds(), &cpu, &ram);
+	Sb s = { 0 };
+	sb_s(&s, "{");
+	sb_key(&s, "cpu_pm");
+	sb_f(&s, "%d", cpu == METRICS_UNKNOWN ? -1 : (int)cpu);
+	sb_key(&s, "ram_mib");
+	sb_f(&s, "%d", ram == METRICS_UNKNOWN ? -1 : (int)ram);
+	sb_key(&s, "frames");
+	sb_f(&s, "%llu", (unsigned long long)a->presents);
+	sb_s(&s, "}");
+	const bool bad = s.bad;
+	if (!bad)
+		text_item(c, s.p);
+	free(s.p);
+	return bad ? say(c, "out of memory") : false;
+}
+
 /* ---- the library's own controls ------------------------------------------ */
 
 static bool tool_controls(Mcp *m, const char *args, Sb *c)
@@ -2014,6 +2042,15 @@ static const struct {
 	  "the window rests: live=true keeps them measured, until the client "
 	  "leaves or says live=false.",
 	  "{\"type\":\"object\",\"properties\":{\"live\":{\"type\":\"boolean\"}}}" },
+	{ "process", tool_process,
+	  "The process's own figures, for a caller that measures rather than "
+	  "watches: cpu_pm is the share of one core since the last call in "
+	  "tenths of a percent (-1 on the first call, which has nothing to "
+	  "measure from, and where the system will not say), ram_mib is its "
+	  "resident memory, and frames is what it has presented. Sampled at "
+	  "most once a METRICS_WINDOW, so a caller asking faster reads the "
+	  "sample before.",
+	  "{\"type\":\"object\",\"properties\":{}}" },
 	{ "events", tool_events,
 	  "The events the program has polled since the last call, oldest "
 	  "first, one line each in the event echo's format (`key A press | "

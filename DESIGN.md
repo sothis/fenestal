@@ -12056,6 +12056,7 @@ has the `.mcp.json` line. A request before
 
 | tool | what it is |
 |---|---|
+| `process` | the process's own figures: the CPU share of one core since the last call (tenths of a percent, -1 on the first and where the system will not say), its resident memory, and the frames it presented. A round that measures rather than watches reads these instead of a second program's `/proc` |
 | `state` | the public getters, as one JSON object: backend, renderer, GPU, the window, the content's rectangle and the titlebar in points, the content and the scene in pixels, scale, output, the flags, the keys held, where the port last put the pointer, the title, the clipboard and the composition, the GPUs, outputs and modes the drop-downs list, frame rate and costs (`live` keeps them measured) |
 | `events` | the event echo's lines (`src/core/echo.c`) for what the program polled since the last call: the newest 256, the older counted, none from before the client connected; `wait_ms` waits for the first line and then for its frame's batch, `until` for the first line that holds a text |
 | `key` | a key by name (the schema lists them, aliases such as `Esc`, `Return`, `Ctrl` are taken): tap, press, release or `repeat`, with `modifiers` held round it |

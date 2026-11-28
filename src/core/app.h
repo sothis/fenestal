@@ -963,6 +963,8 @@ bool app_taau_follows(const App *a, uint64_t last, bool written);
 #define METRICS_WINDOW 0.5          /* seconds between process samples */
 #define METRICS_UNKNOWN 0xffffffffu /* a figure the system will not say */
 void app_metrics_sample(App *a, double now); /* metrics.c */
+void app_process_sample(App *a, double now, uint32_t *cpu_pm,
+						uint32_t *ram_mib); /* metrics.c */
 FNL_MUST_USE FnlResult app_metrics_draw(App *a, const FnlDrawState *ds, int w,
 										int h); /* metrics.c */
 
@@ -2538,6 +2540,14 @@ struct FnlApp {
 	 * Render thread's. */
 	uint32_t met_cpu_pm, met_ram_mib, met_vram_mib, met_gpu_pm;
 	double met_at, met_cpu_s, met_wall_s;
+	/* The same two figures asked for by something other than the panel --
+	 * the MCP port's `process` tool -- with a clock of their own, so one
+	 * does not take the other's reading (app_process_sample()). The MCP
+	 * port's thread alone, which is the one that asks: nothing else reads
+	 * or writes them, and asking them of a syscall needs no turn of the
+	 * pump. */
+	uint32_t pp_cpu_pm, pp_ram_mib;
+	double   pp_at, pp_cpu_s, pp_wall_s;
 	double met_gpu_s, met_gpu_base, met_gpu_at;
 	/* fnl_set_transition_ms()'s: how long the veil takes to come down
 	 * ahead of a move and to lift after it, in milliseconds; 0 is none
