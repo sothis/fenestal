@@ -803,9 +803,107 @@ _Static_assert(sizeof CALLER_SHAPES / sizeof CALLER_SHAPES[0] ==
 
 #undef SHAPE
 
+/* The image's pixels in a buffer of their own. Written by write() rather
+ * than through a mapping: the buffer is made once per image, and nothing is
+ * drawn into it after. */
+static struct wl_buffer *cursor_image_buffer(struct BackendHostState *hs,
+											 const CursorImage *img)
+{
+	const size_t bytes = (size_t)img->w * (size_t)img->h * 4u;
+	if (FNL_FAULT("wl-no-cursor-image"))
+		return NULL;
+	const int fd = memfd_create("fenestal-cursor", MFD_CLOEXEC);
+	if (fd < 0)
+		return NULL;
+	struct wl_buffer *b = NULL;
+	if (write(fd, img->px, bytes) == (ssize_t)bytes) {
+		struct wl_shm_pool *pool =
+			wl_shm_create_pool(hs->shm, fd, (int32_t)bytes);
+		if (pool) {
+			b = wl_shm_pool_create_buffer(pool, 0, img->w, img->h,
+										  img->w * 4, WL_SHM_FORMAT_ARGB8888);
+			wl_shm_pool_destroy(pool);
+		}
+	}
+	close(fd);
+	return b;
+}
+
+/* Put this window's image under the pointer: false where it cannot be, and
+ * the shape is shown instead. Only with the shape protocol: wl_pointer has no
+ * "the theme's cursor again", so an image set without it would stay over the
+ * library's titlebar and edges, whose shapes come from that protocol.
+ *
+ * The scale goes to the compositor, so the image is the same size in points
+ * on every output and sharp on the one it was drawn for: by the viewport's
+ * destination where there is a viewporter, which takes any scale, and by
+ * the buffer scale where not, which takes a whole one. */
+static bool cursor_image_show(App *a)
+{
+	struct BackendHostState *hs = a->backend_state->host;
+	const CursorImage *img      = a->cursor_image;
+	if (!img || !hs->pointer || !hs->cursor_device || !hs->shm)
+		return false;
+	if (hs->current_shape == WL_CURSOR_IMAGE && hs->cursor_image_of == a &&
+		hs->cursor_image_gen == a->cursor_image_gen)
+		return true;
+
+	if (!hs->cursor_surface) {
+		hs->cursor_surface = wl_compositor_create_surface(hs->compositor);
+		if (!hs->cursor_surface)
+			return false;
+		if (hs->viewporter)
+			hs->cursor_viewport =
+				wp_viewporter_get_viewport(hs->viewporter, hs->cursor_surface);
+	}
+	if (hs->cursor_image_of != a ||
+		hs->cursor_image_gen != a->cursor_image_gen || !hs->cursor_buffer) {
+		struct wl_buffer *b = cursor_image_buffer(hs, img);
+		if (!b) {
+			fnl_log(FNL_LOG_WARN, "cursor image: no buffer for it; the "
+								  "shape instead");
+			return false;
+		}
+		const int s = img->scale120;
+		wl_surface_attach(hs->cursor_surface, b, 0, 0);
+		if (hs->cursor_viewport) {
+			const int dw = (img->w * 120 + s / 2) / s;
+			const int dh = (img->h * 120 + s / 2) / s;
+			wp_viewport_set_destination(hs->cursor_viewport, dw > 0 ? dw : 1,
+										dh > 0 ? dh : 1);
+			hs->cursor_hot_x = (img->hot_x * 120 + s / 2) / s;
+			hs->cursor_hot_y = (img->hot_y * 120 + s / 2) / s;
+		} else {
+			int bs = s % 120 == 0 ? s / 120 : 1;
+			if (img->w % bs || img->h % bs ||
+				wl_proxy_get_version((struct wl_proxy *)hs->cursor_surface) <
+					WL_SURFACE_SET_BUFFER_SCALE_SINCE_VERSION)
+				bs = 1;
+			wl_surface_set_buffer_scale(hs->cursor_surface, bs);
+			hs->cursor_hot_x = img->hot_x / bs;
+			hs->cursor_hot_y = img->hot_y / bs;
+		}
+		wl_surface_damage(hs->cursor_surface, 0, 0, INT32_MAX, INT32_MAX);
+		wl_surface_commit(hs->cursor_surface);
+		/* After the commit that replaced it: a buffer destroyed while it
+		 * is still the surface's leaves the compositor's copy undefined. */
+		if (hs->cursor_buffer)
+			wl_buffer_destroy(hs->cursor_buffer);
+		hs->cursor_buffer    = b;
+		hs->cursor_image_of  = a;
+		hs->cursor_image_gen = a->cursor_image_gen;
+	}
+	hs->current_shape = WL_CURSOR_IMAGE;
+	wl_pointer_set_cursor(hs->pointer, hs->pointer_serial, hs->cursor_surface,
+						  hs->cursor_hot_x, hs->cursor_hot_y);
+	return true;
+}
+
 static void cursor_update(App *a, Zone z, Edge edge)
 {
 	const DecoCursor c = deco_cursor(a, z, edge);
+	if (c.kind == DECO_CURSOR_SHAPE && c.image && cursor_image_show(a))
+		return;
 	set_cursor_shape(a, c.kind == DECO_CURSOR_HIDDEN ? WL_CURSOR_HIDDEN
 						: c.kind == DECO_CURSOR_EDGE ? EDGE_SHAPES[c.edge]
 													 : CALLER_SHAPES[c.shape]);
@@ -2738,6 +2836,9 @@ static FNL_MUST_USE FnlResult create_window(App *a)
 
 	if (hs->viewporter)
 		p->viewport = wp_viewporter_get_viewport(hs->viewporter, p->surface);
+	/* The globals cursor_image_show() needs, which are all bound by now. */
+	fnl_atomic_store_bool(&a->cursor_image_ok,
+						  hs->cursor_shape_manager && hs->shm);
 	/* Before the render thread starts, which reads it. */
 	a->buffer_crops = p->viewport != NULL;
 	if (hs->fractional_manager && p->viewport) {
@@ -3336,6 +3437,8 @@ static void wl_window_close(App *a)
 		hs->ptr_window     = NULL;
 		hs->pointer_inside = false; /* no enter is in force for a gone window */
 	}
+	if (hs->cursor_image_of == a)
+		hs->cursor_image_of = NULL;
 	/* The selection is this program's, but the string is this window's: the
 	 * source goes, and the selection ends with it. The offer that was our
 	 * selection is a proxy of this client's -- the compositor clears the
@@ -3458,6 +3561,12 @@ static void wl_host_close(App *a)
 		wp_presentation_destroy(hs->presentation);
 	if (hs->cursor_device)
 		wp_cursor_shape_device_v1_destroy(hs->cursor_device);
+	if (hs->cursor_viewport)
+		wp_viewport_destroy(hs->cursor_viewport);
+	if (hs->cursor_surface)
+		wl_surface_destroy(hs->cursor_surface);
+	if (hs->cursor_buffer)
+		wl_buffer_destroy(hs->cursor_buffer);
 	if (hs->cursor_shape_manager)
 		wp_cursor_shape_manager_v1_destroy(hs->cursor_shape_manager);
 	if (hs->pointer)

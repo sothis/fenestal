@@ -34,6 +34,7 @@ static const char *const SITES[] = {
 	"unorm-surface",        /* query_surface_info: a UNORM format chosen */
 	"no-viewporter",        /* wayland: wp_viewporter not bound */
 	"wl-accelerated-relative", /* relative_motion: the accelerated delta */
+	"wl-no-cursor-image",   /* cursor_image_buffer: the shape instead */
 	"backend-no-display",   /* backend_choose_and_open: no server here */
 	"renderer-refused",     /* renderer_choose_and_build: none here */
 	"renderer-move-refused", /* renderer_swap: the renderer moved to */
