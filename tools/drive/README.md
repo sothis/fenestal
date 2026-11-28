@@ -25,6 +25,15 @@ FAIL for nineteen things; it is not part of `stress.py`, whose environments
 it does not start. What it found and where it has passed is DESIGN *Driven
 from inside*; TODO *The MCP port* has what is owed.
 
+## The compositor's own account
+
+`build/linux/<variant>/portal --probe` says whether this session can be
+asked: it opens the session bus (`tools/drive/dbus.c`, the client this tree
+carries rather than linking one) and makes an `org.gnome.Mutter.RemoteDesktop`
+session. What it will carry -- input through the compositor, and the frame as
+the compositor drew it -- is the part of a round that is the window server's
+and not the library's.
+
 ## A benchmark run, brought home
 
 `build/linux/<variant>/bench [--seconds 20] [--label name] [--out dir]

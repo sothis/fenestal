@@ -12144,6 +12144,15 @@ has them; and a click that is not a double-click waits out
 `DECO_DBLCLICK_MS` *before* pressing, which is why two `click` calls are two
 clicks where a hand's two would be one.
 
+Beside them is the compositor's side, which none of the three can reach
+because they are inside the window: `portal` (`tools/drive/portal.c`) speaks
+the session bus through a client of this tree's own (`dbus.c`: EXTERNAL
+authentication, one method call, the reply read past the signals that arrive
+between), and asks GNOME's `org.gnome.Mutter.RemoteDesktop` for a session.
+So far the probe; what it will carry is input that went through the
+compositor and the frame the compositor drew, which is what `stress.py` gets
+from the Python portal today.
+
 `bench` (`tools/drive/benchc.c`) brings one environment's benchmark record
 home the same way: the testbed emits it on stderr between two markers, and
 the tool writes it where the reports read them.
