@@ -12141,6 +12141,17 @@ has them; and a click that is not a double-click waits out
 `DECO_DBLCLICK_MS` *before* pressing, which is why two `click` calls are two
 clicks where a hand's two would be one.
 
+Its port is a unix socket here, or a command that speaks the framing on its
+standard input and output: `--command "ssh host <dir>/fenestal-mcp <socket>"`
+reaches a window nothing here can connect to, and `--ssh host --remote-dir
+<dir>` is that plus the start -- the program begun there with its output into
+a file (`cd <dir>; nohup ./fenestal-testbed ... &`, a `;` and not a `&&`,
+which would background the whole list and hold the ssh session open for as
+long as the window lives), its pid echoed back, its socket named rather than
+left to the bridge's "newest" -- a program that died leaves its own behind --
+and the log fetched at the end, so a check reads the same lines it would
+have read here.
+
 How it stays out of the way: one thread of its own, which touches nothing
 either of the window's threads own. Input goes into a mailbox that
 `app_drain_requests()` empties on the pump's turn, after an

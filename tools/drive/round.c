@@ -368,8 +368,21 @@ static const char *ask(Port *p, const char *tool, const char *fmt, ...)
 
 /* A command run for what it says: its standard output, whole, into `out`.
  * False where it could not be run; `*status` is the exit status or -1. */
+static void dbg(const char *fmt, ...)
+{
+	if (!getenv("FNL_ROUND_DEBUG"))
+		return;
+	va_list ap;
+	va_start(ap, fmt);
+	fputs("round: ", stderr);
+	vfprintf(stderr, fmt, ap);
+	fputc('\n', stderr);
+	va_end(ap);
+}
+
 static bool sh_run(const char *cmd, Str *out, int *status)
 {
+	dbg("run: %s", cmd);
 	FILE *f = popen(cmd, "r");
 	if (!f)
 		return false;
@@ -589,6 +602,7 @@ static long remote_start(const char *host, const char *dir,
 
 	/* ssh takes the whole remote command as one argument, so nothing of it
 	 * is a local shell's to mangle. */
+	dbg("start: %s", cmd.p);
 	int fds[2];
 	if (pipe(fds) != 0)
 		DIE("pipe: %s", strerror(errno));
@@ -1448,20 +1462,7 @@ static int round_one(const char *variant, const char *backend,
 					 const char *renderer, char *const argv[],
 					 char *const envp[], const char *log_path)
 {
-	/* Starting the program on another machine and reaching its port over
-	 * ssh is written and does not yet pass: the round hangs before its
-	 * first check. Until that is found, a remote window is driven by
-	 * starting the program on its own machine and naming the bridge here --
-	 * --command "ssh host <dir>/fenestal-mcp <socket>" -- which is the same
-	 * code path without the start. */
-	if (g_ssh && !g_command) {
-		fprintf(stderr,
-				"round: --ssh is not yet proved; start the program there and "
-				"use --command \"ssh %s <dir>/fenestal-mcp <socket>\"\n",
-				g_ssh);
-		return 2;
-	}
-	if (0 && g_ssh) {
+	if (g_ssh) {
 		/* The program on the other machine: started there, its port over
 		 * `ssh <host> <dir>/fenestal-mcp`, its log asked for at the end. */
 		Prog pr;
@@ -1506,6 +1507,31 @@ static int round_one(const char *variant, const char *backend,
 		else
 			snprintf(sock_path, sizeof sock_path,
 					 "/tmp/fenestal-%ld.sock", pid);
+		/* The window's port is there once the program is: a checker tree
+		 * takes seconds to open one. Asked of the machine, as the local
+		 * round asks the file system. */
+		{
+			char q[768];
+			snprintf(q, sizeof q,
+					 "ssh -o BatchMode=yes %.120s 'test -S %.400s'", g_ssh,
+					 sock_path);
+			const double wait_end = now_s() + 60.0 * patience();
+			for (;;) {
+				Str  o = { 0 };
+				int  st = -1;
+				sh_run(q, &o, &st);
+				str_free(&o);
+				if (st == 0)
+					break;
+				if (now_s() >= wait_end) {
+					fprintf(stderr,
+							"round: %s never opened %s\n", g_ssh,
+							sock_path);
+					return 2;
+				}
+				sleep_s(0.1);
+			}
+		}
 		char mcp_cmd[1024];
 		snprintf(mcp_cmd, sizeof mcp_cmd,
 				 "ssh -o BatchMode=yes %.120s %.300s/fenestal-mcp %.400s",

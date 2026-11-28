@@ -27,12 +27,17 @@ from inside*; TODO *The MCP port* has what is owed.
 
 ## A round through the port, in C
 
-`build/linux/<variant>/round [--variant v] [--backend x11|wayland]` starts a
+`build/linux/<variant>/round [--variant v] [--backend x11|wayland]
+[--ssh host --remote-dir dir] [--command "<cmd>"]` starts a
 testbed with `FNL_MCP=1` and drives it through the port: keys, the
 titlebar's own controls, the window's knobs, the pointer and its capture,
-the frame read back, and the way out -- nineteen checks in about ten
-seconds, no window server, no portal, no consent and no input taken from
-the desk. Built in every tree but the Windows ones, whose round is still
+the frame read back, a move to another GPU, the forced faults in a Debug
+tree, a second window through its own port, and the way out -- 28 to 39
+checks in under a minute, no window server, no portal, no consent and no
+input taken from the desk. `--ssh host --remote-dir dir` runs it on that
+machine (`<dir>/fenestal-testbed`, its port over `ssh host
+<dir>/fenestal-mcp <socket>`), and `--command` names the bridge itself for a
+window nothing here can connect to. Built in every tree but the Windows ones, whose round is still
 `mcp_round.py`'s. DESIGN *Driven from inside*.
 
 ## A round through the port (Python)
