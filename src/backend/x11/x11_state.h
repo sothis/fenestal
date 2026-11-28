@@ -105,7 +105,9 @@ typedef enum {
 	X11_CURSOR_NONE = -1,
 	/* Not a cursor either: what the window wears is not known, so whatever
 	 * is asked for next is sent. "None" must not compare equal to it. */
-	X11_CURSOR_UNKNOWN = -2
+	X11_CURSOR_UNKNOWN = -2,
+	/* fnl_set_cursor_image()'s picture, BackendState::image_cursor. */
+	X11_CURSOR_IMAGE = -3
 } X11Cursor;
 
 /* One RandR monitor. The list is this backend's: the core is told the room
@@ -204,6 +206,13 @@ struct BackendState {
 	/* What is on the window now, so that a motion event that does not change
 	 * the answer costs no request. */
 	X11Cursor cursor_applied;
+	/* fnl_set_cursor_image()'s picture as a cursor, made from App image
+	 * `image_cursor_gen`; XCB_NONE before one is. RENDER's a8r8g8b8 format,
+	 * asked on the first image (`render_asked`), 0 where there is none. */
+	xcb_cursor_t image_cursor;
+	uint32_t image_cursor_gen;
+	bool render_asked;
+	uint32_t render_argb;
 
 	/* ---- extensions ----------------------------------------------------
 	 * Either being absent is a degradation rather than a failure, so both
@@ -541,6 +550,8 @@ void x11_sync_open(struct BackendState *p);
 void x11_sync_set(struct BackendState *p, uint64_t value);
 void x11_sync_close(struct BackendState *p);
 void x11_present_open(struct BackendState *p);
+bool x11_render_present(struct BackendState *p);
+xcb_cursor_t x11_render_cursor(struct BackendState *p, const CursorImage *img);
 bool x11_present_event(App *a, const xcb_generic_event_t *ev);
 /* x11.c: a sync value kept for a frame Present has now answered. */
 void x11_sync_answered(struct BackendState *p, uint64_t index);

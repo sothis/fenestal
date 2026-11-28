@@ -34,6 +34,7 @@ static const char *const SITES[] = {
 	"unorm-surface",        /* query_surface_info: a UNORM format chosen */
 	"no-viewporter",        /* wayland: wp_viewporter not bound */
 	"wl-accelerated-relative", /* relative_motion: the accelerated delta */
+	"wl-no-cursor-image",   /* cursor_image_buffer: the shape instead */
 	"backend-no-display",   /* backend_choose_and_open: no server here */
 	"renderer-refused",     /* renderer_choose_and_build: none here */
 	"renderer-move-refused", /* renderer_swap: the renderer moved to */
@@ -55,6 +56,7 @@ static const char *const SITES[] = {
 	"x11-refresh",          /* x11_refresh_read: no refresh rate known */
 	"x11-sync-at-swap",     /* x11_flush: the sync value not kept for Present */
 	"x11-clip-unstamped",   /* clip_stamp: copy and paste at CurrentTime */
+	"x11-no-cursor-image",  /* x11_render_cursor: no RENDER cursor */
 	"kms-no-keymap",        /* keymap_load: the files give no keymap */
 	"kms-no-cursor",        /* glyph_make: no buffer for the cursor plane */
 	"kms-cursor-legacy",    /* cursor_atomic_send: every commit refused */

@@ -3972,6 +3972,60 @@ with nothing to do. On Wayland the change needs `wp_cursor_shape_v1`; without
 it the cursor stays as the compositor left it. The Win32 half is
 `WM_SETCURSOR` for the client area, with the edges left to `DefWindowProc`.
 
+### The pointer as an image
+
+`fnl_set_cursor_image()` puts a picture of the caller's where the shape
+would be. A program with a look of its own -- a game's pointer, a tool's
+reticle -- otherwise hides nothing and draws its pointer in the frame,
+which is a frame behind the hand at best: the window server's cursor is
+moved by the server as the device reports, and the caller's is moved when
+the next frame is shown. So the image goes to the window server, as its
+own cursor would, and the library draws nothing.
+
+**It is the shape's place and nothing more.** `deco_cursor()` answers
+`image` beside the shape where the caller's shape applies, so the precedence
+is the shape's -- capture, edge, caller, arrow -- and the library's titlebar
+and edges keep theirs. A backend that cannot show images shows the shape,
+which is why the call is an addition beside `fnl_set_cursor()` and not a
+new `FnlCursor`: a caller sets both, and every backend has an answer.
+
+**Wayland needs `wp_cursor_shape_v1` for it.** The image is a
+`wl_surface` of the client's under `wl_pointer.set_cursor`, set again on
+every enter as the shape is. Core `wl_pointer` has no way back to the
+theme's cursor, so with the image on and no shape protocol the library's
+own parts would wear the caller's picture; without the protocol the call
+says false and the shape rules, as `fnl_set_cursor()` does there. The scale
+is the compositor's to apply: the viewport's destination where there is a
+viewporter, so an image drawn at 240 is half its pixels in points and
+sharp at 200%, and the buffer scale where there is none, which takes a
+whole scale or the image's own pixels. One surface for the seat, since the
+cursor is the seat's; its buffer is made again when another window's
+image, or another image, goes under the pointer.
+
+**X11 needs RENDER, and takes the image pixel for pixel.** Core X has
+only two-colour cursors; an ARGB one is RENDER's `CreateCursor` from a
+picture of a 32-bit pixmap. The backend is core xcb alone (*Invariants*), so
+the four requests are hand-encoded in `x11_ext.c` as the other extensions
+are, and the a8r8g8b8 format is asked on the first image -- a program that
+never sets one never asks. An X cursor has no scale of its own, so the image
+is shown as its pixels; the caller passes the one it drew for
+`fnl_scale120()`, as it would size anything else. The pixels go up in
+bands, since the largest image is more than one request carries without
+BIG-REQUESTS.
+
+**The conversion is the caller's thread's.** The call premultiplies the
+straight RGBA into the one word both servers take (`CursorImage`, wl_shm's
+ARGB8888 and RENDER's a8r8g8b8) and forwards the copy like the other knobs,
+latest wins. It compares a hash of the pixels and figures before it
+copies, so setting the image every frame costs a hash of at most 256 KiB
+and no wakeup.
+
+**KMS, Win32 and Cocoa show the shape.** KMS draws its cursor plane from
+glyph buffers of its own, Win32 would want `CreateIconIndirect` and Cocoa an
+`NSCursor` from an `NSImage`; each is a backend change of its own, to be
+made where it can be run (TODO *The cursor image*), and until then the call
+says false there.
+
 ### A second window
 
 **Built, on all five backends.** This is the design and the ground it was

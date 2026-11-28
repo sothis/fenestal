@@ -56,6 +56,9 @@ typedef struct {
 /* Not a wp_cursor_shape shape (those start at 1): no cursor at all, which is
  * what a captured pointer wants while the caller draws its own reticle. */
 #define WL_CURSOR_HIDDEN 0xffffffffu
+/* Nor this: fnl_set_cursor_image()'s picture, on BackendHostState's
+ * cursor surface. */
+#define WL_CURSOR_IMAGE 0xfffffffeu
 
 typedef struct {
 	struct wl_output *handle;
@@ -120,6 +123,17 @@ struct BackendHostState {
 	uint32_t current_shape;
 	struct wp_cursor_shape_manager_v1 *cursor_shape_manager;
 	struct wp_cursor_shape_device_v1 *cursor_device;
+	/* fnl_set_cursor_image()'s picture: a surface of the client's that
+	 * wl_pointer.set_cursor puts under the pointer, one for the seat as the
+	 * pointer is. Its buffer holds image `cursor_image_gen` of window
+	 * `cursor_image_of`, and is made again when either moves. Pump thread. */
+	struct wl_surface *cursor_surface;
+	struct wp_viewport *cursor_viewport;
+	struct wl_buffer *cursor_buffer;
+	App *cursor_image_of;
+	uint32_t cursor_image_gen;
+	/* Its hotspot in the surface's points, for each set_cursor. */
+	int cursor_hot_x, cursor_hot_y;
 	struct zxdg_decoration_manager_v1 *decoration_manager;
 	struct zwp_pointer_constraints_v1 *pointer_constraints;
 	struct zwp_relative_pointer_manager_v1 *relative_manager;

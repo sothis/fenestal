@@ -172,3 +172,8 @@ FENESTAL_1_0 {
 	local:
 		*;
 };
+
+FENESTAL_1_1 {
+	global:
+		fnl_set_cursor_image;
+} FENESTAL_1_0;

@@ -556,5 +556,6 @@ int main(int argc, char **argv)
 	E(FNL_CURSOR_NS_RESIZE);
 	E(FNL_CURSOR_NOT_ALLOWED);
 	E(FNL_CURSOR_WAIT);
+	E(FNL_CURSOR_IMAGE_MAX);
 	return 0;
 }

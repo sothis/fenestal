@@ -656,9 +656,13 @@ static void set_cursor(App *a, X11Cursor which)
 		return;
 	p->cursor_applied = which;
 
-	const uint32_t cur = which == X11_CURSOR_NONE
-							 ? blank_cursor(p)
-							 : cursor_load(a, which, x11_resolve_scale120(a));
+	uint32_t cur;
+	if (which == X11_CURSOR_NONE)
+		cur = blank_cursor(p);
+	else if (which == X11_CURSOR_IMAGE)
+		cur = p->image_cursor;
+	else
+		cur = cursor_load(a, which, x11_resolve_scale120(a));
 	xcb_change_window_attributes(p->conn, p->window, XCB_CW_CURSOR, &cur);
 }
 
@@ -728,9 +732,37 @@ static const EdgeCodes EDGE_CODES[EDGE_COUNT] = {
 _Static_assert(sizeof EDGE_CODES / sizeof EDGE_CODES[0] == EDGE_COUNT,
 			   "EDGE_CODES has drifted from Edge");
 
+/* The caller's image as this window's cursor: false where RENDER cannot
+ * make it, and the shape is shown instead. Made once per image; X11 scales
+ * no cursor, so the pixels are shown as they are (fenestal.h). */
+static bool cursor_image_show(App *a)
+{
+	struct BackendState *p = a->backend_state;
+	if (!p->image_cursor || p->image_cursor_gen != a->cursor_image_gen) {
+		const xcb_cursor_t cur = x11_render_cursor(p, a->cursor_image);
+		if (!cur) {
+			/* No format is an answer for good; a failed copy is not. */
+			if (!p->render_argb)
+				fnl_atomic_store_bool(&a->cursor_image_ok, false);
+			return false;
+		}
+		if (p->image_cursor)
+			xcb_free_cursor(p->conn, p->image_cursor);
+		p->image_cursor     = cur;
+		p->image_cursor_gen = a->cursor_image_gen;
+		/* The same X11Cursor with another cursor behind it. */
+		if (p->cursor_applied == X11_CURSOR_IMAGE)
+			p->cursor_applied = X11_CURSOR_UNKNOWN;
+	}
+	set_cursor(a, X11_CURSOR_IMAGE);
+	return true;
+}
+
 static void cursor_update(App *a, Zone z, Edge edge)
 {
 	const DecoCursor c = deco_cursor(a, z, edge);
+	if (c.kind == DECO_CURSOR_SHAPE && c.image && cursor_image_show(a))
+		return;
 	set_cursor(a, c.kind == DECO_CURSOR_HIDDEN ? X11_CURSOR_NONE
 				  : c.kind == DECO_CURSOR_EDGE ? EDGE_CODES[c.edge].cursor
 											   : CALLER_CURSORS[c.shape]);
@@ -2953,6 +2985,9 @@ static FNL_MUST_USE FnlResult create_window_x11(App *a)
 	x11_sync_open(p);
 	x11_present_open(p);
 	set_cursor(a, X11_CURSOR_DEFAULT);
+	/* Whether RENDER is there, its reply prefetched with the rest; whether
+	 * it makes a cursor is asked on the first image. */
+	fnl_atomic_store_bool(&a->cursor_image_ok, x11_render_present(p));
 
 	/* Last of the takes: reading the monitor list sends for the monitors'
 	 * names, and that wait is the third. The properties follow it, so the
@@ -3172,6 +3207,8 @@ static void x11_window_close(App *a)
 				xcb_free_cursor(p->conn, p->cursors[i]);
 		if (p->blank_cursor)
 			xcb_free_cursor(p->conn, p->blank_cursor);
+		if (p->image_cursor)
+			xcb_free_cursor(p->conn, p->image_cursor);
 		if (p->cursor_font)
 			xcb_close_font(p->conn, p->cursor_font);
 		x11_sync_close(p);

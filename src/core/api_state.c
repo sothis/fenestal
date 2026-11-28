@@ -718,6 +718,79 @@ void fnl_set_cursor(FnlApp *app, FnlCursor shape)
 		app_wakeup(a);
 }
 
+/* A hash of the image and its figures, which is what the call compares: a
+ * caller sets the image every frame, and keeping a second copy to compare
+ * against would be a copy made per frame. FNV-1a; 0 is kept for "none". */
+static uint64_t cursor_image_hash(const uint8_t *rgba, size_t bytes,
+								  const int fig[5])
+{
+	uint64_t h = 0xcbf29ce484222325u;
+	for (size_t i = 0; i < bytes; i++)
+		h = (h ^ rgba[i]) * 0x100000001b3u;
+	for (int i = 0; i < 5; i++)
+		h = (h ^ (uint32_t)fig[i]) * 0x100000001b3u;
+	return h ? h : 1;
+}
+
+/* Converted here, on the caller's thread, into what both window servers
+ * take (CursorImage), so the pump only hands it over. Forwarded as the
+ * shape is; the copy travels in App::cursor_image_pending, and a second
+ * call before the drain replaces the first (latest wins). */
+bool fnl_set_cursor_image(FnlApp *app, const uint8_t *rgba, int w, int h,
+						  int hot_x, int hot_y, int scale120)
+{
+	App *a = (App *)app;
+	if (!a || !a->host->backend)
+		return false;
+	if (!scale120)
+		scale120 = 120;
+	CursorImage *img = NULL;
+	uint64_t key     = 0;
+	if (rgba) {
+		if (w < 1 || w > FNL_CURSOR_IMAGE_MAX || h < 1 ||
+			h > FNL_CURSOR_IMAGE_MAX || hot_x < 0 || hot_x >= w ||
+			hot_y < 0 || hot_y >= h || scale120 < 1 ||
+			scale120 > 120 * 16)
+			return false;
+		const size_t n = (size_t)w * (size_t)h;
+		const int fig[5] = { w, h, hot_x, hot_y, scale120 };
+		key = cursor_image_hash(rgba, n * 4u, fig);
+		fnl_mutex_lock(&a->lock);
+		const bool same = a->cursor_image_asked == key;
+		fnl_mutex_unlock(&a->lock);
+		if (same)
+			return fnl_atomic_load_bool(&a->cursor_image_ok);
+		img = malloc(sizeof *img + n * sizeof img->px[0]);
+		if (!img)
+			return false;
+		*img = (CursorImage){ w, h, hot_x, hot_y, scale120 };
+		for (size_t i = 0; i < n; i++) {
+			const uint8_t *s = rgba + i * 4u;
+			const uint32_t al = s[3];
+			uint32_t px = al << 24;
+			for (int c = 0; c < 3; c++)
+				px |= ((s[c] * al + 127u) / 255u) << (16 - 8 * c);
+			img->px[i] = px;
+		}
+	}
+	fnl_mutex_lock(&a->lock);
+	const bool moved = a->cursor_image_asked != key;
+	CursorImage *old = NULL;
+	if (moved) {
+		a->cursor_image_asked   = key;
+		old                     = a->cursor_image_pending;
+		a->cursor_image_pending = img;
+		a->req.cursor_image     = true;
+		img                     = NULL;
+	}
+	fnl_mutex_unlock(&a->lock);
+	free(old);
+	free(img); /* another thread asked for this one first */
+	if (moved)
+		app_wakeup(a);
+	return !rgba || fnl_atomic_load_bool(&a->cursor_image_ok);
+}
+
 /* Stored and asked for under the lock; compared first, as fnl_set_cursor()
  * is, so a caller setting the same title every frame wakes nothing. Not
  * measured here: the width is the frame's, taken when it latches this

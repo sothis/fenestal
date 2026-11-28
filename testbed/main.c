@@ -26,6 +26,7 @@
 #include "bench.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,6 +47,55 @@
 /* Set by --text-input: text entry on from the first frame, so that a harness
  * can type at this program and read back what the layout made of it. */
 static bool text_input;
+/* --cursor-image: the pointer as a picture the program draws, set once at
+ * startup through fnl_set_cursor_image(). */
+static bool cursor_image;
+/* The ring, 24 points across at the window's scale so that it is drawn
+ * pixel for pixel, its edges covered by distance rather than stepped: an
+ * amber ring with a dark rim, which reads on a light scene and a dark one,
+ * and a dot at the centre, which is the hotspot. Where the backend shows no
+ * image the crosshair is the shape, so the two read alike. */
+static void cursor_image_set(FnlApp *app)
+{
+	int s120 = fnl_scale120(app);
+	if (s120 < 120)
+		s120 = 120;
+	int n = (24 * s120 + 60) / 120;
+	if (n > FNL_CURSOR_IMAGE_MAX)
+		n = FNL_CURSOR_IMAGE_MAX;
+	uint8_t *px = calloc((size_t)n * (size_t)n, 4);
+	if (!px)
+		return;
+	const float k = (float)s120 / 120.0f; /* pixels a point */
+	const float c = (float)n * 0.5f, r = (float)n * 0.5f - 2.5f * k;
+	for (int y = 0; y < n; y++) {
+		for (int x = 0; x < n; x++) {
+			const float dx = (float)x + 0.5f - c, dy = (float)y + 0.5f - c;
+			const float d  = sqrtf(dx * dx + dy * dy);
+			/* Coverage of the rim (3 points wide), of the ring inside it
+			 * (1.5 points) and of the dot (2 points across). */
+			const float rim  = fminf(fmaxf(1.5f * k + 0.5f - fabsf(d - r),
+										   0.0f), 1.0f);
+			const float ring = fminf(fmaxf(0.75f * k + 0.5f - fabsf(d - r),
+										   0.0f), 1.0f);
+			const float dot  = fminf(fmaxf(k + 0.5f - d, 0.0f), 1.0f);
+			const float lit  = fmaxf(ring, dot);
+			const float a    = fmaxf(rim, fminf(lit + 0.5f * dot, 1.0f));
+			uint8_t *o       = px + ((size_t)y * (size_t)n + (size_t)x) * 4u;
+			/* Amber over the dark rim, by coverage; straight alpha. */
+			o[0] = (uint8_t)(16.0f + lit * (242.0f - 16.0f) + 0.5f);
+			o[1] = (uint8_t)(22.0f + lit * (169.0f - 22.0f) + 0.5f);
+			o[2] = (uint8_t)(34.0f + lit * (59.0f - 34.0f) + 0.5f);
+			o[3] = (uint8_t)(a * 255.0f + 0.5f);
+		}
+	}
+	fnl_set_cursor(app, FNL_CURSOR_CROSSHAIR);
+	const bool shown =
+		fnl_set_cursor_image(app, px, n, n, n / 2, n / 2, s120);
+	free(px);
+	fprintf(stderr, "cursor image: %s\n", shown ? "shown" : "the shape");
+}
+
 /* --transition=MS, in milliseconds; -1 leaves the library's own. */
 static int trans_ms = -1;
 /* --freeze: the scene drawn at a fixed clock while the library's own clock
@@ -453,6 +503,11 @@ static void usage(FILE *f, const char *prog)
 		"                     logical points, for capturing the titlebar\n"
 		"                     where a control gives way.\n"
 		"\n"
+		"  --cursor-image     the pointer over the scene as a picture of the\n"
+		"                     program's, a ring with a dot at its hotspot,\n"
+		"                     drawn for the window's scale; stderr says\n"
+		"                     whether the backend shows it: \"cursor image:\n"
+		"                     shown\" or \"... the shape\".\n"
 		"  --text-input       switch text entry on at startup. With\n"
 		"                     --echo-events each character a key types is a\n"
 		"                     line of its own, under the layout in force, and\n"
@@ -659,6 +714,10 @@ static bool parse_args(FnlInitDesc *d, int argc, char **argv, int *status)
 		}
 		if (!strcmp(arg, "--text-input")) {
 			text_input = true;
+			continue;
+		}
+		if (!strcmp(arg, "--cursor-image")) {
+			cursor_image = true;
 			continue;
 		}
 		if (!strcmp(arg, "--frame-times")) {
@@ -1332,6 +1391,8 @@ int main(int argc, char **argv)
 
 	if (text_input)
 		fnl_set_text_input(app, true);
+	if (cursor_image)
+		cursor_image_set(app);
 
 	/* The scene. Everything the library does around it -- the render scale,
 	 * both antialiasing modes, the pacing, the loss recovery -- is inherited

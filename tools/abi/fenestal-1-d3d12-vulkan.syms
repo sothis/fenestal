@@ -99,6 +99,7 @@ fnl_minimize
 fnl_set_maximized
 fnl_set_antialias
 fnl_set_cursor
+fnl_set_cursor_image
 fnl_set_title
 fnl_release_pointer
 fnl_set_scene_size_px

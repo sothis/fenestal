@@ -114,3 +114,21 @@ Each is additive in a 1.x and is listed as a non-goal in the header's
   Vulkan's `FnlVulkanSetup` is (B25, B26);
 - gamepad and touch; multi-card KMS;
 - a log sink and level per host (B8).
+
+## The cursor image
+
+`fnl_set_cursor_image()` is built on Wayland and X11, and run only on a
+nested KWin 6 (virtual backend, 100%) and its Xwayland. Owed:
+
+- KMS: a glyph buffer made from the image, beside the three built-in ones,
+  for both the legacy ioctl and the atomic cursor plane, and the mover
+  thread told when it changes. The image fits the plane's 64 by 64 at most
+  sizes; a larger one wants cropping or the shape.
+- Win32: `CreateIconIndirect` from a 32-bit DIB section, set in
+  `cursor_apply()`. Windows scales no cursor either, as X11.
+- Cocoa: an `NSCursor` from an `NSImage` whose size is the image's points,
+  which gives the scale to AppKit as the viewport does on Wayland.
+- A desktop session seen by eye, at 100% and 200%; GNOME, weston (no
+  cursor shape protocol: the shape path) and a bare Xorg.
+- Wayland's fractional scales: an image drawn for 150% is downsampled by the
+  compositor from the next whole size the caller drew, not drawn at 150%.
