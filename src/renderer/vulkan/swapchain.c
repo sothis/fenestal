@@ -802,6 +802,33 @@ static VkExtent2D scale_extent(App *a, VkExtent2D e, VkExtent2D b,
 	return b;
 }
 
+/* The image count this present mode needs. With surface_maintenance1 the
+ * surface's minimum and maximum are per mode (Mesa's X11 asks four of
+ * MAILBOX where the plain query says three), and the create is validated
+ * against the mode's. Where the query is not to be had the plain caps stand. */
+static void counts_for_mode(App *a, VkPresentModeKHR mode,
+							VkSurfaceCapabilitiesKHR *caps)
+{
+	if (!VK(a)->surface_maint || !VK(a)->surface_caps2 || VK(a)->surfaceless)
+		return;
+	VkSurfacePresentModeKHR pm = {
+		.sType       = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR,
+		.presentMode = mode,
+	};
+	const VkPhysicalDeviceSurfaceInfo2KHR si = {
+		.sType   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
+		.pNext   = &pm,
+		.surface = VK(a)->vk_surface,
+	};
+	VkSurfaceCapabilities2KHR c2 = {
+		.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR,
+	};
+	if (VK(a)->surface_caps2(VK(a)->phys, &si, &c2) != VK_SUCCESS)
+		return;
+	caps->minImageCount = c2.surfaceCapabilities.minImageCount;
+	caps->maxImageCount = c2.surfaceCapabilities.maxImageCount;
+}
+
 FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 {
 	/* The swapchain a wait names is not to be retired under it. */
@@ -839,6 +866,7 @@ FnlResult create_swapchain(App *a, VkSwapchainKHR old_swapchain)
 	const VkPresentModeKHR mode =
 		vk_wanted_present_mode(a, fnl_atomic_load_bool(&a->vsync));
 	vk_set_present_mode(a, mode);
+	counts_for_mode(a, mode, &caps);
 	bool scale = false;
 	const VkExtent2D b =
 		scale_extent(a, e, buffer_extent(a, e, &caps), &caps, mode, &scale);
