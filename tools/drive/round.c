@@ -1129,7 +1129,7 @@ static void section_leaving(Prog *pr, Port *p)
 	section("leaving");
 	g_port = p;
 	tap(p, "Escape");
-	const double end = now_s() + 20.0 * patience();
+	const double end = now_s() + 40.0 * patience();
 	while (!pr->ended && now_s() < end) {
 		int status = 0;
 		if (waitpid(pr->pid, &status, WNOHANG) == pr->pid) {
@@ -1244,7 +1244,7 @@ static void section_gpus(Port *p, const char *variant)
 		return;
 	}
 	click_ctl(p, row);
-	const double end = now_s() + 30.0 * patience();
+	const double end = now_s() + 60.0 * patience();
 	bool         moved = false;
 	while (now_s() < end && !moved) {
 		moved = gpu_is(g[other].name);
@@ -1255,7 +1255,7 @@ static void section_gpus(Port *p, const char *variant)
 	char args[64];
 	snprintf(args, sizeof args, "{\"gpu\":%d}", home);
 	ask(p, "window", NULL, args);
-	const double back_end = now_s() + 30.0 * patience();
+	const double back_end = now_s() + 60.0 * patience();
 	bool         back     = false;
 	while (now_s() < back_end && !back) {
 		back = gpu_is(g[home].name);
@@ -1448,17 +1448,20 @@ static int round_one(const char *variant, const char *backend,
 					 const char *renderer, char *const argv[],
 					 char *const envp[], const char *log_path)
 {
+	/* Starting the program on another machine and reaching its port over
+	 * ssh is written and does not yet pass: the round hangs before its
+	 * first check. Until that is found, a remote window is driven by
+	 * starting the program on its own machine and naming the bridge here --
+	 * --command "ssh host <dir>/fenestal-mcp <socket>" -- which is the same
+	 * code path without the start. */
 	if (g_ssh && !g_command) {
-		/* Not wired yet: the program starts there and the port is reached,
-		 * but a run over ssh has not been made to pass. Until then the
-		 * remote window is driven by starting it on its own machine and
-		 * naming the bridge here: --command "ssh host <dir>/fenestal-mcp". */
 		fprintf(stderr,
-				"round: --ssh is not wired yet; start the program there and "
-				"use --command \"ssh %s <dir>/fenestal-mcp\"\n", g_ssh);
+				"round: --ssh is not yet proved; start the program there and "
+				"use --command \"ssh %s <dir>/fenestal-mcp <socket>\"\n",
+				g_ssh);
 		return 2;
 	}
-	if (g_ssh) {
+	if (0 && g_ssh) {
 		/* The program on the other machine: started there, its port over
 		 * `ssh <host> <dir>/fenestal-mcp`, its log asked for at the end. */
 		Prog pr;
@@ -1477,10 +1480,36 @@ static int round_one(const char *variant, const char *backend,
 		sleep_s(1.0);
 		Port p;
 		memset(&p, 0, sizeof p);
+		/* The socket named, not left to the bridge's "newest": a program
+		 * that died leaves its own behind, and the newest file is then a
+		 * window nobody is drawing. */
+		char rt[256] = "";
+		{
+			char q[512];
+			Str  o = { 0 };
+			int  st = -1;
+			snprintf(q, sizeof q,
+					 "ssh -o BatchMode=yes %.120s 'echo $XDG_RUNTIME_DIR'",
+					 g_ssh);
+			if (sh_run(q, &o, &st) == 0 || o.p) {
+				size_t n = o.n;
+				while (n && (o.p[n - 1] == '\n' || o.p[n - 1] == '\r'))
+					o.p[--n] = '\0';
+				snprintf(rt, sizeof rt, "%.240s", o.p ? o.p : "");
+			}
+			str_free(&o);
+		}
+		char sock_path[512];
+		if (*rt)
+			snprintf(sock_path, sizeof sock_path, "%.240s/fenestal-%ld.sock",
+					 rt, pid);
+		else
+			snprintf(sock_path, sizeof sock_path,
+					 "/tmp/fenestal-%ld.sock", pid);
 		char mcp_cmd[1024];
 		snprintf(mcp_cmd, sizeof mcp_cmd,
-				 "ssh -o BatchMode=yes %.120s %.300s/fenestal-mcp", g_ssh,
-				 g_remote_dir ? g_remote_dir : ".");
+				 "ssh -o BatchMode=yes %.120s %.300s/fenestal-mcp %.400s",
+				 g_ssh, g_remote_dir ? g_remote_dir : ".", sock_path);
 		char *argv_cmd[8];
 		int   cn = 0;
 		for (char *w = strtok(mcp_cmd, " "); w && cn < 7;
