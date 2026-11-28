@@ -932,6 +932,301 @@ static void section_leaving(Prog *pr, Port *p)
 	check("no sanitizer report in the log", bad == NULL, bad ? bad : "");
 }
 
+/* ---- another GPU, and the box that moves to it --------------------------- */
+
+typedef struct {
+	char name[96];
+	bool current;
+	bool software;
+} Gpu;
+
+static int gpus_get(Port *p, Gpu *out, int max)
+{
+	const char *json = ask(p, "state", "{\"live\":false}");
+	int         n    = 0;
+	if (!json)
+		return 0;
+	const char *at = strstr(json, "\"gpus\":[");
+	if (!at)
+		return 0;
+	at += strlen("\"gpus\":[");
+	while (n < max && (at = strstr(at, "{\"name\":")) != NULL) {
+		at++;
+		Str v = { 0 };
+		if (!json_str_at(at, "name", &v))
+			break;
+		snprintf(out[n].name, sizeof out[n].name, "%s", v.p ? v.p : "");
+		str_free(&v);
+		/* The flags follow the name in the same object, so they are read
+		 * from the text that starts at it. */
+		out[n].current =
+			json_bool_at(at, "current", false);
+		out[n].software =
+			strstr(at, "\"kind\":\"software\"") != NULL &&
+			(strstr(at, "\"kind\":\"software\"") <
+			 strstr(at, "\"current\"") + 1 ||
+			 !strstr(at, "\"current\""));
+		n++;
+	}
+	return n;
+}
+
+static bool gpu_is(const char *name)
+{
+	State s;
+	state_read(&s, state_json());
+	Str v = { 0 };
+	const bool same = json_str_at(s.raw, "gpu", &v) && v.p &&
+					  !strcmp(v.p, name);
+	str_free(&v);
+	return same;
+}
+
+/* The row of the GPU box that names the Nth GPU: the box numbers its rows
+ * `1  <name> (kind)`, so the number and a space is what to look for. */
+static const Ctl *gpu_row(const Ctl *c, int n, int index)
+{
+	char want[16];
+	snprintf(want, sizeof want, "%d ", index);
+	for (int i = 0; i < n; i++)
+		if (!strcmp(c[i].name, "gpu_row") &&
+			!strncmp(c[i].label, want, strlen(want)))
+			return &c[i];
+	return NULL;
+}
+
+static void section_gpus(Port *p, const char *variant)
+{
+	section("gpus");
+	g_port = p;
+	Gpu g[16];
+	int n     = gpus_get(p, g, 16);
+	int home  = -1;
+	int other = -1;
+	for (int i = 0; i < n; i++) {
+		if (g[i].current)
+			home = i;
+		else if (other < 0 &&
+				 !(g[i].software && !strcmp(variant, "tsan")))
+			other = i;
+	}
+	if (other < 0) {
+		check("another GPU to move to", true, "one listed");
+		return;
+	}
+	Ctl c[CTL_MAX];
+	int cn = controls_get(p, c, CTL_MAX);
+	const Ctl *box = ctl_by_name(c, cn, "gpu");
+	if (!box) {
+		check("the GPU box is in the titlebar", false, "");
+		return;
+	}
+	click_ctl(p, box);
+	sleep_s(0.3);
+	cn = controls_get(p, c, CTL_MAX);
+	const Ctl *row = gpu_row(c, cn, other + 1);
+	if (!row) {
+		check("the GPU box has a row for the second GPU", false, "");
+		click_ctl(p, ctl_by_name(c, cn, "gpu"));
+		return;
+	}
+	click_ctl(p, row);
+	const double end = now_s() + 30.0 * patience();
+	bool         moved = false;
+	while (now_s() < end && !moved) {
+		moved = gpu_is(g[other].name);
+		if (!moved)
+			sleep_s(0.1);
+	}
+	check("the GPU box moves the window to the other GPU", moved, "");
+	char args[64];
+	snprintf(args, sizeof args, "{\"gpu\":%d}", home);
+	ask(p, "window", NULL, args);
+	const double back_end = now_s() + 30.0 * patience();
+	bool         back     = false;
+	while (now_s() < back_end && !back) {
+		back = gpu_is(g[home].name);
+		if (!back)
+			sleep_s(0.1);
+	}
+	check("and back to the one it opened on", back, "");
+	check("the window still draws", until(drawn_is, NULL, 10.0), "");
+	(void)variant;
+}
+
+/* ---- the faults a Debug tree can be made to take ------------------------- */
+
+static void section_faults(Port *p, Prog *pr, const char *variant)
+{
+	/* The tool is in a Debug tree's port alone. */
+	if (strcmp(variant, "asan") && strcmp(variant, "tsan") &&
+		strcmp(variant, "gc"))
+		return;
+	section("faults");
+	g_port = p;
+	const char *r = ask(p, "fault", "{\"spec\":\"-frame-record\"}");
+	if (!r || !strstr(r, "applied")) {
+		check("the fault tool is there", false, r ? r : "no reply");
+		return;
+	}
+	check("the fault tool is there", true, "");
+	/* One site after another in one lifetime: each forced, waited for, and
+	 * let go, with a frame read back after it -- a window that still draws
+	 * is a picture and not only a line. */
+	static const char *const SITE[] = { "frame-record", "frame-submit",
+										"device-lost" };
+	static const char *const LINE[] = { "FNL_FAULT: 'frame-record' fired",
+										"FNL_FAULT: 'frame-submit' fired",
+										"FNL_FAULT: 'device-lost' fired" };
+	for (unsigned i = 0; i < 3; i++) {
+		char args[64];
+		snprintf(args, sizeof args, "{\"spec\":\"%s\"}", SITE[i]);
+		ask(p, "fault", NULL, args);
+		const double end = now_s() + 30.0 * patience();
+		bool         hit = false;
+		while (now_s() < end && !hit) {
+			hit = has_line(pr, LINE[i]);
+			if (!hit)
+				sleep_s(0.05);
+		}
+		snprintf(args, sizeof args, "{\"spec\":\"-%s\"}", SITE[i]);
+		ask(p, "fault", NULL, args);
+		check("a forced fault is taken", hit, SITE[i]);
+		check("and the window draws on", until(drawn_is, NULL, 10.0), "");
+		check("and a frame reads back from it",
+			  ask(p, "capture", "{\"max_width\":200}") && p->image.n > 0, "");
+	}
+}
+
+/* ---- the second window, through the port of its own ---------------------- */
+
+static int round_second(char *const envp[], const char *log_path)
+{
+	section("second window");
+	Prog pr;
+	memset(&pr, 0, sizeof pr);
+	char *argv[8];
+	int   n = 0;
+	char  self[1024];
+	const ssize_t sl = readlink("/proc/self/exe", self, sizeof self - 1);
+	if (sl <= 0)
+		return 2;
+	self[sl] = '\0';
+	char *slash = strrchr(self, '/');
+	if (slash)
+		*slash = '\0';
+	static char testbed[1024];
+	snprintf(testbed, sizeof testbed, "%.900s/fenestal-testbed", self);
+	static char second[]      = "--second-window";
+	static char frame_times[] = "--frame-times";
+	argv[n++]                 = testbed;
+	argv[n++]                 = second;
+	argv[n++]                 = frame_times;
+	argv[n]                   = NULL;
+	prog_start(&pr, argv, envp, log_path);
+	prog_sockets(&pr);
+	if (!prog_wait_socket(&pr, 1, 30.0 * patience()) ||
+		!prog_wait_socket(&pr, 2, 30.0 * patience())) {
+		log_tail(&pr, 10);
+		kill(pr.pid, SIGTERM);
+		check("the second window has a port of its own", false, "none");
+		return g_failed ? 1 : 0;
+	}
+	Port one, two;
+	memset(&one, 0, sizeof one);
+	memset(&two, 0, sizeof two);
+	/* Both windows' ports are opened the same way: a connection each. */
+	int fds[2];
+	char paths[2][SOCK_MAX];
+	snprintf(paths[0], sizeof paths[0], "%s", pr.sock);
+	snprintf(paths[1], sizeof paths[1], "%.490s-2.sock", pr.base);
+	for (int k = 0; k < 2; k++) {
+		Port *pp = k ? &two : &one;
+		fds[k]   = socket(AF_UNIX, SOCK_STREAM, 0);
+		struct sockaddr_un addr;
+		memset(&addr, 0, sizeof addr);
+		addr.sun_family = AF_UNIX;
+		const size_t pn = strlen(paths[k]);
+		if (fds[k] < 0 || pn >= sizeof addr.sun_path)
+			break;
+		memcpy(addr.sun_path, paths[k], pn + 1);
+		if (connect(fds[k], (struct sockaddr *)&addr, sizeof addr) != 0)
+			break;
+		struct timeval tv = { g_timeout_s * 3, 0 };
+		setsockopt(fds[k], SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+		pp->fd = fds[k];
+		pp->io = fdopen(fds[k], "r+");
+		if (!pp->io ||
+			!rpc(pp, "initialize",
+				 "{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},"
+				 "\"clientInfo\":{\"name\":\"round\",\"version\":\"1\"}}",
+				 NULL))
+			break;
+	}
+	State a, b;
+	g_port = &one;
+	state_read(&a, ask(&one, "state", "{\"live\":false}"));
+	state_read(&b, ask(&two, "state", "{\"live\":false}"));
+	/* A checker's second window is built slowly: its port answers before its
+	 * size is its own, so the state is read until it is. */
+	double end = now_s() + 15.0 * patience();
+	while (now_s() < end && !(b.window_w > 0 && b.windows == 2)) {
+		sleep_s(0.05);
+		state_read(&b, ask(&two, "state", "{\"live\":false}"));
+	}
+	check("the second window is open", a.windows == 2 && b.windows == 2,
+		  "windows");
+	check("and has a port of its own", b.window_w > 0 && b.window_w != a.window_w,
+		  "size");
+	/* A click in the second window's content, through its own port: the
+	 * capture is that window's and not the first's. */
+	g_port = &two;
+	const double x = b.content_x + b.content_w / 2.0;
+	const double y = b.content_y + b.content_h / 2.0;
+	tap(&two, "F9");
+	ask(&two, "window", "{\"release_pointer\":true}");
+	click_at(&two, x, y);
+	const char *ev = events_text(&two, 1500, "capture 1");
+	check("a click through the second's port captures there",
+		  strstr(ev, "capture 1") != NULL, ev);
+	State a2;
+	g_port = &one;
+	state_read(&a2, ask(&one, "state", "{\"live\":false}"));
+	check("and the first window's pointer is not captured", !a2.captured, "");
+	ask(&two, "window", "{\"release_pointer\":true}");
+	/* F10 through the first's port hides it, and its port goes with it. */
+	g_port = &one;
+	tap(&one, "F10");
+	const double hide_end = now_s() + 10.0 * patience();
+	bool         hidden   = false;
+	while (now_s() < hide_end && !hidden) {
+		state_read(&a, ask(&one, "state", "{\"live\":false}"));
+		hidden = a.windows == 1;
+		if (!hidden)
+			sleep_s(0.05);
+	}
+	check("F10 hides it", hidden, "");
+	tap(&one, "F10");
+	const double show_end = now_s() + 10.0 * patience();
+	bool         shown    = false;
+	while (now_s() < show_end && !shown) {
+		state_read(&a, ask(&one, "state", "{\"live\":false}"));
+		shown = a.windows == 2;
+		if (!shown)
+			sleep_s(0.05);
+	}
+	check("and shows it again", shown, "");
+	if (one.io)
+		fclose(one.io);
+	if (two.io)
+		fclose(two.io);
+	if (!pr.ended) {
+		kill(pr.pid, SIGTERM);
+		waitpid(pr.pid, NULL, 0);
+	}
+	return g_failed ? 1 : 0;
+}
+
 /* ---- one round ----------------------------------------------------------- */
 
 static int round_one(const char *variant, const char *backend,
@@ -999,8 +1294,9 @@ static int round_one(const char *variant, const char *backend,
 	section_window(&p);
 	section_pointer(&p);
 	section_capture(&p);
+	section_gpus(&p, variant);
+	section_faults(&p, &pr, variant);
 	section_leaving(&pr, &p);
-
 	if (!pr.ended) {
 		kill(pr.pid, SIGTERM);
 		waitpid(pr.pid, NULL, 0);
@@ -1009,6 +1305,12 @@ static int round_one(const char *variant, const char *backend,
 	str_free(&p.text);
 	str_free(&p.image);
 	str_free(&p.buf);
+
+	/* And a second program, with a second window: its own port each, so
+	 * what the round asks of one is that window and no other. */
+	char log2[1024];
+	snprintf(log2, sizeof log2, "%.900s-second.log", log_path);
+	round_second(envp, log2);
 	return g_failed ? 1 : 0;
 }
 
