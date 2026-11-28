@@ -1406,7 +1406,8 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 		a->record_gen++;
 	double t_rec = t_ready;
 	app_frame_mark(a, FRAME_MARK_REC);
-	if (!frame_record(a, img, ds, t_ready, &t_rec))
+	if (!frame_record(a, img, ds, t_ready, &t_rec) ||
+		FNL_FAULT("frame-record"))
 		return frame_bail(a, frame, false);
 	VK(a)->images_in_flight[img] = VK(a)->in_flight[frame];
 	VK(a)->img_serial[img] = VK(a)->slot_serial[frame] =
@@ -1437,7 +1438,9 @@ bool draw_frame(App *a, uint32_t frame, const FnlDrawState *ds,
 	};
 	/* Past the reset: the fence is unsignalled and this submit was the only
 	 * thing that would have signalled it, so the bail has to. */
-	VkResult sr = vk_queue_submit(a, 1, &si, VK(a)->in_flight[frame]);
+	VkResult sr = FNL_FAULT("frame-submit")
+					  ? VK_ERROR_OUT_OF_HOST_MEMORY
+					  : vk_queue_submit(a, 1, &si, VK(a)->in_flight[frame]);
 	if (vk_lost(a, sr) || VKR(sr) < 0)
 		return frame_bail(a, frame, true);
 	VK(a)->ts_unread[img] = VK(a)->ts_pool != VK_NULL_HANDLE;

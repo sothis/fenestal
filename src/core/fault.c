@@ -43,6 +43,8 @@ static const char *const SITES[] = {
 	"gpu-driver-leftover",  /* gpu_driver_leftover: no move, none again */
 	"device-lost",          /* draw_frame: the device is lost */
 	"surface-lost",         /* draw_frame: the surface is lost */
+	"frame-record",         /* vk draw_frame: the recording fails */
+	"frame-submit",         /* vk draw_frame: the submit fails */
 	"create-surface",       /* recover_from_loss: create_surface refuses */
 	"recover-objects",      /* recover_from_loss: the rebuild fails */
 	"framebuffers",         /* create_framebuffers fails */
