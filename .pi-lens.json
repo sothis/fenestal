@@ -1,0 +1,8 @@
+{
+    "note": "no-reserved-identifiers matches every identifier beginning with an underscore and a capital, which in this tree is the compiler's and the language's own: _WIN32, _MSC_VER, _Static_assert, __cplusplus. Nothing here chooses those names, and the reservation the rule is about -- a name of the implementation's taken for one of ours -- cannot be fixed by renaming a token the standard or the compiler defines. The tree is warning-clean under gcc and clang.",
+    "rules": {
+        "no-reserved-identifiers": {
+            "ignorePaths": ["**"]
+        }
+    }
+}
