@@ -7608,9 +7608,17 @@ presentable area?
   to 0.829 ms; pinned at 1280x720 a direct frame goes 0.167 to 0.427 and a TAAU
   one 0.249 to 0.514; pinned at 640x360, 0.143 to 0.401 and 0.173 to 0.433. So
   the sixteen taps cost +0.26 ms over the one, and a caller pinning no scale
-  pays it for the sharper stretch. How much a *cheaper* cubic reclaims -- the
-  same taps in a single bilinear row-then-column pass, four by the separability
-  the loop does not use -- is not measured.
+  pays it for the sharper stretch. That figure is the sixteen-tap form's; the
+  shader now takes nine fetches (the two middle weights are one bilinear tap
+  per axis) and one at 1:1, and measured so (2026-11-28, `x11-vulkan`, 2560x1380
+  presentable area, no antialiasing, the scene pinned, vsync off, three runs
+  of ten at-rest GPU figures against a tree whose fetch is the one bilinear
+  tap): **+0.06 ms** at half (0.12 to 0.18) and at a quarter (0.10 to 0.16).
+  A separable row-then-column pass is six taps and a target of its own to write
+  and read between them, so what it could reclaim is a third of 0.06 ms at the
+  very most, and it is left out. At 1:1 the frame is the same as the bilinear
+  fetch's to the bit: a 900x500 region read back with the scene frozen at
+  native size under MLAA, FSAA and TAAU is identical in the two trees.
 
 A pin larger than the area on either axis is **ignored, not fitted**: fitting it
 means either distorting an aspect nobody asked to distort or picking a size
@@ -7875,6 +7883,39 @@ they are inside the resolve's +0.095 ms at that pin above, not this figure.
 Lavapipe, where the arithmetic is a hundredfold dearer, shows the same nothing
 under a spread wider than any signal (TODO *Temporal upscaling, measured*).
 
+**Whether the depth rejection earns its keep** (2026-11-28). `demos/motion`
+rebuilt with every figure a function of the frame count -- the cube turning
+and the camera panning, a period of 128 frames and again of 512 (the second
+at about the demo's own speed), the place in the loop and the jitter's index
+written as white squares in the corner -- pinned at half the window under
+TAAU, and read back through the MCP port: a frame is then the same frame in
+every tree (1,372 repeated frames of one tree were identical in the window's
+interior), and the references are the same sequence drawn at native size with
+FSAA. Scored by the mean largest channel difference over a band of six pixels
+round the cube's edge:
+
+| `TAAU_DEPTH_REJECT` | period 128 | period 512 |
+|---|---|---|
+| 0 (no comparison) | 29.3 | 27.4 |
+| 0.005 | 12.2 | 15.1 |
+| 0.02 (the constant) | 13.5 | 17.4 |
+| 0.1 | 29.3, to the bit | |
+| the half-size scene stretched, no TAAU | 8.8 | 8.8 |
+| native, no antialiasing | 3.9 | 4.0 |
+
+Without the comparison the edge trails a dark band behind it, which is the
+history of the background the cube has just left; at 0.02 the band is
+mostly gone and a faint line remains; at 0.1 the comparison never fires on
+this scene. The cube's faces are flat and every tree draws them alike, so
+nothing here says what a tighter threshold costs on a surface at a grazing
+angle, whose neighbouring pixels differ in depth by a good part of the figure:
+0.005 reads cleaner on the cube and is not taken for that reason. The
+constant stays at 0.02. What the table also says is that on content moving
+this much TAAU's edges are no nearer the supersampled picture than a plain
+stretch of the small scene is: the mode gathers detail in the interior and in
+what holds still, and what moves is resolved at the scene's own resolution
+(*the clamp*, above).
+
 **What it looks like, on the demo** (2026-11-22): `demos/motion` at a scene
 pinned to half the window (960x600 over 1920x1200), drifting under F2 with TAAU
 toggled by F3, is **crisper with the mode on** than the plain bilinear stretch
@@ -7903,8 +7944,9 @@ TAAU frames: 2395 frames on `x11-vulkan`, the record `complete`, and the log
 holds no layer line. So the `RENDER_TARGET -> COPY_SOURCE` before the fill, the
 `COPY_SOURCE -> PIXEL_SHADER_RESOURCE` after it, the write the fill makes to
 the history image the frame before wrote, are each what those checks want. A
-round does not repeat it yet -- the round has no TAAU section -- so it is a
-measurement and not an instrument (TODO *Temporal upscaling, measured*).
+round repeats the pick, not the layer's silence under it: its antialiasing
+section walks the box's rows and reads the echo (2026-11-28), and the TAAU
+frames under the layer stay a measurement.
 
 **What they cost.** AMD Radeon RX 590 GME (RADV POLARIS10), the Wayland build
 at `--scale=2` — a 2584x1532 buffer over a 2560x1440 presentable area —
@@ -9089,12 +9131,19 @@ the drag against 383 to 398 waited in line and 508 to 514 with no wait.
 How fast the window follows a drag is the handshake's, about 30 sizes a
 second, and stays so; what comes back is the frames between, drawn at
 the rate again. `x11-vulkan` passes the round with it, under
-ThreadSanitizer with a clean log, and both bare machines' Xorg do. These
-border figures are `pace.py`'s old count; counted over the press
+ThreadSanitizer with a clean log, and both bare machines' Xorg do. The
+validation layer, whose thread-safety check names two threads in one
+swapchain's call, said nothing through the `asan` and `tsan` rounds of
+`x11-vulkan` and `wayland-vulkan` (2026-11-28, the layer proved mapped).
+These border figures are `pace.py`'s old count; counted over the press
 (`frames_between()`, 2026-10-31, two sweeps) `x11-vulkan` draws 52 to 57
 fps through the drag, wine's Vulkan 53 to 58, Direct3D 12 under wine
 35 to 37 on X11 and 18 to 23 on Wayland -- the last two read near 60
 before, the CPU of every column unchanged.
+Counted again at `7f03aca` (2026-11-28, `pace.py --border`, vsync on by
+`FNL_VSYNC=1`): `x11-vulkan` 59, wine's Vulkan 60 on X11 and 59 on
+Wayland, Direct3D 12 59 and 57 -- the gap is gone; with vsync off, as it
+now is, 107, 129 and 130, and Direct3D 12 131 and 128.
 Direct3D 12's wait is made the same way (*Measured on Windows itself*).
 
 **And where the renderer holds no ack, the backend holds it until Present says
@@ -11856,6 +11905,8 @@ time, so the sixth reaches the scaled MLAA image.
 | text past the baked ladder | `--scale=3` | glyphs the size the layout wants, resampled and soft |
 | device-loss recovery | `FNL_FAULT=device-lost%300` | `device lost -- rebuilding`, then `rebuilt on …`, frames resume |
 | surface-loss recovery | `FNL_FAULT=surface-lost%300` | as above, and the `VkSurfaceKHR` is replaced |
+| a frame whose recording fails (Vulkan) | `FNL_FAULT=frame-record%200`, a Debug tree | the frame dropped through `frame_bail()`: the swapchain made again, the window drawing on, no validation message. Run 2026-11-28: `fenestal-dev pace 0 8 --settle 1 --draw --no-vsync` on `x11-vulkan`, `asan`, under the layer, both sites armed: 5,288 presents with both sites firing (21 refused submits among them), the process clean |
+| a frame whose submit is refused (Vulkan) | `FNL_FAULT=frame-submit%250`, a Debug tree | as above, from the far side of `vkResetFences`: the bail carries the fence, no fence wait left hanging |
 | a rebuild that fails *after* the surface came back | `FNL_FAULT=surface-lost@60,recover-objects@1` | `device lost -- rebuilding` again next turn, until it takes |
 | a `create_surface()` that refuses | `FNL_FAULT=surface-lost@60,create-surface*3` | `surface lost -- rebuilding` *n* more times, then `rebuilt on …` |
 | the handle that call leaves behind | as above, and write a junk `VkSurfaceKHR` into `VK(a)->vk_surface` before failing — which is what the spec permits a driver to leave there | SIGSEGV inside `libvulkan` from `recover_from_loss`, on the retry's `vkDestroySurfaceKHR`. Which is why every bridge (`surface_*.c`) builds into a local and assigns only on success |

@@ -57,18 +57,6 @@ Each is written with its reproduction and wants the account that files it.
   one is not counted twice): the testbed's `EV scroll` echo against a hi-res
   and a notched wheel, on GNOME and weston -- whole notches in, whole notches
   out.
-- **TAAU, three pictures:** whether `TAAU_DEPTH_REJECT` at 0.02 earns its keep
-  (the moving cube of `demos/motion` read back at two or three values against
-  nought); a frame read back to confirm the cubic fetch changes no pixel at
-  1:1; and what the separable form of the cubic (four taps for sixteen)
-  reclaims of its +0.26 ms. And a **stress section for TAAU**: a pick of the
-  titlebar's antialiasing drop-down, the echo's `antialias` line as the proof.
-- **Two windows under wine, for the raw mouse registration**, which is the
-  host's now (`BackendHostState::raw_owned`): a second window's open no longer
-  re-points the registration from the first window's capture, it follows the
-  window in front for the wheel, and the program gets its own back when no
-  window wants it. The round opens two windows, captures in each in turn,
-  wheels over both and closes one while the other holds the pointer.
 - **A move to a monitor of another scale**, which this desk has (DP-1 and
   DVI-D-1): the window must rebuild at the scale of the output it lands on, the
   one thing a same-scale pair cannot show.
@@ -78,15 +66,22 @@ Each is written with its reproduction and wants the account that files it.
   leaves two windows; under the Wayland driver, a move between monitors that
   stays on `DISPLAY2`, then a press on the titlebar that reaches nothing and a
   lost window. The same failures stand at `5735b47`, before the 1.0 work, so
-  they are wine's or the harness's reckoning from it. `wine-staging` has not
-  been run, and neither has 11.21 past its first toggle (the key twice).
-- **The Vulkan bail path** (`frame_bail()`): a recording forced to fail, the
-  swapchain made again and the window drawing on, with no validation message.
-- **The swapchain's present wait from the waiter thread:** the specification
-  makes `vkWaitForPresentKHR`'s swapchain externally synchronised, and
-  `shown_main()` waits beside the render thread's acquires and presents. Asked
-  of the validation layer's thread checks, whether that holds or the wait
-  wants the lock in slices.
+  they are wine's or the harness's reckoning from it. Run again at `7f03aca`
+  (2026-11-28, the `wine` on `PATH` here being 11.0): the same, the close
+  button's failure falling on one of the two Direct3D 12 and Vulkan rounds
+  and then the other, so a flake; a Win32 program setting `CF_UNICODETEXT`
+  reaches `xclip` under 11.0, so the copy and paste failures are the
+  testbed's path under it or the harness's. `FNL_DRIVE_WINE=staging` and
+  `devel` (both 11.22) draw 1 to 2 fps in the window and fail the
+  minimized, text-input and Escape checks, and Direct3D 12 there finds no
+  window: no round of theirs says more until that is read. The round's
+  two-window section now walks the raw mouse registration (a wheel over each
+  window, a capture in each in turn, the second hidden under the first's hold
+  and shown again): clean on `x11-vulkan` and on both wine rounds, with one
+  wine fact it had to learn -- the click that captures the shown-again second
+  window hands the focus to the first for a moment, and the captured motion
+  made then arrives nowhere, so the section waits for the focus and asks it
+  back.
 - **The Pi's `tsan` round** fails on lavapipe's own race (the
   `_mesa_hash_table_copy` one `tsan.supp` covers), which the ARM library has
   no symbols for, so the existing key cannot match: a symbol source for it,
@@ -102,9 +97,6 @@ Each is written with its reproduction and wants the account that files it.
   against 126 to 150 with HDMI off), all of it in the open: `open_output()`
   reads every connector and `crtcs_save()` every lit CRTC. Which outputs a KMS
   window lights is a policy question (DESIGN *KMS: no window server*).
-- **Direct3D 12 through a drag under wine** draws fewer frames than Vulkan
-  (35 to 37 on X11 and 18 to 23 on Wayland against 53 to 58, intervals up to
-  55 ms): the `--frame-times` lines' `other` under wine would name the gap.
 
 ## After 1.0: what the 1.0 plan left out
 
