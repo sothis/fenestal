@@ -25,6 +25,16 @@ FAIL for nineteen things; it is not part of `stress.py`, whose environments
 it does not start. What it found and where it has passed is DESIGN *Driven
 from inside*; TODO *The MCP port* has what is owed.
 
+## A round through the port
+
+`python3 tools/drive/mcp_round.py [--variant asan] [x11-vulkan
+wayland-vulkan]` drives a testbed it starts itself, through the MCP port:
+the titlebar's own controls, every knob, keys, text, the pointer and its
+capture, the frame read back, a move to another GPU, the forced faults in a
+Debug tree, and a second window. No portal, no consent, no input held from
+the desk. What the window server does with the window stays in
+`stress.py`. DESIGN *Driven from inside*.
+
 ## The round
 
 ```sh

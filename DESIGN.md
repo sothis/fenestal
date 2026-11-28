@@ -12050,6 +12050,32 @@ library knows. `stress.py` stays the check on
 all of that; the port is the check on what the library does with what it is
 handed, and the oracle beside a round that drives from outside.
 
+**A round on the port itself** (`tools/drive/mcp_round.py`, 2026-11-28)
+takes that side of the seam as its own: the program is started here with the
+socket named, and every section asks the library rather than the desktop --
+`controls` for the titlebar's own rectangles instead of the layout constants
+`stress.py` keeps, `key` and `pointer` for input instead of the portal or
+XTEST, `capture` for the frame instead of the compositor, and, in a Debug
+tree, `fault` to arm a site *while the program runs*. That last is the one
+`FNL_FAULT` cannot do: the recovery paths are forced one after another in
+one lifetime -- `frame-record`, `frame-submit`, `device-lost`,
+`surface-lost`, and a `surface-lost,create-surface*3` that only takes after
+a retry -- each followed by a frame read back, so "the window drew on" is a
+picture and not only a line. Forty-seven checks in about fifteen seconds at
+release, and two minutes for both backends and all four trees against
+`stress.py`'s half hour, since nothing waits on a compositor's animation.
+
+What it gives up is what the desktop does: a drag on the border, the
+manager's minimize, a paste from another program, the composited picture.
+Those stay in `stress.py`, which is the round for the window server. Three
+things it had to learn, each of them the port's rather than the library's:
+`key` Tap of F12 is the testbed's own binding and is echoed from the window
+that receives it; a click's press and its release can fall either side of one
+`events` call under a checker, so a check that counts them collects until it
+has them; and a click that is not a double-click waits out
+`DECO_DBLCLICK_MS` *before* pressing, which is why two `click` calls are two
+clicks where a hand's two would be one.
+
 How it stays out of the way: one thread of its own, which touches nothing
 either of the window's threads own. Input goes into a mailbox that
 `app_drain_requests()` empties on the pump's turn, after an

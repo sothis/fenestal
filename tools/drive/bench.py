@@ -40,14 +40,15 @@ import subprocess
 import sys
 import threading
 import time
+from typing import cast
 
 import environment as B
 import ledger
 from testbed import OUT, ROOT
 
 sys.path.insert(0, os.path.join(ROOT, "tools", "bench"))
-import check  # noqa: E402
-import report  # noqa: E402
+import check  # noqa: E402  # pyright: ignore[reportMissingImports]
+import report  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 # The bench's two lines around each measure (bench.c's drive()).
 MEASURING = "bench: measuring, "
@@ -292,10 +293,11 @@ def run_bare(b, variant, args, log_path, with_hands=False):
             sent["LSAN_OPTIONS"] = "suppressions=%s" \
                 % os.path.join(ROOT, "lsan.supp")
         with open(log_path, "w") as log:
-            proc = subprocess.Popen(
-                box.run_argv(there, FIXED + ["--bench-out=/tmp/fenestal-"
-                                             "bench"] + args, sent),
-                stdout=subprocess.DEVNULL, stderr=log)
+            cmd = cast(list[str], box.run_argv(
+                there, FIXED + ["--bench-out=/tmp/fenestal-bench"] + args,
+                sent))
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                    stderr=log)
             if hands is not None:
                 h = Hands(file_lines(log_path), hands.rel, x11_aim(hands))
                 threading.Thread(target=hands_thread, args=(h, proc),
