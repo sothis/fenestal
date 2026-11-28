@@ -298,6 +298,8 @@ class Environment:
     None."""
 
     NAME = "?"
+    # The build variant under test, set by the round before it starts.
+    variant = "release"
     CAN = frozenset()
     # The renderer the program draws with, as FNL_RENDERER spells it, and
     # the program is told it (forced()) for BACKEND's reason: the Windows
@@ -3098,7 +3100,7 @@ class CocoaNativeVulkan(CocoaNative):
 
 # ---- X11 with nobody managing it ---------------------------------------------
 
-class _OnBare:
+class _OnBare(Environment):
     """The half of a round on the bare machine that is the same whichever
     server it is on: the machine held open, the program copied there and
     run as the remote shell's last command, its pid there, its processor

@@ -363,8 +363,8 @@ class Round:
                 first = False
                 frames += n
                 spent += span
-            elif FRAME_AT_REST.match(ln):
-                frames += int(FRAME_AT_REST.match(ln).group(1) or 0)
+            elif rest := FRAME_AT_REST.match(ln):
+                frames += int(rest.group(1) or 0)
                 spent += FRAME_TIMES_WINDOW
         return frames / spent if spent > 0 else None
 
@@ -417,6 +417,7 @@ def check_bar(r, name, st, present=True):
     # compositor animates a window into and out of fullscreen for longer
     # than the client is told about, and a picture from inside that is of a
     # window some other width.
+    hit = None
     for _ in range(3):
         im = r.shot("bar")
         if im is None:
@@ -1047,7 +1048,7 @@ def title_names(b, parts):
     title = b.wm_name() or ""
     if len(parts) < 4:
         return False
-    rnd = {v: k for k, v in RENDERER_KEYS.items()}.get(parts[2], parts[2])
+    rnd = str({v: k for k, v in RENDERER_KEYS.items()}.get(parts[2], parts[2]))
     # fnl_gpu_short_name()'s cut: "Mesa " and the vendor's marks out, and
     # the driver's detail behind the first " (" or "/" left off.
     gpu = " ".join(parts[3:])
@@ -1536,7 +1537,7 @@ def gpu_every_pair(r):
     nodes = sorted(n for n in rows if n not in out)
     evs = b.since(0, "gpu")
     cur = int(evs[-1]["parts"][1]) + 1 if evs else gpu_in_use(b, gpus_listed(b))
-    if cur not in nodes or len(nodes) < 2:
+    if cur is None or cur not in nodes or len(nodes) < 2:
         r.skip(
             title,
             "the window is on GPU %s, %d rows to move between"
@@ -1861,6 +1862,7 @@ def display_modes(r):
         m.group(0) if m else "none",
     ):
         return
+    assert m
     home, modes, others = m.group(1), int(m.group(2)), m.group(3).strip()
     area0 = b.refresh()["area"]
     if modes < 2:
@@ -3085,6 +3087,7 @@ def run(r):
             return typed(mark)
 
         why = b.desk_layout_missing()
+        undo = None
         m = b.mark()
         plain = [] if why else strike(b.DESK_DEAD_KEY, m)
         if why or not plain:
@@ -3257,16 +3260,16 @@ def run(r):
     if why:
         r.skip("the clipboard round trip", why)
     else:
-        held = b.clipboard_get
+        clip_read = b.clipboard_get
 
         def holds(data, timeout=3.0):
             """Wait until the clipboard reads back as `data`; what it read
             last, either way."""
             end = time.time() + timeout * b.patience()
-            seen = held()
+            seen = clip_read()
             while seen != data and time.time() < end:
                 time.sleep(0.05)  # poll: each look is a process
-                seen = held()
+                seen = clip_read()
             return seen
 
         def offer(data):
@@ -3392,6 +3395,7 @@ def run(r):
             "and goes back to full rate when restored",
             drawing
             and back is not None
+            and visible_fps is not None
             and back >= visible_fps * RESTORED_SHARE,
             "%s, %s before" % (fps_said(back), fps_said(visible_fps)),
         )
@@ -4505,8 +4509,9 @@ def run_rounds(run, description, program=None, pictures=False, program_args=()):
             renderer_check(r, b)
             # The layer is Vulkan's alone.
             layered = ledger.layer() and b.RENDERER == "vulkan"
-            if layered and getattr(b, "NO_LAYER", ""):
-                r.skip("the validation layer is in the program", b.NO_LAYER)
+            no_layer = getattr(b, "NO_LAYER", "")
+            if layered and no_layer:
+                r.skip("the validation layer is in the program", no_layer)
             elif layered:
                 layer_check(r, b)
             elif ledger.layer():

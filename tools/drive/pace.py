@@ -107,6 +107,7 @@ import argparse
 import os
 import re
 import subprocess
+from typing import cast
 import sys
 import time
 
@@ -241,7 +242,7 @@ def measure_native(b, variant, rate, seconds, settle, window, extra):
     else:
         from native_driver import Native as Agent
     cls, host = type(b), b.machine
-    exe = os.path.join(ROOT, "build", cls.TREE, variant,
+    exe = os.path.join(ROOT, "build", cls.TREE or cls.NAME, variant,
                        "fenestal-dev" + cls.SUFFIX)
     if not os.path.exists(exe):
         return None, "no %s" % os.path.relpath(exe, ROOT)
@@ -274,12 +275,13 @@ def measure_native(b, variant, rate, seconds, settle, window, extra):
             # The monitor asked for, as a round has it.
             want = os.environ.get(cls.WANT_OUTPUT)
             if want:
-                there = next((m for m in desk.monitors() if m[0] == want),
-                             None)
-                if not there:
+                target = next((m for m in desk.monitors() if m[0] == want),
+                              None)
+                if not target:
                     return None, "no monitor %r on %s" % (want, host)
                 here = desk.monitor()[0]
-                desk.move_window_by(there[2] - here[1], there[3] - here[2])
+                desk.move_window_by(int(target[2]) - int(here[1]),
+                                   int(target[3]) - int(here[2]))
             # The same two sleeps as measure(), and for the same reason.
             time.sleep(settle + 1.0)
             c0, t0 = desk.cpu_seconds(), time.time()
@@ -366,8 +368,11 @@ def measure_bare(b, variant, rate, seconds, settle, window, extra):
             sent["LSAN_OPTIONS"] = "suppressions=%s" \
                 % os.path.join(ROOT, "lsan.supp")
         with open(log_path, "w") as log:
-            proc = subprocess.Popen(box.run_argv(there, argv, sent),
-                                    stdout=log, stderr=subprocess.STDOUT)
+            # run_argv() builds the command from paths the machine's own
+            # state fills in, which the checker cannot see are all set.
+            cmd = cast(list[str], box.run_argv(there, argv, sent))
+            proc = subprocess.Popen(cmd, stdout=log,
+                                    stderr=subprocess.STDOUT)
             begun = time.time()
             pid = None
             while pid is None and time.time() < begun + settle + 1.0:
@@ -574,7 +579,7 @@ def main():
                          "its sizes and reads as nothing)")
     args = ap.parse_args()
 
-    rates = list(DEFAULT_RATES)
+    rates: list[int | str] = list(DEFAULT_RATES)
     if args.rates:
         rates = [int(r) for r in args.rates.split(",")]
     if args.no_vsync:
